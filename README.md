@@ -1,0 +1,31 @@
+# Multi-Agent 协作系统工作区（精简版）
+
+> 版本：Slim 0.1  
+> 日期：2026-01-28  
+> 目标：在**不落库、不写代码**的前提下，把“动态多 Agent + 多交付物 + 强协议渲染 + 渐进式交付”讨论到一套**可执行的最小规范**。
+
+## 你现在应该先看哪里
+1. `FILE_STRUCTURE.md`（权威：项目文件结构 + 写入/权限；任务系统与会议系统统一存放）
+2. `docs/01_minimal_kernel.md`（最关键：最小内核 + extensions + 渐进式交付）
+3. `docs/02_planning_and_parallelism.md`（怎么拆任务并行、分身、配额与调度）
+4. `docs/03_artifact_pipeline.md`（多交付物与强协议：Transformer/Adapter/Renderer/Verifier）
+5. `docs/04_walkthrough_report_ppt.md`（一次完整纸面演练：报告 + PPT）
+6. `docs/06_meeting_mode.md`（会议模式 v2：发言串行 + 思考并行、单写者、锚点协议）
+
+## 文件清单
+- `docs/00_scope_and_principles.md` —— 范围、原则、我们要解决的痛点
+- `docs/01_minimal_kernel.md` —— Master IR 最小内核 + extensions + 动态验收 + 渐进式交付
+- `docs/02_planning_and_parallelism.md` —— Delivery Plan、MPU 拆分、spawn、并行资源池与“谁能拿走”
+- `docs/03_artifact_pipeline.md` —— 交付物类型、强协议节点、插件契约、口径一致性与 issue_list
+- `docs/04_walkthrough_report_ppt.md` —— 纸面跑通：report + ppt（产物、目录、rg 筛选点）
+- `docs/99_templates.md` —— 最少模板：summary/cards/full + issue_list + deliver_plan（可选用）
+
+> 说明：这版刻意“少文档”。后续若要扩展，再拆分成更多章节。
+
+新增：
+- `docs/05_user_interaction.md`：用户中途指令处理硬流程（change_request/replan/terminate/major_restart）
+- `docs/06_meeting_mode.md`：会议模式 v2（上下文工程版：规范 + 协议 + 文件写入约束）
+- `docs/07_convergence_gates.md`：收敛门 Gate Node（把“会议式收敛”嵌入任务流水线）
+- `docs/08_development_plan.md`：多阶段落地开发计划（语言无关）
+
+文件系统存储区（运行态数据）：`fs/**`（目录结构以 `FILE_STRUCTURE.md` 为准）
