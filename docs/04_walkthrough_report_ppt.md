@@ -2,6 +2,12 @@
 
 > 目的：验证“模块并行 + 渐进式交付 + 强协议流水线”能不落库跑通。
 
+可运行 demo04（不依赖外部 LLM）：
+
+```bash
+go run ./cmd/taskctl run --sandbox-mode local --workflow demo04 --approval-policy always
+```
+
 ## 0) 假设需求
 - 交付：管理层评审用《多 Agent 协作系统》报告 + 10 页 PPT
 - 强调：可扩展、可治理、可追溯；不过度学术
@@ -36,18 +42,25 @@
 - Master IR（goal/constraints/outline/must-answer）
 - summaries（或 cards）
 输出：
-- report_final.md
-- ppt_ir.json
+- deliver/report.md
+- deliver/ppt_ir.json
 
 ## 5) 强协议链
-- ppt_ir.json → (Adapter) ppt_renderer_input.json → (Renderer) slides.html
+- deliver/ppt_ir.json → (Adapter) ppt_renderer_input.json → (Renderer) slides.html
 若 adapter 发现无法压缩/缺字段：
 - 产出 issue_list，交主编裁决（拆页/降级/回问）
 
+## 5.5) 验收/证据链（Bundle）
+当交付物进入“可归档/可发布”阶段，需要把复核所需材料固定住：
+- Verifier 生成结构化 `verify/report.json`，并写入 Bundle 的 `ledger/events.jsonl`（append-only）。
+- 产物按白名单打包：`artifacts/manifest.json` + `pack/artifacts.zip`。
+- 证据包：`pack/evidence.zip`（默认 nested 包含 artifacts.zip），用于离线复核。
+- 默认请求审批：写 `APPROVAL_REQUESTED`；审批结论写 `APPROVAL_GRANTED/DENIED`（v1 允许先打包后审批，B 方案不回写 evidence.zip）。
+
 ## 6) rg 快筛建议
-- 找覆盖 must-answer=3 的模块：rg "assigned_must_answer: .*3" teams/**/summary.md
-- 找低置信度回炉：rg "agent_confidence（可选）: 0\.[0-5]" teams/**/summary.md
-- 找可复用到 PPT 的句子：rg "reuse: .*ppt" teams/**/cards.md
+- 找覆盖 must-answer=3 的模块：`rg -n "assigned_must_answer: .*3" fs/cases/**/versions/**/tasks/**/revs/**/summary.md`
+- 找低置信度回炉：`rg -n "confidence: 0\\.[0-5]" fs/cases/**/versions/**/tasks/**/revs/**/summary.md`
+- 找可复用到 PPT 的句子：`rg -n "reuse: .*ppt" fs/cases/**/versions/**/tasks/**/revs/**/cards.md`
 
 ## 7) 自动锚点（Markdown 内嵌 HTML Anchor）与追溯
 合并器生成 `deliver/report.md` 时，对每个章节区块自动插入：
@@ -61,4 +74,3 @@
 - `见：[第2章](deliver/report.md#block-deliver-report-2)`
 
 注：锚点与 meta 由生成器写入，Agent 不参与；阅读视图可默认不显示注释。
-
