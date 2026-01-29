@@ -37,13 +37,24 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		}
 	}
 
-	issues := verify.IssuesFile{
+	var issues []verify.Issue
+	if err := AssembleDemo04(ctx); err != nil {
+		return Result{}, err
+	}
+
+	adIssues, err := AdaptPPTIRToRendererInput(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	issues = append(issues, adIssues...)
+
+	issuesFile := verify.IssuesFile{
 		SchemaVersion: 1,
 		TaskID:        ctx.TaskID,
 		Rev:           rev,
-		Issues:        []verify.Issue{},
+		Issues:        issues,
 	}
-	issuesBody, err := json.MarshalIndent(issues, "", "  ")
+	issuesBody, err := json.MarshalIndent(issuesFile, "", "  ")
 	if err != nil {
 		return Result{}, err
 	}
@@ -53,8 +64,5 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		return Result{}, err
 	}
 
-	if err := AssembleDemo04(ctx); err != nil {
-		return Result{}, err
-	}
-	return Result{}, nil
+	return Result{Issues: issues}, nil
 }
