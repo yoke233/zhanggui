@@ -88,3 +88,44 @@ budgets:
 		t.Fatalf("delivery_plan.yaml snapshot missing max_parallel: 1")
 	}
 }
+
+func TestRunCmd_DeliveryPlanWithoutWorkflow_Err(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+
+	baseDir := t.TempDir()
+	planPath := filepath.Join(t.TempDir(), "delivery_plan.yaml")
+	if err := os.WriteFile(planPath, []byte("schema_version: 1\n"), 0o644); err != nil {
+		t.Fatalf("write delivery plan: %v", err)
+	}
+
+	cmd := NewRunCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"--base-dir", baseDir,
+		"--sandbox-mode", "local",
+		"--delivery-plan", planPath,
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRunCmd_WorkflowAndEntrypointMutualExclusive(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+
+	baseDir := t.TempDir()
+
+	cmd := NewRunCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"--base-dir", baseDir,
+		"--sandbox-mode", "local",
+		"--workflow", "demo04",
+		"--entrypoint", "echo",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected error")
+	}
+}

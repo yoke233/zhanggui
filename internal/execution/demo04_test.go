@@ -41,6 +41,15 @@ func TestDemo04_Run_GeneratesReport(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "revs", "r1", "deliver", "report.md")); err != nil {
 		t.Fatalf("missing deliver/report.md: %v", err)
 	}
+	for _, rel := range []string{
+		filepath.Join("revs", "r1", "deliver", "ppt_ir.json"),
+		filepath.Join("revs", "r1", "deliver", "ppt_renderer_input.json"),
+		filepath.Join("revs", "r1", "deliver", "slides.html"),
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing %s: %v", filepath.ToSlash(rel), err)
+		}
+	}
 
 	issuesPath := filepath.Join(root, "revs", "r1", "issues.json")
 	b, err := os.ReadFile(issuesPath)
@@ -50,6 +59,11 @@ func TestDemo04_Run_GeneratesReport(t *testing.T) {
 	var issues verify.IssuesFile
 	if err := json.Unmarshal(b, &issues); err != nil {
 		t.Fatalf("rev/issues.json invalid json: %v", err)
+	}
+	for _, it := range issues.Issues {
+		if it.Severity == "blocker" {
+			t.Fatalf("unexpected blocker in issues.json: %+v", it)
+		}
 	}
 
 	summaries, err := filepath.Glob(filepath.Join(root, "revs", "r1", "mpus", "*", "summary.md"))

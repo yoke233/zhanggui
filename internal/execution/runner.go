@@ -42,6 +42,11 @@ func RunMPUs(ctx context.Context, limiter *scheduler.Limiter, mpus []MPU, fn fun
 		go func() {
 			defer wg.Done()
 
+			if err := runCtx.Err(); err != nil {
+				setErr(err)
+				return
+			}
+
 			lease, err := limiter.Acquire(runCtx, scheduler.Key{TeamID: m.TeamID, Role: m.Role})
 			if err != nil {
 				setErr(err)
@@ -52,6 +57,11 @@ func RunMPUs(ctx context.Context, limiter *scheduler.Limiter, mpus []MPU, fn fun
 					setErr(err)
 				}
 			}()
+
+			if err := runCtx.Err(); err != nil {
+				setErr(err)
+				return
+			}
 
 			if err := fn(runCtx, m); err != nil {
 				setErr(err)
