@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/yoke233/zhanggui/internal/planning"
 	"github.com/yoke233/zhanggui/internal/scheduler"
@@ -68,6 +70,17 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		return Result{}, err
 	}
 
+	var inFlight int32
+	var maxSeen int32
+	updateMax := func(n int32) {
+		for {
+			old := atomic.LoadInt32(&maxSeen)
+			if n <= old || atomic.CompareAndSwapInt32(&maxSeen, old, n) {
+				return
+			}
+		}
+	}
+
 	mpus := []MPU{
 		{MPUID: uuidv7.New(), TeamID: "team_a", Role: "writer", Kind: "report_section", Title: "Report: Summary"},
 		{MPUID: uuidv7.New(), TeamID: "team_a", Role: "designer", Kind: "ppt_slide", Title: "Slide: Title"},
@@ -84,10 +97,33 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		default:
 		}
 
+		n := atomic.AddInt32(&inFlight, 1)
+		updateMax(n)
+		defer atomic.AddInt32(&inFlight, -1)
+		// Give the scheduler a chance to overlap MPU work so parallelism is observable in run_stats.json.
+		time.Sleep(20 * time.Millisecond)
+
 		summaryPath := filepath.ToSlash(filepath.Join("revs", rev, "mpus", m.MPUID, "summary.md"))
 		summary := []byte(fmt.Sprintf("# mpu summary\n\nmpu_id: %s\nkind: %s\nteam_id: %s\nrole: %s\ntitle: %s\n", m.MPUID, m.Kind, m.TeamID, m.Role, m.Title))
 		return ctx.GW.ReplaceFile(summaryPath, summary, 0o644, "demo04: write mpu summary")
 	}); err != nil {
+		return Result{}, err
+	}
+
+	stats := RunStats{
+		SchemaVersion: 1,
+		Workflow:      w.Name(),
+		MPUs:          len(mpus),
+		MaxInFlight:   int(atomic.LoadInt32(&maxSeen)),
+		Caps:          caps,
+	}
+	statsBody, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		return Result{}, err
+	}
+	statsBody = append(statsBody, '\n')
+	statsPath := filepath.ToSlash(filepath.Join("revs", rev, "run_stats.json"))
+	if err := ctx.GW.ReplaceFile(statsPath, statsBody, 0o644, "demo04: write run_stats.json"); err != nil {
 		return Result{}, err
 	}
 
