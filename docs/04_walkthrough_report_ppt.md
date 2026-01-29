@@ -8,6 +8,28 @@
 go run ./cmd/taskctl run --sandbox-mode local --workflow demo04 --approval-policy always
 ```
 
+运行成功后命令会输出一个 `task_dir`（例如 `fs/taskctl/<task_id>`），你应该能看到（相对 `task_dir`）：
+
+- `revs/r1/deliver/report.md`
+- `revs/r1/deliver/ppt_ir.json`
+- `revs/r1/deliver/ppt_renderer_input.json`
+- `revs/r1/deliver/slides.html`
+- `packs/{pack_id}/ledger/events.jsonl`
+- `packs/{pack_id}/pack/evidence.zip`
+
+便捷拷贝（latest pointers）：
+- `verify/report.json`
+- `pack/manifest.json`
+- `pack/artifacts.zip`
+- `pack/evidence.zip`
+- `pack/latest.json`
+
+审批示例（写入 ledger；不会回写 evidence.zip，B 档）：
+
+```bash
+go run ./cmd/taskctl approve grant <task_dir>
+```
+
 ## 0) 假设需求
 - 交付：管理层评审用《多 Agent 协作系统》报告 + 10 页 PPT
 - 强调：可扩展、可治理、可追溯；不过度学术
