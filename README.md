@@ -1,59 +1,52 @@
-# Multi-Agent 协作系统工作区（精简版）
+# Multi-Agent 协作系统（任务与会议一体化工作区）
 
-> 版本：Slim 0.1  
-> 日期：2026-01-28  
-> 目标：先冻结“可执行的最小规范”（`docs/**`），再按 `docs/08_development_plan.md` 逐阶段落地实现。当前已包含 Go MVP：`taskctl` + `zhanggui`（AG-UI SSE demo）。
+这是一个**以文件为中心**的多智能体协作工作区，面向大众用户与团队，帮助你把“任务拆解、协作产出、会议记录与交付物”放在同一条可追溯的链路里。它强调稳健、透明和可回放，不追求夸张的承诺，而是把复杂协作变得更清楚、更可控。
 
-## 你现在应该先看哪里
-1. `FILE_STRUCTURE.md`（权威：项目文件结构 + 写入/权限；任务系统与会议系统统一存放）
-2. `docs/01_minimal_kernel.md`（最关键：最小内核 + extensions + 渐进式交付）
-3. `docs/02_planning_and_parallelism.md`（怎么拆任务并行、分身、配额与调度）
-4. `docs/03_artifact_pipeline.md`（多交付物与强协议：Transformer/Adapter/Renderer/Verifier）
-5. `docs/04_walkthrough_report_ppt.md`（一次完整纸面演练：报告 + PPT）
-6. `docs/06_meeting_mode.md`（会议模式 v2：发言串行 + 思考并行、单写者、锚点协议）
-7. `ROADMAP.md`（路线图：从 demo 到正式开发的里程碑）
+## 它是做什么的
+这个项目提供一套**任务系统 + 会议系统**的一体化工作流，用统一的目录结构和写入规则，把“需求、任务、产出、审计、会议纪要”全部落盘，确保每一步都能追踪到来源与版本。
 
-## 文件清单
-- `docs/00_scope_and_principles.md` —— 范围、原则、我们要解决的痛点
-- `docs/01_minimal_kernel.md` —— Master IR 最小内核 + extensions + 动态验收 + 渐进式交付
-- `docs/02_planning_and_parallelism.md` —— Delivery Plan、MPU 拆分、spawn、并行资源池与“谁能拿走”
-- `docs/03_artifact_pipeline.md` —— 交付物类型、强协议节点、插件契约、口径一致性与 issue_list
-- `docs/04_walkthrough_report_ppt.md` —— 纸面跑通：report + ppt（产物、目录、rg 筛选点）
-- `docs/99_templates.md` —— 最少模板：summary/cards/full + issue_list + deliver_plan（可选用）
+你可以把它理解为：
+- **一个协作执行的“作业桌”**：任务拆分、并行协作、交付产出都在同一套规则里。
+- **一个可追溯的“会议与决策记录本”**：会议模式强调发言串行、思考并行，减少信息丢失。
+- **一个面向交付的“产物流水线”**：报告、PPT、清单、审计记录都有固定产出路径。
 
-> 说明：这版刻意“少文档”。后续若要扩展，再拆分成更多章节。
+## 适合谁
+- 需要多人协作、但又希望“过程可控”的产品/研发/运营/研究团队
+- 希望把会议纪要与任务落实打通的组织或项目负责人
+- 追求可追溯、可复盘的咨询/教育/内容生产团队
+- 想把“想法→任务→交付”流程固化的个人与小团队
 
-新增：
-- `docs/05_user_interaction.md`：用户中途指令处理硬流程（change_request/replan/terminate/major_restart）
-- `docs/06_meeting_mode.md`：会议模式 v2（上下文工程版：规范 + 协议 + 文件写入约束）
-- `docs/07_convergence_gates.md`：收敛门 Gate Node（把“会议式收敛”嵌入任务流水线）
-- `docs/08_development_plan.md`：多阶段落地开发计划（语言无关）
-- `docs/09_golang_development_plan.md`：Go 本地单跑执行器开发计划（沙箱 + 落盘 + zip）
-- `docs/10_tool_gateway_acl.md`：Tool Gateway（写入 ACL + 单写者 + 审计）落地规范（Stage 1）
-- `docs/11_ag_ui_integration.md`：前端 AI 界面对接（AG-UI：events/tools/interrupt-resume 草案）
-- `docs/12_runtime_and_input_model.md`：运行时与输入模型（v1：协程 Agent + 可控暂停开关 + 输入落盘）
-- `docs/archive/igi/README.md`：IGI 草案（已归档；当前主线 v1 不要求实现）
+## 你能得到什么
+- **更清晰的协作链路**：从需求到产出，有据可查、可回放
+- **更稳定的会议流程**：会议不再只有聊天记录，而有结构化产出
+- **更一致的交付口径**：报告、PPT、清单、验收结果统一在可审计路径中
+- **更安全的写入策略**：append-only 与 single-writer 规则避免并行冲突
 
-文件系统存储区（运行态数据）：`fs/**`（目录结构以 `FILE_STRUCTURE.md` 为准）
+## 它怎么工作（简要）
+项目采用“文件系统即真相”的理念：
+- `docs/**`：规范与设计文档（少数维护者编辑）
+- `contracts/**`：前后端/工具的对接契约与 schema
+- `cmd/**` + `internal/**`：工具与执行器实现（当前含 Go MVP）
+- `fs/**`：运行态数据与产物存储（只追加/可回放/不入 git）
 
-## 构建与测试（建议在 WSL 跑 -race）
+**更多细节与权威结构请看** `FILE_STRUCTURE.md`。
 
-### 依赖（WSL）
-- Go（版本以 `go.mod` 为准）
-- 启用 `-race` 需要 C 编译器：`gcc`/`clang`（Ubuntu 可用 `sudo apt-get install -y build-essential`）
+## 现阶段能力
+- Go MVP：`taskctl`（任务执行 CLI）+ `zhanggui`（AG-UI SSE demo）
+- 文档优先：核心流程规范已形成，代码按阶段逐步落地
+- 面向扩展：任务、会议、审计、交付物类型都可扩展
 
-### 一键测试脚本（WSL）
+## 快速开始（开发者）
 ```bash
-set -euo pipefail
-
+go build ./cmd/taskctl
+go build ./cmd/zhanggui
 go test ./...
-go test -count=1 ./...            # 关闭测试缓存（排查用）
-go test -race ./...               # 并发/调度相关建议必跑
 ```
 
-### 常用命令
-- `go build ./cmd/taskctl`
-- `go build ./cmd/zhanggui`
-- `go test ./... -run TestName -count=1`
-- `go run ./cmd/taskctl run --sandbox-mode local --workflow demo04 --approval-policy always`
-- `go run ./cmd/taskctl approve grant <task_dir>`
+## 温和的邀请（with me）
+如果你在寻找一种**更清晰、更可追溯**的协作方式，欢迎一起体验、讨论、共建。  
+这不是“激素型”的热血宣言，而是一种更稳健、更长期的合作方式：把复杂协作做好、做清楚。
+
+---
+
+更多规范与工作方式请从 `FILE_STRUCTURE.md` 与 `docs/README.md` 开始阅读。
