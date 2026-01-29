@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/yoke233/zhanggui/internal/uuidv7"
 	"github.com/yoke233/zhanggui/internal/verify"
@@ -54,9 +53,7 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		return Result{}, err
 	}
 
-	dst := filepath.ToSlash(filepath.Join("revs", rev, "deliver", "report.md"))
-	body := []byte(fmt.Sprintf("# demo04 report\n\ngenerated_at: %s\n", time.Now().Format(time.RFC3339)))
-	if err := ctx.GW.ReplaceFile(dst, body, 0o644, "demo04: write deliver/report.md"); err != nil {
+	if err := AssembleDemo04(ctx); err != nil {
 		return Result{}, err
 	}
 	return Result{}, nil
