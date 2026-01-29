@@ -1,0 +1,73 @@
+schema_version: 1
+
+# 候选验收标准集合（v1 草案）
+# - 该文件位于 docs/** 作为“权威来源”
+# - 运行时必须快照进 evidence/files/{sha256}，以便审计复核不受 docs 变更影响
+criteria_set:
+  id: docs.acceptance.v1
+  version: 0.1.0
+  title: "验收标准（v1 草案）"
+
+criteria:
+  - id: AC-001
+    title: "必须产物：summary.md"
+    severity: blocker
+    scope: task_rev
+    description: "revs/{rev}/summary.md 必须存在（允许系统生成的默认 summary）。"
+    evidence:
+      kind: artifact
+      path: "revs/{rev}/summary.md"
+
+  - id: AC-002
+    title: "必须产物：issues.json（合法 JSON）"
+    severity: blocker
+    scope: task_rev
+    description: "revs/{rev}/issues.json 必须存在且为合法 JSON（允许 issues 为空数组）。"
+    evidence:
+      kind: artifact
+      path: "revs/{rev}/issues.json"
+
+  - id: AC-003
+    title: "阻断级问题必须阻断"
+    severity: blocker
+    scope: task_rev
+    description: "若 issues.json 中存在 severity=blocker，则验收状态必须 FAIL，并在 report 中给出引用与说明。"
+    evidence:
+      kind: report
+      path: "verify/report.json"
+
+  - id: AC-004
+    title: "产物清单（artifact manifest）可校验"
+    severity: blocker
+    scope: pack
+    description: "artifacts/manifest.json 必须存在，且列出的每个文件都能在产物包中找到并校验 sha256。"
+    evidence:
+      kind: artifact
+      path: "artifacts/manifest.json"
+
+  - id: AC-005
+    title: "证据包（evidence.zip）可复核"
+    severity: blocker
+    scope: pack
+    description: "pack/evidence.zip 必须包含 ledger、verify report、manifest 与 tool_audit，并能离线复核关键哈希。"
+    evidence:
+      kind: artifact
+      path: "pack/evidence.zip"
+
+  - id: AC-006
+    title: "必须产物：deliver/report.md"
+    severity: blocker
+    scope: task_rev
+    description: "revs/{rev}/deliver/report.md 必须存在。"
+    evidence:
+      kind: artifact
+      path: "revs/{rev}/deliver/report.md"
+
+  - id: AC-007
+    title: "必须产物：deliver/slides.html"
+    severity: blocker
+    scope: task_rev
+    description: "revs/{rev}/deliver/slides.html 必须存在。"
+    evidence:
+      kind: artifact
+      path: "revs/{rev}/deliver/slides.html"
