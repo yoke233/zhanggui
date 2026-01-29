@@ -9,9 +9,21 @@
 结论：由插件链负责，主编负责语义签字。
 
 - Transformer：Master IR → PPT_IR（语义页结构）
-- Adapter：PPT_IR → renderer_input.json（严格 schema）
-- Renderer：renderer_input.json → slides.html（表现层）
+- Adapter：PPT_IR → ppt_renderer_input.json（严格 schema）
+- Renderer：ppt_renderer_input.json → slides.html（表现层）
 - Verifier：覆盖度/一致性/格式/损失校验
+
+## 2.5) 审计/验收闭环（Bundle + ledger + evidence）
+强协议流水线一旦进入“可交付/可发布”动作，就必须具备可复核证据链（否则后续无法审计与回放）：
+
+- **Bundle（审计单元）**：以 `run_id/pack_id` 做不可变边界；除 `state.json` 外，Bundle 内产物尽量 `append-only/create-only`。
+- **Ledger（真相源）**：`ledger/events.jsonl` 记录关键事实（step/产物/审批），大内容只通过 `refs` 引用证据文件。
+- **Evidence（证据库/证据包）**：
+  - `evidence/files/{sha256}`：内容寻址（create-only），用于冻结标准、报告、审批记录等结构化证据
+  - `pack/evidence.zip`：离线复核包（默认 nested 包含 `pack/artifacts.zip`），至少包含 ledger、tool_audit、verify report、manifest
+- **Approvals（裁决）**：`APPROVAL_REQUESTED/GRANTED/DENIED` 写入 ledger，并引用 `evidence/files/{sha256}` 的审批记录。
+
+> v1 允许“先打包后审批”（B 方案）：审批事件不会回写已生成的 `evidence.zip`；审计以 `ledger + evidence/files` 为准（详见 `docs/proposals/audit_acceptance_ledger_v1.md`）。
 
 ## 3) 插件契约（必须守边界）
 ### Transformer
@@ -40,6 +52,10 @@
 - options: 可选策略（裁剪/拆分/回问用户/降级）
 - need_decision_by: Editor/User/Planner
 - suggested_patch: 可选
+
+约定：
+- `where` 建议使用稳定枚举，便于做“门禁/审批”策略（例如按 `where` 匹配触发 `APPROVAL_REQUESTED`）。
+- issue 内容必须脱敏；需要引用原文/附件时，写入证据库并以 `sha256` 绑定。
 
 > 重要：强协议输出的最终节点可以是“PPT 生成器/渲染器”，但**交付责任仍在主编**（语义签字）。
 

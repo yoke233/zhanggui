@@ -259,7 +259,10 @@ outputs:
 
 policy:
   append_only_files: ["shared/transcript.log","shared/decisions.md"]
-  allowed_write_prefixes: ["fs/meetings/mtg-000001/"]
+  allowed_write_prefixes: [""]
+  single_writer_prefixes: ["shared/","artifacts/"]
+  single_writer_roles: ["recorder"]
+  lock_file: "shared/.writer.lock"
   audit_fields: [who, what, where, when, result]
 ```
 

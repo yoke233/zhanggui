@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "zhanggui-ag-ui-tools",
+  "version": "0.1.0-draft",
+  "notes": "此文件是前端工具（ui.*）对接契约的占位草案；完整 args/result JSON Schema 将在 Stage 1.5 完成后补齐。",
+  "tools": [
+    { "name": "ui.confirm", "description": "确认/拒绝", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.form", "description": "渲染表单并回传 JSON", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.pick_file", "description": "选择文件/目录并回传 handle/path/metadata", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.open_url", "description": "打开链接/跳转页面", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.notify", "description": "通知（toast/桌面）", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.review_artifacts", "description": "预览审阅并给 verdict/comment", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.schedule", "description": "设置定时/日程", "args_schema": {}, "result_schema": {} },
+    { "name": "ui.provide_secret", "description": "输入 secret（仅 UI 保存；后端不落明文）", "args_schema": {}, "result_schema": {} }
+  ]
+}
+

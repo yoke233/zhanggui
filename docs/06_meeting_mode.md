@@ -29,6 +29,10 @@
 3) **可控上下文**：运行时上下文装配只加载“必要片段”（白板 + 最近发言 + 必要证据），而不是全文 transcript。  
 4) **不靠 Agent 自由发挥元字段**：锚点 id / meta 字段尽量由生成器或 Recorder 统一生成；参与者只填内容字段。
 
+### 0.5 ID 约定（必须）
+- `meeting_id`、`decision_id`、`item_id` 等**系统生成 ID** 统一使用 **UUIDv7**（可排序，便于按时间切片与检索）。
+- `agent_id/role` 允许使用短 alias（例如 `planner`/`a03`），但必须在 MeetingSpec.participants 中显式声明（避免“口头角色”）。
+
 > 落地计划见：`docs/08_development_plan.md`（语言无关、多阶段）。
 
 ---
@@ -121,7 +125,7 @@
 <a id="prop-{meeting_id}-{agent_id}-r{round}-{seq}"></a>
 <!--meta
 type: proposal
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 agent_id: a03
 round: 2
 intent: rebut|propose|question|evidence|synthesize
@@ -146,11 +150,11 @@ needs_sources: true
 <a id="spk-{meeting_id}-r{round}-{seq}"></a>
 <!--meta
 type: speak
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 round: 2
 speaker: a03
 intent: propose|rebut|question|summary
-from_prop: prop-mtg-000001-a03-r2-001
+from_prop: prop-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-a03-r2-001
 ts: 2026-01-28T09:00:00+08:00
 -->
 内容：……（允许被自动截断；截断必须记录在 meta 中，例如 truncated=true）
@@ -164,8 +168,8 @@ whiteboard 只写“已收敛”的结论，并绑定来源提案：
 <a id="wb-{meeting_id}-{seq}"></a>
 <!--meta
 type: settled
-meeting_id: mtg-000001
-from_props: [prop-mtg-000001-a03-r2-001, prop-mtg-000001-a01-r2-004]
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
+from_props: [prop-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-a03-r2-001, prop-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-a01-r2-004]
 sources: [S2,S5]
 -->
 结论：选择批处理作为当前版本，保留流处理升级接口。
@@ -220,7 +224,7 @@ Recorder 将达成一致/可裁决的内容写入 `shared/whiteboard.md`（Settl
 **必填字段（必须）**
 ```yaml
 schema_version: 1
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 type: planning   # planning/fork/blocker/review
 topic: "数据处理架构选型"
 participants:
@@ -242,8 +246,13 @@ outputs:
   action_items_path: artifacts/action_items.yaml
   citations_path: artifacts/citations.yaml
 policy:
-  allowed_write_prefixes: ["fs/meetings/mtg-000001/"]
+  # 约定：policy/outputs 中的路径，均以 “spec.yaml 所在目录（meeting root）” 为基准。
+  # allowed_write_prefixes 负责把写入边界圈定在 meeting root 内；角色级规则见 §4 与 `docs/10_tool_gateway_acl.md`。
+  allowed_write_prefixes: [""]
   append_only_files: ["shared/transcript.log","shared/decisions.md"]
+  single_writer_prefixes: ["shared/","artifacts/"]
+  single_writer_roles: ["recorder"]
+  lock_file: "shared/.writer.lock"
 ```
 
 **可选字段（建议）**
@@ -262,7 +271,7 @@ policy:
 ```json
 {
   "schema_version": 1,
-  "meeting_id": "mtg-000001",
+  "meeting_id": "019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a",
   "round": 2,
   "queue": [
     {
@@ -305,17 +314,17 @@ policy:
 
 ```yaml
 schema_version: 1
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 generated_at: 2026-01-28T09:30:00+08:00
 items:
-  - item_id: ai-0001
+  - item_id: 019c0b5b-0d2e-7f3b-8a9b-1c2d3e4f5a6b
     kind: task_patch          # task_patch|new_task|terminate_team|major_restart_request|ask_user
     summary: "把验收 must_answer 补齐到 10 条"
     need_approval_by: planner # planner|editor|user
     priority: P0              # P0|P1|P2
     rationale:
-      from_wb: wb-mtg-000001-001
-      from_props: [prop-mtg-000001-a03-r2-001]
+      from_wb: wb-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-001
+      from_props: [prop-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-a03-r2-001]
     patch:                    # kind=task_patch 时必填（其余 kind 可省略）
       patch_spec_version: 1
       target:
@@ -366,7 +375,7 @@ preconditions:
 
 ```yaml
 schema_version: 1
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 sources:
   - id: S1
     kind: file     # file|url|note|meeting_anchor
@@ -390,14 +399,14 @@ sources:
 ```md
 # Decision — {topic}
 
-<a id="dec-{meeting_id}-{seq}"></a>
+<a id="dec-{decision_id}"></a>
 <!--meta
 type: decision
-meeting_id: mtg-000001
-decision_id: dec-001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
+decision_id: 019c0b5c-2a3b-7f3c-8b9c-2d3e4f5a6b7c
 ts: 2026-01-28T09:30:00+08:00
-from_wb: wb-mtg-000001-001
-from_props: [prop-mtg-000001-a03-r2-001]
+from_wb: wb-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-001
+from_props: [prop-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-a03-r2-001]
 sources: [S1,S2]
 -->
 
@@ -407,7 +416,7 @@ rationale:
   - "理由1（应可回链到 from_props/sources）"
   - "理由2"
 action_items:
-  - ai-0001
+  - 019c0b5b-0d2e-7f3b-8a9b-1c2d3e4f5a6b
 open_questions:
   - "仍需用户确认的点（如有）"
 dissent:
@@ -429,7 +438,7 @@ dissent:
 <a id="brief-{meeting_id}"></a>
 <!--meta
 type: meeting_brief
-meeting_id: mtg-000001
+meeting_id: 019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a
 ts: 2026-01-28T09:30:00+08:00
 -->
 
@@ -440,10 +449,10 @@ ts: 2026-01-28T09:30:00+08:00
 - …
 
 ## 3) 已收敛结论（指向白板/决策）
-- wb: wb-mtg-000001-001 → dec: dec-001
+- wb: wb-019c0b5a-7c1d-7f3a-9d8c-0f2e3d4c5b6a-001 → dec: dec-019c0b5c-2a3b-7f3c-8b9c-2d3e4f5a6b7c
 
 ## 4) 下一步（行动项）
-- ai-0001：…（need_approval_by=planner）
+- 019c0b5b-0d2e-7f3b-8a9b-1c2d3e4f5a6b：…（need_approval_by=planner）
 
 ## 5) 关键背景（仅保留必要上下文）
 - …

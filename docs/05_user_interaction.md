@@ -1,6 +1,9 @@
 # 05 用户中途指令处理（硬规则）
 
 > 目标：不中断并行执行的前提下，将用户指令“吸收进系统”，并且可审计、可回滚、可裁决。
+>
+> 术语对齐（v1）：本文的 `change_request` 统一称为 **ChangeSet（变更单）**，要求可落盘、可回放、可审计。  
+> 用户输入的文件/图片/PDF/URL 等必须先落盘并写入输入清单（例如 `fs/threads/{thread_id}/inputs/manifest.json` + `inputs/files/{sha256}`），再以引用进入任务/验收流程（避免把二进制或海量内容直接塞进上下文；见 `docs/12_runtime_and_input_model.md`）。
 
 ---
 
@@ -32,6 +35,8 @@
 - `affected_tasks`（task_id 列表）
 - `affected_teams`（team_id 列表）
 
+> ID 约定：`interaction_id` 建议使用 **UUIDv7**（可排序）；同一条用户消息只记录一次，不可复写。
+
 ---
 
 ## 3) change_request（追加需求）的硬流程
@@ -44,7 +49,7 @@
 
 硬规则：
 - 不允许“直接塞进正在写的段落”而不记录变更。
-- 变更后必须重新跑 Verify（coverage_map/issue_list）。
+- 变更后必须重新跑 Verify（最小：生成/更新 `revs/<rev>/issues.json`；可选：coverage_map）。
 
 ---
 

@@ -31,21 +31,22 @@
 - `replay`（可选后置）：对已有任务目录重放/再验收（本质=inspect+verify）
 
 ### 1.2 配置来源（viper）
-- 默认：`~/.<tool>/config.yaml`
-- 覆盖：环境变量（如 `TOOL_SANDBOX=docker`）
+- 默认：`~/.taskctl/config.yaml`
+- 覆盖：环境变量（如 `TASKCTL_SANDBOX_MODE=docker`）
 - 覆盖：CLI flags（run/pack/inspect 各自 flags）
 
 ### 1.3 日志（slog）
 - 统一字段：`run_id` / `task_id` / `step` / `attempt` / `sandbox_mode`
-- 输出：stdout + `task_dir/logs/run.log`（建议）
+- 输出：stderr + `task_dir/logs/run.log`（建议；stdout 保持机器可读输出）
+- 审计：`task_dir/logs/tool_audit.jsonl`（jsonl；写入动作可追溯，见 `docs/10_tool_gateway_acl.md`）
 - 约束：日志与产物分离；VERIFY/PACK 不读取沙箱里的日志作为“证据”，只当调试信息。
 
 ---
 
 ## 2) 目录与产物规范（最小可执行）
 
-> 约定：每次 `run` 产生一个新 revision（rN），产物落在 `revs/rN/` 下，避免覆盖写。  
-> 任务目录根路径由 `--base-dir` 控制；默认可以指向任意本地目录（实现可选默认 `./fs/runs/`）。
+> 约定：沙箱执行产物按 revision（rN）落在 `revs/rN/`（append-only）；每次 `VERIFY + PACK` 生成一个新的审计 Bundle（`pack_id`），落在 `packs/{pack_id}/`（不可变）。  
+> 任务目录根路径由 `--base-dir` 控制；默认可以指向任意本地目录（实现默认 `./fs/taskctl/`）。
 
 ### 2.1 任务目录结构（必须）
 ```text
@@ -55,28 +56,42 @@
     state.json               # 状态机落盘（step 状态、开始结束时间、错误摘要）
     logs/
       run.log
+      tool_audit.jsonl       # 追加式审计日志（Tool Gateway 写）
     revs/
       r1/
         summary.md           # 最小必交（示例，可按你的任务类型改）
         issues.json          # 最小必交（无问题可空数组，但文件必须存在）
         artifacts/           # 该 rev 的附加产物（可选）
-    pack/
-      manifest.json          # 白名单清单（PACK 阶段生成）
-      artifacts.zip          # 只打包 manifest 中列出的文件
+    packs/
+      {pack_id}/             # 审计单元（Bundle；不可变；详见 docs/proposals/audit_acceptance_ledger_v1.md）
+        ledger/events.jsonl  # 审计/验收账本（append-only）
+        evidence/files/...   # 证据库（create-only；内容寻址）
+        verify/report.json   # 验收报告（create-only）
+        artifacts/manifest.json # 产物清单（create-only；路径→sha256/size）
+        pack/artifacts.zip   # 产物包（create-only；严格白名单）
+        pack/evidence.zip    # 证据包（create-only；默认嵌套包含 artifacts.zip）
+        logs/tool_audit.jsonl # 本次打包写入审计（append-only）
+    pack/                    # latest 指针/快捷入口（可覆盖；不作为审计依据）
+      latest.json            # { pack_id, task_id, rev, created_at, paths... }
+      artifacts.zip          # 可选：最新产物包副本
+      evidence.zip           # 可选：最新证据包副本
+      manifest.json          # 可选：最新 manifest 副本
+    verify/                  # latest 指针（可选）
+      report.json            # 可选：最新报告副本（审计引用仍走 sha256 ref）
 ```
 
 ### 2.2 `task.json`（最小 schema，必须）
 ```json
 {
   "schema_version": 1,
-  "task_id": "task-000001",
-  "run_id": "run-20260128-0001",
+  "task_id": "0195d8a2-4c3b-7f12-8a3b-123456789abc",
+  "run_id": "0195d8a2-4c3b-7f13-8a3b-9876543210fe",
   "created_at": "2026-01-28T09:00:00+08:00",
   "tool_version": "0.1.0",
   "sandbox": {
     "mode": "docker",
     "image": "your-image:latest",
-    "workdir_in_sandbox": "/workspace",
+    "network": "none",
     "timeout_seconds": 900
   },
   "workspace": {
@@ -93,8 +108,8 @@
 ```json
 {
   "schema_version": 1,
-  "task_id": "task-000001",
-  "run_id": "run-20260128-0001",
+  "task_id": "0195d8a2-4c3b-7f12-8a3b-123456789abc",
+  "run_id": "0195d8a2-4c3b-7f13-8a3b-9876543210fe",
   "status": "RUNNING",
   "current_step": "SANDBOX_RUN",
   "steps": [
@@ -114,7 +129,7 @@
 ```json
 {
   "schema_version": 1,
-  "task_id": "task-000001",
+  "task_id": "0195d8a2-4c3b-7f12-8a3b-123456789abc",
   "rev": "r1",
   "issues": [
     {
@@ -127,11 +142,11 @@
 }
 ```
 
-### 2.5 `manifest.json`（白名单，PACK 阶段生成，必须）
+### 2.5 `artifacts/manifest.json`（白名单，PACK 阶段生成，必须）
 ```json
 {
   "schema_version": 1,
-  "task_id": "task-000001",
+  "task_id": "0195d8a2-4c3b-7f12-8a3b-123456789abc",
   "rev": "r1",
   "generated_at": "2026-01-28T09:30:00+08:00",
   "files": [
@@ -156,6 +171,24 @@
   - 符号链接指向任务目录外（如 OS 支持）
   - 不在允许前缀内的文件（默认只允许 `revs/{rev}/**` + `task.json` + `state.json`）
 
+### 2.6 `pack/latest.json`（latest 指针；可覆盖，不作为审计依据）
+`pack/latest.json` 只用于“快速定位最新 pack_id”，允许覆盖写、可重建。审计复核以 `packs/{pack_id}/ledger/events.jsonl` + `refs.sha256` 为准。
+
+```json
+{
+  "schema_version": 1,
+  "task_id": "0195d8a2-4c3b-7f12-8a3b-123456789abc",
+  "pack_id": "0195d8a2-4c3b-7f13-8a3b-123456789abc",
+  "rev": "r1",
+  "created_at": "2026-01-29T12:00:00Z",
+  "paths": {
+    "bundle_root": "packs/0195d8a2-4c3b-7f13-8a3b-123456789abc/",
+    "evidence_zip": "packs/0195d8a2-4c3b-7f13-8a3b-123456789abc/pack/evidence.zip",
+    "artifacts_zip": "packs/0195d8a2-4c3b-7f13-8a3b-123456789abc/pack/artifacts.zip"
+  }
+}
+```
+
 ---
 
 ## 3) 状态机（最小 4 steps）与转移表
@@ -164,7 +197,7 @@
 - `INIT`：创建任务目录 + 写 task.json/state.json + 选择本次 rev（例如 r1）
 - `SANDBOX_RUN`：在沙箱内运行，产出写入 `revs/rN/`（append-only/new-file）
 - `VERIFY`：在沙箱外验收（schema 校验、必要文件齐全、路径白名单、越界检测）
-- `PACK`：生成 manifest.json + zip 打包（严格白名单）
+- `PACK`：生成 `pack_id` Bundle（ledger/report/manifest）+ 产物 zip + 证据包（默认嵌套包含 artifacts.zip）
 - `UPLOAD`（可选后置）：上传 zip（不在 MVP 必须范围内）
 
 ### 3.2 状态转移（必须写死）
@@ -180,7 +213,7 @@ INIT -> SANDBOX_RUN -> VERIFY -> PACK -> (UPLOAD)
 ### 3.3 幂等原则（必须）
 - `INIT`：若任务目录已存在且包含 task.json/state.json → 拒绝覆盖（要求新 task_id 或显式 `--force`，MVP 可不提供 --force）。
 - `SANDBOX_RUN`：禁止覆盖已有 `revs/rN/`；重跑必须生成 `r(N+1)`（或要求清理目录）。
-- `VERIFY`/`PACK`：允许重复执行；结果必须稳定（manifest/zip 可覆盖 pack 目录下同名文件，但要记录 attempt）。
+- `VERIFY`/`PACK`：允许重复执行；每次必须生成新的 `pack_id`（不可变 Bundle 写入 `packs/{pack_id}/`）；`pack/latest.json` 可覆盖更新为最新。
 
 ---
 
@@ -223,6 +256,14 @@ INIT -> SANDBOX_RUN -> VERIFY -> PACK -> (UPLOAD)
 - 产物文件必须全部落在 `revs/{rev}/`（或白名单允许的路径内）
 - 不允许把输入目录（input_ro_paths）中的文件复制到 pack 白名单（除非显式 allowlist，后置）
 
+### 5.4 审计/验收产出（v1 建议）
+为建立可复核证据链（Bundle 化），每次 `VERIFY + PACK` 建议额外产出：
+- `packs/{pack_id}/ledger/events.jsonl`：审计/验收账本（append-only；记录关键事实与 refs）
+- `packs/{pack_id}/evidence/files/{sha256}`：冻结验收标准与结构化证据（create-only；内容寻址）
+- `packs/{pack_id}/verify/report.json`：验收报告（create-only；引用 criteria 快照与证据 refs）
+
+验收标准来源建议固定为 `docs/proposals/acceptance_criteria_v1.yaml`，但**每次打包必须快照冻结**（以 sha256 ref 绑定），避免 docs 变更破坏审计复核（详见 `docs/proposals/audit_acceptance_ledger_v1.md`）。
+
 ---
 
 ## 6) PACK（白名单打包规则，MVP 必须）
@@ -237,13 +278,21 @@ INIT -> SANDBOX_RUN -> VERIFY -> PACK -> (UPLOAD)
   - manifest 中缺失的文件
   - manifest 外的文件被打入 zip（必须不可能发生）
 
+### 6.3 Bundle 与证据包（v1 建议）
+每次 PACK 必须生成新的 `pack_id`，并将产物落在 `packs/{pack_id}/`（不可变）：
+- `packs/{pack_id}/artifacts/manifest.json`
+- `packs/{pack_id}/pack/artifacts.zip`
+- `packs/{pack_id}/pack/evidence.zip`（默认嵌套包含 `pack/artifacts.zip`，不展开）
+
+完成后更新 `pack/latest.json` 指向最新 `pack_id`（latest 允许覆盖写，但不作为审计依据）。
+
 ---
 
 ## 7) Go 工程结构（建议落地组织）
 
 ```text
 cmd/
-  tool/
+  taskctl/
     main.go                 # cobra root
 internal/
   cli/                      # cobra 子命令：run/inspect/pack
@@ -267,7 +316,7 @@ internal/
 **交付**
 - cobra 子命令：`run`/`inspect`/`pack` 空实现（只解析参数）
 - viper 配置加载（config file + env + flags）
-- slog 统一日志字段（stdout + 文件）
+- slog 统一日志字段（stderr + 文件；stdout 保持机器可读）
 **验收**
 - `run --help` 等输出稳定
 - `inspect` 能读取并打印一个 task_dir（即使字段不全也给出友好错误）
@@ -290,10 +339,10 @@ internal/
 ### M3（半天）：VERIFY + PACK（白名单）
 **交付**
 - VERIFY：必要文件、json 校验、路径白名单
-- PACK：manifest.json + artifacts.zip（严格白名单）
+- PACK：生成 `pack_id` Bundle（ledger/report/manifest）+ `pack/artifacts.zip` + `pack/evidence.zip`（默认嵌套包含 artifacts.zip）
 **验收**
 - 没有通过 VERIFY 时不生成 zip
-- zip 内容完全等于 manifest.files
+- `pack/artifacts.zip` 内容完全等于 manifest.files
 
 ### M4（后置）：DockerRunner + UPLOAD
 **交付**
@@ -312,3 +361,41 @@ internal/
 - 产物格式漂移：VERIFY 规则要足够硬（缺文件/字段直接 blocker）
 - zip 泄露：只从 manifest 生成 zip，永不“遍历整个任务目录打包”
 
+---
+
+## 10) Thread 协作控制面（Go 实现计划，正式开发入口）
+
+> 说明：从“demo 能跑”进入“正式开发”时，建议优先落地 Thread 协作控制面。  
+> IGI 相关文档已归档：`docs/archive/igi/README.md`（当前主线 v1 不要求实现 IGI 资源模型）。
+
+### T0（半天）：数据模型与落盘骨架
+**交付**
+- `fs/threads/{thread_id}/state.json`（ThreadSnapshot 或至少 Thread）落盘与更新（single-writer：系统）
+- `fs/threads/{thread_id}/events/events.jsonl`（append-only）写入（至少记录：actor + subject + patch）
+**验收**
+- 给定 thread_id，能创建目录并写入一份最小快照；重复写入不破坏 append-only 约束
+
+### T1（1 天）：Thread Snapshot + Watch（SSE）
+**交付**
+- `GET {threads_base}/threads/{threadId}/snapshot`（base 可配置，建议默认 `/threads`）
+- `GET {threads_base}/threads/{threadId}/watch`（首包 `STATE_SNAPSHOT`，后续 `STATE_DELTA`）
+- `/agui/run` 与 thread 关联：run start/finish 更新 `Thread.status.activeRunId/phase`
+**验收**
+- 一个终端订阅 watch，另一个触发 run 或写入进度更新，watch 能收到 delta
+
+### T2（1 天）：Materials Pack（CAS）入库（Artifact/Manifest）
+**交付**
+- 文件入库：计算 `sha256` 去重，落在 `fs/threads/{thread_id}/inputs/files/{sha256}`
+- 生成/更新 `Artifact` 与 `ArtifactManifest`（不把二进制塞进 run/state）
+- 限流参数（max_files/max_bytes/max_urls）可配置并生效
+**验收**
+- 上传同一文件两次不会重复存储；manifest 中能看到引用
+
+### T3（1 天）：ChangeSet + 可控暂停（drain_step）
+**交付**
+- 创建 ChangeSet（引用 inputRefs），将 `Thread.phase` 设置为 `PAUSE_REQUESTED`
+- run 在 step 边界收尾后 interrupt；resume 后执行最小 intake（记录 decision + 更新 thread 状态）
+**验收**
+- watch 能看到 `PAUSE_REQUESTED -> PAUSED`；run 结束为 interrupt；resume 后继续并产出可追溯记录
+
+> 后置：Meeting Mode（`docs/06_meeting_mode.md`）与 Task/Gate 的实装可放到 Thread/Inputs/ChangeSet 稳定之后。

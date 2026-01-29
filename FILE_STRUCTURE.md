@@ -11,12 +11,15 @@
 
 ## 1) 顶层分区（强约束）
 
-本项目只分两类内容：
+本项目分为以下几类内容（避免“运行态数据”和“实现代码/契约”混在一起）：
 
 - `docs/**`：规范与设计文档（少数维护者可编辑；避免多人并行改同一文件）
-- `fs/**`：文件系统存储区（运行态数据：case、task、meeting、run、archive）
+- `contracts/**`：对接契约与 schema（JSON/YAML；版本化；用于前后端/工具对接；例如 `contracts/ag_ui/*`）
+- `cmd/**`、`internal/**`、`go.mod`：实现代码（当前包含 Go MVP：`taskctl`）
+- `fs/**`：文件系统存储区（运行态数据：case、task、meeting、run、archive；**不入 git**）
 
-> 说明：`fs/` 下默认采用“**只追加/只新建**”的写策略；需要覆盖写的共享文件必须遵守单写者原则。
+> 说明：`fs/` 下默认采用“**只追加/只新建**”的写策略；需要覆盖写的共享文件必须遵守单写者原则。  
+> 另：`fs/**` 属于运行态数据，应通过 `.gitignore` 排除，避免污染仓库历史。
 
 ---
 
@@ -27,6 +30,11 @@
   README.md
   FILE_STRUCTURE.md
   CHANGELOG.md
+  contracts/                        # 对接契约与 schema（版本化）
+  cmd/                              # 可执行入口（当前：taskctl）
+  internal/                         # Go 实现（可替换为其他语言实现）
+  go.mod
+  go.sum
   docs/                             # 规范文档（维护者可编辑）
   fs/                               # 文件系统存储区（运行态数据）
     cases/
@@ -81,8 +89,43 @@
           action_items.yaml
           citations.yaml
 
+    threads/
+      {thread_id}/
+        state.json                  # Thread 公共状态快照（single-writer：系统）
+        events/
+          events.jsonl              # Thread 公共事件（append-only）
+        logs/
+          tool_audit.jsonl          # 追加式审计日志（系统写；Tool Gateway 写）
+        inputs/
+          manifest.json             # 输入清单（系统维护；建议 single-writer + events 追加记录）
+          files/
+            {sha256}                # 原始文件（不入 git；文件名=sha256 便于去重）
+          snapshots/
+            {input_id}.md           # URL 抓取/提取后的快照（可选）
+        changesets/
+          {changeset_id}.json        # 变更单（kind=ChangeSet；新建文件；可回放/追溯）
+        control/
+          state.json                # 暂停/恢复意图与一致性快照（single-writer：系统）
+          events.jsonl              # 控制事件日志（append-only）
+
     runs/
       {run_id}/
+        run.json                  # Run 元信息（对外协议/线程/父子 run；程序生成）
+        state.json                # Run 状态（tool/interrupt 等；程序维护）
+        events/
+          events.jsonl            # 事件流落盘（append-only；可用于重连/回放）
+        ledger/
+          events.jsonl            # 审计/验收账本（append-only；与 events/ 分工，见 docs/proposals/audit_acceptance_ledger_v1.md）
+        evidence/
+          files/
+            {sha256}              # 证据文件（create-only；内容寻址；不入 git）
+        verify/
+          report.json             # 验收报告（create-only；审计引用以 sha256 ref 为准）
+        artifacts/
+          manifest.json           # 产物清单（create-only；路径→sha256/size）
+        pack/
+          artifacts.zip           # 产物包（create-only；严格白名单）
+          evidence.zip            # 证据包（create-only；默认嵌套包含 artifacts.zip）
         gate/
           {gate_id}/
             position_packets/
@@ -90,6 +133,37 @@
             gate_decision.md        # 单写者（Moderator/Editor/Planner）
         logs/
           tool_audit.jsonl          # 追加式审计日志（系统写）
+
+    taskctl/                         # Go MVP：本地单跑任务目录（不入 git；可随时清理）
+      {task_id}/
+        task.json                    # 任务元信息（输入、参数、沙箱配置、创建时间）
+        state.json                   # 状态机落盘（step 状态、开始结束时间、错误摘要）
+        logs/
+          run.log
+          tool_audit.jsonl           # 追加式审计日志（Tool Gateway 写）
+        revs/
+          r1/
+            summary.md               # 最小必交（示例，可按任务类型改）
+            issues.json              # 最小必交（无问题可空数组，但文件必须存在）
+            artifacts/               # 该 rev 的附加产物（可选）
+        packs/
+          {pack_id}/                 # 审计单元（Bundle；不可变）
+            ledger/
+              events.jsonl           # 审计/验收账本（append-only）
+            evidence/
+              files/{sha256}         # 证据文件（create-only；内容寻址）
+            verify/report.json       # 验收报告（create-only）
+            artifacts/manifest.json  # 产物清单（create-only）
+            pack/artifacts.zip       # 产物包（create-only）
+            pack/evidence.zip        # 证据包（create-only；默认嵌套包含 artifacts.zip）
+            logs/tool_audit.jsonl    # 追加式审计日志（append-only）
+        pack/
+          latest.json                # latest 指针（single-writer；不作为审计依据）
+          artifacts.zip              # 可选：最新产物包副本（可覆盖）
+          evidence.zip               # 可选：最新证据包副本（可覆盖）
+          manifest.json              # 可选：最新 manifest 副本（可覆盖）
+        verify/
+          report.json                # 可选：最新报告副本（可覆盖；审计引用仍走 sha256 ref）
 
     archive/                        # 归档区：不可改（只追加/只新建）
       meetings/{meeting_id}/...
@@ -115,7 +189,14 @@
 - `fs/cases/**/current.yaml`、`fs/cases/**/versions/**/tasks/**/current.yaml`：`single-writer`（系统/调度中心）
 - `fs/meetings/**/agents/**`：`append-only`（各 agent 只写自己目录；inbox 由单写者投递）
 - `fs/meetings/**/shared/**`、`fs/meetings/**/artifacts/**`：`single-writer`（Recorder/Moderator）
-- `fs/runs/**`：默认 `append-only`；`gate_decision.md` 为 `single-writer`
+- `fs/threads/**/events/**`、`fs/threads/**/control/events.jsonl`：`append-only`
+- `fs/threads/**/logs/**`：`append-only`
+- `fs/threads/**/state.json`、`fs/threads/**/inputs/manifest.json`、`fs/threads/**/control/state.json`：`single-writer`（系统/调度中心）
+- `fs/runs/**/events/**`、`fs/runs/**/ledger/**`、`fs/runs/**/logs/**`：`append-only`
+- `fs/runs/**/state.json`：`single-writer`（系统）
+- `fs/runs/**/gate/**/gate_decision.md`：`single-writer`（Moderator/Editor/Planner）
+- `fs/taskctl/**/revs/**`、`fs/taskctl/**/packs/**`：`append-only`（Bundle 不可变；pack/verify 允许维护 latest 指针）
+- `fs/taskctl/**/state.json`、`fs/taskctl/**/pack/latest.json`：`single-writer`（系统）
 - `fs/archive/**`：`append-only`（归档后视为只读）
 
 ---

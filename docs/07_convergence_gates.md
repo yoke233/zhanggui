@@ -26,7 +26,9 @@
 
 3) **Review Node（Verifier/QA）**  
 - 目标：质量与一致性检查；失败触发返工或 Gate。  
-- 产物：`issue_list.md` / `verification_report.md`
+- 产物（v1 最小可执行）：
+  - `revs/<rev>/issues.json`：结构化问题列表（severity/where/what/action），可作为门禁/审批策略输入
+  - 进入归档/发布时：由 Bundle 打包生成 `verify/report.json`（create-only），并写入 `ledger/events.jsonl`（append-only）
 
 > 说明：会议模式（06_meeting_mode.md）是一种“泛化的 Gate Node”，适用于复杂、开放、争议大的场景；但在任务流水线中默认使用“微型 Gate”。
 
@@ -104,8 +106,8 @@ Moderator 只读这些短包 + 证据锚点，然后单写 `gate_decision.md`。
 
 推荐路径：
 
-- `runs/<run_id>/gate/<gate_id>/position_packets/position_packet_<agent>.md`
-- `runs/<run_id>/gate/<gate_id>/gate_decision.md`
+- `fs/runs/{run_id}/gate/{gate_id}/position_packets/position_packet_<agent>.md`（run_id/gate_id 建议 UUIDv7）
+- `fs/runs/{run_id}/gate/{gate_id}/gate_decision.md`
 
 ---
 
@@ -116,4 +118,3 @@ Moderator 只读这些短包 + 证据锚点，然后单写 `gate_decision.md`。
 - Review：检查事实引用与覆盖率
 - Gate#2（定稿前）：对外口径/数据一致性裁决
 - Merge/Transform：组装报告 → 生成 PPT IR → 渲染
-

@@ -7,6 +7,7 @@
 - roles[]（每个 Team 的角色实例）
 - quality[]（校验节点）
 - budgets（可选）
+- audit_policy（可选；例如 `approval_policy=always|warn|gate|never`）
 
 ## 2) MPU：并行最小单元（Minimum Parallel Unit）
 一个 MPU 必须满足：
@@ -65,6 +66,10 @@ fs/cases/{case_id}/
           revs/
             r1/ (summary.md, cards.md, issues.md)
             r2/ ...
+          packs/               # 审计单元（Bundle；不可变，按 pack_id 切片归档）
+            {pack_id}/...
+          pack/                # latest 指针/快捷入口（可覆盖；不作为审计依据）
+            latest.json
           review.md
       deliver/
         report.md
@@ -140,7 +145,7 @@ budgets:
 ### 最小例子：报告 + PPT
 - Planner/Editor：产出 Master IR + 章节/页大纲（锚点）
 - Writers：按大纲节点并行产出 cards/sections（一个节点一个文件）
-- PPT Transformer/Adapter：把 Master IR 投影为 PPT_IR → renderer_input.json
+- PPT Transformer/Adapter：把 Master IR 投影为 PPT_IR → ppt_renderer_input.json
 - Verifier：覆盖度 + 一致性 + 长度/丢失风险，必要时生成 issue_list
 
 ## X) 检索优先（BM25/向量）与 Cards 触发规则（写死，不模糊）
@@ -266,7 +271,25 @@ Cards 文件中每张卡必须包含（缺一不可）：
 - Verifier 不等于 Editor：Verifier 只做规则检查与出 issue_list，不做业务裁决
 
 
-## 7) 会议模式（可插拔拓扑）
+## 11) 审计单元（Bundle）与审批策略（可控）
+为避免“无限长总账”，同时保证可归档/可复核，本系统把审计边界定义为 Bundle：
+
+- **Bundle 边界**：以 `run_id` 或 `pack_id` 做不可变边界；每次验收/打包生成新的 Bundle；`latest` 指针允许覆盖写。
+- **证据链分层**：
+  - `state.json`：快照（可覆盖；用于 UI/恢复）
+  - `ledger/events.jsonl`：事实账本（append-only；审计真相源）
+  - `evidence/files/{sha256}`：内容寻址证据（create-only；冻结标准/报告/审批记录）
+  - `pack/evidence.zip`：离线复核包（默认 nested 包含 `pack/artifacts.zip`）
+- **审批策略默认“所有都要”**：可下沉到 `audit_policy` 里做可控开关：
+  - `always`：每次 `VERIFY+PACK` 都写 `APPROVAL_REQUESTED`
+  - `warn`：仅当存在 `warn` 类问题/门禁时才请求审批
+  - `gate`：仅当命中特定门禁（例如按 `issues.where` 匹配）才请求审批
+  - `never`：不自动请求审批（仍允许手工写审批事件）
+- **v1（B 方案）允许“先打包后审批”**：审批事件写入 ledger，但已生成的 `evidence.zip` 不回写；复核以 `ledger + evidence/files` 为准。
+
+具体落盘与事件规范见：`FILE_STRUCTURE.md`、`docs/proposals/audit_acceptance_ledger_v1.md`。
+
+## 12) 会议模式（可插拔拓扑）
 - 会议是一个 Topology Plugin：用于“决策收敛/分歧处理/信息补全”，不替代 MPU 产出流水线。
 - 会议的并行：Think 并行占用 slots；Speak 串行不等人。
 - 触发点与产物格式见：`docs/06_meeting_mode.md`。
