@@ -2,11 +2,13 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/yoke233/zhanggui/internal/gateway"
+	"github.com/yoke233/zhanggui/internal/verify"
 )
 
 func TestDemo04_Run_GeneratesReport(t *testing.T) {
@@ -38,5 +40,23 @@ func TestDemo04_Run_GeneratesReport(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(root, "revs", "r1", "deliver", "report.md")); err != nil {
 		t.Fatalf("missing deliver/report.md: %v", err)
+	}
+
+	issuesPath := filepath.Join(root, "revs", "r1", "issues.json")
+	b, err := os.ReadFile(issuesPath)
+	if err != nil {
+		t.Fatalf("missing rev/issues.json: %v", err)
+	}
+	var issues verify.IssuesFile
+	if err := json.Unmarshal(b, &issues); err != nil {
+		t.Fatalf("rev/issues.json invalid json: %v", err)
+	}
+
+	summaries, err := filepath.Glob(filepath.Join(root, "revs", "r1", "mpus", "*", "summary.md"))
+	if err != nil {
+		t.Fatalf("glob mpu summaries: %v", err)
+	}
+	if len(summaries) == 0 {
+		t.Fatalf("expected at least 1 mpu summary.md")
 	}
 }
