@@ -11,8 +11,8 @@ import (
 )
 
 type PPTIR struct {
-	SchemaVersion int       `json:"schema_version"`
-	Title         string    `json:"title"`
+	SchemaVersion int        `json:"schema_version"`
+	Title         string     `json:"title"`
 	Slides        []PPTSlide `json:"slides"`
 }
 

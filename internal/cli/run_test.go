@@ -38,4 +38,3 @@ func TestRunCmd_WorkflowDemo04(t *testing.T) {
 		t.Fatalf("missing deliver/report.md: %v", err)
 	}
 }
-
