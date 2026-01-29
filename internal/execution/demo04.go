@@ -48,14 +48,18 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 		rev = "r1"
 	}
 
-	plan, err := planning.ParseDeliveryPlanYAML([]byte(demo04DeliveryPlanYAML))
-	if err != nil {
-		return Result{}, err
+	plan := ctx.DeliveryPlan
+	if plan == nil {
+		p, err := planning.ParseDeliveryPlanYAML([]byte(demo04DeliveryPlanYAML))
+		if err != nil {
+			return Result{}, err
+		}
+		plan = &p
 	}
 	if err := plan.Validate(); err != nil {
 		return Result{}, err
 	}
-	caps, err := CapsFromPlan(plan)
+	caps, err := CapsFromPlan(*plan)
 	if err != nil {
 		return Result{}, err
 	}

@@ -38,3 +38,53 @@ func TestRunCmd_WorkflowDemo04(t *testing.T) {
 		t.Fatalf("missing deliver/report.md: %v", err)
 	}
 }
+
+func TestRunCmd_WorkflowDemo04_WithDeliveryPlan(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+
+	baseDir := t.TempDir()
+	planPath := filepath.Join(t.TempDir(), "delivery_plan.yaml")
+	planBytes := []byte(`
+teams:
+  - team_id: team_a
+roles:
+  - role: writer
+    count: 1
+  - role: designer
+    count: 1
+budgets:
+  max_parallel: 1
+`)
+	if err := os.WriteFile(planPath, planBytes, 0o644); err != nil {
+		t.Fatalf("write delivery plan: %v", err)
+	}
+
+	cmd := NewRunCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	cmd.SetArgs([]string{
+		"--base-dir", baseDir,
+		"--sandbox-mode", "local",
+		"--workflow", "demo04",
+		"--delivery-plan", planPath,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	taskDir := strings.TrimSpace(out.String())
+	if taskDir == "" {
+		t.Fatalf("expected task dir on stdout")
+	}
+
+	snapshotPath := filepath.Join(taskDir, "revs", "r1", "delivery_plan.yaml")
+	b, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatalf("missing rev delivery_plan.yaml: %v", err)
+	}
+	if !strings.Contains(string(b), "max_parallel: 1") {
+		t.Fatalf("delivery_plan.yaml snapshot missing max_parallel: 1")
+	}
+}

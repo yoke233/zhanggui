@@ -15,6 +15,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/execution"
 	"github.com/yoke233/zhanggui/internal/gateway"
 	"github.com/yoke233/zhanggui/internal/logging"
+	"github.com/yoke233/zhanggui/internal/planning"
 	"github.com/yoke233/zhanggui/internal/sandbox"
 	"github.com/yoke233/zhanggui/internal/state"
 	"github.com/yoke233/zhanggui/internal/taskbundle"
@@ -31,6 +32,7 @@ const (
 	flagTimeoutSeconds = "timeout-seconds"
 	flagEntrypoint     = "entrypoint"
 	flagWorkflow       = "workflow"
+	flagDeliveryPlan   = "delivery-plan"
 	flagLogLevel       = "log-level"
 	flagApprovalPolicy = "approval-policy"
 	flagApprovalGate   = "approval-gate"
@@ -115,8 +117,12 @@ func NewRunCmd() *cobra.Command {
 				},
 			}
 			workflow := strings.TrimSpace(viper.GetString(flagWorkflow))
+			deliveryPlanPath := strings.TrimSpace(viper.GetString(flagDeliveryPlan))
 			if workflow != "" && len(task.Params.Entrypoint) > 0 {
 				return fmt.Errorf("--%s 与 --%s 互斥", flagWorkflow, flagEntrypoint)
+			}
+			if workflow == "" && deliveryPlanPath != "" {
+				return fmt.Errorf("--%s 仅在 --%s 模式下生效", flagDeliveryPlan, flagWorkflow)
 			}
 
 			{
@@ -165,17 +171,58 @@ func NewRunCmd() *cobra.Command {
 			runResult := sandbox.Result{Mode: mode, ExitCode: 0}
 
 			if workflow != "" {
+				var dp *planning.DeliveryPlan
+				if deliveryPlanPath != "" {
+					planBytes, err := os.ReadFile(deliveryPlanPath)
+					if err != nil {
+						st.FailStep(state.ErrorInfo{
+							Code:       "E_SANDBOX_RUN",
+							Message:    err.Error(),
+							OccurredAt: time.Now().Format(time.RFC3339),
+						})
+						_ = writeState("state: SANDBOX_RUN workflow delivery plan read fail")
+						return err
+					}
+					p, err := planning.ParseDeliveryPlanYAML(planBytes)
+					if err != nil {
+						st.FailStep(state.ErrorInfo{
+							Code:       "E_SANDBOX_RUN",
+							Message:    err.Error(),
+							OccurredAt: time.Now().Format(time.RFC3339),
+						})
+						_ = writeState("state: SANDBOX_RUN workflow delivery plan parse fail")
+						return err
+					}
+					if err := p.Validate(); err != nil {
+						st.FailStep(state.ErrorInfo{
+							Code:       "E_SANDBOX_RUN",
+							Message:    err.Error(),
+							OccurredAt: time.Now().Format(time.RFC3339),
+						})
+						_ = writeState("state: SANDBOX_RUN workflow delivery plan validate fail")
+						return err
+					}
+					dp = &p
+					// Snapshot delivery plan into rev for evidence/manifest.
+					_ = gw.ReplaceFile(filepath.ToSlash(filepath.Join("revs", rev, "delivery_plan.yaml")), planBytes, 0o644, "workflow: snapshot delivery_plan.yaml")
+				}
+
 				// workflow 模式下同样确保 summary.md 存在（VERIFY 需要）。
 				summaryAbs := filepath.Join(revDir, "summary.md")
 				if _, statErr := os.Stat(summaryAbs); statErr != nil {
 					if !os.IsNotExist(statErr) {
 						return statErr
 					}
+					deliveryPlanLine := ""
+					if deliveryPlanPath != "" {
+						deliveryPlanLine = "- delivery_plan: " + deliveryPlanPath + "\n"
+					}
 					content := []byte("# Summary\n\n" +
 						"- task_id: " + taskID + "\n" +
 						"- run_id: " + runID + "\n" +
 						"- rev: " + rev + "\n" +
 						"- workflow: " + workflow + "\n" +
+						deliveryPlanLine +
 						"- generated_at: " + time.Now().Format(time.RFC3339) + "\n\n" +
 						"本次使用内置 workflow 执行。\n")
 					if err := gw.CreateFile(filepath.ToSlash(filepath.Join("revs", rev, "summary.md")), content, 0o644, "workflow: summary.md"); err != nil {
@@ -209,7 +256,7 @@ func NewRunCmd() *cobra.Command {
 					defer cancel()
 				}
 
-				res, err := wf.Run(execution.Context{Ctx: ctx, GW: gw, TaskID: taskID, RunID: runID, Rev: rev})
+				res, err := wf.Run(execution.Context{Ctx: ctx, GW: gw, TaskID: taskID, RunID: runID, Rev: rev, DeliveryPlan: dp})
 				if err != nil {
 					st.FailStep(state.ErrorInfo{
 						Code:       "E_SANDBOX_RUN",
@@ -393,6 +440,7 @@ func NewRunCmd() *cobra.Command {
 	cmd.Flags().Int(flagTimeoutSeconds, 900, "沙箱超时（秒）")
 	cmd.Flags().StringArray(flagEntrypoint, nil, "沙箱内执行命令（多次传入表示 argv；不传则生成默认产物）")
 	cmd.Flags().String(flagWorkflow, "", "内置 workflow（可选；例如 demo04；与 --entrypoint 互斥）")
+	cmd.Flags().String(flagDeliveryPlan, "", "DeliveryPlan YAML 路径（仅 --workflow 生效）")
 	cmd.Flags().String(flagLogLevel, "info", "日志级别：debug|info|warn|error")
 	cmd.Flags().String(flagApprovalPolicy, "always", "审批策略：always|warn|gate|never（默认 always）")
 	cmd.Flags().StringArray(flagApprovalGate, nil, "审批门禁（仅 approval-policy=gate 时生效；匹配 issues.where）")

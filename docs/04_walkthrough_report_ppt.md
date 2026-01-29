@@ -8,6 +8,14 @@
 go run ./cmd/taskctl run --sandbox-mode local --workflow demo04 --approval-policy always
 ```
 
+可选：自定义并行配额（DeliveryPlan YAML）：
+
+```bash
+go run ./cmd/taskctl run --sandbox-mode local --workflow demo04 --delivery-plan <plan.yaml> --approval-policy always
+```
+
+传入后会将 plan 快照到 `revs/r1/delivery_plan.yaml`（进入 `artifacts/manifest.json` 与 `pack/evidence.zip`）。
+
 运行成功后命令会输出一个 `task_dir`（例如 `fs/taskctl/<task_id>`），你应该能看到（相对 `task_dir`）：
 
 - `revs/r1/deliver/report.md`

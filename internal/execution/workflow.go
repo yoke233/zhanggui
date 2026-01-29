@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/yoke233/zhanggui/internal/gateway"
+	"github.com/yoke233/zhanggui/internal/planning"
 	"github.com/yoke233/zhanggui/internal/verify"
 )
 
@@ -20,6 +21,8 @@ type Context struct {
 	TaskID string
 	RunID  string
 	Rev    string
+
+	DeliveryPlan *planning.DeliveryPlan
 }
 
 type Result struct {
