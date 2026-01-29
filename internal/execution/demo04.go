@@ -48,6 +48,15 @@ func (w *demo04Workflow) Run(ctx Context) (Result, error) {
 	}
 	issues = append(issues, adIssues...)
 
+	hasBlocker := Result{Issues: issues}.HasBlocker()
+	if !hasBlocker {
+		rIssues, err := RenderSlidesHTML(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		issues = append(issues, rIssues...)
+	}
+
 	issuesFile := verify.IssuesFile{
 		SchemaVersion: 1,
 		TaskID:        ctx.TaskID,
