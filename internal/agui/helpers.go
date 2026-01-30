@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/yoke233/zhanggui/internal/a2a"
 )
 
 func firstString(m map[string]any, keys ...string) string {
@@ -82,4 +84,11 @@ func normalizeRunInput(raw map[string]any, req RunRequest) map[string]any {
 	}
 
 	return out
+}
+
+func pickCoreStore(store *a2a.Store) *a2a.Store {
+	if store != nil {
+		return store
+	}
+	return a2a.NewStore()
 }

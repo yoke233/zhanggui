@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yoke233/zhanggui/internal/a2a"
 	"github.com/yoke233/zhanggui/internal/gateway"
 )
 
@@ -24,6 +25,7 @@ type Options struct {
 	ActorRole string
 
 	ThreadSink ThreadSink
+	CoreStore  *a2a.Store
 }
 
 type ThreadSink interface {
@@ -43,6 +45,7 @@ type Handler struct {
 	manager *Manager
 
 	threadSink ThreadSink
+	coreStore  *a2a.Store
 }
 
 func NewHandler(opts Options) (*Handler, error) {
@@ -81,6 +84,7 @@ func NewHandler(opts Options) (*Handler, error) {
 		actor:      gateway.Actor{AgentID: actorID, Role: actorRole},
 		manager:    NewManager(),
 		threadSink: opts.ThreadSink,
+		coreStore:  pickCoreStore(opts.CoreStore),
 	}, nil
 }
 
@@ -88,6 +92,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", h.handleHealthz)
 	mux.HandleFunc(h.basePath+"/run", h.handleRun)
 	mux.HandleFunc(h.basePath+"/tool_result", h.handleToolResult)
+	mux.HandleFunc(h.basePath+"/action", h.handleAction)
 }
 
 func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +121,87 @@ func (h *Handler) handleToolResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content, _ := raw["content"]
+
+	err := h.manager.DeliverToolResult(runID, ToolResult{
+		ThreadID:   threadID,
+		RunID:      runID,
+		ToolCallID: toolCallID,
+		Content:    content,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (h *Handler) handleAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	payload := raw
+	if a := asMap(raw["action"]); a != nil {
+		payload = a
+	}
+
+	name := firstString(payload, "name")
+	surfaceID := firstString(payload, "surfaceId", "surface_id")
+	sourceComponentID := firstString(payload, "sourceComponentId", "source_component_id")
+	timestamp := firstString(payload, "timestamp")
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(surfaceID) == "" || strings.TrimSpace(sourceComponentID) == "" || strings.TrimSpace(timestamp) == "" {
+		http.Error(w, "missing name/surfaceId/sourceComponentId/timestamp", http.StatusBadRequest)
+		return
+	}
+	if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+		if _, err := time.Parse(time.RFC3339, timestamp); err != nil {
+			http.Error(w, "bad timestamp (expect ISO 8601)", http.StatusBadRequest)
+			return
+		}
+	}
+
+	context := asMap(payload["context"])
+	runID := ""
+	toolCallID := ""
+	threadID := ""
+	if context != nil {
+		runID = firstString(context, "runId", "run_id")
+		toolCallID = firstString(context, "toolCallId", "tool_call_id", "callId", "call_id")
+		threadID = firstString(context, "threadId", "thread_id")
+	}
+	if strings.TrimSpace(runID) == "" {
+		runID = firstString(payload, "runId", "run_id")
+	}
+	if strings.TrimSpace(toolCallID) == "" {
+		toolCallID = firstString(payload, "toolCallId", "tool_call_id", "callId", "call_id")
+	}
+	if strings.TrimSpace(threadID) == "" {
+		threadID = firstString(payload, "threadId", "thread_id")
+	}
+
+	if strings.TrimSpace(runID) == "" {
+		http.Error(w, "missing runId in action.context", http.StatusBadRequest)
+		return
+	}
+
+	content := map[string]any{
+		"action": map[string]any{
+			"name":              name,
+			"surfaceId":         surfaceID,
+			"sourceComponentId": sourceComponentID,
+			"timestamp":         timestamp,
+			"context":           context,
+		},
+	}
 
 	err := h.manager.DeliverToolResult(runID, ToolResult{
 		ThreadID:   threadID,
@@ -209,6 +295,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		EventLog: evlog,
 		ThreadID: req.ThreadID,
 		RunID:    req.RunID,
+		Core:     h.coreStore,
 	}
 
 	session, release := h.manager.Start(req.RunID)
@@ -231,7 +318,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		_ = emitter.Emit(Event{
 			"type":      "RUN_ERROR",
 			"message":   err.Error(),
-			"timestamp": time.Now().Format(time.RFC3339),
+			"timestamp": time.Now().UnixMilli(),
 		})
 		return
 	}
@@ -249,7 +336,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		_ = emitter.Emit(Event{
 			"type":      "RUN_ERROR",
 			"message":   err.Error(),
-			"timestamp": time.Now().Format(time.RFC3339),
+			"timestamp": time.Now().UnixMilli(),
 		})
 		return
 	}
@@ -274,7 +361,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 			_ = emitter.Emit(Event{
 				"type":      "RUN_ERROR",
 				"message":   err.Error(),
-				"timestamp": time.Now().Format(time.RFC3339),
+				"timestamp": time.Now().UnixMilli(),
 			})
 			return
 		}
@@ -282,7 +369,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 			_ = emitter.Emit(Event{
 				"type":      "RUN_ERROR",
 				"message":   err.Error(),
-				"timestamp": time.Now().Format(time.RFC3339),
+				"timestamp": time.Now().UnixMilli(),
 			})
 			return
 		}
@@ -293,7 +380,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		"type":      "RUN_STARTED",
 		"threadId":  req.ThreadID,
 		"runId":     req.RunID,
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp": time.Now().UnixMilli(),
 		"input":     meta.Input,
 	}
 	if strings.TrimSpace(meta.ParentRunID) != "" {
@@ -331,7 +418,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 				"type":      "RUN_ERROR",
 				"message":   de.Message,
 				"code":      de.Code,
-				"timestamp": time.Now().Format(time.RFC3339),
+				"timestamp": time.Now().UnixMilli(),
 			})
 			return
 		}
@@ -339,7 +426,7 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		_ = emitter.Emit(Event{
 			"type":      "RUN_ERROR",
 			"message":   runErr.Error(),
-			"timestamp": time.Now().Format(time.RFC3339),
+			"timestamp": time.Now().UnixMilli(),
 		})
 	}
 }

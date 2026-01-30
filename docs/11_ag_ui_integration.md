@@ -83,7 +83,7 @@ data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1", ...}
 ### 3.3 通用事件外壳（最小字段）
 每个事件对象至少包含：
 - `type`：事件类型
-- `timestamp`：RFC3339 时间戳（建议；用于排序与审计）
+- `timestamp`：UNIX 毫秒时间戳（number；建议；用于排序与审计）
 - `runId`：运行 ID（建议；用于重连与追溯）
 - `threadId`：线程/会话 ID（建议；用于 UI 会话归并）
 
@@ -118,6 +118,14 @@ data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1", ...}
 ### 4.4 State（状态同步）
 - `STATE_SNAPSHOT`
 - `STATE_DELTA`（RFC6902 JSON Patch）
+
+### 4.5 Activity（A2UI 载荷）
+- `activity_message`：用于承载 A2UI 消息流（前端渲染协议）
+  - `content.spec`：固定 `a2ui`
+  - `content.version`：按 A2UI 实际版本（例如 `0.9` / `1.0`）
+  - `content.messages`：A2UI envelope 列表（`createSurface` / `updateComponents` / `updateDataModel` / `deleteSurface`）
+
+> 说明：A2UI 作为 UI 渲染协议，不新增独立 SSE 端点；通过 AG-UI 的活动类事件透传给前端。
 - `MESSAGES_SNAPSHOT`
 
 ### 4.5 Activity（结构化活动提示）

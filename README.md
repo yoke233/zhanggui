@@ -62,7 +62,7 @@
 **更多细节与权威结构请看** `FILE_STRUCTURE.md`。
 
 ## 现阶段能力
-- Go MVP：`taskctl`（任务执行 CLI）+ `zhanggui`（AG-UI SSE demo）
+- Go MVP：`taskctl`（任务执行 CLI）+ `zhanggui`（AG-UI SSE demo + A2A HTTP/REST）
 - 文档优先：核心流程规范已形成，代码按阶段逐步落地
 - 面向扩展：任务、会议、审计、交付物类型都可扩展
 

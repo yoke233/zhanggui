@@ -55,7 +55,7 @@ func TestHandler_DemoToolAndInterruptResume(t *testing.T) {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	// run#1: waits for ui.form tool_result then interrupts
+	// run#1: waits for a2ui action then interrupts
 	{
 		body := `{"threadId":"thread-test-1","runId":"run-test-1","workflow":"demo"}`
 		req, err := http.NewRequest(http.MethodPost, srv.URL+"/agui/run", strings.NewReader(body))
@@ -77,22 +77,59 @@ func TestHandler_DemoToolAndInterruptResume(t *testing.T) {
 		var interruptID string
 		for i := 0; i < 200; i++ {
 			ev := readNextEvent(t, reader)
-			if ev["type"] == "TOOL_CALL_START" {
-				toolCallID, _ = ev["toolCallId"].(string)
+			if ev["type"] == "activity_message" {
+				content, _ := ev["content"].(map[string]any)
+				if content == nil {
+					t.Fatalf("missing activity content")
+				}
+				msgs, _ := content["messages"].([]any)
+				for _, msg := range msgs {
+					m, _ := msg.(map[string]any)
+					uc, _ := m["updateComponents"].(map[string]any)
+					if uc == nil {
+						continue
+					}
+					components, _ := uc["components"].([]any)
+					for _, comp := range components {
+						cm, _ := comp.(map[string]any)
+						if cm == nil {
+							continue
+						}
+						if cm["id"] != "choice_a" {
+							continue
+						}
+						action, _ := cm["action"].(map[string]any)
+						if action == nil {
+							continue
+						}
+						ctx, _ := action["context"].(map[string]any)
+						if ctx == nil {
+							continue
+						}
+						toolCallID, _ = ctx["toolCallId"].(string)
+					}
+				}
 				if toolCallID == "" {
-					t.Fatalf("missing toolCallId")
+					t.Fatalf("missing toolCallId in a2ui action context")
 				}
 
-				tr := map[string]any{
-					"threadId":   "thread-test-1",
-					"runId":      "run-test-1",
-					"toolCallId": toolCallID,
-					"content":    map[string]any{"topic": "hello"},
+				payload := map[string]any{
+					"action": map[string]any{
+						"name":              "choose_a",
+						"surfaceId":         "main",
+						"sourceComponentId": "choice_a",
+						"timestamp":         time.Now().Format(time.RFC3339),
+						"context": map[string]any{
+							"runId":      "run-test-1",
+							"threadId":   "thread-test-1",
+							"toolCallId": toolCallID,
+						},
+					},
 				}
-				b, _ := json.Marshal(tr)
-				res, err := client.Post(srv.URL+"/agui/tool_result", "application/json", bytes.NewReader(b))
+				b, _ := json.Marshal(payload)
+				res, err := client.Post(srv.URL+"/agui/action", "application/json", bytes.NewReader(b))
 				if err != nil {
-					t.Fatalf("tool_result post: %v", err)
+					t.Fatalf("action post: %v", err)
 				}
 				_ = res.Body.Close()
 			}
@@ -115,7 +152,7 @@ func TestHandler_DemoToolAndInterruptResume(t *testing.T) {
 		}
 
 		if toolCallID == "" {
-			t.Fatalf("did not see TOOL_CALL_START")
+			t.Fatalf("did not see activity_message")
 		}
 		if interruptID == "" {
 			t.Fatalf("did not see RUN_FINISHED interrupt")
