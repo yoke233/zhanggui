@@ -62,11 +62,15 @@ func (s *Service) CommentIssue(ctx context.Context, input CommentIssueInput) err
 		if requiresWorkStartValidation(state) {
 			blockedBy, condErr := ensureWorkPreconditionsTx(txCtx, s.repo, issue, state)
 			if condErr != nil {
-				if errors.Is(condErr, errNeedsHuman) || errors.Is(condErr, errDependsUnresolved) {
+				if errors.Is(condErr, errIssueNotClaimed) || errors.Is(condErr, errNeedsHuman) || errors.Is(condErr, errDependsUnresolved) {
 					if err := setStateLabelTx(txCtx, s.repo, issueID, "state:blocked"); err != nil {
 						return err
 					}
-					if err := appendBlockedEventTx(txCtx, s.repo, issueID, actor, blockedBy, condErr.Error(), now); err != nil {
+					resultCode := "manual_intervention"
+					if errors.Is(condErr, errDependsUnresolved) {
+						resultCode = "dep_unresolved"
+					}
+					if err := appendBlockedEventTx(txCtx, s.repo, issueID, actor, blockedBy, condErr.Error(), resultCode, now); err != nil {
 						return err
 					}
 					// Persist blocked state/event for auditability, then reject the operation outside tx.
@@ -78,6 +82,9 @@ func (s *Service) CommentIssue(ctx context.Context, input CommentIssueInput) err
 		}
 
 		normalizedBody := normalizeCommentBody(input.IssueRef, actor, state, body)
+		if err := validateOptionalResultCodeInCommentBody(normalizedBody); err != nil {
+			return err
+		}
 		if err := appendEventTx(txCtx, s.repo, issueID, actor, normalizedBody, now); err != nil {
 			return err
 		}

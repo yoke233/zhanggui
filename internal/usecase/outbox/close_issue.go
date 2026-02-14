@@ -31,10 +31,7 @@ func (s *Service) CloseIssue(ctx context.Context, input CloseIssueInput) error {
 	}
 
 	comment := strings.TrimSpace(input.Comment)
-	actor := strings.TrimSpace(input.Actor)
-	if comment != "" && actor == "" {
-		return errActorRequired
-	}
+	requestedActor := strings.TrimSpace(input.Actor)
 
 	now := nowUTCString()
 	var blockedErr error
@@ -50,16 +47,26 @@ func (s *Service) CloseIssue(ctx context.Context, input CloseIssueInput) error {
 			return nil
 		}
 
+		actor := requestedActor
+		if actor == "" {
+			actor = strings.TrimSpace(derefString(issue.Assignee))
+		}
+		if actor == "" {
+			return errActorRequired
+		}
+
 		blockedBy, condErr := ensureWorkPreconditionsTx(txCtx, s.repo, issue, "state:done")
 		if condErr != nil {
-			if errors.Is(condErr, errNeedsHuman) || errors.Is(condErr, errDependsUnresolved) {
+			if errors.Is(condErr, errIssueNotClaimed) || errors.Is(condErr, errNeedsHuman) || errors.Is(condErr, errDependsUnresolved) {
 				if err := setStateLabelTx(txCtx, s.repo, issueID, "state:blocked"); err != nil {
 					return err
 				}
-				if actor != "" {
-					if err := appendBlockedEventTx(txCtx, s.repo, issueID, actor, blockedBy, condErr.Error(), now); err != nil {
-						return err
-					}
+				resultCode := "manual_intervention"
+				if errors.Is(condErr, errDependsUnresolved) {
+					resultCode = "dep_unresolved"
+				}
+				if err := appendBlockedEventTx(txCtx, s.repo, issueID, actor, blockedBy, condErr.Error(), resultCode, now); err != nil {
+					return err
 				}
 				// Persist blocked state/event for auditability, then reject the operation outside tx.
 				blockedErr = condErr
@@ -73,7 +80,14 @@ func (s *Service) CloseIssue(ctx context.Context, input CloseIssueInput) error {
 			return err
 		}
 		if !hasEvidence && !hasCloseEvidenceFromBody(comment) {
-			return errCloseEvidence
+			if err := setStateLabelTx(txCtx, s.repo, issueID, "state:blocked"); err != nil {
+				return err
+			}
+			if err := appendBlockedEventTx(txCtx, s.repo, issueID, actor, nil, errCloseEvidence.Error(), "manual_intervention", now); err != nil {
+				return err
+			}
+			blockedErr = errCloseEvidence
+			return nil
 		}
 
 		if err := s.repo.MarkIssueClosed(txCtx, issueID, now); err != nil {
@@ -82,10 +96,17 @@ func (s *Service) CloseIssue(ctx context.Context, input CloseIssueInput) error {
 		if err := setStateLabelTx(txCtx, s.repo, issueID, "state:done"); err != nil {
 			return err
 		}
-		if comment != "" {
-			if err := appendEventTx(txCtx, s.repo, issueID, actor, comment, now); err != nil {
-				return err
-			}
+
+		body := comment
+		if body == "" {
+			body = "closed issue"
+		}
+		normalizedBody := normalizeCommentBodyWithAction(input.IssueRef, actor, "done", "state:done", body)
+		if err := validateOptionalResultCodeInCommentBody(normalizedBody); err != nil {
+			return err
+		}
+		if err := appendEventTx(txCtx, s.repo, issueID, actor, normalizedBody, now); err != nil {
+			return err
 		}
 
 		return nil

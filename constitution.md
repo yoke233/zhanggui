@@ -31,6 +31,7 @@
 5. `internal/ports/` 放跨用例通用抽象接口（如 `Cache`、`OutboxRepository`、`UnitOfWork`）。
 6. `internal/infrastructure/` 放外部依赖适配实现（SQLite、未来 Redis/GitHub）。
 7. SQLite 模型仅放在 `internal/infrastructure/persistence/sqlite/model/`，不得冒充通用领域模型。
+8. 组合根（wiring）必须使用 `go.uber.org/fx` 在 `internal/bootstrap/module.go` 完成；`cmd/` 不得 import `internal/infrastructure/*`。
 
 ## 第四条：Outbox 用例组织规范
 
@@ -91,6 +92,13 @@
 1. 影响本宪法任一条款的改动，必须同步修改 `constitution.md`。
 2. 架构层改动需同时更新 `README.md` 与对应 `docs/` 说明。
 3. 不允许“代码已变更，规范未更新”的长期漂移。
+
+## 第十一条：事务与一致性
+
+1. 多步写操作必须有统一事务边界：使用 `internal/ports/unit_of_work.go` 的 `UnitOfWork.WithTx(ctx, fn)`。
+2. 仓储适配器必须从 `context.Context` 读取事务句柄（`TxFromContext`），确保同一事务可跨多次 repo 调用生效。
+3. 禁止用例层自行创建/管理数据库事务对象（例如 `*gorm.DB.Begin()`）；用例只允许操作 `ports.UnitOfWork` + `ports.*Repository`。
+4. 允许“拒绝操作但写入审计记录”的模式：当发生 blocked（如 `needs-human`、依赖未满足）时，必须先在事务内落库 `state:blocked` 与可审计 event，再向调用方返回错误（业务拒绝不等于回滚审计证据）。
 
 ## 附录：当前项目最小执行命令
 

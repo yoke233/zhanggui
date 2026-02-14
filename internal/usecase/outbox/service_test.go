@@ -10,6 +10,7 @@ import (
 	gormsqlite "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	domainoutbox "zhanggui/internal/domain/outbox"
 	"zhanggui/internal/infrastructure/persistence/sqlite/model"
 	sqliterepo "zhanggui/internal/infrastructure/persistence/sqlite/repository"
 	sqliteuow "zhanggui/internal/infrastructure/persistence/sqlite/uow"
@@ -146,6 +147,23 @@ func TestClaimIssueSetsAssigneeStateAndEvent(t *testing.T) {
 	}
 	if len(got.Events) != 1 {
 		t.Fatalf("events len = %d", len(got.Events))
+	}
+
+	body := got.Events[0].Body
+	if !strings.Contains(body, "IssueRef: "+issueRef) {
+		t.Fatalf("claim event missing issue ref, body=%s", body)
+	}
+	if !strings.Contains(body, "Action: claim") {
+		t.Fatalf("claim event missing action, body=%s", body)
+	}
+	if !strings.Contains(body, "Status: doing") {
+		t.Fatalf("claim event missing status, body=%s", body)
+	}
+	if !strings.Contains(body, "ResultCode: none") {
+		t.Fatalf("claim event missing result code, body=%s", body)
+	}
+	if !strings.Contains(body, "Changes:") || !strings.Contains(body, "Tests:") || !strings.Contains(body, "Next:") {
+		t.Fatalf("claim event missing structured fields, body=%s", body)
 	}
 
 	if cache.data[cacheIssueStatusKey(issueRef)] != "state:doing" {
@@ -331,6 +349,24 @@ func TestCommentIssueRequiresClaimForWorkState(t *testing.T) {
 	if !errors.Is(err, errIssueNotClaimed) {
 		t.Fatalf("CommentIssue() error = %v, want errIssueNotClaimed", err)
 	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !contains(got.Labels, "state:blocked") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	if len(got.Events) == 0 {
+		t.Fatalf("expected blocked event")
+	}
+	last := got.Events[len(got.Events)-1].Body
+	if !strings.Contains(last, "Action: blocked") || !strings.Contains(last, "Status: blocked") {
+		t.Fatalf("blocked event missing action/status, body=%s", last)
+	}
+	if !strings.Contains(last, "ResultCode: manual_intervention") {
+		t.Fatalf("blocked event missing result code, body=%s", last)
+	}
 }
 
 func TestCommentIssueBlockedByNeedsHuman(t *testing.T) {
@@ -372,6 +408,14 @@ func TestCommentIssueBlockedByNeedsHuman(t *testing.T) {
 	}
 	if len(got.Events) == 0 || !strings.Contains(got.Events[len(got.Events)-1].Body, "needs-human") {
 		t.Fatalf("last event should mention needs-human, events=%v", got.Events)
+	}
+
+	last := got.Events[len(got.Events)-1].Body
+	if !strings.Contains(last, "Action: blocked") || !strings.Contains(last, "Status: blocked") {
+		t.Fatalf("blocked event missing action/status, body=%s", last)
+	}
+	if !strings.Contains(last, "ResultCode: manual_intervention") {
+		t.Fatalf("blocked event missing result code, body=%s", last)
 	}
 }
 
@@ -421,6 +465,106 @@ func TestCommentIssueBlockedByUnresolvedDependsOn(t *testing.T) {
 	}
 	if len(mainIssue.Events) == 0 || !strings.Contains(mainIssue.Events[len(mainIssue.Events)-1].Body, depRef) {
 		t.Fatalf("blocked event should contain dependency ref, events=%v", mainIssue.Events)
+	}
+
+	last := mainIssue.Events[len(mainIssue.Events)-1].Body
+	if !strings.Contains(last, "Action: blocked") || !strings.Contains(last, "Status: blocked") {
+		t.Fatalf("blocked event missing action/status, body=%s", last)
+	}
+	if !strings.Contains(last, "ResultCode: dep_unresolved") {
+		t.Fatalf("blocked event missing result code, body=%s", last)
+	}
+}
+
+func TestCloseIssueAppendsDoneEventWithoutComment(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title: "close without comment",
+		Body:  "body",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+	if err := svc.ClaimIssue(ctx, ClaimIssueInput{
+		IssueRef: issueRef,
+		Assignee: "lead-backend",
+		Actor:    "lead-backend",
+	}); err != nil {
+		t.Fatalf("ClaimIssue() error = %v", err)
+	}
+
+	structuredEvidence := "Role: backend\nRepo: main\nIssueRef: " + issueRef + "\nRunId: none\nSpecRef: none\nContractsRef: none\nAction: update\nStatus: review\nReadUpTo: none\nTrigger: manual:test\n\nSummary:\n- worker result\n\nChanges:\n- PR: none\n- Commit: git:abc123\n\nTests:\n- Command: go test ./...\n- Result: pass\n- Evidence: none\n\nBlockedBy:\n- none\n\nOpenQuestions:\n- none\n\nNext:\n- @integrator close issue\n"
+	if err := svc.CommentIssue(ctx, CommentIssueInput{
+		IssueRef: issueRef,
+		Actor:    "lead-backend",
+		State:    "review",
+		Body:     structuredEvidence,
+	}); err != nil {
+		t.Fatalf("CommentIssue(structured) error = %v", err)
+	}
+
+	if err := svc.CloseIssue(ctx, CloseIssueInput{
+		IssueRef: issueRef,
+	}); err != nil {
+		t.Fatalf("CloseIssue() error = %v", err)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !got.IsClosed {
+		t.Fatalf("issue should be closed")
+	}
+	if len(got.Events) == 0 {
+		t.Fatalf("expected events")
+	}
+
+	last := got.Events[len(got.Events)-1]
+	if last.Actor != "lead-backend" {
+		t.Fatalf("done event actor = %q, want lead-backend", last.Actor)
+	}
+	if !strings.Contains(last.Body, "Action: done") || !strings.Contains(last.Body, "Status: done") {
+		t.Fatalf("done event missing action/status, body=%s", last.Body)
+	}
+	if !strings.Contains(last.Body, "ResultCode: none") {
+		t.Fatalf("done event missing result code, body=%s", last.Body)
+	}
+}
+
+func TestStructuredCommentRejectsInvalidResultCode(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title: "invalid result code",
+		Body:  "body",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+	if err := svc.ClaimIssue(ctx, ClaimIssueInput{
+		IssueRef: issueRef,
+		Assignee: "lead-backend",
+		Actor:    "lead-backend",
+	}); err != nil {
+		t.Fatalf("ClaimIssue() error = %v", err)
+	}
+
+	invalid := "Role: backend\nRepo: main\nIssueRef: " + issueRef + "\nRunId: none\nSpecRef: none\nContractsRef: none\nAction: update\nStatus: review\nResultCode: unknown_code\nReadUpTo: none\nTrigger: manual:test\n\nSummary:\n- worker result\n\nChanges:\n- PR: none\n- Commit: git:abc123\n\nTests:\n- Command: go test ./...\n- Result: pass\n- Evidence: none\n\nBlockedBy:\n- none\n\nOpenQuestions:\n- none\n\nNext:\n- @integrator close issue\n"
+	err = svc.CommentIssue(ctx, CommentIssueInput{
+		IssueRef: issueRef,
+		Actor:    "lead-backend",
+		State:    "review",
+		Body:     invalid,
+	})
+	if err == nil {
+		t.Fatalf("CommentIssue() expected error")
+	}
+	if !errors.Is(err, domainoutbox.ErrInvalidResultCode) {
+		t.Fatalf("CommentIssue() error = %v, want ErrInvalidResultCode", err)
 	}
 }
 
