@@ -40,3 +40,4 @@ state/
 .agents/state/
 state/
 *.sqlite
+.worktrees/
