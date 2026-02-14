@@ -50,7 +50,7 @@ PM 不管：
 
 交付层有三个事实真源：
 
-1. 配置真源：`<outbox_repo>/.agents/workflow.toml`
+1. 配置真源：`<outbox_repo>/workflow.toml`
 2. 协作真源：Issue（`IssueRef`）
 3. 代码真源：PR/commit（以及 CI/test 证据）
 
@@ -79,3 +79,4 @@ PM 不管：
 
 - `docs/workflow/v1.1.md`
 - `docs/workflow/issue-protocol.md`
+

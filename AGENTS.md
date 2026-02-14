@@ -37,5 +37,5 @@ PRs should include: goal, key changes, validation commands run, schema/config im
 
 ## Security & Configuration Tips
 Do not commit local runtime DB artifacts (for example, `.agents/state/*.sqlite`).  
-Use environment variables (`ZHANGGUI_DATABASE_DSN`, etc.) for local overrides instead of hardcoding machine-specific paths.  
+Use environment variables (`ZG_DATABASE_DSN`, etc.) for local overrides instead of hardcoding machine-specific paths.  
 When changing schema files, keep migrations idempotent and backward-safe.

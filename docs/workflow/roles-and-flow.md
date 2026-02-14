@@ -14,7 +14,7 @@
 
 职责：
 
-- 保证每次并行都有一个可追踪的“主键”（V1 选用 Issue 的编号；backend 可为 GitHub/GitLab Issue 或本地 SQLite thread）
+- 保证每次并行都有一个可追踪的“主键”（V1 选用 Issue 的编号；backend 可为 GitHub/GitLab Issue 或本地 SQLite issue）
 - 启动执行单元时明确 `repo_dir`（多 repo 时每个执行单元指向自己的 repo；contracts 相关任务指向 contracts repo）
 - 确保任务描述中包含「当前 contracts 版本引用」（例如 `contracts@<sha|tag>`，或 issue 中约定的版本）
 - 发现阻塞时触发 outbox（发 issue/消息），并把问题路由给合适角色
@@ -88,7 +88,7 @@ Recorder 的价值在于把“线程”变成“可回放的状态机”，减�
 
 ## 推荐流程（不强制）
 
-1. 需求进入：在 Outbox repo（由 `workflow.toml` 指定）创建一个 Issue（GitHub Issue 或本地 SQLite thread），写“目标 + 验收标准 + contracts 引用/版本（如适用）”。
+1. 需求进入：在 Outbox repo（由 `workflow.toml` 指定）创建一个 Issue（GitHub Issue 或本地 SQLite issue），写“目标 + 验收标准 + contracts 引用/版本（如适用）”。
 2. contracts 就绪：架构师确认 proto/版本；必要时先合入 contracts 变更。
 3. 并行实现（两种模式）：
    手动模式：主 agent 分别对 frontend/backend/qa 启动 worker（subagent，各自 `repo_dir`）。
@@ -104,7 +104,7 @@ V1 约定（本仓库当前决策）：
 
 ## 动态角色与分组并发（项目可变）
 
-- 角色是否存在、是否启用，不由系统写死，而由 `<outbox_repo>/.agents/workflow.toml` 的 `roles.enabled` 决定。
+- 角色是否存在、是否启用，不由系统写死，而由 `<outbox_repo>/workflow.toml` 的 `roles.enabled` 决定。
 - 每个角色对应哪个 repo，由 `role_repo` 决定；后端-only 项目可以全部映射到 `main`。
 - 角色组并发由 `groups.<name>.max_concurrent` 决定（项目软限制）。
 - 运行时硬限制由 `agents.defaults.subagents.role_max_concurrent` 决定（系统上限）。
@@ -114,3 +114,4 @@ V1 约定（本仓库当前决策）：
 
 - 接口真源只能有一个：contracts repo 的 proto。
 - 任何接口决策必须落盘：PR/ADR/commit，而不是聊天记录。
+

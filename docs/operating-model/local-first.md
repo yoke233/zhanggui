@@ -15,15 +15,15 @@
 
 在项目 repo 根目录（也是 `<outbox_repo>`）准备：
 
-- `<outbox_repo>/.agents/workflow.toml`（唯一配置真源）
-- `<outbox_repo>/.agents/mailbox/issue.md`（Issue 模板）
-- `<outbox_repo>/.agents/mailbox/comment.md`（Comment 模板）
-- `<outbox_repo>/.agents/state/outbox.sqlite`（SQLite outbox，建议 gitignore，不提交）
+- `<outbox_repo>/workflow.toml`（唯一配置真源）
+- `<outbox_repo>/mailbox/issue.md`（Issue 模板）
+- `<outbox_repo>/mailbox/comment.md`（Comment 模板）
+- `<outbox_repo>/state/outbox.sqlite`（SQLite outbox，建议 gitignore，不提交）
 
 推荐 `.gitignore` 添加：
 
 ```text
-.agents/state/
+state/
 *.sqlite
 ```
 
@@ -36,7 +36,7 @@ version = 1
 
 [outbox]
 backend = "sqlite"
-path = ".agents/state/outbox.sqlite"
+path = "state/outbox.sqlite"
 
 [approval]
 mode = "any"
@@ -118,12 +118,12 @@ Integrator 合并后再写一条事件：
 本地没有 GitHub PR review 事件时，Reviewer 的判定必须写成可计算事件：
 
 - Reviewer 在 Issue 追加一条结构化 comment（由 Lead 单写者规范化写回也可）
-- 使用 comment 模板的 `Review.Result = approved|changes_requested`（见模板扩展建议）
+- 使用 comment 模板中的 `Summary` 明确写 `review:approved` 或 `review:changes_requested`
 
 Phase 1 最小可行做法：
 
-- Reviewer 在 comment 的 `Summary` 中明确写 `review:approved` 或 `review:changes_requested`
-- Phase 2 再由控制平面统一成结构化字段
+- 统一按 `docs/workflow/templates/comment.md` 写回（避免自定义字段漂移）
+- Phase 2 再由控制平面把该判定规范化为结构化字段（例如 `Review.Result`）
 
 ## 7) 切换 worker（本地模式同样要做幂等）
 
@@ -133,3 +133,4 @@ Phase 1 最小可行做法：
 - 只接受当前 `active_run_id` 的结果写回 Outbox
 
 见：`docs/operating-model/executor-protocol.md`
+

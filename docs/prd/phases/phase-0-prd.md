@@ -21,7 +21,7 @@ Phase 0 的目标不是交付自动化功能，而是先把真源和规则固定
 
 - 明确单一协作主键：`IssueRef`。
 - 明确执行主键：`run_id`（而不是第二个 issue）。
-- 明确配置真源：`<outbox_repo>/.agents/workflow.toml`。
+- 明确配置真源：`<outbox_repo>/workflow.toml`。
 - 明确模板真源：Issue/Comment/PR 模板文件。
 - 输出“无歧义”的术语表与跨文档引用链路。
 

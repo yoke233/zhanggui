@@ -1,4 +1,4 @@
-# 项目画像：`.agents/workflow.toml`
+# 项目画像：`workflow.toml`
 
 ## 目标
 
@@ -12,13 +12,13 @@
 
 ## 文件位置与作用域
 
-- V1.1 约定放在 Outbox repo 根目录的：`<outbox_repo>/.agents/workflow.toml`
-  - 它属于“repo 层 overlay”，优先级最高（符合 `.agents/` 的设计哲学）
+- V1.1 约定放在 Outbox repo 根目录的：`<outbox_repo>/workflow.toml`
+  - 它是项目唯一配置入口（single source of config truth）
   - V1.1 约定：本项目只保留 Outbox repo 内的这一份 `workflow.toml` 作为唯一配置真源；其它 repo 不应再放 `workflow.toml`（避免分叉）
 
 说明：
 
-- 本文中的 `<outbox_repo>` 指包含 `.agents/workflow.toml` 的那个 repo 的本地目录。
+- 本文中的 `<outbox_repo>` 指包含 `workflow.toml` 的那个 repo 的本地目录。
   - 它是项目的“配置锚点目录”（single source of config truth）。
   - 在 GitHub/GitLab backend 下，它通常也就是承载 Issue 的 repo（例如 `contracts/`）。
   - 在 SQLite backend 下，它通常就是你的项目仓库根目录（单仓项目），Outbox DB 的相对路径以此目录解析。
@@ -41,12 +41,12 @@ V1 文档仍使用绝对路径作为示例，是为了表达 `repo_dir` 的语�
 
 ```text
 <project_root>/
-  contracts/   # outbox repo (contains .agents/workflow.toml)
+  contracts/   # outbox repo (contains workflow.toml)
   backend/
   frontend/
 ```
 
-示例（在 `contracts/.agents/workflow.toml`）：
+示例（在 `contracts/workflow.toml`）：
 
 ```toml
 [repos]
@@ -67,12 +67,12 @@ version = 1
 [outbox]
 # Outbox backend（承载系统）：github | gitlab | sqlite | ...
 backend = "sqlite"
-path = ".agents/state/outbox.sqlite"
+path = "state/outbox.sqlite"
 #
 # backend=github|gitlab 时必须：
 # repo = "org/contracts"   # 例："org/contracts" 或 "org/backend"
 #
-# backend=sqlite 时必须：path（建议放在 `.agents/state/` 并 gitignore）
+# backend=sqlite 时必须：path（建议放在 `state/` 并 gitignore）
 
 [memory]
 # 项目级记忆根目录（建议与 repo 解耦：单 repo/多 repo 都共用一个 root）
@@ -181,7 +181,7 @@ version = 1
 
 [outbox]
 backend = "sqlite"
-path = ".agents/state/outbox.sqlite"
+path = "state/outbox.sqlite"
 
 [approval]
 mode = "any"
@@ -294,11 +294,12 @@ auto_unblock_when_dependency_closed = true
 
 ## 模板文件（V1 固定要求）
 
-因为 mailbox 采用固定模板，模板文件应当存放在 repo 的 `.agents/` 下并受代码评审：
+因为 mailbox 采用固定模板，模板文件应当存放在 outbox repo 的 `mailbox/` 下并受代码评审：
 
-- Issue 主帖模板：`<outbox_repo>/.agents/mailbox/issue.md`
-- Comment 模板：`<outbox_repo>/.agents/mailbox/comment.md`
+- Issue 主帖模板：`<outbox_repo>/mailbox/issue.md`
+- Comment 模板：`<outbox_repo>/mailbox/comment.md`
 
 mailbox skill 必须读取模板并填充占位符，保证所有人看到的结构一致。
 
 可以先用 `docs/workflow/templates/issue.md` 与 `docs/workflow/templates/comment.md` 作为初始模板拷贝源。
+

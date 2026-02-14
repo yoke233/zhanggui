@@ -14,8 +14,12 @@ Owner：Lead / Architect
 
 ```text
 <outbox_repo>/
-  .agents/
-    workflow.toml            # 项目运行配置真源
+  workflow.toml              # 项目运行配置真源
+  mailbox/
+    issue.md                 # Issue 模板
+    comment.md               # Comment 模板
+  state/
+    outbox.sqlite            # SQLite outbox（本地模式；建议不提交）
   docs/
     operating-model/         # 三层模型与阶段策略
     workflow/                # 协作协议与模板

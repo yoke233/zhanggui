@@ -15,7 +15,7 @@
 
 V1 约定：
 
-- Outbox backend 由 `<outbox_repo>/.agents/workflow.toml` 的 `[outbox]` 段决定（GitHub/GitLab Issues 或本地 SQLite）。
+- Outbox backend 由 `<outbox_repo>/workflow.toml` 的 `[outbox]` 段决定（GitHub/GitLab Issues 或本地 SQLite）。
 - 多 repo 项目推荐把 Outbox 放在 `contracts` repo（集中接口/决策/证据）。
 - 不使用 goclaw `task_id` 作为协作主线，避免 task 与 issue 双真源导致状态漂移。
 
@@ -50,7 +50,7 @@ HTTP 方案（不在本文件强制选型）：
 
 原因：
 
-- goclaw 的部分 `.agents/` 管理工具对 `repo_dir` 有“必须位于 workspace 内”的限制（例如 `agent/tools/agents_target.go` 的校验逻辑）。
+- goclaw 的部分路径管理工具对 `repo_dir` 有“必须位于 workspace 内”的限制（例如 `agent/tools/agents_target.go` 的校验逻辑）。
 - 统一放 workspace 能减少路径/权限相关的意外失败。
 
 V1.1 补充（多环境一致性）：
@@ -89,3 +89,4 @@ Integrator 可以使用一个独立目录（例如 `<workspace>\\integration\\ru
 - Branch protection：必须通过 `buf lint` / `buf breaking` / 生成检查
 - Actions：在 PR 自动输出 breaking change 报告、生成产物差异
 - Issue/PR 关联：实现 PR 必须链接到 contracts 版本或接口变更 PR
+

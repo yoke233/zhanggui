@@ -33,8 +33,10 @@ go.work.sum
 
 # Local outbox runtime state
 .agents/state/
+state/
 *.sqlite
 
 # Local-first runtime state
 .agents/state/
+state/
 *.sqlite

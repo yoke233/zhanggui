@@ -11,7 +11,7 @@ import (
 	"zhanggui/internal/bootstrap/database"
 	"zhanggui/internal/bootstrap/logging"
 	"zhanggui/internal/errs"
-	"zhanggui/internal/infrastructure/persistence/schema"
+	"zhanggui/internal/infrastructure/persistence/sqlite/model"
 )
 
 type App struct {
@@ -59,8 +59,13 @@ func (a *App) InitSchema(ctx context.Context) error {
 	logCtx := logging.WithAttrs(ctx, slog.String("component", "bootstrap.app"))
 	logging.Info(logCtx, "start schema migration")
 
-	if err := a.DB.WithContext(ctx).AutoMigrate(&schema.ProjectMeta{}); err != nil {
-		return errs.Wrap(err, "auto migrate project_meta")
+	if err := a.DB.WithContext(ctx).AutoMigrate(
+		&model.Issue{},
+		&model.IssueLabel{},
+		&model.Event{},
+		&model.OutboxKV{},
+	); err != nil {
+		return errs.Wrap(err, "auto migrate schema")
 	}
 
 	logging.Info(logCtx, "schema migration completed")

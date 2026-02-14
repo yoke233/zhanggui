@@ -111,7 +111,7 @@ P2（Phase 3/4 可选）：
 建议：
 
 - 本地模式可先用 `events` 表追加记录。
-- 若暂时无独立分析库，可在 `.agents/state/` 下保存 `metrics.ndjson`。
+- 若暂时无独立分析库，可在 `state/` 下保存 `metrics.ndjson`。
 
 ## 8. 指标口径（PM 可直接使用）
 

@@ -2,7 +2,7 @@ version = 1
 
 [outbox]
 backend = "sqlite"
-path = ".agents/state/outbox.sqlite"
+path = "state/outbox.sqlite"
 
 [approval]
 mode = "any"

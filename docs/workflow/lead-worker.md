@@ -18,7 +18,7 @@
 ## 核心概念（V1）
 
 - Project：一个交付单元。可能是单 repo，也可能是 frontend/backend/contracts 多 repo。
-- Role：项目启用的一组角色（backend/frontend/qa/integrator/architect/recorder…），由 `<outbox_repo>/.agents/workflow.toml` 决定。
+- Role：项目启用的一组角色（backend/frontend/qa/integrator/architect/recorder…），由 `<outbox_repo>/workflow.toml` 决定。
 - Outbox：公共总线，V1 以 Issue 作为协作真源；backend 可选 GitHub/GitLab Issues 或本地 SQLite（由 `workflow.toml` 的 `[outbox]` 段指定）。
 - Mailbox：向 Outbox 投递/回复的固定模板（见 `docs/workflow/templates/*`）。
 - Accepted Gate：盖章机制（见 `docs/workflow/approval-policy.md`）。
@@ -152,3 +152,4 @@ Worker 不做：
 - 将来需要从 Issue 迁移到 HTTP/Queue，只需复用同一份 proto
 
 V1 不强制实现 proto，但建议把字段设计保持稳定，避免后期迁移成本暴涨。
+

@@ -10,12 +10,36 @@ import (
 	"zhanggui/internal/bootstrap/config"
 	"zhanggui/internal/bootstrap/database"
 	"zhanggui/internal/bootstrap/logging"
+	cacheinfra "zhanggui/internal/infrastructure/cache"
+	sqliterepo "zhanggui/internal/infrastructure/persistence/sqlite/repository"
+	sqliteuow "zhanggui/internal/infrastructure/persistence/sqlite/uow"
+	"zhanggui/internal/ports"
+	"zhanggui/internal/usecase/outbox"
 )
 
 var Module = fx.Options(
 	fx.Provide(provideConfig),
 	fx.Provide(provideDatabase),
 	fx.Provide(provideApp),
+	fx.Provide(
+		fx.Annotate(
+			sqliterepo.NewOutboxRepository,
+			fx.As(new(ports.OutboxRepository)),
+		),
+	),
+	fx.Provide(
+		fx.Annotate(
+			sqliteuow.NewUnitOfWork,
+			fx.As(new(ports.UnitOfWork)),
+		),
+	),
+	fx.Provide(
+		fx.Annotate(
+			cacheinfra.NewSQLiteCache,
+			fx.As(new(ports.Cache)),
+		),
+	),
+	fx.Provide(outbox.NewService),
 )
 
 type configParams struct {

@@ -32,11 +32,11 @@ Approver 不建议写死在代码里，建议由项目画像提供（每个项�
 
 建议以 “repo 层 overlay” 的方式放在项目 repo：
 
-- `<outbox_repo>/.agents/workflow.toml` 的 `[approval]` 段
+- `<outbox_repo>/workflow.toml` 的 `[approval]` 段
 
 配置形式（V1 固定）：
 
-- 仅支持 TOML：`<outbox_repo>/.agents/workflow.toml`
+- 仅支持 TOML：`<outbox_repo>/workflow.toml`
 
 备注：
 
@@ -103,3 +103,4 @@ approvers = ["agent-architect", "agent-integrator", "yoke233"]
 
 - 评论正文自由
 - 结构化信息尽量由 mailbox skill 追加，而不是要求人手写模板
+

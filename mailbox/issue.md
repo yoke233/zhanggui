@@ -44,7 +44,7 @@ Soft (recommended):
   - <to:backend>
   - <to:qa>
 
-Note: `to:<role>` is an Outbox label. When creating the issue/issue, apply these as actual labels (not only in the body).
+Note: `to:<role>` is an Outbox label. When creating the thread/issue, apply these as actual labels (not only in the body).
 
 ## Notes
 <Free-form discussion context>

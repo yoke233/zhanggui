@@ -18,7 +18,7 @@
 
 ## 2. 前置条件（测试环境）
 
-- 已存在 `<outbox_repo>/.agents/workflow.toml`。
+- 已存在 `<outbox_repo>/workflow.toml`。
 - 已存在 Issue/Comment 模板。
 - 有可用的 outbox backend（GitHub/GitLab 或本地 sqlite）。
 - 角色至少包含：Lead、Worker、Reviewer、Integrator。

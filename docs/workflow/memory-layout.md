@@ -30,7 +30,7 @@
 
 一个项目一个 memory root；每个角色一个子目录。
 
-memory root 的位置不强制，但需要可配置（建议写进 `<outbox_repo>/.agents/workflow.toml`，见下文）。
+memory root 的位置不强制，但需要可配置（建议写进 `<outbox_repo>/workflow.toml`，见下文）。
 
 推荐布局如下：
 
@@ -118,7 +118,7 @@ L3（原始记录）：
 
 ## 在 `workflow.toml` 中声明（建议）
 
-为了让不同项目动态决定“记忆根目录在哪、是否启用角色隔离”，建议在 `<outbox_repo>/.agents/workflow.toml` 增加可选段：
+为了让不同项目动态决定“记忆根目录在哪、是否启用角色隔离”，建议在 `<outbox_repo>/workflow.toml` 增加可选段：
 
 ```toml
 [memory]
@@ -142,3 +142,4 @@ auto_inject_topk = 3
 - 将 memory root 从 `workspace/memory` 抽象为可配置路径
 - 在 root 下增加 `roles/<role>/`，并让 Lead 使用自己的 role 目录
 - 语义索引保持可重建（例如现有 memsearch/search manager 都可以对目录递归索引）
+

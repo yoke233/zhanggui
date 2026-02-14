@@ -12,7 +12,7 @@ Owner：PM / Lead / Reviewer
 
 ## 2. 配置真源
 
-- 唯一配置位置：`<outbox_repo>/.agents/workflow.toml`
+- 唯一配置位置：`<outbox_repo>/workflow.toml`
 - V1 仅支持 TOML 配置；不读取 JSON/YAML。
 - 审批配置统一放在 `[approval]` 段。
 
@@ -22,7 +22,7 @@ Owner：PM / Lead / Reviewer
 [approval]
 enabled = true
 approvers = ["lead-integrator", "lead-backend"]
-mode = "any"        # any | all | quorum | sequential
+mode = "any"        # any | all | quorum | staged
 quorum = 1          # mode=quorum 时生效
 ```
 
@@ -89,3 +89,4 @@ quorum = 1          # mode=quorum 时生效
 - 是否遵守当前 `mode` 的通过条件。
 - 是否把审批证据写回 `IssueRef` 对应线程。
 - 是否在驳回后生成新的执行轮次（新 `run_id`）。
+

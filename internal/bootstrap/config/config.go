@@ -93,5 +93,5 @@ func setDefaults(ctx context.Context, v *viper.Viper) {
 	v.SetDefault("app.name", "zhanggui")
 	v.SetDefault("app.env", "local")
 	v.SetDefault("database.driver", "sqlite")
-	v.SetDefault("database.dsn", ".agents/state/outbox.sqlite")
+	v.SetDefault("database.dsn", "state/outbox.sqlite")
 }

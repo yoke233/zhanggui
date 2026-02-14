@@ -27,9 +27,9 @@ V1 推荐两种 backend：
 
 V1 约定（工作流当前决策）：
 
-- Outbox backend 由项目画像 `<outbox_repo>/.agents/workflow.toml` 的 `[outbox]` 段决定：
+- Outbox backend 由项目画像 `<outbox_repo>/workflow.toml` 的 `[outbox]` 段决定：
   - GitHub：`outbox.backend = "github"` + `outbox.repo = "org/repo"`
-  - SQLite：`outbox.backend = "sqlite"` + `outbox.path = ".agents/state/outbox.sqlite"`
+  - SQLite：`outbox.backend = "sqlite"` + `outbox.path = "state/outbox.sqlite"`
 - 如果项目存在独立 `contracts` repo，推荐将 Outbox 放在 contracts（便于把“接口与决策”集中）。
 - 如果项目是后端-only 单 repo，则 Outbox 可直接放在该 repo。
 - Issue 是协作真源（讨论、阻塞、证据、结论都在同一线程内可回放）。
@@ -125,3 +125,4 @@ labels、监听规则、claim/blocked/依赖/开工条件与固定评论模板�
 - `docs/workflow/label-catalog.md`
 - `docs/workflow/templates/issue.md`
 - `docs/workflow/templates/comment.md`
+

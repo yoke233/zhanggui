@@ -14,8 +14,10 @@
 cmd/                                    # Cobra 命令层（interface adapters）
 internal/bootstrap/                     # 组合根（配置、数据库初始化）
 internal/domain/                        # 领域层占位
-internal/usecase/                       # 用例层占位
-internal/infrastructure/persistence/    # 基础设施层（数据库 schema）
+internal/usecase/                       # 用例层（含 outbox 用例与抽象接口）
+internal/infrastructure/cache/          # Cache 适配层（当前 SQLite，后续可替换 Redis）
+internal/infrastructure/persistence/
+  sqlite/model/                         # SQLite 持久化模型（仅本地 backend）
 configs/                                # 配置文件
 ```
 
@@ -39,7 +41,17 @@ go run . init-db
 go run . --help
 ```
 
-4. 运行 lint
+4. Phase-1 本地 outbox 命令（create -> claim -> comment -> close）
+
+```powershell
+go run . outbox create --title '[kind:task] demo' --body-file mailbox/phase-1-pilot-issue.md --label kind:task --label to:backend --label state:todo
+go run . outbox claim --issue local#1 --assignee lead-backend --actor lead-backend --body-file mailbox/phase-1-pilot-comment-claim.md
+go run . outbox comment --issue local#1 --actor lead-backend --state review --body-file mailbox/phase-1-pilot-comment-review.md
+go run . outbox close --issue local#1 --actor lead-integrator --body-file mailbox/phase-1-pilot-comment-done.md
+go run . outbox show --issue local#1
+```
+
+5. 运行 lint
 
 ```powershell
 go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run
@@ -78,16 +90,17 @@ go run github.com/spf13/cobra-cli@latest add init-db
 go run . --config D:\path\to\config.yaml init-db
 ```
 
-环境变量前缀：`ZHANGGUI_`  
+环境变量前缀：`ZG_`  
 例如覆盖数据库路径：
 
 ```powershell
-$env:ZHANGGUI_DATABASE_DSN = '.agents/state/custom.sqlite'
+$env:ZG_DATABASE_DSN = 'state/custom.sqlite'
 ```
 
 ## 说明
 
-当前阶段仅完成项目初始化与架构骨架，不包含具体业务逻辑。
+当前已具备 Phase-1 本地闭环所需最小能力（Issue 创建、claim、结构化 comment、close）。
+Outbox 的 Cache 走用例层抽象接口，当前使用 SQLite 适配器，未来可替换 Redis 而不改用例层。
 
 ## 日志与上下文约定
 

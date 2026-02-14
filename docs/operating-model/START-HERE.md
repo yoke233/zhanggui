@@ -3,16 +3,16 @@
 目标：用最小依赖把协作闭环跑起来（本地只有 git + sqlite；不接 GitHub/GitLab；不写自动化代码）。
 
 真源（必须记住）：
-- 配置真源：`<outbox_repo>/.agents/workflow.toml`（只保留这一份）
+- 配置真源：`<outbox_repo>/workflow.toml`（只保留这一份）
 - 协作真源：Issue（SQLite；`IssueRef = local#<issue_id>`）
 - 交付真源：git commit（没有 PR 时用 `git:<sha>`）
 - 质量真源：可审计证据（本地无 PR review/CI 时，用 Outbox comment 承接 Reviewer 判定）
 
 准备文件（只在 outbox repo）：
-- `<outbox_repo>/.agents/workflow.toml`（SQLite 例子见 `docs/operating-model/local-first.md`）
-- `<outbox_repo>/.agents/mailbox/issue.md`（基线：`docs/workflow/templates/issue.md`）
-- `<outbox_repo>/.agents/mailbox/comment.md`（基线：`docs/workflow/templates/comment.md`）
-- 建议不提交：`<outbox_repo>/.agents/state/outbox.sqlite`（并 gitignore `.agents/state/` 与 `*.sqlite`）
+- `<outbox_repo>/workflow.toml`（SQLite 例子见 `docs/operating-model/local-first.md`）
+- `<outbox_repo>/mailbox/issue.md`（基线：`docs/workflow/templates/issue.md`）
+- `<outbox_repo>/mailbox/comment.md`（基线：`docs/workflow/templates/comment.md`）
+- 建议不提交：`<outbox_repo>/state/outbox.sqlite`（并 gitignore `state/` 与 `*.sqlite`）
 
 开一个任务 Issue（本地 Outbox）：
 - Issue body 用 issue 模板；labels 至少一个 `to:<role>`；得到 `IssueRef = local#<id>`
@@ -30,3 +30,4 @@ Lead/Integrator/Recorder 写回什么（单写者规范化）：
 
 Done / Close（最小闭环）：
 - Outbox 有结构化 comment（Changes + Tests Evidence；必要时含 review 判定）+ close issue
+

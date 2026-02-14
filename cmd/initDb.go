@@ -12,13 +12,14 @@ import (
 	"zhanggui/internal/bootstrap"
 	"zhanggui/internal/bootstrap/logging"
 	"zhanggui/internal/errs"
+	"zhanggui/internal/usecase/outbox"
 )
 
 // initDbCmd represents the initDb command
 var initDbCmd = &cobra.Command{
 	Use:   "init-db",
 	Short: "Initialize database schema",
-	RunE: withApp(func(cmd *cobra.Command, app *bootstrap.App) error {
+	RunE: withApp(func(cmd *cobra.Command, app *bootstrap.App, _ *outbox.Service) error {
 		ctx := logging.WithAttrs(cmd.Context(), slog.String("command", cmd.CommandPath()))
 		logging.Info(ctx, "start init-db")
 

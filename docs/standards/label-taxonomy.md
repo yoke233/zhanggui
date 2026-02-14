@@ -15,20 +15,20 @@ Owner：Lead / PM
 - `kind:*`：任务类型
 - `state:*`：状态机
 - `to:*`：路由目标（谁应关注）
-- `priority:*`：优先级
+- `prio:*`：优先级
 - `review:*`：质量审查结论
 - `decision:*`：业务/集成最终结论
-- `signal:*`：特殊信号（如 `signal:needs-human`）
+- 控制标签（无前缀）：`needs-human`、`autoflow:off`
 
 ## 3. 最小必备标签（V1）
 
 - `kind:task`
 - `state:todo`, `state:doing`, `state:blocked`, `state:review`, `state:done`
 - `to:<role>`（如 `to:backend`, `to:frontend`, `to:qa`, `to:integrator`）
-- `priority:p0` ~ `priority:p3`
+- `prio:p0` ~ `prio:p3`
 - `review:approved`, `review:changes_requested`
 - `decision:accepted`, `decision:rejected`
-- `signal:needs-human`
+- `needs-human`, `autoflow:off`
 
 ## 4. 监听规则
 
@@ -56,6 +56,7 @@ Owner：Lead / PM
 
 ## 7. 治理规则
 
-- 标签定义真源：`<outbox_repo>/.agents/workflow.toml` 的 `[labels]` 段。
+- 标签定义真源：`<outbox_repo>/workflow.toml` 的 `[labels]` 段。
 - 本文与 `workflow.toml` 不一致时，以 `workflow.toml` 为准并同步修文档。
 - 新增标签前必须写明：目的、触发方、监听方、是否影响状态机。
+

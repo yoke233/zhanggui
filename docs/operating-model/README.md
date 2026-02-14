@@ -16,7 +16,7 @@
 
 2. 交付层（Delivery Control）
 - 管队列、节奏、依赖、证据、合并/发布收敛
-- 真源：Issue（协作总线对象）+ PR/commit（代码真源）+ `<outbox_repo>/.agents/workflow.toml`（配置真源）
+- 真源：Issue（协作总线对象）+ PR/commit（代码真源）+ `<outbox_repo>/workflow.toml`（配置真源）
 
 3. 质量层（Quality Gate）
 - Reviewer/QA 只做判定，不派工
@@ -43,6 +43,7 @@
 
 ## 术语（本目录统一用法）
 
-- Issue：协作总线对象。V1 的默认承载由 `<outbox_repo>/.agents/workflow.toml` 的 `[outbox]` 段决定：可以是 GitHub/GitLab Issue，也可以是本地 SQLite issue（见 `docs/operating-model/outbox-backends.md`）。
+- Issue：协作总线对象。V1 的默认承载由 `<outbox_repo>/workflow.toml` 的 `[outbox]` 段决定：可以是 GitHub/GitLab Issue，也可以是本地 SQLite issue（见 `docs/operating-model/outbox-backends.md`）。
 - Spec：需求层的可执行规格，必须包含验收标准与边界。
 - Evidence：交付/质量层的可审计证据（PR、commit、CI、测试命令输出等）。
+

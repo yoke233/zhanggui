@@ -61,7 +61,7 @@ Labels 的目的不是“分类好看”，而是作为路由与状态机，让 
 - 路由的事实源是 Outbox backend 的 labels（`to:<role>`），不是正文里的自由文本。
   - GitHub/GitLab：labels
   - SQLite：`issue_labels`
-- Issue 主帖模板里的 `Routing/ToRoles` 只是提示字段；创建 thread/issue 时必须同步设置对应 label（否则监听与路由不会生效）。
+- Issue 主帖模板里的 `Routing/ToRoles` 只是提示字段；创建 issue 时必须同步设置对应 label（否则监听与路由不会生效）。
 
 ### 2) 状态标签（队列/开工判断）
 

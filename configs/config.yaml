@@ -4,4 +4,4 @@ app:
 
 database:
   driver: sqlite
-  dsn: .agents/state/outbox.sqlite
+  dsn: state/outbox.sqlite

@@ -3,7 +3,7 @@ version = 1
 [outbox]
 # Outbox backend: sqlite | github | gitlab | ...
 backend = "sqlite"
-path = ".agents/state/outbox.sqlite"
+path = "state/outbox.sqlite"
 #
 # For GitHub/GitLab issues:
 # backend = "github"
@@ -92,3 +92,4 @@ close_issue_requires_decision = true
 auto_block_when_dependency_open = true
 # When unblocking automatically, restore to state:doing if assignee is still set; otherwise state:todo.
 auto_unblock_when_dependency_closed = true
+

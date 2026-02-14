@@ -11,9 +11,10 @@ import (
 	"zhanggui/internal/bootstrap"
 	"zhanggui/internal/bootstrap/logging"
 	"zhanggui/internal/errs"
+	"zhanggui/internal/usecase/outbox"
 )
 
-func withApp(run func(cmd *cobra.Command, app *bootstrap.App) error) func(cmd *cobra.Command, args []string) error {
+func withApp(run func(cmd *cobra.Command, app *bootstrap.App, outboxSvc *outbox.Service) error) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		ctx := logging.WithAttrs(
 			cmd.Context(),
@@ -22,6 +23,7 @@ func withApp(run func(cmd *cobra.Command, app *bootstrap.App) error) func(cmd *c
 		)
 
 		var app *bootstrap.App
+		var outboxSvc *outbox.Service
 		fxApp := fx.New(
 			bootstrap.Module,
 			fx.Provide(func() context.Context { return ctx }),
@@ -31,7 +33,7 @@ func withApp(run func(cmd *cobra.Command, app *bootstrap.App) error) func(cmd *c
 					fx.ResultTags(`name:"configFile"`),
 				),
 			),
-			fx.Populate(&app),
+			fx.Populate(&app, &outboxSvc),
 		)
 
 		startCtx, cancelStart := context.WithTimeout(ctx, 10*time.Second)
@@ -49,7 +51,7 @@ func withApp(run func(cmd *cobra.Command, app *bootstrap.App) error) func(cmd *c
 			}
 		}()
 
-		if err := run(cmd, app); err != nil {
+		if err := run(cmd, app, outboxSvc); err != nil {
 			return errs.Wrap(err, "run command")
 		}
 		return nil
