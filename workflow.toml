@@ -6,22 +6,23 @@ path = "state/outbox.sqlite"
 
 [approval]
 mode = "any"
-approvers = ["lead-backend", "lead-qa", "lead-integrator"]
+approvers = ["lead-backend", "lead-reviewer", "lead-qa", "lead-integrator"]
 
 [roles]
-enabled = ["backend", "qa", "integrator", "recorder"]
+enabled = ["backend", "reviewer", "qa", "integrator", "recorder"]
 
 [repos]
 main = "."
 
 [role_repo]
 backend = "main"
+reviewer = "main"
 qa = "main"
 integrator = "main"
 recorder = "main"
 
 [labels]
-routing = ["to:backend", "to:qa", "to:integrator", "to:recorder"]
+routing = ["to:backend", "to:reviewer", "to:qa", "to:integrator", "to:recorder"]
 states = ["state:todo", "state:doing", "state:blocked", "state:review", "state:done"]
 decisions = ["decision:proposed", "decision:accepted", "decision:rejected"]
 controls = ["needs-human", "autoflow:off"]
@@ -32,6 +33,11 @@ priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
 role = "backend"
 max_concurrent = 4
 listen_labels = ["to:backend"]
+
+[groups.reviewer]
+role = "reviewer"
+max_concurrent = 1
+listen_labels = ["to:reviewer", "state:review"]
 
 [groups.qa]
 role = "qa"
@@ -55,6 +61,11 @@ auto_block_when_dependency_open = true
 auto_unblock_when_dependency_closed = true
 
 [executors.backend]
+program = "go"
+args = ["test", "./..."]
+timeout_seconds = 1800
+
+[executors.reviewer]
 program = "go"
 args = ["test", "./..."]
 timeout_seconds = 1800

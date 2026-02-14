@@ -167,6 +167,7 @@ auto_unblock_when_dependency_closed = true
 - 推荐做法：硬上限设为你机器能承受的最大值；项目画像里再做“软限制”，以适配不同项目的规模。
 - `groups.*.listen_labels` 是“订阅过滤器”，用于决定该 group 要监听哪些 issue：
   - V1 建议采用 AND 语义：issue 必须同时包含列表中的所有 labels 才算命中。
+  - Phase 2.5 reviewer-lead 的默认实现可按 OR 语义处理 `["to:reviewer", "state:review"]`（任一命中即可进入 reviewer 候选队列），用于避免 review 漏单。
   - 额外路由仍然生效：被 assignee 指派、或被直接 @mention 的 issue/comment，应当视为命中（见 `docs/workflow/issue-protocol.md`）。
 - V1 建议做一致性校验（避免调度歧义）：
   - `roles.enabled` 为真源：未启用的角色不应被任何 group 激活/监听。

@@ -85,3 +85,25 @@ func TestCurrentStateLabel(t *testing.T) {
 		t.Fatalf("currentStateLabel(no state) = %q, want empty", got)
 	}
 }
+
+func TestNextRoleForReviewChanges(t *testing.T) {
+	testCases := []struct {
+		name   string
+		labels []string
+		want   string
+	}{
+		{name: "backend preferred", labels: []string{"to:backend", "to:frontend"}, want: "backend"},
+		{name: "frontend only", labels: []string{"to:frontend"}, want: "frontend"},
+		{name: "qa fallback", labels: []string{"to:qa"}, want: "qa"},
+		{name: "default backend", labels: []string{"to:reviewer"}, want: "backend"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := nextRoleForReviewChanges(testCase.labels)
+			if got != testCase.want {
+				t.Fatalf("nextRoleForReviewChanges() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

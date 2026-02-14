@@ -261,21 +261,23 @@ func TestLeadSyncOncePersistsCursor(t *testing.T) {
 func TestShouldSkipLeadSpawnByState(t *testing.T) {
 	testCases := []struct {
 		name   string
+		role   string
 		labels []string
 		want   bool
 	}{
-		{name: "blocked", labels: []string{"state:blocked"}, want: true},
-		{name: "review", labels: []string{"state:review"}, want: true},
-		{name: "done", labels: []string{"state:done"}, want: true},
-		{name: "doing", labels: []string{"state:doing"}, want: false},
-		{name: "todo", labels: []string{"state:todo"}, want: false},
-		{name: "no state", labels: []string{"to:backend"}, want: false},
-		{name: "with space", labels: []string{"  state:review  "}, want: true},
+		{name: "blocked", role: "backend", labels: []string{"state:blocked"}, want: true},
+		{name: "review backend", role: "backend", labels: []string{"state:review"}, want: true},
+		{name: "review reviewer", role: "reviewer", labels: []string{"state:review"}, want: false},
+		{name: "done", role: "backend", labels: []string{"state:done"}, want: true},
+		{name: "doing", role: "backend", labels: []string{"state:doing"}, want: false},
+		{name: "todo", role: "backend", labels: []string{"state:todo"}, want: false},
+		{name: "no state", role: "backend", labels: []string{"to:backend"}, want: false},
+		{name: "with space", role: "backend", labels: []string{"  state:review  "}, want: true},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := shouldSkipLeadSpawnByState(testCase.labels)
+			got := shouldSkipLeadSpawnByState(testCase.role, testCase.labels)
 			if got != testCase.want {
 				t.Fatalf("shouldSkipLeadSpawnByState() = %v, want %v", got, testCase.want)
 			}

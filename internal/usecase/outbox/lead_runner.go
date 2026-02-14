@@ -117,11 +117,7 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 		}
 	}
 
-	issueQueue, err := s.repo.ListIssues(ctx, ports.OutboxIssueFilter{
-		IncludeClosed: false,
-		IncludeLabels: listenLabels,
-		ExcludeLabels: []string{"autoflow:off"},
-	})
+	issueQueue, err := s.listRoleQueueIssues(ctx, role, listenLabels)
 	if err != nil {
 		return LeadSyncResult{}, err
 	}
@@ -191,6 +187,42 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 	return result, nil
 }
 
+func (s *Service) listRoleQueueIssues(ctx context.Context, role string, listenLabels []string) ([]ports.OutboxIssue, error) {
+	normalizedRole := strings.TrimSpace(role)
+	if normalizedRole == "reviewer" && len(listenLabels) > 1 {
+		items := make([]ports.OutboxIssue, 0)
+		seen := make(map[uint64]struct{})
+		for _, label := range listenLabels {
+			normalizedLabel := strings.TrimSpace(label)
+			if normalizedLabel == "" {
+				continue
+			}
+			rows, err := s.repo.ListIssues(ctx, ports.OutboxIssueFilter{
+				IncludeClosed: false,
+				IncludeLabels: []string{normalizedLabel},
+				ExcludeLabels: []string{"autoflow:off"},
+			})
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				if _, ok := seen[row.IssueID]; ok {
+					continue
+				}
+				seen[row.IssueID] = struct{}{}
+				items = append(items, row)
+			}
+		}
+		return items, nil
+	}
+
+	return s.repo.ListIssues(ctx, ports.OutboxIssueFilter{
+		IncludeClosed: false,
+		IncludeLabels: listenLabels,
+		ExcludeLabels: []string{"autoflow:off"},
+	})
+}
+
 type leadIssueProcessInput struct {
 	Role           string
 	Assignee       string
@@ -220,7 +252,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	if containsString(labels, "autoflow:off") {
 		return leadIssueOutcome{}, nil
 	}
-	if shouldSkipLeadSpawnByState(labels) {
+	if shouldSkipLeadSpawnByState(input.Role, labels) {
 		return leadIssueOutcome{}, nil
 	}
 
@@ -235,7 +267,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Trigger:      "manual:needs-human",
 			Summary:      "issue has needs-human label",
 			BlockedBy:    []string{"needs-human"},
-			Next:         "@backend remove needs-human after manual review",
+			Next:         fmt.Sprintf("@%s remove needs-human after manual review", input.Role),
 			Tests:        WorkResultTests{},
 			Changes:      WorkResultChanges{},
 			OpenQuestion: "none",
@@ -267,7 +299,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Trigger:      "manual:depends-on",
 			Summary:      "issue has unresolved dependencies",
 			BlockedBy:    unresolved,
-			Next:         "@backend wait until dependencies are closed",
+			Next:         fmt.Sprintf("@%s wait until dependencies are closed", input.Role),
 			Tests:        WorkResultTests{},
 			Changes:      WorkResultChanges{},
 			OpenQuestion: "none",
@@ -334,7 +366,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Trigger:      "workrun:" + runID,
 			Summary:      "worker execution failed: " + err.Error(),
 			BlockedBy:    []string{"worker-execution"},
-			Next:         "@backend retry with a new run",
+			Next:         fmt.Sprintf("@%s retry with a new run", input.Role),
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -364,7 +396,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Trigger:      "workrun:" + runID,
 			Summary:      "worker result is missing or invalid: " + err.Error(),
 			BlockedBy:    []string{"worker-result"},
-			Next:         "@backend provide parseable work result",
+			Next:         fmt.Sprintf("@%s provide parseable work result", input.Role),
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -394,7 +426,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Trigger:      "workrun:" + runID,
 			Summary:      "work result echo validation failed: " + err.Error(),
 			BlockedBy:    []string{"work-result-echo"},
-			Next:         "@backend fix work result issue_ref/run_id",
+			Next:         fmt.Sprintf("@%s fix work result issue_ref/run_id", input.Role),
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -412,17 +444,32 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	action := "update"
 	summary := "worker completed with evidence"
 	next := "@integrator review and merge"
+
+	if input.Role == "reviewer" {
+		summary = "review completed with evidence"
+		next = "@integrator finalize review decision"
+	}
+
 	if err := domainoutbox.ValidateWorkResultEvidence(result.toDomain()); err != nil {
 		status = "blocked"
 		action = "blocked"
 		summary = "work result is missing required evidence: " + err.Error()
-		next = "@backend provide PR/Commit and Tests evidence"
+		next = fmt.Sprintf("@%s provide PR/Commit and Tests evidence", input.Role)
 	}
-	if strings.TrimSpace(result.ResultCode) != "" {
+
+	if input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested" {
+		targetRole := nextRoleForReviewChanges(labels)
+		status = "blocked"
+		action = "blocked"
+		summary = "review requested changes"
+		next = fmt.Sprintf("@%s address review changes and rerun", targetRole)
+	}
+
+	if strings.TrimSpace(result.ResultCode) != "" && !(input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested") {
 		status = "blocked"
 		action = "blocked"
 		summary = "worker reported result_code: " + result.ResultCode
-		next = "@backend investigate failure and rerun"
+		next = fmt.Sprintf("@%s investigate failure and rerun", input.Role)
 	}
 
 	body := buildStructuredComment(StructuredCommentInput{
@@ -604,14 +651,32 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func shouldSkipLeadSpawnByState(labels []string) bool {
+func shouldSkipLeadSpawnByState(role string, labels []string) bool {
 	state := currentStateLabel(labels)
 	switch state {
-	case "state:blocked", "state:review", "state:done":
+	case "state:blocked", "state:done":
 		return true
+	case "state:review":
+		return strings.TrimSpace(role) != "reviewer"
 	default:
 		return false
 	}
+}
+
+func nextRoleForReviewChanges(labels []string) string {
+	if containsString(labels, "to:frontend") && !containsString(labels, "to:backend") {
+		return "frontend"
+	}
+	if containsString(labels, "to:backend") {
+		return "backend"
+	}
+	if containsString(labels, "to:frontend") {
+		return "frontend"
+	}
+	if containsString(labels, "to:qa") {
+		return "qa"
+	}
+	return "backend"
 }
 
 func currentStateLabel(labels []string) string {

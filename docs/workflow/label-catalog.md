@@ -70,12 +70,14 @@
 说明：
 
 - 本文中的 “listen A, B” 建议按 AND 语义理解：issue 同时具备这些 labels 才算命中该角色队列。
+- Phase 2.5 中 reviewer-lead 可例外使用 OR 语义监听 `to:reviewer` 与 `state:review`（任一命中），用于降低评审漏单风险。
 - assignee 与 @mention 仍然是额外路由信号：被指派/被点名的 issue/comment 应当被处理（见 `docs/workflow/issue-protocol.md`）。
 - Phase 1 人工跑通时，`state:*` 是推荐标签（Soft）：缺失不应阻塞开工，但会影响队列过滤与后续自动化。
 
 - `architect`: listen `to:architect`, `decision:proposed`
 - `backend`: listen `to:backend`
 - `frontend`: listen `to:frontend`
+- `reviewer`: listen `to:reviewer`, `state:review`（OR）
 - `qa`: listen `to:qa`, `state:review`
 - `integrator`: listen `to:integrator`, `state:review`
 - `recorder`: listen `to:recorder`
