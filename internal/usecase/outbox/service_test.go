@@ -3,6 +3,8 @@ package outbox
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +46,18 @@ func (c *testCache) Delete(_ context.Context, key string) error {
 func setupServiceWithDB(t *testing.T) (*Service, *testCache, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(gormsqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := filepath.Join(t.TempDir(), "outbox.sqlite")
+	db, err := gorm.Open(gormsqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
 
 	if err := db.Exec("PRAGMA foreign_keys = ON;").Error; err != nil {
 		t.Fatalf("enable foreign keys: %v", err)
@@ -620,4 +630,187 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func writeTestWorkflow(t *testing.T) string {
+	t.Helper()
+
+	content := `
+version = 1
+
+[outbox]
+backend = "sqlite"
+path = "state/outbox.sqlite"
+
+[roles]
+enabled = ["backend"]
+
+[repos]
+main = "."
+
+[role_repo]
+backend = "main"
+
+[groups.backend]
+role = "backend"
+max_concurrent = 4
+listen_labels = ["to:backend"]
+
+[executors.backend]
+program = "go"
+args = ["test", "./..."]
+timeout_seconds = 30
+`
+	path := filepath.Join(t.TempDir(), "workflow.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write workflow file: %v", err)
+	}
+	return path
+}
+
+func TestLeadSyncOnceSkipsUnclaimedIssue(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeTestWorkflow(t)
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "unclaimed issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:todo"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:         "backend",
+		Assignee:     "lead-backend",
+		WorkflowFile: workflowPath,
+		EventBatch:   100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Processed != 0 {
+		t.Fatalf("Processed = %d, want 0", result.Processed)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if len(got.Events) != 0 {
+		t.Fatalf("events len = %d, want 0", len(got.Events))
+	}
+}
+
+func TestLeadSyncOnceSkipsReviewIssue(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeTestWorkflow(t)
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "review issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:todo"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+	if err := svc.ClaimIssue(ctx, ClaimIssueInput{
+		IssueRef: issueRef,
+		Assignee: "lead-backend",
+		Actor:    "lead-backend",
+	}); err != nil {
+		t.Fatalf("ClaimIssue() error = %v", err)
+	}
+	if err := svc.CommentIssue(ctx, CommentIssueInput{
+		IssueRef: issueRef,
+		Actor:    "lead-backend",
+		State:    "review",
+		Body:     "worker finished",
+	}); err != nil {
+		t.Fatalf("CommentIssue() error = %v", err)
+	}
+
+	before, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(before) error = %v", err)
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:           "backend",
+		Assignee:       "lead-backend",
+		WorkflowFile:   workflowPath,
+		ExecutablePath: "definitely-not-existing-executable",
+		EventBatch:     100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Processed != 0 {
+		t.Fatalf("Processed = %d, want 0", result.Processed)
+	}
+	if result.Spawned != 0 {
+		t.Fatalf("Spawned = %d, want 0", result.Spawned)
+	}
+
+	after, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(after) error = %v", err)
+	}
+	if len(after.Events) != len(before.Events) {
+		t.Fatalf("events len = %d, want %d", len(after.Events), len(before.Events))
+	}
+}
+
+func TestLeadSyncOnceWorkerFailureWritesBlocked(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeTestWorkflow(t)
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "claimed issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:todo"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+	if err := svc.ClaimIssue(ctx, ClaimIssueInput{
+		IssueRef: issueRef,
+		Assignee: "lead-backend",
+		Actor:    "lead-backend",
+	}); err != nil {
+		t.Fatalf("ClaimIssue() error = %v", err)
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:           "backend",
+		Assignee:       "lead-backend",
+		WorkflowFile:   workflowPath,
+		ExecutablePath: "definitely-not-existing-executable",
+		EventBatch:     100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Blocked != 1 {
+		t.Fatalf("Blocked = %d, want 1", result.Blocked)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !contains(got.Labels, "state:blocked") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	if len(got.Events) == 0 {
+		t.Fatalf("events should not be empty")
+	}
+	last := got.Events[len(got.Events)-1].Body
+	if !strings.Contains(last, "worker execution failed") {
+		t.Fatalf("last event body = %s", last)
+	}
 }

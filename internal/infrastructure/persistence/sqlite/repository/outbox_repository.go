@@ -52,6 +52,20 @@ func (r *OutboxRepository) ListIssues(ctx context.Context, filter ports.OutboxIs
 	if assignee := strings.TrimSpace(filter.Assignee); assignee != "" {
 		query = query.Where("assignee = ?", assignee)
 	}
+	if len(filter.IncludeLabels) > 0 {
+		sub := db.Model(&model.IssueLabel{}).
+			Select("issue_id").
+			Where("label IN ?", filter.IncludeLabels).
+			Group("issue_id").
+			Having("count(distinct label) = ?", len(filter.IncludeLabels))
+		query = query.Where("issue_id IN (?)", sub)
+	}
+	if len(filter.ExcludeLabels) > 0 {
+		sub := db.Model(&model.IssueLabel{}).
+			Select("issue_id").
+			Where("label IN ?", filter.ExcludeLabels)
+		query = query.Where("issue_id NOT IN (?)", sub)
+	}
 
 	var rows []model.Issue
 	if err := query.Order("issue_id asc").Find(&rows).Error; err != nil {
@@ -100,6 +114,35 @@ func (r *OutboxRepository) ListIssueEvents(ctx context.Context, issueID uint64) 
 		return nil, err
 	}
 	return listIssueEvents(db, issueID)
+}
+
+func (r *OutboxRepository) ListEventsAfter(ctx context.Context, afterEventID uint64, limit int) ([]ports.OutboxEvent, error) {
+	db, err := r.dbFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	query := db.Model(&model.Event{}).Where("event_id > ?", afterEventID).Order("event_id asc")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var rows []model.Event
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, errs.Wrap(err, "query events")
+	}
+
+	items := make([]ports.OutboxEvent, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, ports.OutboxEvent{
+			EventID:   row.EventID,
+			IssueID:   row.IssueID,
+			Actor:     row.Actor,
+			Body:      row.Body,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	return items, nil
 }
 
 func (r *OutboxRepository) CreateIssue(ctx context.Context, issue ports.OutboxIssue, labels []string) (ports.OutboxIssue, error) {

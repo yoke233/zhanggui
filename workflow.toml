@@ -53,3 +53,8 @@ require_claim_before_work = true
 close_issue_requires_decision = true
 auto_block_when_dependency_open = true
 auto_unblock_when_dependency_closed = true
+
+[executors.backend]
+program = "go"
+args = ["test", "./..."]
+timeout_seconds = 1800

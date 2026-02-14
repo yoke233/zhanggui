@@ -10,6 +10,8 @@ var ErrIssueNotFound = errors.New("outbox issue not found")
 type OutboxIssueFilter struct {
 	IncludeClosed bool
 	Assignee      string
+	IncludeLabels []string
+	ExcludeLabels []string
 }
 
 type OutboxIssue struct {
@@ -43,6 +45,7 @@ type OutboxReadRepository interface {
 	GetIssue(ctx context.Context, issueID uint64) (OutboxIssue, error)
 	ListIssueLabels(ctx context.Context, issueID uint64) ([]string, error)
 	ListIssueEvents(ctx context.Context, issueID uint64) ([]OutboxEvent, error)
+	ListEventsAfter(ctx context.Context, afterEventID uint64, limit int) ([]OutboxEvent, error)
 }
 
 type OutboxRepository interface {

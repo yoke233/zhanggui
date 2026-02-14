@@ -6,6 +6,9 @@
 - `comment_issue.go`: append comment + workflow state transition usecase.
 - `close_issue.go`: close issue usecase.
 - `read_ops.go`: list/show query usecases.
+- `lead_runner.go`: polling + cursor lead sync and worker dispatch orchestration.
+- `worker_runner.go`: worker runtime execution and work_result normalization.
+- `workflow_profile.go`: workflow.toml runtime profile loading helpers.
 - `workflow_policy.go`: workflow guards and normalization policy.
 - `persistence_helpers.go`: repository-backed helpers for labels/events/dependency checks.
 - `utils.go`: parsing and low-level value helpers.

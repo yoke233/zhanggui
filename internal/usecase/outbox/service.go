@@ -20,9 +20,11 @@ var (
 )
 
 type Service struct {
-	repo  ports.OutboxRepository
-	uow   ports.UnitOfWork
-	cache ports.Cache
+	repo             ports.OutboxRepository
+	uow              ports.UnitOfWork
+	cache            ports.Cache
+	workerInvoker    func(context.Context, invokeWorkerInput) error
+	workResultLoader func(string) (WorkResultEnvelope, error)
 }
 
 // NewService wires outbox usecases with repository and optional cache.
