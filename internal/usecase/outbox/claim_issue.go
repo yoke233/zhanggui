@@ -63,10 +63,16 @@ func (s *Service) ClaimIssue(ctx context.Context, input ClaimIssueInput) error {
 			return err
 		}
 
-		if comment != "" {
-			if err := appendEventTx(txCtx, s.repo, issueID, actor, comment, now); err != nil {
-				return err
-			}
+		body := comment
+		if body == "" {
+			body = fmt.Sprintf("claimed by %s", assignee)
+		}
+		normalizedBody := normalizeCommentBodyWithAction(input.IssueRef, actor, "claim", "state:doing", body)
+		if err := validateOptionalResultCodeInCommentBody(normalizedBody); err != nil {
+			return err
+		}
+		if err := appendEventTx(txCtx, s.repo, issueID, actor, normalizedBody, now); err != nil {
+			return err
 		}
 
 		return nil
