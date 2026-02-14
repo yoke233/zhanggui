@@ -1,0 +1,38 @@
+run:
+  timeout: 3m
+
+linters:
+  disable-all: true
+  enable:
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - gofmt
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+linters-settings:
+  depguard:
+    rules:
+      main:
+        deny:
+          - pkg: "github.com/pkg/errors"
+            desc: "Use internal/errs (Wrap/Wrapf/WithStack) and std errors chain"
+
+  forbidigo:
+    forbid:
+      - p: 'pkgerrors\.(Wrapf?|WithMessage|WithStack|Cause)\('
+        msg: "Use internal/errs.Wrap/Wrapf/WithStack + errors.Is/As"
+      - p: 'errors\.(Wrapf?|WithMessage|WithStack|Cause)\('
+        msg: "Use internal/errs.Wrap/Wrapf/WithStack + errors.Is/As"
+
+issues:
+  exclude-use-default: false
+  exclude-rules:
+    - path: "^legacy/"
+      linters:
+        - depguard
+        - forbidigo

@@ -1,0 +1,7 @@
+app:
+  name: zhanggui
+  env: local
+
+database:
+  driver: sqlite
+  dsn: .agents/state/outbox.sqlite

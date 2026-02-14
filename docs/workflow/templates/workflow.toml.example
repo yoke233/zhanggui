@@ -1,0 +1,94 @@
+version = 1
+
+[outbox]
+# Outbox backend: sqlite | github | gitlab | ...
+backend = "sqlite"
+path = ".agents/state/outbox.sqlite"
+#
+# For GitHub/GitLab issues:
+# backend = "github"
+# repo = "org/contracts" # owner/repo
+
+[memory]
+# Project-level memory root (shared across repos in a multi-repo project)
+root = "D:\\workspace\\_goclaw_memory\\my-project"
+layout = "project+roles" # future: project-only | project+roles
+auto_inject_topk = 3
+
+[approval]
+# V1: any | future: all | quorum | staged
+mode = "any"
+approvers = ["agent-architect", "agent-integrator", "yoke233"]
+
+[roles]
+enabled = ["architect", "backend", "frontend", "qa", "integrator", "recorder"]
+
+[repos]
+# NOTE (V1.1): prefer relative paths for multi-environment leads.
+# Resolve relative paths against the directory containing workflow.toml.
+# Recommended layout: sibling repos under one project root (outbox repo contains this file).
+contracts = "."
+backend = "../backend"
+frontend = "../frontend"
+
+[role_repo]
+architect = "contracts"
+backend = "backend"
+frontend = "frontend"
+qa = "backend"
+integrator = "backend"
+recorder = "contracts"
+
+[labels]
+routing = [
+  "to:architect",
+  "to:backend",
+  "to:frontend",
+  "to:qa",
+  "to:integrator",
+  "to:recorder"
+]
+states = ["state:todo", "state:doing", "state:blocked", "state:review", "state:done"]
+decisions = ["decision:proposed", "decision:accepted", "decision:rejected"]
+controls = ["needs-human", "autoflow:off"]
+types = ["kind:task", "kind:bug", "kind:question", "kind:proposal", "kind:blocker"]
+priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
+
+[groups.architect]
+role = "architect"
+max_concurrent = 1
+listen_labels = ["to:architect", "decision:proposed"]
+
+[groups.backend]
+role = "backend"
+max_concurrent = 4
+listen_labels = ["to:backend"]
+
+[groups.frontend]
+role = "frontend"
+max_concurrent = 3
+listen_labels = ["to:frontend"]
+
+[groups.qa]
+role = "qa"
+max_concurrent = 2
+listen_labels = ["to:qa", "state:review"]
+
+[groups.integrator]
+role = "integrator"
+max_concurrent = 1
+listen_labels = ["to:integrator", "state:review"]
+
+[groups.recorder]
+role = "recorder"
+max_concurrent = 1
+listen_labels = ["to:recorder"]
+
+[flow]
+require_claim_before_work = true
+# When true: issues that require approval (e.g. have decision:proposed) must reach decision:accepted
+# before being marked done/closed. Regular kind:task issues without decision labels are unaffected.
+close_issue_requires_decision = true
+auto_block_when_dependency_open = true
+# When unblocking automatically, restore to state:doing if assignee is still set; otherwise state:todo.
+auto_unblock_when_dependency_closed = true
