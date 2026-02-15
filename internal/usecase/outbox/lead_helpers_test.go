@@ -86,6 +86,42 @@ func TestCurrentStateLabel(t *testing.T) {
 	}
 }
 
+func TestGetActiveRunID(t *testing.T) {
+	svc, cache := setupService(t)
+	ctx := context.Background()
+
+	issueRef := "local#66"
+	cacheKey := leadActiveRunKey("backend", issueRef)
+	cache.data[cacheKey] = "2026-02-15-backend-0003"
+
+	runID, found, err := svc.GetActiveRunID(ctx, "backend", issueRef)
+	if err != nil {
+		t.Fatalf("GetActiveRunID() error = %v", err)
+	}
+	if !found {
+		t.Fatalf("GetActiveRunID() found = false, want true")
+	}
+	if runID != "2026-02-15-backend-0003" {
+		t.Fatalf("GetActiveRunID() runID = %q", runID)
+	}
+}
+
+func TestGetActiveRunIDNotFound(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	runID, found, err := svc.GetActiveRunID(ctx, "backend", "local#77")
+	if err != nil {
+		t.Fatalf("GetActiveRunID() error = %v", err)
+	}
+	if found {
+		t.Fatalf("GetActiveRunID() found = true, want false")
+	}
+	if runID != "" {
+		t.Fatalf("GetActiveRunID() runID = %q, want empty", runID)
+	}
+}
+
 func TestNextRoleForReviewChanges(t *testing.T) {
 	testCases := []struct {
 		name   string

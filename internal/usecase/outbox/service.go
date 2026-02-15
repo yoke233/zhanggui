@@ -62,6 +62,28 @@ type CloseIssueInput struct {
 	Comment  string
 }
 
+type UnclaimIssueInput struct {
+	IssueRef string
+	Actor    string
+	Comment  string
+}
+
+type LeadRunIssueInput struct {
+	Role           string
+	Assignee       string
+	IssueRef       string
+	WorkflowFile   string
+	ConfigFile     string
+	ExecutablePath string
+	ForceSpawn     bool
+}
+
+type LeadRunIssueResult struct {
+	Processed bool
+	Blocked   bool
+	Spawned   bool
+}
+
 type IssueListItem struct {
 	IssueRef  string
 	Title     string

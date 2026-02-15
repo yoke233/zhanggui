@@ -224,15 +224,16 @@ func (s *Service) listRoleQueueIssues(ctx context.Context, role string, listenLa
 }
 
 type leadIssueProcessInput struct {
-	Role           string
-	Assignee       string
-	Issue          ports.OutboxIssue
-	WorkflowFile   string
-	ConfigFile     string
-	ExecutablePath string
-	Profile        workflowProfile
-	CursorAfter    uint64
-	AllowSpawn     bool
+	Role            string
+	Assignee        string
+	Issue           ports.OutboxIssue
+	WorkflowFile    string
+	ConfigFile      string
+	ExecutablePath  string
+	Profile         workflowProfile
+	CursorAfter     uint64
+	AllowSpawn      bool
+	IgnoreStateSkip bool
 }
 
 func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessInput) (leadIssueOutcome, error) {
@@ -252,7 +253,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	if containsString(labels, "autoflow:off") {
 		return leadIssueOutcome{}, nil
 	}
-	if shouldSkipLeadSpawnByState(input.Role, labels) {
+	if !input.IgnoreStateSkip && shouldSkipLeadSpawnByState(input.Role, labels) {
 		return leadIssueOutcome{}, nil
 	}
 
