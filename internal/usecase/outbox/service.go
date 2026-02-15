@@ -25,6 +25,7 @@ type Service struct {
 	cache            ports.Cache
 	workerInvoker    func(context.Context, invokeWorkerInput) error
 	workResultLoader func(string) (WorkResultEnvelope, error)
+	workdirFactory   func(workflowWorkdirConfig, string, string) (workdirManager, error)
 }
 
 // NewService wires outbox usecases with repository and optional cache.

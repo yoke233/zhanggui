@@ -65,19 +65,41 @@
 
 - `contract:breaking`：接口破坏性变更风险（通常由 architect/integrator 使用）
 
+## 标签多重性（Multiplicity）
+
+说明：底层承载系统（GitHub/GitLab/SQLite）通常允许一个 Issue 拥有多个 labels，但在本协议中不同命名空间的 labels 有不同“多选/互斥”语义。
+
+允许多选（可以同时存在多个）：
+
+- 路由标签：`to:*`
+  - 例：`to:backend` + `to:qa`（并行关注/并行处理）
+- 控制标签：`needs-human`、`autoflow:off`
+  - 例：既需要人类介入，也关闭自动流转
+- 契约扩展：`contract:*`
+  - 允许同时存在多个风险标签（若项目扩展出更多 `contract:*`）
+
+建议互斥（同一时刻最多一个；若出现多个，需由 lead/integrator normalize）：
+
+- 状态标签：`state:*`（`state:todo/doing/blocked/review/done` 只能存在一个）
+- 类型标签：`kind:*`（`kind:task/bug/...` 只能存在一个）
+- 优先级标签：`prio:*`（`prio:p0/p1/p2/p3` 只能存在一个）
+- 决策标签：`decision:*`（`decision:proposed/accepted/rejected` 只能存在一个）
+
+备注：
+
+- 若后续引入质量类标签（例如 `review:*`），也应视为互斥集合（同一时刻最多一个结论）。
+
 ## 监听矩阵（默认）
 
 说明：
 
 - 本文中的 “listen A, B” 建议按 AND 语义理解：issue 同时具备这些 labels 才算命中该角色队列。
-- Phase 2.5 中 reviewer-lead 可例外使用 OR 语义监听 `to:reviewer` 与 `state:review`（任一命中），用于降低评审漏单风险。
 - assignee 与 @mention 仍然是额外路由信号：被指派/被点名的 issue/comment 应当被处理（见 `docs/workflow/issue-protocol.md`）。
 - Phase 1 人工跑通时，`state:*` 是推荐标签（Soft）：缺失不应阻塞开工，但会影响队列过滤与后续自动化。
 
 - `architect`: listen `to:architect`, `decision:proposed`
 - `backend`: listen `to:backend`
 - `frontend`: listen `to:frontend`
-- `reviewer`: listen `to:reviewer`, `state:review`（OR）
 - `qa`: listen `to:qa`, `state:review`
 - `integrator`: listen `to:integrator`, `state:review`
 - `recorder`: listen `to:recorder`

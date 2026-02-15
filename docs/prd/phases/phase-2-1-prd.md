@@ -30,6 +30,7 @@ Phase 2 已引入最小 Lead 自动化（polling + cursor + run_id 幂等），�
 - 不在本阶段实现复杂 dashboard（跨项目 BI、趋势预测等）。
 - 不引入新的协作对象（保持 Issue/Event 模型）。
 - 不改动 `docs/workflow/templates/*` 的协议字段定义。
+- 不在本阶段引入 worktree 工作目录隔离（该能力放在 Phase 2.6）。
 
 ## 3. 用户与场景
 

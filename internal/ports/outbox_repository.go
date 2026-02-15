@@ -55,6 +55,8 @@ type OutboxRepository interface {
 	UpdateIssueUpdatedAt(ctx context.Context, issueID uint64, updatedAt string) error
 	MarkIssueClosed(ctx context.Context, issueID uint64, closedAt string) error
 	ReplaceStateLabel(ctx context.Context, issueID uint64, stateLabel string) error
+	AddIssueLabel(ctx context.Context, issueID uint64, label string) error
+	RemoveIssueLabel(ctx context.Context, issueID uint64, label string) error
 	HasIssueLabel(ctx context.Context, issueID uint64, label string) (bool, error)
 	AppendEvent(ctx context.Context, input OutboxEventCreate) error
 }

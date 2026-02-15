@@ -4,6 +4,13 @@ version = 1
 backend = "sqlite"
 path = "state/outbox.sqlite"
 
+[workdir]
+enabled = true
+backend = "git-worktree"
+root = "/.worktrees/runs"
+cleanup = "immediate"
+roles = ["backend"]
+
 [approval]
 mode = "any"
 approvers = ["lead-backend", "lead-reviewer", "lead-qa", "lead-integrator"]

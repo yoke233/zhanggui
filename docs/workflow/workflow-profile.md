@@ -74,6 +74,21 @@ path = "state/outbox.sqlite"
 #
 # backend=sqlite 时必须：path（建议放在 `state/` 并 gitignore）
 
+[workdir]
+# Phase 2.6：同仓并发隔离（每个 run 独立 workdir）
+# enabled=false 时：Lead/Worker 使用 repo_dir 作为工作目录（默认行为）
+# enabled=true 时：按 run_id 绑定独立 workdir，避免并发污染
+#
+# 当前实现仅支持 backend="git-worktree" + cleanup="immediate"。
+# root 支持相对路径（相对 workflow.toml 所在目录解析），也支持用 "/.worktrees/runs"
+# 这种“以配置锚点目录为根”的写法（实现会把前导 / 视为相对路径）。
+enabled = false
+backend = "git-worktree"
+root = "/.worktrees/runs"
+cleanup = "immediate"
+# 首批 rollout 建议仅启用 backend（后续可扩展到其它角色）
+roles = ["backend"]
+
 [memory]
 # 项目级记忆根目录（建议与 repo 解耦：单 repo/多 repo 都共用一个 root）
 # 参考：docs/workflow/memory-layout.md

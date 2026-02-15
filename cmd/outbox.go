@@ -272,6 +272,63 @@ var outboxShowCmd = &cobra.Command{
 	}),
 }
 
+var outboxLabelCmd = &cobra.Command{
+	Use:   "label",
+	Short: "Add or remove issue labels",
+}
+
+var outboxLabelAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add one or more labels to an issue",
+	RunE: withApp(func(cmd *cobra.Command, _ *bootstrap.App, svc *outbox.Service) error {
+		ctx := logging.WithAttrs(cmd.Context(), slog.String("command", cmd.CommandPath()))
+
+		issueRef, _ := cmd.Flags().GetString("issue")
+		actor, _ := cmd.Flags().GetString("actor")
+		labels, _ := cmd.Flags().GetStringSlice("label")
+
+		if err := svc.AddIssueLabels(ctx, outbox.AddIssueLabelsInput{
+			IssueRef: issueRef,
+			Actor:    actor,
+			Labels:   labels,
+		}); err != nil {
+			logging.Error(ctx, "add issue labels failed", slog.Any("err", errs.Loggable(err)))
+			return errs.Wrap(err, "add issue labels")
+		}
+
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "labels added to issue: %s\n", issueRef); err != nil {
+			return errs.Wrap(err, "write label add output")
+		}
+		return nil
+	}),
+}
+
+var outboxLabelRemoveCmd = &cobra.Command{
+	Use:   "remove",
+	Short: "Remove one or more labels from an issue",
+	RunE: withApp(func(cmd *cobra.Command, _ *bootstrap.App, svc *outbox.Service) error {
+		ctx := logging.WithAttrs(cmd.Context(), slog.String("command", cmd.CommandPath()))
+
+		issueRef, _ := cmd.Flags().GetString("issue")
+		actor, _ := cmd.Flags().GetString("actor")
+		labels, _ := cmd.Flags().GetStringSlice("label")
+
+		if err := svc.RemoveIssueLabels(ctx, outbox.RemoveIssueLabelsInput{
+			IssueRef: issueRef,
+			Actor:    actor,
+			Labels:   labels,
+		}); err != nil {
+			logging.Error(ctx, "remove issue labels failed", slog.Any("err", errs.Loggable(err)))
+			return errs.Wrap(err, "remove issue labels")
+		}
+
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "labels removed from issue: %s\n", issueRef); err != nil {
+			return errs.Wrap(err, "write label remove output")
+		}
+		return nil
+	}),
+}
+
 func init() {
 	rootCmd.AddCommand(outboxCmd)
 	outboxCmd.AddCommand(outboxCreateCmd)
@@ -280,6 +337,9 @@ func init() {
 	outboxCmd.AddCommand(outboxCloseCmd)
 	outboxCmd.AddCommand(outboxListCmd)
 	outboxCmd.AddCommand(outboxShowCmd)
+	outboxCmd.AddCommand(outboxLabelCmd)
+	outboxLabelCmd.AddCommand(outboxLabelAddCmd)
+	outboxLabelCmd.AddCommand(outboxLabelRemoveCmd)
 
 	outboxCreateCmd.Flags().String("title", "", "Issue title")
 	outboxCreateCmd.Flags().String("body", "", "Issue body content")
@@ -314,6 +374,20 @@ func init() {
 
 	outboxShowCmd.Flags().String("issue", "", "IssueRef, for example local#12")
 	_ = outboxShowCmd.MarkFlagRequired("issue")
+
+	outboxLabelAddCmd.Flags().String("issue", "", "IssueRef, for example local#12")
+	outboxLabelAddCmd.Flags().String("actor", "", "Event actor")
+	outboxLabelAddCmd.Flags().StringSlice("label", nil, "Label(s) to add")
+	_ = outboxLabelAddCmd.MarkFlagRequired("issue")
+	_ = outboxLabelAddCmd.MarkFlagRequired("actor")
+	_ = outboxLabelAddCmd.MarkFlagRequired("label")
+
+	outboxLabelRemoveCmd.Flags().String("issue", "", "IssueRef, for example local#12")
+	outboxLabelRemoveCmd.Flags().String("actor", "", "Event actor")
+	outboxLabelRemoveCmd.Flags().StringSlice("label", nil, "Label(s) to remove")
+	_ = outboxLabelRemoveCmd.MarkFlagRequired("issue")
+	_ = outboxLabelRemoveCmd.MarkFlagRequired("actor")
+	_ = outboxLabelRemoveCmd.MarkFlagRequired("label")
 }
 
 func resolveBody(cmd *cobra.Command, required bool) (string, error) {

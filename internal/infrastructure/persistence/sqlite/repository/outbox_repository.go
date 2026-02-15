@@ -277,6 +277,58 @@ func (r *OutboxRepository) ReplaceStateLabel(ctx context.Context, issueID uint64
 	})
 }
 
+func (r *OutboxRepository) AddIssueLabel(ctx context.Context, issueID uint64, label string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return nil
+	}
+
+	if ports.TxFromContext(ctx) != nil {
+		db, err := r.dbFromContext(ctx)
+		if err != nil {
+			return err
+		}
+
+		row := model.IssueLabel{
+			IssueID: issueID,
+			Label:   label,
+		}
+		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return errs.Wrap(err, "insert issue label")
+		}
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := ports.WithTxContext(ctx, tx)
+		return r.AddIssueLabel(txCtx, issueID, label)
+	})
+}
+
+func (r *OutboxRepository) RemoveIssueLabel(ctx context.Context, issueID uint64, label string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return nil
+	}
+
+	if ports.TxFromContext(ctx) != nil {
+		db, err := r.dbFromContext(ctx)
+		if err != nil {
+			return err
+		}
+
+		if err := db.Where("issue_id = ? AND label = ?", issueID, label).Delete(&model.IssueLabel{}).Error; err != nil {
+			return errs.Wrap(err, "delete issue label")
+		}
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := ports.WithTxContext(ctx, tx)
+		return r.RemoveIssueLabel(txCtx, issueID, label)
+	})
+}
+
 func (r *OutboxRepository) HasIssueLabel(ctx context.Context, issueID uint64, label string) (bool, error) {
 	db, err := r.dbFromContext(ctx)
 	if err != nil {

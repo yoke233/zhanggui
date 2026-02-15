@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,9 @@ import (
 	"strconv"
 	"strings"
 
+	"zhanggui/internal/bootstrap/logging"
 	domainoutbox "zhanggui/internal/domain/outbox"
+	"zhanggui/internal/errs"
 	"zhanggui/internal/ports"
 )
 
@@ -332,14 +335,77 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		return leadIssueOutcome{}, err
 	}
 
+	effectiveRepoDir := repoDir
+	var workdirMgr workdirManager
+	workdirCfg := input.Profile.Workdir
+	workdirPath := ""
+	workdirDisplay := ""
+	if shouldUseWorkdir(workdirCfg, input.Role) {
+		factory := s.workdirFactory
+		if factory == nil {
+			factory = func(cfg workflowWorkdirConfig, workflowFile string, repoDir string) (workdirManager, error) {
+				return newGitWorktreeManager(cfg, workflowFile, repoDir)
+			}
+		}
+
+		workdirMgr, err = factory(workdirCfg, input.WorkflowFile, repoDir)
+		if err != nil {
+			return leadIssueOutcome{}, err
+		}
+
+		workdirPath, err = workdirMgr.Prepare(ctx, input.Role, issueRef, runID)
+		if err != nil {
+			body := buildStructuredComment(StructuredCommentInput{
+				Role:         input.Role,
+				IssueRef:     issueRef,
+				RunID:        runID,
+				Action:       "blocked",
+				Status:       "blocked",
+				ReadUpTo:     formatReadUpTo(input.CursorAfter),
+				Trigger:      "workdir:prepare:" + runID,
+				Summary:      "workdir prepare failed: " + err.Error(),
+				BlockedBy:    []string{"workdir-prepare"},
+				Next:         fmt.Sprintf("@%s fix git worktree setup and retry with a new run", input.Role),
+				OpenQuestion: "none",
+			})
+			if commentErr := s.CommentIssue(ctx, CommentIssueInput{
+				IssueRef: issueRef,
+				Actor:    input.Assignee,
+				State:    "blocked",
+				Body:     body,
+			}); commentErr != nil {
+				return leadIssueOutcome{}, commentErr
+			}
+			return leadIssueOutcome{processed: true, blocked: true}, nil
+		}
+
+		effectiveRepoDir = workdirPath
+		workdirDisplay = workdirPath
+		if rel, relErr := filepath.Rel(filepath.Dir(input.WorkflowFile), workdirPath); relErr == nil {
+			if cleaned := filepath.Clean(rel); cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				workdirDisplay = cleaned
+			}
+		}
+	}
+
+	cleanupWorkdir := func() error {
+		if workdirMgr == nil || strings.TrimSpace(workdirPath) == "" {
+			return nil
+		}
+		return workdirMgr.Cleanup(ctx, input.Role, issueRef, runID, workdirPath)
+	}
+
 	contextPackDir := leadContextPackDir(issueRef, runID)
 	workOrder := domainoutbox.WorkOrder{
 		IssueRef: issueRef,
 		RunID:    runID,
 		Role:     input.Role,
-		RepoDir:  repoDir,
+		RepoDir:  effectiveRepoDir,
 	}
 	if err := prepareContextPack(contextPackDir, workOrder, input.Issue.Body, input.CursorAfter); err != nil {
+		if cleanupErr := cleanupWorkdir(); cleanupErr != nil {
+			return leadIssueOutcome{}, errs.Wrap(cleanupErr, "cleanup workdir after context pack failure")
+		}
 		return leadIssueOutcome{}, err
 	}
 
@@ -356,6 +422,16 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		RunID:          runID,
 		Role:           input.Role,
 	}); err != nil {
+		cleanupErr := cleanupWorkdir()
+		blockedBy := []string{"worker-execution"}
+		summary := "worker execution failed: " + err.Error()
+		next := fmt.Sprintf("@%s retry with a new run", input.Role)
+		if cleanupErr != nil {
+			blockedBy = append(blockedBy, "workdir-cleanup")
+			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
+			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+		}
+
 		// Worker execution errors are normalized into blocked events.
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
@@ -365,9 +441,9 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Status:       "blocked",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
-			Summary:      "worker execution failed: " + err.Error(),
-			BlockedBy:    []string{"worker-execution"},
-			Next:         fmt.Sprintf("@%s retry with a new run", input.Role),
+			Summary:      summary,
+			BlockedBy:    blockedBy,
+			Next:         next,
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -387,6 +463,16 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	}
 	result, err := workResultLoader(contextPackDir)
 	if err != nil {
+		cleanupErr := cleanupWorkdir()
+		blockedBy := []string{"worker-result"}
+		summary := "worker result is missing or invalid: " + err.Error()
+		next := fmt.Sprintf("@%s provide parseable work result", input.Role)
+		if cleanupErr != nil {
+			blockedBy = append(blockedBy, "workdir-cleanup")
+			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
+			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+		}
+
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -395,9 +481,9 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Status:       "blocked",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
-			Summary:      "worker result is missing or invalid: " + err.Error(),
-			BlockedBy:    []string{"worker-result"},
-			Next:         fmt.Sprintf("@%s provide parseable work result", input.Role),
+			Summary:      summary,
+			BlockedBy:    blockedBy,
+			Next:         next,
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -413,10 +499,23 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 
 	activeRunID, _, _ := s.cache.Get(ctx, leadActiveRunKey(input.Role, issueRef))
 	if domainoutbox.IsStaleRun(activeRunID, result.RunID) {
+		if cleanupErr := cleanupWorkdir(); cleanupErr != nil {
+			logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "cleanup stale workdir failed", slog.Any("err", errs.Loggable(cleanupErr)), slog.String("issue_ref", issueRef), slog.String("run_id", runID), slog.String("workdir", workdirDisplay))
+		}
 		return leadIssueOutcome{processed: true, spawned: true}, nil
 	}
 
 	if err := domainoutbox.ValidateWorkResultEcho(workOrder, result.toDomain()); err != nil {
+		cleanupErr := cleanupWorkdir()
+		blockedBy := []string{"work-result-echo"}
+		summary := "work result echo validation failed: " + err.Error()
+		next := fmt.Sprintf("@%s fix work result issue_ref/run_id", input.Role)
+		if cleanupErr != nil {
+			blockedBy = append(blockedBy, "workdir-cleanup")
+			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
+			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+		}
+
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -425,9 +524,9 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Status:       "blocked",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
-			Summary:      "work result echo validation failed: " + err.Error(),
-			BlockedBy:    []string{"work-result-echo"},
-			Next:         fmt.Sprintf("@%s fix work result issue_ref/run_id", input.Role),
+			Summary:      summary,
+			BlockedBy:    blockedBy,
+			Next:         next,
 			OpenQuestion: "none",
 		})
 		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
@@ -445,6 +544,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	action := "update"
 	summary := "worker completed with evidence"
 	next := "@integrator review and merge"
+	blockedBy := []string{"none"}
 
 	if input.Role == "reviewer" {
 		summary = "review completed with evidence"
@@ -456,6 +556,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		action = "blocked"
 		summary = "work result is missing required evidence: " + err.Error()
 		next = fmt.Sprintf("@%s provide PR/Commit and Tests evidence", input.Role)
+		blockedBy = []string{"missing-evidence"}
 	}
 
 	if input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested" {
@@ -464,6 +565,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		action = "blocked"
 		summary = "review requested changes"
 		next = fmt.Sprintf("@%s address review changes and rerun", targetRole)
+		blockedBy = []string{"review-changes-requested"}
 	}
 
 	if strings.TrimSpace(result.ResultCode) != "" && !(input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested") {
@@ -471,6 +573,35 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		action = "blocked"
 		summary = "worker reported result_code: " + result.ResultCode
 		next = fmt.Sprintf("@%s investigate failure and rerun", input.Role)
+		blockedBy = []string{"worker-result-code"}
+	}
+
+	if cleanupErr := cleanupWorkdir(); cleanupErr != nil {
+		logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "cleanup workdir failed", slog.Any("err", errs.Loggable(cleanupErr)), slog.String("issue_ref", issueRef), slog.String("run_id", runID), slog.String("workdir", workdirDisplay))
+
+		cleanupSummary := "workdir cleanup failed"
+		if cleanupErr.Error() != "" {
+			cleanupSummary = cleanupSummary + ": " + cleanupErr.Error()
+		}
+
+		status = "blocked"
+		action = "blocked"
+		if strings.TrimSpace(summary) != "" && summary != cleanupSummary {
+			summary = summary + "; " + cleanupSummary
+		} else {
+			summary = cleanupSummary
+		}
+		next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+		cleanupBlockedBy := make([]string, 0, len(blockedBy)+1)
+		for _, item := range blockedBy {
+			normalized := strings.TrimSpace(item)
+			if normalized == "" || normalized == "none" {
+				continue
+			}
+			cleanupBlockedBy = append(cleanupBlockedBy, normalized)
+		}
+		cleanupBlockedBy = append(cleanupBlockedBy, "workdir-cleanup")
+		blockedBy = normalizeLabels(cleanupBlockedBy)
 	}
 
 	body := buildStructuredComment(StructuredCommentInput{
@@ -484,7 +615,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		Summary:      summary,
 		Changes:      result.Changes,
 		Tests:        result.Tests,
-		BlockedBy:    []string{"none"},
+		BlockedBy:    blockedBy,
 		OpenQuestion: "none",
 		Next:         next,
 	})

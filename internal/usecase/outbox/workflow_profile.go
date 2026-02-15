@@ -30,9 +30,18 @@ type workflowExecutorConfig struct {
 	TimeoutSeconds int      `toml:"timeout_seconds"`
 }
 
+type workflowWorkdirConfig struct {
+	Enabled bool     `toml:"enabled"`
+	Backend string   `toml:"backend"`
+	Root    string   `toml:"root"`
+	Cleanup string   `toml:"cleanup"`
+	Roles   []string `toml:"roles"`
+}
+
 type workflowProfile struct {
 	Version   int                               `toml:"version"`
 	Outbox    workflowOutboxConfig              `toml:"outbox"`
+	Workdir   workflowWorkdirConfig             `toml:"workdir"`
 	Roles     workflowRolesConfig               `toml:"roles"`
 	Repos     map[string]string                 `toml:"repos"`
 	RoleRepo  map[string]string                 `toml:"role_repo"`
@@ -55,6 +64,7 @@ func loadWorkflowProfile(workflowFile string) (workflowProfile, error) {
 	if err := toml.Unmarshal(raw, &profile); err != nil {
 		return workflowProfile{}, err
 	}
+	profile.Workdir = resolveWorkdirConfig(profile)
 	return profile, nil
 }
 
@@ -119,4 +129,32 @@ func resolveExecutor(profile workflowProfile, role string) workflowExecutorConfi
 		executor.TimeoutSeconds = 1800
 	}
 	return executor
+}
+
+func resolveWorkdirConfig(profile workflowProfile) workflowWorkdirConfig {
+	cfg := profile.Workdir
+	if !cfg.Enabled {
+		return cfg
+	}
+
+	cfg.Backend = strings.TrimSpace(cfg.Backend)
+	if cfg.Backend == "" {
+		cfg.Backend = "git-worktree"
+	}
+	cfg.Root = strings.TrimSpace(cfg.Root)
+	if cfg.Root == "" {
+		cfg.Root = filepath.Join(".worktrees", "runs")
+	}
+	if filepath.VolumeName(cfg.Root) == "" && !strings.HasPrefix(cfg.Root, `\\`) {
+		cfg.Root = strings.TrimLeft(cfg.Root, `/\`)
+	}
+	cfg.Cleanup = strings.TrimSpace(cfg.Cleanup)
+	if cfg.Cleanup == "" {
+		cfg.Cleanup = "immediate"
+	}
+	cfg.Roles = normalizeLabels(cfg.Roles)
+	if len(cfg.Roles) == 0 {
+		cfg.Roles = []string{"backend"}
+	}
+	return cfg
 }
