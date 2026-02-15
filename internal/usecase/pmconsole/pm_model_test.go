@@ -1,7 +1,8 @@
-package leadconsole
+package pmconsole
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"zhanggui/internal/usecase/outbox"
@@ -67,30 +68,27 @@ func TestRoleMatchesIssue(t *testing.T) {
 	}
 }
 
-func TestFilterIssuesSortAndState(t *testing.T) {
+func TestFilterIssuesAllDoesNotFilterByRole(t *testing.T) {
 	items := []outbox.IssueListItem{
-		{IssueRef: "local#2", UpdatedAt: "2026-02-14T10:00:00Z", Labels: []string{"to:reviewer", "state:blocked"}},
-		{IssueRef: "local#1", UpdatedAt: "2026-02-14T11:00:00Z", Labels: []string{"state:review"}},
-		{IssueRef: "local#3", UpdatedAt: "2026-02-14T09:00:00Z", Labels: []string{"to:backend", "state:review"}},
+		{IssueRef: "local#1", UpdatedAt: "2026-02-14T11:00:00Z", Labels: []string{"to:backend", "state:todo"}},
+		{IssueRef: "local#2", UpdatedAt: "2026-02-14T10:00:00Z", Labels: []string{"to:frontend", "state:todo"}},
+		{IssueRef: "local#3", UpdatedAt: "2026-02-14T09:00:00Z", Labels: []string{"state:review"}},
 	}
 
-	filtered := filterIssues(items, "reviewer", "lead-reviewer", "state:review")
+	filtered := filterIssues(items, "all", "", "state:todo")
 	if len(filtered) != 2 {
 		t.Fatalf("len(filtered) = %d, want 2", len(filtered))
 	}
-	if filtered[0].IssueRef != "local#1" {
-		t.Fatalf("filtered[0].IssueRef = %q, want local#1", filtered[0].IssueRef)
-	}
-	if filtered[1].IssueRef != "local#3" {
-		t.Fatalf("filtered[1].IssueRef = %q, want local#3", filtered[1].IssueRef)
+	if filtered[0].IssueRef != "local#1" || filtered[1].IssueRef != "local#2" {
+		t.Fatalf("filtered refs = %q, %q", filtered[0].IssueRef, filtered[1].IssueRef)
 	}
 
-	all := filterIssues(items, "reviewer", "lead-reviewer", "")
-	if len(all) != 3 {
-		t.Fatalf("len(all) = %d, want 3", len(all))
-	}
-	if all[0].IssueRef != "local#1" || all[1].IssueRef != "local#2" || all[2].IssueRef != "local#3" {
-		t.Fatalf("sorted refs = %q, %q, %q", all[0].IssueRef, all[1].IssueRef, all[2].IssueRef)
+	withAssignee := filterIssues([]outbox.IssueListItem{
+		{IssueRef: "local#1", UpdatedAt: "2026-02-14T11:00:00Z", Assignee: "lead-backend"},
+		{IssueRef: "local#2", UpdatedAt: "2026-02-14T10:00:00Z", Assignee: "lead-frontend"},
+	}, "all", "lead-backend", "")
+	if len(withAssignee) != 1 || withAssignee[0].IssueRef != "local#1" {
+		t.Fatalf("assignee filter mismatch: %+v", withAssignee)
 	}
 }
 
@@ -122,28 +120,81 @@ func TestTrimStatePrefix(t *testing.T) {
 	}
 }
 
-func TestShouldBlockAutoActionNeedsHuman(t *testing.T) {
-	model := &leadModel{
-		ctx:       context.Background(),
-		hasDetail: true,
-		detail: outbox.IssueDetail{
-			Labels: []string{"to:backend", "state:blocked", "needs-human"},
+func TestResolveRouteAssigneePreferred(t *testing.T) {
+	model := &pmModel{
+		enabledRoleSet: map[string]struct{}{
+			"backend":    {},
+			"frontend":   {},
+			"reviewer":   {},
+			"integrator": {},
 		},
 	}
 
-	if !model.shouldBlockAutoAction("spawn") {
-		t.Fatalf("shouldBlockAutoAction(spawn) = false, want true")
+	route := model.resolveRoute("local#1", "lead-backend", []string{"to:frontend", "state:review"})
+	if route.Source != "assignee" || route.Role != "backend" || route.Assignee != "lead-backend" {
+		t.Fatalf("route = %+v", route)
 	}
-	if !model.shouldBlockAutoAction("close") {
-		t.Fatalf("shouldBlockAutoAction(close) = false, want true")
+}
+
+func TestResolveRouteToLabelAmbiguous(t *testing.T) {
+	model := &pmModel{
+		enabledRoleSet: map[string]struct{}{
+			"backend":  {},
+			"frontend": {},
+		},
 	}
-	if model.shouldBlockAutoAction("claim") {
-		t.Fatalf("shouldBlockAutoAction(claim) = true, want false")
+
+	route := model.resolveRoute("local#2", "", []string{"to:backend", "to:frontend", "state:todo"})
+	if route.Source != "ambiguous" {
+		t.Fatalf("route.Source = %q, want ambiguous", route.Source)
+	}
+	if route.Err == nil || !strings.Contains(route.Err.Error(), "multiple to:* labels") {
+		t.Fatalf("route.Err = %v, want multiple to labels error", route.Err)
+	}
+}
+
+func TestResolveRouteStateReviewToReviewer(t *testing.T) {
+	model := &pmModel{
+		enabledRoleSet: map[string]struct{}{
+			"reviewer": {},
+		},
+	}
+
+	route := model.resolveRoute("local#3", "", []string{"state:review"})
+	if route.Role != "reviewer" || route.Assignee != "lead-reviewer" || route.Source != "state-review" {
+		t.Fatalf("route = %+v", route)
+	}
+}
+
+func TestCheckActionAllowedNeedsHumanBlocksAutoAdvance(t *testing.T) {
+	model := &pmModel{
+		enabledRoleSet: map[string]struct{}{
+			"backend": {},
+		},
+	}
+	route := model.resolveRoute("local#4", "lead-backend", []string{"to:backend", "needs-human", "state:doing"})
+	detail := outbox.IssueDetail{
+		IssueRef: "local#4",
+		Assignee: "lead-backend",
+		Labels:   []string{"to:backend", "needs-human", "state:doing"},
+	}
+
+	if err := model.checkActionAllowed("spawn", detail, route); err == nil {
+		t.Fatalf("checkActionAllowed(spawn) expected error")
+	}
+	if err := model.checkActionAllowed("reply", detail, route); err == nil {
+		t.Fatalf("checkActionAllowed(reply) expected error")
+	}
+	if err := model.checkActionAllowed("close", detail, route); err == nil {
+		t.Fatalf("checkActionAllowed(close) expected error")
+	}
+	if err := model.checkActionAllowed("unclaim", detail, route); err != nil {
+		t.Fatalf("checkActionAllowed(unclaim) error = %v, want nil", err)
 	}
 }
 
 func TestIssueDetailLoadedIgnoresStaleSelection(t *testing.T) {
-	model := &leadModel{
+	model := &pmModel{
 		ctx: context.Background(),
 		issues: []outbox.IssueListItem{
 			{IssueRef: "local#1"},
@@ -160,7 +211,7 @@ func TestIssueDetailLoadedIgnoresStaleSelection(t *testing.T) {
 		activeRunFound: true,
 	})
 
-	updated, ok := nextModel.(*leadModel)
+	updated, ok := nextModel.(*pmModel)
 	if !ok {
 		t.Fatalf("type assertion failed: %T", nextModel)
 	}
@@ -173,7 +224,7 @@ func TestIssueDetailLoadedIgnoresStaleSelection(t *testing.T) {
 }
 
 func TestIssueDetailLoadedAppliesCurrentSelection(t *testing.T) {
-	model := &leadModel{
+	model := &pmModel{
 		ctx: context.Background(),
 		issues: []outbox.IssueListItem{
 			{IssueRef: "local#1"},
@@ -190,7 +241,7 @@ func TestIssueDetailLoadedAppliesCurrentSelection(t *testing.T) {
 		activeRunFound: true,
 	})
 
-	updated, ok := nextModel.(*leadModel)
+	updated, ok := nextModel.(*pmModel)
 	if !ok {
 		t.Fatalf("type assertion failed: %T", nextModel)
 	}

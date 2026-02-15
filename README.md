@@ -58,10 +58,10 @@ go run . outbox show --issue local#1
 go run . lead run --role backend --assignee lead-backend --workflow workflow.toml --once
 ```
 
-6. Phase-2.1 Lead 控制台（TUI）
+6. Phase-2.1 PM 控制台（TUI，全局视图）
 
 ```powershell
-go run . console lead --role backend --workflow workflow.toml --refresh-interval 5s
+go run . console pm --workflow workflow.toml --refresh-interval 5s
 ```
 
 控制台快捷键：
@@ -75,6 +75,10 @@ go run . console lead --role backend --workflow workflow.toml --refresh-interval
 - `b`：blocked / unblock
 - `x`：close issue
 - `q`：退出
+
+兼容说明：
+
+- `go run . console lead ...` 仍可用，但已标记为 deprecated（建议迁移到 `console pm`）。
 
 7. 运行 lint
 

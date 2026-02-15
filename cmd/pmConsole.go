@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -11,14 +12,19 @@ import (
 	"zhanggui/internal/bootstrap"
 	"zhanggui/internal/bootstrap/logging"
 	"zhanggui/internal/errs"
-	"zhanggui/internal/usecase/leadconsole"
 	"zhanggui/internal/usecase/outbox"
+	"zhanggui/internal/usecase/pmconsole"
 )
 
-var consoleLeadCmd = &cobra.Command{
-	Use:   "lead",
-	Short: "Start lead operations console",
+var consolePmCmd = &cobra.Command{
+	Use:     "pm",
+	Aliases: []string{"lead"},
+	Short:   "Start PM/Operator operations console (global view)",
 	RunE: withApp(func(cmd *cobra.Command, _ *bootstrap.App, svc *outbox.Service) error {
+		if cmd.CalledAs() == "lead" {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: `console lead` is deprecated; use `console pm` instead")
+		}
+
 		ctx := logging.WithAttrs(cmd.Context(), slog.String("command", cmd.CommandPath()))
 
 		role, _ := cmd.Flags().GetString("role")
@@ -34,7 +40,7 @@ var consoleLeadCmd = &cobra.Command{
 			executablePath = ""
 		}
 
-		model := leadconsole.NewLeadModel(ctx, svc, leadconsole.LeadOptions{
+		model := pmconsole.NewPMModel(ctx, svc, pmconsole.PMOptions{
 			Role:            role,
 			Assignee:        assignee,
 			StateFilter:     state,
@@ -46,17 +52,17 @@ var consoleLeadCmd = &cobra.Command{
 
 		program := tea.NewProgram(model, tea.WithAltScreen())
 		if _, err := program.Run(); err != nil {
-			return errs.Wrap(err, "run lead console")
+			return errs.Wrap(err, "run pm console")
 		}
 		return nil
 	}),
 }
 
 func init() {
-	consoleCmd.AddCommand(consoleLeadCmd)
-	consoleLeadCmd.Flags().String("role", "backend", "Role queue to inspect")
-	consoleLeadCmd.Flags().String("assignee", "", "Assignee filter (default: lead-<role>)")
-	consoleLeadCmd.Flags().String("state", "", "Optional state filter (todo|doing|blocked|review|done)")
-	consoleLeadCmd.Flags().String("workflow", "workflow.toml", "Path to workflow.toml")
-	consoleLeadCmd.Flags().Duration("refresh-interval", 5*time.Second, "Auto refresh interval")
+	consoleCmd.AddCommand(consolePmCmd)
+	consolePmCmd.Flags().String("role", "all", "Scope role filter (all|backend|frontend|qa|reviewer|integrator)")
+	consolePmCmd.Flags().String("assignee", "", "Optional assignee filter (role=all) or override (role!=all)")
+	consolePmCmd.Flags().String("state", "", "Optional state filter (todo|doing|blocked|review|done)")
+	consolePmCmd.Flags().String("workflow", "workflow.toml", "Path to workflow.toml")
+	consolePmCmd.Flags().Duration("refresh-interval", 5*time.Second, "Auto refresh interval")
 }

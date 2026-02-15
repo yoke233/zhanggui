@@ -84,6 +84,10 @@ type LeadRunIssueResult struct {
 	Spawned   bool
 }
 
+type WorkflowSummary struct {
+	EnabledRoles []string
+}
+
 type IssueListItem struct {
 	IssueRef  string
 	Title     string
