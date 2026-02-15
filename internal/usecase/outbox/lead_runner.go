@@ -267,6 +267,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			RunID:        "none",
 			Action:       "blocked",
 			Status:       "blocked",
+			ResultCode:   "manual_intervention",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "manual:needs-human",
 			Summary:      "issue has needs-human label",
@@ -299,6 +300,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			RunID:        "none",
 			Action:       "blocked",
 			Status:       "blocked",
+			ResultCode:   "dep_unresolved",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "manual:depends-on",
 			Summary:      "issue has unresolved dependencies",
@@ -361,6 +363,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 				RunID:        runID,
 				Action:       "blocked",
 				Status:       "blocked",
+				ResultCode:   "env_unavailable",
 				ReadUpTo:     formatReadUpTo(input.CursorAfter),
 				Trigger:      "workdir:prepare:" + runID,
 				Summary:      "workdir prepare failed: " + err.Error(),
@@ -426,10 +429,12 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		blockedBy := []string{"worker-execution"}
 		summary := "worker execution failed: " + err.Error()
 		next := fmt.Sprintf("@%s retry with a new run", input.Role)
+		resultCode := "env_unavailable"
 		if cleanupErr != nil {
 			blockedBy = append(blockedBy, "workdir-cleanup")
 			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
 			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+			resultCode = "manual_intervention"
 		}
 
 		// Worker execution errors are normalized into blocked events.
@@ -439,6 +444,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			RunID:        runID,
 			Action:       "blocked",
 			Status:       "blocked",
+			ResultCode:   resultCode,
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
 			Summary:      summary,
@@ -467,10 +473,12 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		blockedBy := []string{"worker-result"}
 		summary := "worker result is missing or invalid: " + err.Error()
 		next := fmt.Sprintf("@%s provide parseable work result", input.Role)
+		resultCode := "output_unparseable"
 		if cleanupErr != nil {
 			blockedBy = append(blockedBy, "workdir-cleanup")
 			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
 			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+			resultCode = "manual_intervention"
 		}
 
 		body := buildStructuredComment(StructuredCommentInput{
@@ -479,6 +487,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			RunID:        runID,
 			Action:       "blocked",
 			Status:       "blocked",
+			ResultCode:   resultCode,
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
 			Summary:      summary,
@@ -493,6 +502,15 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Body:     body,
 		}); commentErr != nil {
 			return leadIssueOutcome{}, commentErr
+		}
+		if !containsString(labels, "needs-human") {
+			if addErr := s.AddIssueLabels(ctx, AddIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    input.Assignee,
+				Labels:   []string{"needs-human"},
+			}); addErr != nil {
+				logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "add needs-human label failed", slog.Any("err", errs.Loggable(addErr)), slog.String("issue_ref", issueRef))
+			}
 		}
 		return leadIssueOutcome{processed: true, blocked: true, spawned: true}, nil
 	}
@@ -510,10 +528,12 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		blockedBy := []string{"work-result-echo"}
 		summary := "work result echo validation failed: " + err.Error()
 		next := fmt.Sprintf("@%s fix work result issue_ref/run_id", input.Role)
+		resultCode := "output_unparseable"
 		if cleanupErr != nil {
 			blockedBy = append(blockedBy, "workdir-cleanup")
 			summary = summary + "; workdir cleanup failed: " + cleanupErr.Error()
 			next = fmt.Sprintf("@%s cleanup %s and retry with a new run", input.Role, workdirDisplay)
+			resultCode = "manual_intervention"
 		}
 
 		body := buildStructuredComment(StructuredCommentInput{
@@ -522,6 +542,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			RunID:        runID,
 			Action:       "blocked",
 			Status:       "blocked",
+			ResultCode:   resultCode,
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "workrun:" + runID,
 			Summary:      summary,
@@ -537,6 +558,15 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		}); commentErr != nil {
 			return leadIssueOutcome{}, commentErr
 		}
+		if !containsString(labels, "needs-human") {
+			if addErr := s.AddIssueLabels(ctx, AddIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    input.Assignee,
+				Labels:   []string{"needs-human"},
+			}); addErr != nil {
+				logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "add needs-human label failed", slog.Any("err", errs.Loggable(addErr)), slog.String("issue_ref", issueRef))
+			}
+		}
 		return leadIssueOutcome{processed: true, blocked: true, spawned: true}, nil
 	}
 
@@ -545,6 +575,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	summary := "worker completed with evidence"
 	next := "@integrator review and merge"
 	blockedBy := []string{"none"}
+	resultCode := "none"
 
 	if input.Role == "reviewer" {
 		summary = "review completed with evidence"
@@ -557,6 +588,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		summary = "work result is missing required evidence: " + err.Error()
 		next = fmt.Sprintf("@%s provide PR/Commit and Tests evidence", input.Role)
 		blockedBy = []string{"missing-evidence"}
+		resultCode = "manual_intervention"
 	}
 
 	if input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested" {
@@ -566,6 +598,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		summary = "review requested changes"
 		next = fmt.Sprintf("@%s address review changes and rerun", targetRole)
 		blockedBy = []string{"review-changes-requested"}
+		resultCode = "review_changes_requested"
 	}
 
 	if strings.TrimSpace(result.ResultCode) != "" && !(input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested") {
@@ -574,6 +607,14 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		summary = "worker reported result_code: " + result.ResultCode
 		next = fmt.Sprintf("@%s investigate failure and rerun", input.Role)
 		blockedBy = []string{"worker-result-code"}
+		resultCode = strings.TrimSpace(result.ResultCode)
+	}
+
+	if strings.TrimSpace(result.Source) != "" {
+		summary = summary + "\n- WorkResultSource: " + strings.TrimSpace(result.Source)
+	}
+	if _, statErr := os.Stat(filepath.Join(contextPackDir, "work_audit.json")); statErr == nil {
+		summary = summary + "\n- Audit: " + filepath.ToSlash(filepath.Join(contextPackDir, "work_audit.json"))
 	}
 
 	if cleanupErr := cleanupWorkdir(); cleanupErr != nil {
@@ -586,6 +627,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 
 		status = "blocked"
 		action = "blocked"
+		resultCode = "manual_intervention"
 		if strings.TrimSpace(summary) != "" && summary != cleanupSummary {
 			summary = summary + "; " + cleanupSummary
 		} else {
@@ -610,6 +652,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		RunID:        runID,
 		Action:       action,
 		Status:       status,
+		ResultCode:   resultCode,
 		ReadUpTo:     formatReadUpTo(input.CursorAfter),
 		Trigger:      "workrun:" + runID,
 		Summary:      summary,
@@ -734,6 +777,21 @@ type invokeWorkerInput struct {
 	Role           string
 }
 
+func ensureLeadInvokeLogs(ctx context.Context, contextPackDir string) (*os.File, *os.File, error) {
+	stdoutFile, err := os.Create(filepath.Join(contextPackDir, "worker_stdout.log"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	stderrFile, err := os.Create(filepath.Join(contextPackDir, "worker_stderr.log"))
+	if err != nil {
+		stdoutFile.Close()
+		return nil, nil, err
+	}
+
+	return stdoutFile, stderrFile, nil
+}
+
 func (s *Service) invokeWorker(ctx context.Context, input invokeWorkerInput) error {
 	executablePath := strings.TrimSpace(input.ExecutablePath)
 	if executablePath == "" {
@@ -757,16 +815,11 @@ func (s *Service) invokeWorker(ctx context.Context, input invokeWorkerInput) err
 		"ZG_ROLE="+input.Role,
 	)
 
-	stdoutFile, err := os.Create(filepath.Join(input.ContextPackDir, "stdout.log"))
+	stdoutFile, stderrFile, err := ensureLeadInvokeLogs(ctx, input.ContextPackDir)
 	if err != nil {
 		return err
 	}
 	defer stdoutFile.Close()
-
-	stderrFile, err := os.Create(filepath.Join(input.ContextPackDir, "stderr.log"))
-	if err != nil {
-		return err
-	}
 	defer stderrFile.Close()
 
 	cmd.Stdout = stdoutFile

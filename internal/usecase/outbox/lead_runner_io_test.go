@@ -110,10 +110,10 @@ func TestInvokeWorkerContextCanceled(t *testing.T) {
 		t.Fatalf("invokeWorker(canceled context) expected error")
 	}
 
-	if _, statErr := os.Stat(filepath.Join(contextPackDir, "stdout.log")); statErr != nil {
-		t.Fatalf("stdout.log should exist, err=%v", statErr)
+	if _, statErr := os.Stat(filepath.Join(contextPackDir, "worker_stdout.log")); statErr != nil {
+		t.Fatalf("worker_stdout.log should exist, err=%v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(contextPackDir, "stderr.log")); statErr != nil {
-		t.Fatalf("stderr.log should exist, err=%v", statErr)
+	if _, statErr := os.Stat(filepath.Join(contextPackDir, "worker_stderr.log")); statErr != nil {
+		t.Fatalf("worker_stderr.log should exist, err=%v", statErr)
 	}
 }

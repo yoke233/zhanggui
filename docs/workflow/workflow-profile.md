@@ -57,12 +57,12 @@ frontend = "../frontend"
 
 更完整的 V1.1 说明见：`docs/workflow/v1.1.md`。
 
-## 推荐字段（V1）
+## 推荐字段（V2）
 
 下面不是“必须实现的代码接口”，而是工作流协议的最小集合；未来可以增量扩展。
 
 ```toml
-version = 1
+version = 2
 
 [outbox]
 # Outbox backend（承载系统）：github | gitlab | sqlite | ...
@@ -79,7 +79,9 @@ path = "state/outbox.sqlite"
 # enabled=false 时：Lead/Worker 使用 repo_dir 作为工作目录（默认行为）
 # enabled=true 时：按 run_id 绑定独立 workdir，避免并发污染
 #
-# 当前实现仅支持 backend="git-worktree" + cleanup="immediate"。
+# 当前实现支持 backend="git-worktree" + cleanup="immediate|manual"。
+# - immediate：run 结束立即回收 worktree（默认）
+# - manual：保留 worktree 便于检查（需要你手动清理，例如在 TUI 里按 `D`）
 # root 支持相对路径（相对 workflow.toml 所在目录解析），也支持用 "/.worktrees/runs"
 # 这种“以配置锚点目录为根”的写法（实现会把前导 / 视为相对路径）。
 enabled = false
@@ -102,7 +104,7 @@ approvers = ["agent-architect", "agent-integrator", "yoke233"]
 
 [roles]
 # 本项目启用的角色集合；不需要的角色不要写进来
-enabled = ["architect", "backend", "frontend", "qa", "integrator", "recorder"]
+enabled = ["architect", "backend", "frontend", "reviewer", "qa", "integrator", "recorder"]
 
 [repos]
 # 逻辑 repo 名 -> 本地路径（给 sessions_spawn 的 repo_dir 用）
@@ -116,13 +118,14 @@ frontend = "../frontend"
 architect = "contracts"
 backend = "backend"
 frontend = "frontend"
+reviewer = "backend"
 qa = "backend"
 integrator = "backend"
 recorder = "contracts"
 
 [labels]
 # 路由标签：决定“谁监听谁”
-routing = ["to:architect", "to:backend", "to:frontend", "to:qa", "to:integrator", "to:recorder"]
+routing = ["to:architect", "to:backend", "to:frontend", "to:reviewer", "to:qa", "to:integrator", "to:recorder"]
 # 状态标签：用于队列与开工判断
 states = ["state:todo", "state:doing", "state:blocked", "state:review", "state:done"]
 # 决策标签：用于 Accepted Gate
@@ -136,31 +139,50 @@ priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
 [groups.architect]
 role = "architect"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:architect", "decision:proposed"]
 
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [groups.frontend]
 role = "frontend"
 max_concurrent = 3
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:frontend"]
+
+[groups.reviewer]
+role = "reviewer"
+max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
+listen_labels = ["to:reviewer", "state:review"]
 
 [groups.qa]
 role = "qa"
 max_concurrent = 2
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:qa", "state:review"]
 
 [groups.integrator]
 role = "integrator"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:integrator", "state:review"]
 
 [groups.recorder]
 role = "recorder"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:recorder"]
 
 [flow]
@@ -181,10 +203,15 @@ auto_unblock_when_dependency_closed = true
 - goclaw 运行时本身也有“硬并发上限”（见 `agents.defaults.subagents.role_max_concurrent`）。
 - 推荐做法：硬上限设为你机器能承受的最大值；项目画像里再做“软限制”，以适配不同项目的规模。
 - `groups.*.listen_labels` 是“订阅过滤器”，用于决定该 group 要监听哪些 issue：
-  - V1 建议采用 AND 语义：issue 必须同时包含列表中的所有 labels 才算命中。
-  - Phase 2.5 reviewer-lead 的默认实现可按 OR 语义处理 `["to:reviewer", "state:review"]`（任一命中即可进入 reviewer 候选队列），用于避免 review 漏单。
+  - V2 建议采用 AND 语义：issue 必须同时包含列表中的所有 labels 才算命中。
   - 额外路由仍然生效：被 assignee 指派、或被直接 @mention 的 issue/comment，应当视为命中（见 `docs/workflow/issue-protocol.md`）。
-- V1 建议做一致性校验（避免调度歧义）：
+- `groups.*.mode` 定义该组的“处理权限模型”：
+  - `owner`：该组是拥有者；通常要求 `assignee == lead-<role>` 才能处理与推进（适合 backend/integrator 等）。
+  - `subscriber`：该组是订阅者；允许在 `assignee != lead-<role>` 的情况下并行产出判定与证据（适合 reviewer/qa）。
+- `groups.*.writeback` 定义该组的“写回边界”：
+  - `full`：允许推进 `state:*`、claim/unclaim、close 等（应只给单写者角色使用）。
+  - `comment-only`：只允许追加结构化 comment（不得修改 `state:*`、assignee、close、`decision:*`）。
+- V2 建议做一致性校验（避免调度歧义）：
   - `roles.enabled` 为真源：未启用的角色不应被任何 group 激活/监听。
   - 对每个 `roles.enabled` 的 role：必须存在 `role_repo.<role>` 映射。
   - 对每个 `roles.enabled` 的 role：建议至少存在一个 `groups.*` 且其 `role = "<role>"`（缺失会导致并发/监听语义不明确）。
@@ -193,7 +220,7 @@ auto_unblock_when_dependency_closed = true
 ## 后端-only 项目示例（单 repo）
 
 ```toml
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -218,21 +245,29 @@ recorder = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [groups.qa]
 role = "qa"
 max_concurrent = 2
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:qa", "state:review"]
 
 [groups.integrator]
 role = "integrator"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:integrator", "state:review"]
 
 [groups.recorder]
 role = "recorder"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:recorder"]
 
 [flow]
@@ -245,7 +280,7 @@ auto_unblock_when_dependency_closed = true
 ## 多 repo + contracts 项目示例
 
 ```toml
-version = 1
+version = 2
 
 [outbox]
 backend = "github"
@@ -256,7 +291,7 @@ mode = "any"
 approvers = ["agent-architect", "agent-integrator"]
 
 [roles]
-enabled = ["architect", "backend", "frontend", "qa", "integrator", "recorder"]
+enabled = ["architect", "backend", "frontend", "reviewer", "qa", "integrator", "recorder"]
 
 [repos]
 contracts = "."
@@ -267,6 +302,7 @@ frontend = "../frontend"
 architect = "contracts"
 backend = "backend"
 frontend = "frontend"
+reviewer = "backend"
 qa = "backend"
 integrator = "backend"
 recorder = "contracts"
@@ -274,31 +310,50 @@ recorder = "contracts"
 [groups.architect]
 role = "architect"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:architect", "decision:proposed"]
 
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [groups.frontend]
 role = "frontend"
 max_concurrent = 3
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:frontend"]
+
+[groups.reviewer]
+role = "reviewer"
+max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
+listen_labels = ["to:reviewer", "state:review"]
 
 [groups.qa]
 role = "qa"
 max_concurrent = 2
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:qa", "state:review"]
 
 [groups.integrator]
 role = "integrator"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:integrator", "state:review"]
 
 [groups.recorder]
 role = "recorder"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:recorder"]
 
 [flow]
@@ -308,7 +363,7 @@ auto_block_when_dependency_open = true
 auto_unblock_when_dependency_closed = true
 ```
 
-## 模板文件（V1 固定要求）
+## 模板文件（固定要求）
 
 因为 mailbox 采用固定模板，模板文件应当存放在 outbox repo 的 `mailbox/` 下并受代码评审：
 

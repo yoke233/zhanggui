@@ -2,9 +2,12 @@ package pmconsole
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -49,6 +52,8 @@ type pmModel struct {
 	hasDetail      bool
 	activeRunID    string
 	activeRunFound bool
+	artifacts      runArtifacts
+	hasArtifacts   bool
 	status         string
 	auditLogs      []string
 }
@@ -69,6 +74,8 @@ type issueDetailLoadedMsg struct {
 	hasDetail      bool
 	activeRunID    string
 	activeRunFound bool
+	artifacts      runArtifacts
+	hasArtifacts   bool
 	err            error
 }
 
@@ -88,6 +95,25 @@ type issueRoute struct {
 	Assignee string
 	Source   string
 	Err      error
+}
+
+type runArtifacts struct {
+	ContextPackDir    string
+	ContextPackExists bool
+
+	Workdir       string
+	WorkdirExists bool
+
+	WorkResultExists bool
+	TestsResult      string
+	ResultCode       string
+	Summary          string
+
+	StdoutPath     string
+	StderrPath     string
+	WorkResultJSON string
+	WorkResultText string
+	WorkAuditJSON  string
 }
 
 func NewPMModel(ctx context.Context, service *outbox.Service, options PMOptions) tea.Model {
@@ -157,6 +183,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.hasDetail = false
 			m.activeRunID = ""
 			m.activeRunFound = false
+			m.hasArtifacts = false
+			m.artifacts = runArtifacts{}
 			m.status = "队列为空"
 			return m, nil
 		}
@@ -176,6 +204,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.hasDetail = false
 			m.activeRunID = ""
 			m.activeRunFound = false
+			m.hasArtifacts = false
+			m.artifacts = runArtifacts{}
 			m.status = "详情加载失败: " + msg.err.Error()
 			return m, nil
 		}
@@ -183,6 +213,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail = msg.detail
 		m.activeRunID = msg.activeRunID
 		m.activeRunFound = msg.activeRunFound
+		m.artifacts = msg.artifacts
+		m.hasArtifacts = msg.hasArtifacts
 		return m, nil
 	case actionDoneMsg:
 		if msg.err != nil {
@@ -224,6 +256,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toggleBlockedCmd()
 		case "x":
 			return m, m.closeCmd()
+		case "D":
+			return m, m.cleanupWorkdirCmd()
 		}
 	}
 	return m, nil
@@ -307,6 +341,34 @@ func (m *pmModel) View() string {
 		} else {
 			builder.WriteString("ActiveRun: none\n")
 		}
+		builder.WriteString("Artifacts:\n")
+		if !m.activeRunFound {
+			builder.WriteString("- none\n")
+		} else if !m.hasArtifacts {
+			builder.WriteString("- loading...\n")
+		} else {
+			contextPackStatus := "missing"
+			if m.artifacts.ContextPackExists {
+				contextPackStatus = "ok"
+			}
+			builder.WriteString(fmt.Sprintf("- ContextPack(%s): %s\n", contextPackStatus, firstNonEmpty(m.artifacts.ContextPackDir, "-")))
+
+			workdirStatus := "missing"
+			if m.artifacts.WorkdirExists {
+				workdirStatus = "ok"
+			}
+			builder.WriteString(fmt.Sprintf("- Workdir(%s): %s\n", workdirStatus, firstNonEmpty(m.artifacts.Workdir, "-")))
+
+			if m.artifacts.WorkResultExists {
+				builder.WriteString(fmt.Sprintf("- WorkResult: tests=%s result_code=%s\n", firstNonEmpty(m.artifacts.TestsResult, "-"), firstNonEmpty(m.artifacts.ResultCode, "none")))
+			} else {
+				builder.WriteString("- WorkResult: missing\n")
+			}
+
+			builder.WriteString(fmt.Sprintf("- stdout.log: %s\n", firstNonEmpty(m.artifacts.StdoutPath, "-")))
+			builder.WriteString(fmt.Sprintf("- stderr.log: %s\n", firstNonEmpty(m.artifacts.StderrPath, "-")))
+			builder.WriteString(fmt.Sprintf("- work_audit.json: %s\n", firstNonEmpty(m.artifacts.WorkAuditJSON, "-")))
+		}
 		builder.WriteString(fmt.Sprintf("Labels: %s\n", strings.Join(m.detail.Labels, ",")))
 		builder.WriteString("\nRecent Events:\n")
 		events := m.detail.Events
@@ -336,6 +398,7 @@ func (m *pmModel) View() string {
 	builder.WriteString("- w switch worker\n")
 	builder.WriteString("- r normalize+reply\n")
 	builder.WriteString("- b blocked/unblock\n")
+	builder.WriteString("- D cleanup workdir\n")
 	builder.WriteString("- x close issue\n")
 	builder.WriteString("\n")
 
@@ -352,7 +415,7 @@ func (m *pmModel) View() string {
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString(dimStyle.Render("Keys: ↑/k ↓/j 移动  g 刷新  c/s/w/r/b/x 动作  q 退出"))
+	builder.WriteString(dimStyle.Render("Keys: ↑/k ↓/j 移动  g 刷新  c/s/w/r/b/D/x 动作  q 退出"))
 	return builder.String()
 }
 
@@ -400,6 +463,8 @@ func (m *pmModel) loadSelectedIssueDetailCmd() tea.Cmd {
 
 		activeRunID := ""
 		found := false
+		artifacts := runArtifacts{}
+		hasArtifacts := false
 		route := m.resolveRoute(detail.IssueRef, detail.Assignee, detail.Labels)
 		if route.Role != "" {
 			activeRunID, found, err = m.service.GetActiveRunID(m.ctx, route.Role, selected.IssueRef)
@@ -409,6 +474,14 @@ func (m *pmModel) loadSelectedIssueDetailCmd() tea.Cmd {
 					err:      err,
 				}
 			}
+			if found && strings.TrimSpace(activeRunID) != "" {
+				loaded, ok, loadErr := loadRunArtifacts(selected.IssueRef, activeRunID)
+				if loadErr != nil {
+					return issueDetailLoadedMsg{issueRef: selected.IssueRef, err: loadErr}
+				}
+				artifacts = loaded
+				hasArtifacts = ok
+			}
 		}
 
 		return issueDetailLoadedMsg{
@@ -417,7 +490,109 @@ func (m *pmModel) loadSelectedIssueDetailCmd() tea.Cmd {
 			hasDetail:      true,
 			activeRunID:    activeRunID,
 			activeRunFound: found,
+			artifacts:      artifacts,
+			hasArtifacts:   hasArtifacts,
 		}
+	}
+}
+
+func loadRunArtifacts(issueRef string, runID string) (runArtifacts, bool, error) {
+	dir := contextPackDir(issueRef, runID)
+	artifacts := runArtifacts{
+		ContextPackDir: dir,
+		StdoutPath:     filepath.Join(dir, "stdout.log"),
+		StderrPath:     filepath.Join(dir, "stderr.log"),
+		WorkResultJSON: filepath.Join(dir, "work_result.json"),
+		WorkResultText: filepath.Join(dir, "work_result.txt"),
+		WorkAuditJSON:  filepath.Join(dir, "work_audit.json"),
+	}
+
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return artifacts, true, nil
+		}
+		return runArtifacts{}, false, err
+	}
+	artifacts.ContextPackExists = true
+
+	workOrderPath := filepath.Join(dir, "work_order.json")
+	if raw, err := os.ReadFile(workOrderPath); err == nil {
+		var order struct {
+			RepoDir string `json:"RepoDir"`
+		}
+		if err := json.Unmarshal(raw, &order); err != nil {
+			return runArtifacts{}, false, err
+		}
+		artifacts.Workdir = strings.TrimSpace(order.RepoDir)
+		if artifacts.Workdir != "" {
+			if _, err := os.Stat(artifacts.Workdir); err == nil {
+				artifacts.WorkdirExists = true
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return runArtifacts{}, false, err
+			}
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return runArtifacts{}, false, err
+	}
+
+	if raw, err := os.ReadFile(artifacts.WorkResultJSON); err == nil {
+		var result outbox.WorkResultEnvelope
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return runArtifacts{}, false, err
+		}
+		artifacts.WorkResultExists = true
+		artifacts.TestsResult = strings.TrimSpace(result.Tests.Result)
+		artifacts.ResultCode = strings.TrimSpace(result.ResultCode)
+		artifacts.Summary = strings.TrimSpace(result.Summary)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return runArtifacts{}, false, err
+	}
+
+	return artifacts, true, nil
+}
+
+func contextPackDir(issueRef string, runID string) string {
+	sanitized := strings.NewReplacer("/", "_", "#", "_", ":", "_", "\\", "_").Replace(strings.TrimSpace(issueRef))
+	return filepath.Join("state", "context_packs", sanitized, strings.TrimSpace(runID))
+}
+
+func (m *pmModel) cleanupWorkdirCmd() tea.Cmd {
+	selected, ok := m.selectedIssue()
+	if !ok {
+		m.status = "没有可操作 issue"
+		return nil
+	}
+	m.status = "清理 workdir 中..."
+
+	return func() tea.Msg {
+		latest, err := m.service.GetIssue(m.ctx, selected.IssueRef)
+		if err != nil {
+			return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, err: err}
+		}
+
+		route := m.resolveRoute(latest.IssueRef, latest.Assignee, latest.Labels)
+		if route.Err != nil || route.Role == "" {
+			return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, err: route.Err}
+		}
+
+		runID, found, err := m.service.GetActiveRunID(m.ctx, route.Role, selected.IssueRef)
+		if err != nil {
+			return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, role: route.Role, actor: route.Assignee, err: err}
+		}
+		if !found || strings.TrimSpace(runID) == "" {
+			return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, role: route.Role, actor: route.Assignee, err: errors.New("ActiveRun not found")}
+		}
+
+		cleanup, err := m.service.CleanupWorkdir(m.ctx, outbox.CleanupWorkdirInput{
+			WorkflowFile: m.workflowFile,
+			Role:         route.Role,
+			IssueRef:     selected.IssueRef,
+			RunID:        runID,
+		})
+		if err != nil {
+			return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, role: route.Role, actor: route.Assignee, err: err}
+		}
+		return actionDoneMsg{action: "cleanup-workdir", issueRef: selected.IssueRef, role: route.Role, actor: route.Assignee, result: cleanup.Workdir}
 	}
 }
 

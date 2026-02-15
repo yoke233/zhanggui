@@ -39,6 +39,66 @@ Issue (GitHub/GitLab/SQLite)
 
 注意：Lead 不等于“必须强技术领导”。它更像“该角色的项目经理 + 单写者”，负责让协作可回放、可接管、可验收。
 
+同一拓扑的 Mermaid 视图（便于快速扫一眼；不支持 Mermaid 的阅读器会将其视为普通代码块）：
+
+```mermaid
+flowchart LR
+  U[User] --> O[Orchestrator<br/>(主 agent / Supervisor)]
+
+  Outbox[(Outbox<br/>Issue/Thread + Events)]
+  Mem[(Project Memory Root<br/>shared/ + roles/)]
+
+  Hub[[Lead Hub<br/>(inbox + cursor + routing)]]
+  O --> Hub
+  Outbox -->|events| Hub
+
+  subgraph Leads[Role Leads (常驻)]
+    Lb[backend-lead]
+    Lf[frontend-lead]
+    Lq[qa-lead]
+    Li[lead-integrator]
+    La[architect-lead]
+    Lr[recorder-lead]
+  end
+
+  Hub --> Lb
+  Hub --> Lf
+  Hub --> Lq
+  Hub --> Li
+  Hub --> La
+  Hub --> Lr
+
+  Lb -->|mailbox writeback| Outbox
+  Lf -->|mailbox writeback| Outbox
+  Lq -->|mailbox writeback| Outbox
+  Li -->|mailbox writeback| Outbox
+  La -->|mailbox writeback| Outbox
+  Lr -->|mailbox writeback| Outbox
+
+  Lb <--> Mem
+  Lf <--> Mem
+  Lq <--> Mem
+  Li <--> Mem
+  La <--> Mem
+  Lr <--> Mem
+
+  subgraph Workers[Workers (短命执行器)]
+    Wb[backend-worker x N]
+    Wf[frontend-worker x M]
+    Wq[qa-worker x K]
+  end
+
+  Lb -->|spawn| Wb
+  Lf -->|spawn| Wf
+  Lq -->|spawn| Wq
+
+  Code[(PR/CI 或 git commit)]
+  Wb -->|evidence| Code
+  Wf -->|evidence| Code
+  Wq -->|evidence| Code
+  Code -->|evidence| Li
+```
+
 ## Lead 的职责边界（必须清晰）
 
 Lead 负责“统筹与写回”，不负责“把所有实现自己写完”。

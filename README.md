@@ -73,6 +73,7 @@ go run . console pm --workflow workflow.toml --refresh-interval 5s
 - `w`：switch worker（强制新 run）
 - `r`：normalize + reply
 - `b`：blocked / unblock
+- `D`：cleanup workdir（清理当前 ActiveRun 对应的 worktree）
 - `x`：close issue
 - `q`：退出
 

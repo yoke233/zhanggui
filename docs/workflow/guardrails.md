@@ -38,7 +38,7 @@
 
 护栏：
 
-- `state:*` 的推进只允许一个角色写（推荐：`integrator-lead` 单写者）。
+- `state:*` 的推进只允许一个角色写（推荐：`lead-integrator` 单写者）。
 - Reviewer/QA 只产出“判定事实 + 证据”，不直接推进状态机。
 
 ### 1.3 都打回时的综合处理（避免多头指挥）
@@ -49,7 +49,7 @@
 
 护栏：
 
-- `integrator-lead` 必须把各方反馈汇总成唯一的 `FixList vN`，作为下一轮执行的唯一指令。
+- `lead-integrator` 必须把各方反馈汇总成唯一的 `FixList vN`，作为下一轮执行的唯一指令。
 - worker 只按 FixList 执行，不要求从多条评论里“自己综合”。
 
 建议 FixList 的最小结构（写在 comment 的 `Summary` 或 `Notes` 中即可）：
@@ -89,7 +89,7 @@ FixList vN (for git:<head_sha>):
 并行审查如何处理：
 
 - PR 进入审查阶段时：
-  - `assignee` 指向“协调者”（通常是 `integrator-lead` 或对应 role lead）
+  - `assignee` 指向“协调者”（通常是 `lead-integrator` 或对应 role lead）
   - 同时打 `to:qa` 与 `to:reviewer`（或等价角色）以并行启动两条线
 
 冲突优先级建议：

@@ -111,6 +111,27 @@
 
 ## 状态迁移（最小规则）
 
+状态机推荐视图（Mermaid，帮助快速理解 `state:*` 的互斥与迁移；Phase 1 下 `state:*` 缺失不应阻塞开工，但建议尽量补齐以保持队列清晰）：
+
+```mermaid
+stateDiagram-v2
+  [*] --> Todo: issue open
+
+  Todo --> Doing: claim (assignee set)
+
+  Doing --> Blocked: DependsOn open<br/>or needs-human
+
+  Blocked --> Doing: deps resolved<br/>and assignee exists
+  Blocked --> Todo: deps resolved<br/>and assignee missing
+
+  Doing --> Review: evidence ready<br/>(PR/commit + tests)
+
+  Review --> Doing: changes requested<br/>FixList vN
+  Review --> Done: verify pass<br/>(and decision:accepted if required)
+
+  Done --> [*]: close issue (optional)
+```
+
 - `todo -> doing`：claim 成功（assignee 已设置；`/claim` 仅可作为触发 assign 的指令，文本本身不算成功）
 - `doing -> blocked`：存在未满足依赖，或被标记 `needs-human`
 - `blocked -> doing|todo`：依赖满足（DependsOn resolved/closed）后解除阻塞：
@@ -118,6 +139,7 @@
   - 无 assignee：恢复到 `state:todo`
   解除阻塞可自动（`auto_unblock_when_dependency_closed = true`）或由 integrator/lead 通过 `/unblock` 手动执行
 - `doing -> review`：实现完成并提供证据
+- `review -> doing`：审查/验收未通过（例如 `review:changes_requested`、QA fail、CI fail），进入修复迭代并由单写者（推荐：lead-integrator）汇总 `FixList vN` 再指派
 - `review -> done`：验证通过，且（若该 issue 存在决策闸门，例如带 `decision:proposed`）必须满足 `decision:accepted`
 
 ## 冲突与仲裁

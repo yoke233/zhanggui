@@ -69,6 +69,10 @@
 - 运行构建、测试、E2E，输出可执行的验收结果
 - 失败时把阻塞写入 outbox 并指派责任方
 
+补充说明：
+
+- 更完整的 Integrator 触发条件、合并/验收动作、单写者与 FixList 约定见：`docs/workflow/integrator-role.md`。
+
 ### 6) 记录者（Recorder / Summarizer，可选但强烈推荐）
 
 Recorder 的价值在于把“线程”变成“可回放的状态机”，减少信息分散导致的二次沟通成本。

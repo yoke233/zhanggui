@@ -1,4 +1,4 @@
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -39,26 +39,36 @@ priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [groups.reviewer]
 role = "reviewer"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:reviewer", "state:review"]
 
 [groups.qa]
 role = "qa"
 max_concurrent = 2
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:qa", "state:review"]
 
 [groups.integrator]
 role = "integrator"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:integrator", "state:review"]
 
 [groups.recorder]
 role = "recorder"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:recorder"]
 
 [flow]

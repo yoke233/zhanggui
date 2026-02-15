@@ -244,6 +244,7 @@ func TestBuildStructuredCommentDefaults(t *testing.T) {
 	requiredSnippets := []string{
 		"IssueRef: local#7",
 		"RunId: 2026-02-14-backend-0007",
+		"ResultCode: none",
 		"BlockedBy:\n- none",
 		"OpenQuestions:\n- none",
 		"- PR: none",
@@ -340,6 +341,9 @@ func TestWorkerRunSuccessWritesPassResult(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(contextPackDir, "stderr.log")); err != nil {
 		t.Fatalf("stderr.log should exist, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contextPackDir, "work_audit.json")); err != nil {
+		t.Fatalf("work_audit.json should exist, err=%v", err)
 	}
 }
 
@@ -525,21 +529,64 @@ func TestLoadWorkResultFromContextPackFallbackToText(t *testing.T) {
 		t.Fatalf("write result txt: %v", err)
 	}
 
-	result, err := loadWorkResultFromContextPack(contextPackDir)
-	if err != nil {
-		t.Fatalf("loadWorkResultFromContextPack() error = %v", err)
-	}
-	if result.IssueRef != "local#61" || result.RunID != "2026-02-14-backend-0061" {
-		t.Fatalf("result identity = %#v", result)
-	}
-	if result.Changes.Commit != "git:text-fallback" {
-		t.Fatalf("Commit = %q", result.Changes.Commit)
+	if _, err := loadWorkResultFromContextPack(contextPackDir); err == nil {
+		t.Fatalf("loadWorkResultFromContextPack() expected error when JSON exists but is invalid")
 	}
 }
 
 func TestLoadWorkResultFromContextPackMissingFiles(t *testing.T) {
 	if _, err := loadWorkResultFromContextPack(t.TempDir()); err == nil {
 		t.Fatalf("loadWorkResultFromContextPack(missing files) expected error")
+	}
+}
+
+func TestLoadWorkResultFromContextPackFallsBackToTextWhenJSONMissing(t *testing.T) {
+	contextPackDir := t.TempDir()
+	textPath := filepath.Join(contextPackDir, "work_result.txt")
+
+	textContent := "IssueRef: local#62\nRunId: 2026-02-14-backend-0062\nStatus: ok\nPR: none\nCommit: git:text-only\nTests: go test ./... => pass\nEvidence: none\n\nNotes:\n- fallback\n"
+	if err := os.WriteFile(textPath, []byte(textContent), 0o644); err != nil {
+		t.Fatalf("write result txt: %v", err)
+	}
+
+	result, err := loadWorkResultFromContextPack(contextPackDir)
+	if err != nil {
+		t.Fatalf("loadWorkResultFromContextPack() error = %v", err)
+	}
+	if result.Source != "text" {
+		t.Fatalf("Source = %q, want text", result.Source)
+	}
+	if result.Changes.Commit != "git:text-only" {
+		t.Fatalf("Commit = %q", result.Changes.Commit)
+	}
+}
+
+func TestLoadWorkResultJSONAcceptsSnakeCase(t *testing.T) {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "work_result.json")
+	content := `{
+  "issue_ref": "local#81",
+  "run_id": "2026-02-14-backend-0081",
+  "result_code": "none",
+  "changes": { "pr": "none", "commit": "git:snake" },
+  "tests": { "command": "go test ./...", "result": "pass", "evidence": "none" }
+}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write result json: %v", err)
+	}
+
+	result, err := loadWorkResultJSON(path)
+	if err != nil {
+		t.Fatalf("loadWorkResultJSON() error = %v", err)
+	}
+	if result.IssueRef != "local#81" || result.RunID != "2026-02-14-backend-0081" {
+		t.Fatalf("result identity = %#v", result)
+	}
+	if result.ResultCode != "" {
+		t.Fatalf("ResultCode = %q, want empty", result.ResultCode)
+	}
+	if result.Changes.Commit != "git:snake" {
+		t.Fatalf("Commit = %q", result.Changes.Commit)
 	}
 }
 

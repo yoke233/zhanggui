@@ -33,13 +33,14 @@
 
 1. `docs/operating-model/START-HERE.md`（Phase 1 本地启动清单：git + sqlite）
 2. `docs/operating-model/product-truth.md`
-3. `docs/operating-model/delivery-control.md`
-4. `docs/operating-model/quality-gate.md`
-5. `docs/operating-model/outbox-backends.md`（Outbox 承载系统抽象：GitHub/GitLab/MySQL/SQLite）
-6. `docs/operating-model/executor-protocol.md`（Worker 可插拔、上下文注入、切换 worker 的幂等语义）
-7. `docs/operating-model/local-first.md`（只用 git + sqlite 启动项目）
-8. `docs/operating-model/phases.md`
-9. 然后再进入 `docs/workflow/README.md`
+3. `docs/operating-model/meeting-mode.md`（会议模式：并行输入 + 快速收敛）
+4. `docs/operating-model/delivery-control.md`
+5. `docs/operating-model/quality-gate.md`
+6. `docs/operating-model/outbox-backends.md`（Outbox 承载系统抽象：GitHub/GitLab/MySQL/SQLite）
+7. `docs/operating-model/executor-protocol.md`（Worker 可插拔、上下文注入、切换 worker 的幂等语义）
+8. `docs/operating-model/local-first.md`（只用 git + sqlite 启动项目）
+9. `docs/operating-model/phases.md`
+10. 然后再进入 `docs/workflow/README.md`
 
 ## 术语（本目录统一用法）
 

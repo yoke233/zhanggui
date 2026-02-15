@@ -24,6 +24,7 @@ type workdirManager interface {
 type gitWorktreeManager struct {
 	repoDir     string
 	allowedRoot string
+	cleanup     string
 	runGit      func(context.Context, ...string) ([]byte, error)
 }
 
@@ -36,8 +37,13 @@ func newGitWorktreeManager(cfg workflowWorkdirConfig, workflowFile string, repoD
 	if backend != "git-worktree" {
 		return nil, fmt.Errorf("unsupported workdir backend %q", backend)
 	}
-	cleanup := strings.TrimSpace(cfg.Cleanup)
-	if cleanup != "immediate" {
+	cleanup := strings.ToLower(strings.TrimSpace(cfg.Cleanup))
+	if cleanup == "" {
+		cleanup = "immediate"
+	}
+	switch cleanup {
+	case "immediate", "manual":
+	default:
 		return nil, fmt.Errorf("unsupported workdir cleanup policy %q", cleanup)
 	}
 
@@ -79,6 +85,7 @@ func newGitWorktreeManager(cfg workflowWorkdirConfig, workflowFile string, repoD
 	return &gitWorktreeManager{
 		repoDir:     repoAbs,
 		allowedRoot: rootAbs,
+		cleanup:     cleanup,
 		runGit: func(ctx context.Context, args ...string) ([]byte, error) {
 			cmd := exec.CommandContext(ctx, "git", args...)
 			return cmd.CombinedOutput()
@@ -146,6 +153,19 @@ func (m *gitWorktreeManager) Cleanup(ctx context.Context, role string, issueRef 
 	}
 	if err := ensurePathInsideDir(m.allowedRoot, workdir); err != nil {
 		return err
+	}
+
+	if m.cleanup == "manual" {
+		logging.Info(
+			logging.WithAttrs(ctx, slog.String("component", "outbox.workdir")),
+			"git worktree cleanup skipped (manual)",
+			slog.String("repo_dir", m.repoDir),
+			slog.String("workdir", workdir),
+			slog.String("issue_ref", issueRef),
+			slog.String("run_id", runID),
+			slog.String("role", role),
+		)
+		return nil
 	}
 
 	if _, err := os.Stat(workdir); err != nil {

@@ -1,4 +1,4 @@
-version = 1
+version = 2
 
 [outbox]
 # Outbox backend: sqlite | github | gitlab | ...
@@ -21,7 +21,7 @@ mode = "any"
 approvers = ["agent-architect", "agent-integrator", "yoke233"]
 
 [roles]
-enabled = ["architect", "backend", "frontend", "qa", "integrator", "recorder"]
+enabled = ["architect", "backend", "frontend", "reviewer", "qa", "integrator", "recorder"]
 
 [repos]
 # NOTE (V1.1): prefer relative paths for multi-environment leads.
@@ -35,6 +35,7 @@ frontend = "../frontend"
 architect = "contracts"
 backend = "backend"
 frontend = "frontend"
+reviewer = "backend"
 qa = "backend"
 integrator = "backend"
 recorder = "contracts"
@@ -44,6 +45,7 @@ routing = [
   "to:architect",
   "to:backend",
   "to:frontend",
+  "to:reviewer",
   "to:qa",
   "to:integrator",
   "to:recorder"
@@ -57,31 +59,50 @@ priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
 [groups.architect]
 role = "architect"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:architect", "decision:proposed"]
 
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [groups.frontend]
 role = "frontend"
 max_concurrent = 3
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:frontend"]
+
+[groups.reviewer]
+role = "reviewer"
+max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
+listen_labels = ["to:reviewer", "state:review"]
 
 [groups.qa]
 role = "qa"
 max_concurrent = 2
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:qa", "state:review"]
 
 [groups.integrator]
 role = "integrator"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:integrator", "state:review"]
 
 [groups.recorder]
 role = "recorder"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:recorder"]
 
 [flow]

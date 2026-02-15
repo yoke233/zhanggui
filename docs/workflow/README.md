@@ -22,6 +22,7 @@ V1/V1.1 本项目的关键选择（先记住这几条，其它都是细节）：
 - `docs/standards/README.md`：跨文档稳定规范入口（命名、审批、标签、文档生命周期）
 - `docs/features/README.md`：feature 级定稿文档入口（requirement/prd/tech-spec）
 - `docs/workflow/roles-and-flow.md`：角色边界与推荐流程（主 agent/架构师/实现/测试/集成）
+- `docs/workflow/integrator-role.md`：Integrator 角色说明（收敛、合并、集成验收）
 - `docs/workflow/lead-worker.md`：Lead/Worker 运行模型（每个角色一个常驻 Lead，多 Worker 并发）
 - `docs/workflow/v1.1.md`：V1.1 补充约定（多环境布局、Claim/Assignee、PR（forge）闭环、Outbox 抽象）
 - `docs/operating-model/executor-protocol.md`：Worker 可插拔执行协议（上下文注入、WorkOrder/WorkResult、切换 worker 幂等语义）
@@ -37,6 +38,7 @@ V1/V1.1 本项目的关键选择（先记住这几条，其它都是细节）：
 - `docs/workflow/templates/comment.md`：Comment 模板
 - `docs/workflow/templates/pr.md`：PR 描述模板（可选但推荐）
 - `docs/workflow/spec-consistency.md`：如何把「规格一致性」做成机制（含已发现的漂移点）
+- `docs/workflow/guardrails.md`：常见问题与护栏（并行审查、多 worker、幂等与回填）
 
 说明：
 

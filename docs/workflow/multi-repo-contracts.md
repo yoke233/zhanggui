@@ -40,6 +40,22 @@ HTTP 方案（不在本文件强制选型）：
   - 先在 contracts 提 PR（或 outbox 提变更请求）
   - 合并后再推进实现 repo 的适配
 
+推荐流程图（Mermaid，突出 “ContractsRef 是锚点” 与 “contracts 优先” 的顺序）：
+
+```mermaid
+flowchart TD
+  A[选择 ContractsRef<br/>contracts@sha|tag] --> B{需要修改接口契约?}
+
+  B -->|否| Impl[并行实现<br/>frontend + backend + qa<br/>都引用同一 ContractsRef]
+  B -->|是| CPR[contracts repo: PR]
+  CPR --> AR[architect/approver: review + merge]
+  AR --> A2[生成新的 ContractsRef<br/>contracts@new_sha]
+  A2 --> Impl
+
+  Impl --> INT[integrator: 拉齐版本并集成验收]
+  INT --> D[state:done + evidence]
+```
+
 ## 本地目录建议（减少工具约束冲突）
 
 建议将多个 repo 都放在 goclaw 的 workspace 目录下，例如：
