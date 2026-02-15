@@ -40,7 +40,7 @@ func TestLoadWorkflowProfile(t *testing.T) {
 	tempDir := t.TempDir()
 	workflowPath := filepath.Join(tempDir, "workflow.toml")
 	content := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -58,6 +58,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [executors.backend]
@@ -277,7 +279,7 @@ func writeWorkerWorkflow(t *testing.T, rootDir string, program string, args []st
 	if err != nil {
 		t.Fatalf("marshal workflow args: %v", err)
 	}
-	content := "version = 1\n\n[outbox]\nbackend = \"sqlite\"\npath = \"state/outbox.sqlite\"\n\n[roles]\nenabled = [\"backend\"]\n\n[repos]\nmain = \".\"\n\n[role_repo]\nbackend = \"main\"\n\n[groups.backend]\nrole = \"backend\"\nmax_concurrent = 1\nlisten_labels = [\"to:backend\"]\n\n[executors.backend]\nprogram = \"" + program + "\"\nargs = " + string(argsRaw) + "\ntimeout_seconds = " + strings.TrimSpace(jsonNumberString(timeoutSeconds)) + "\n"
+	content := "version = 2\n\n[outbox]\nbackend = \"sqlite\"\npath = \"state/outbox.sqlite\"\n\n[roles]\nenabled = [\"backend\"]\n\n[repos]\nmain = \".\"\n\n[role_repo]\nbackend = \"main\"\n\n[groups.backend]\nrole = \"backend\"\nmax_concurrent = 1\nmode = \"owner\"\nwriteback = \"full\"\nlisten_labels = [\"to:backend\"]\n\n[executors.backend]\nprogram = \"" + program + "\"\nargs = " + string(argsRaw) + "\ntimeout_seconds = " + strings.TrimSpace(jsonNumberString(timeoutSeconds)) + "\n"
 	path := filepath.Join(rootDir, "workflow.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write workflow: %v", err)
@@ -537,6 +539,31 @@ func TestLoadWorkResultFromContextPackFallbackToText(t *testing.T) {
 func TestLoadWorkResultFromContextPackMissingFiles(t *testing.T) {
 	if _, err := loadWorkResultFromContextPack(t.TempDir()); err == nil {
 		t.Fatalf("loadWorkResultFromContextPack(missing files) expected error")
+	}
+}
+
+func TestLoadWorkResultFromContextPackFallsBackToLogsWhenResultMissing(t *testing.T) {
+	contextPackDir := t.TempDir()
+	repoDir := t.TempDir()
+	writeWorkOrderFile(t, contextPackDir, "local#70", "2026-02-14-backend-0070", "backend", repoDir)
+
+	stdoutPath := filepath.Join(contextPackDir, "stdout.log")
+	if err := os.WriteFile(stdoutPath, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write stdout.log: %v", err)
+	}
+
+	result, err := loadWorkResultFromContextPack(contextPackDir)
+	if err != nil {
+		t.Fatalf("loadWorkResultFromContextPack() error = %v", err)
+	}
+	if result.Source != "logs" {
+		t.Fatalf("Source = %q, want logs", result.Source)
+	}
+	if result.IssueRef != "local#70" || result.RunID != "2026-02-14-backend-0070" {
+		t.Fatalf("identity = %#v", result)
+	}
+	if result.Tests.Evidence != "stdout.log" {
+		t.Fatalf("Evidence = %q, want stdout.log", result.Tests.Evidence)
 	}
 }
 

@@ -21,7 +21,7 @@ func writeReviewerWorkflow(t *testing.T, backendListenLabels []string) string {
 	}
 
 	content := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -40,11 +40,15 @@ reviewer = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 2
+mode = "owner"
+writeback = "full"
 listen_labels = ` + backendLabels + `
 
 [groups.reviewer]
 role = "reviewer"
 max_concurrent = 1
+mode = "subscriber"
+writeback = "comment-only"
 listen_labels = ["to:reviewer", "state:review"]
 
 [executors.backend]
@@ -65,25 +69,25 @@ timeout_seconds = 30
 	return path
 }
 
-func claimIssueAsReviewer(t *testing.T, svc *Service, ctx context.Context, issueRef string) {
+func claimIssueAsIntegrator(t *testing.T, svc *Service, ctx context.Context, issueRef string) {
 	t.Helper()
 
 	if err := svc.ClaimIssue(ctx, ClaimIssueInput{
 		IssueRef: issueRef,
-		Assignee: "lead-reviewer",
-		Actor:    "lead-reviewer",
+		Assignee: "lead-integrator",
+		Actor:    "lead-integrator",
 		Comment:  "Action: claim\nStatus: doing",
 	}); err != nil {
 		t.Fatalf("ClaimIssue() error = %v", err)
 	}
 }
 
-func moveIssueToReviewState(t *testing.T, svc *Service, ctx context.Context, issueRef string) {
+func moveIssueToReviewStateAsIntegrator(t *testing.T, svc *Service, ctx context.Context, issueRef string) {
 	t.Helper()
 
 	if err := svc.CommentIssue(ctx, CommentIssueInput{
 		IssueRef: issueRef,
-		Actor:    "lead-reviewer",
+		Actor:    "lead-integrator",
 		State:    "review",
 		Body:     "Action: update\nStatus: review",
 	}); err != nil {
@@ -91,7 +95,7 @@ func moveIssueToReviewState(t *testing.T, svc *Service, ctx context.Context, iss
 	}
 }
 
-func TestLeadSyncOnceReviewerMatchesStateReviewWithoutToReviewer(t *testing.T) {
+func TestLeadSyncOnceReviewerSkipsStateReviewWithoutToReviewer(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
@@ -104,18 +108,17 @@ func TestLeadSyncOnceReviewerMatchesStateReviewWithoutToReviewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
 	}
-	claimIssueAsReviewer(t, svc, ctx, issueRef)
-	moveIssueToReviewState(t, svc, ctx, issueRef)
+	claimIssueAsIntegrator(t, svc, ctx, issueRef)
+	moveIssueToReviewStateAsIntegrator(t, svc, ctx, issueRef)
 
-	activeIssueRef := ""
-	activeRunID := ""
-	svc.workerInvoker = func(_ context.Context, input invokeWorkerInput) error {
-		activeIssueRef = input.IssueRef
-		activeRunID = input.RunID
-		return nil
+	before, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(before) error = %v", err)
 	}
-	svc.workResultLoader = func(_ string) (WorkResultEnvelope, error) {
-		return successWorkResult(activeIssueRef, activeRunID), nil
+
+	svc.workerInvoker = func(_ context.Context, input invokeWorkerInput) error {
+		t.Fatalf("worker should not be invoked, got issue=%s run=%s", input.IssueRef, input.RunID)
+		return nil
 	}
 
 	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
@@ -127,21 +130,20 @@ func TestLeadSyncOnceReviewerMatchesStateReviewWithoutToReviewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LeadSyncOnce() error = %v", err)
 	}
-	if result.Candidates != 1 || result.Processed != 1 || result.Spawned != 1 || result.Blocked != 0 {
+	if result.Processed != 0 || result.Spawned != 0 || result.Blocked != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 
-	got, err := svc.GetIssue(ctx, issueRef)
+	after, err := svc.GetIssue(ctx, issueRef)
 	if err != nil {
-		t.Fatalf("GetIssue() error = %v", err)
+		t.Fatalf("GetIssue(after) error = %v", err)
 	}
-	last := got.Events[len(got.Events)-1].Body
-	if !strings.Contains(last, "Role: reviewer") || !strings.Contains(last, "Next:\n- @integrator finalize review decision") {
-		t.Fatalf("last event body = %s", last)
+	if len(after.Events) != len(before.Events) {
+		t.Fatalf("events len = %d, want %d", len(after.Events), len(before.Events))
 	}
 }
 
-func TestLeadSyncOnceReviewerMatchesToReviewerWithoutStateReview(t *testing.T) {
+func TestLeadSyncOnceReviewerSkipsToReviewerWithoutStateReview(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
@@ -154,7 +156,55 @@ func TestLeadSyncOnceReviewerMatchesToReviewerWithoutStateReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
 	}
-	claimIssueAsReviewer(t, svc, ctx, issueRef)
+	claimIssueAsIntegrator(t, svc, ctx, issueRef)
+
+	before, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(before) error = %v", err)
+	}
+
+	svc.workerInvoker = func(_ context.Context, input invokeWorkerInput) error {
+		t.Fatalf("worker should not be invoked, got issue=%s run=%s", input.IssueRef, input.RunID)
+		return nil
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:         "reviewer",
+		Assignee:     "lead-reviewer",
+		WorkflowFile: workflowPath,
+		EventBatch:   100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Processed != 0 || result.Spawned != 0 || result.Blocked != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+
+	after, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(after) error = %v", err)
+	}
+	if len(after.Events) != len(before.Events) {
+		t.Fatalf("events len = %d, want %d", len(after.Events), len(before.Events))
+	}
+}
+
+func TestLeadSyncOnceReviewerSubscriberCommentOnlyDoesNotChangeAssigneeOrState(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeReviewerWorkflow(t, nil)
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "reviewer subscriber issue",
+		Body:   "body",
+		Labels: []string{"to:reviewer", "state:review"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+	claimIssueAsIntegrator(t, svc, ctx, issueRef)
+	moveIssueToReviewStateAsIntegrator(t, svc, ctx, issueRef)
 
 	activeIssueRef := ""
 	activeRunID := ""
@@ -176,8 +226,23 @@ func TestLeadSyncOnceReviewerMatchesToReviewerWithoutStateReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LeadSyncOnce() error = %v", err)
 	}
-	if result.Candidates != 1 || result.Processed != 1 || result.Spawned != 1 || result.Blocked != 0 {
+	if result.Processed != 1 || result.Spawned != 1 || result.Blocked != 0 {
 		t.Fatalf("result = %+v", result)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if got.Assignee != "lead-integrator" {
+		t.Fatalf("Assignee = %q, want lead-integrator", got.Assignee)
+	}
+	if !contains(got.Labels, "state:review") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	last := got.Events[len(got.Events)-1].Body
+	if !strings.Contains(last, "Role: reviewer") || !strings.Contains(last, "review:approved") {
+		t.Fatalf("last event body = %s", last)
 	}
 }
 
@@ -189,13 +254,13 @@ func TestLeadSyncOnceReviewerChangesRequestedRoutesToBackend(t *testing.T) {
 	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
 		Title:  "changes requested issue",
 		Body:   "body",
-		Labels: []string{"to:backend", "state:review"},
+		Labels: []string{"to:backend", "to:reviewer", "state:review"},
 	})
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
 	}
-	claimIssueAsReviewer(t, svc, ctx, issueRef)
-	moveIssueToReviewState(t, svc, ctx, issueRef)
+	claimIssueAsIntegrator(t, svc, ctx, issueRef)
+	moveIssueToReviewStateAsIntegrator(t, svc, ctx, issueRef)
 
 	activeIssueRef := ""
 	activeRunID := ""
@@ -228,7 +293,7 @@ func TestLeadSyncOnceReviewerChangesRequestedRoutesToBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIssue() error = %v", err)
 	}
-	if !contains(got.Labels, "state:blocked") {
+	if !contains(got.Labels, "state:review") {
 		t.Fatalf("labels = %v", got.Labels)
 	}
 	last := got.Events[len(got.Events)-1].Body
@@ -245,13 +310,13 @@ func TestLeadSyncOnceReviewerChangesRequestedRoutesToFrontend(t *testing.T) {
 	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
 		Title:  "changes requested frontend issue",
 		Body:   "body",
-		Labels: []string{"to:frontend", "state:review"},
+		Labels: []string{"to:frontend", "to:reviewer", "state:review"},
 	})
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
 	}
-	claimIssueAsReviewer(t, svc, ctx, issueRef)
-	moveIssueToReviewState(t, svc, ctx, issueRef)
+	claimIssueAsIntegrator(t, svc, ctx, issueRef)
+	moveIssueToReviewStateAsIntegrator(t, svc, ctx, issueRef)
 
 	activeIssueRef := ""
 	activeRunID := ""

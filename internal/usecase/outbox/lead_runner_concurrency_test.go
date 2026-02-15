@@ -10,7 +10,7 @@ func writeLeadWorkflowWithMaxConcurrent(t *testing.T, maxConcurrent int) string 
 	t.Helper()
 
 	content := fmt.Sprintf(`
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -28,6 +28,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = %d
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 `, maxConcurrent)
 	return writeLeadWorkflowFile(t, content)

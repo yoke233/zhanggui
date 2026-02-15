@@ -95,7 +95,7 @@ func init() {
 	leadCmd.AddCommand(leadRunCmd)
 
 	leadRunCmd.Flags().String("role", "backend", "Role to run as lead")
-	leadRunCmd.Flags().String("assignee", "lead-backend", "Required assignee value for claimed issues")
+	leadRunCmd.Flags().String("assignee", "lead-backend", "Lead actor identity (owner: requires issue assignee match; subscriber: comment-only without assignee match)")
 	leadRunCmd.Flags().String("workflow", "workflow.toml", "Path to workflow.toml")
 	leadRunCmd.Flags().Bool("once", false, "Run one sync tick and exit")
 	leadRunCmd.Flags().Duration("poll-interval", 5*time.Second, "Polling interval for continuous lead loop")

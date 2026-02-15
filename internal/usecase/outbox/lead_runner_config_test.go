@@ -67,7 +67,7 @@ func TestLeadSyncOnceRoleNotEnabled(t *testing.T) {
 	ctx := context.Background()
 
 	workflowPath := writeLeadWorkflowFile(t, `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -85,6 +85,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 `)
 
@@ -104,7 +106,7 @@ func TestLeadSyncOnceGroupMissing(t *testing.T) {
 	ctx := context.Background()
 
 	workflowPath := writeLeadWorkflowFile(t, `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -122,6 +124,8 @@ backend = "main"
 [groups.qa]
 role = "qa"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:qa"]
 `)
 
@@ -141,7 +145,7 @@ func TestLeadSyncOnceNonSQLiteBackend(t *testing.T) {
 	ctx := context.Background()
 
 	workflowPath := writeLeadWorkflowFile(t, `
-version = 1
+version = 2
 
 [outbox]
 backend = "github"
@@ -159,6 +163,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 1
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 `)
 

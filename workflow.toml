@@ -35,6 +35,8 @@ decisions = ["decision:proposed", "decision:accepted", "decision:rejected"]
 controls = ["needs-human", "autoflow:off"]
 types = ["kind:task", "kind:bug", "kind:question", "kind:proposal", "kind:blocker"]
 priority = ["prio:p0", "prio:p1", "prio:p2", "prio:p3"]
+review = ["review:approved", "review:changes_requested"]
+qa = ["qa:pass", "qa:fail"]
 
 [groups.backend]
 role = "backend"

@@ -254,9 +254,90 @@ func TestLeadSyncOnceMissingEvidenceWritesBlocked(t *testing.T) {
 	if !contains(got.Labels, "state:blocked") {
 		t.Fatalf("labels = %v", got.Labels)
 	}
-	last := got.Events[len(got.Events)-1].Body
-	if !strings.Contains(last, "missing required evidence") {
-		t.Fatalf("last event body = %s", last)
+	if !contains(got.Labels, "needs-human") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	found := false
+	for _, evt := range got.Events {
+		if strings.Contains(evt.Body, "missing required evidence") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		last := got.Events[len(got.Events)-1].Body
+		t.Fatalf("blocked comment not found; last event body = %s", last)
+	}
+}
+
+func TestLeadSyncOnceMissingEvidenceTakesPrecedenceOverWorkerResultCode(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeTestWorkflow(t)
+	issueRef := createLeadClaimedIssue(t, svc, ctx, "missing evidence precedence issue", "body", []string{"to:backend", "state:todo"})
+
+	runID := ""
+	svc.workerInvoker = func(_ context.Context, input invokeWorkerInput) error {
+		runID = input.RunID
+		return nil
+	}
+	svc.workResultLoader = func(_ string) (WorkResultEnvelope, error) {
+		return WorkResultEnvelope{
+			IssueRef:   issueRef,
+			RunID:      runID,
+			ResultCode: "test_failed",
+			Changes: WorkResultChanges{
+				PR:     "none",
+				Commit: "none",
+			},
+			Tests: WorkResultTests{
+				Command:  "go test ./...",
+				Result:   "fail",
+				Evidence: "none",
+			},
+		}, nil
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:         "backend",
+		Assignee:     "lead-backend",
+		WorkflowFile: workflowPath,
+		EventBatch:   100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Processed != 1 || result.Spawned != 1 || result.Blocked != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !contains(got.Labels, "state:blocked") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	if !contains(got.Labels, "needs-human") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	found := ""
+	for _, evt := range got.Events {
+		if strings.Contains(evt.Body, "missing required evidence") {
+			found = evt.Body
+			break
+		}
+	}
+	if found == "" {
+		last := got.Events[len(got.Events)-1].Body
+		t.Fatalf("evidence-missing comment not found; last event body = %s", last)
+	}
+	if !strings.Contains(found, "ResultCode: manual_intervention") {
+		t.Fatalf("expected manual_intervention result code, body=%s", found)
+	}
+	if strings.Contains(found, "worker reported result_code") {
+		t.Fatalf("evidence-missing path should not be overridden by worker result_code, body=%s", found)
 	}
 }
 

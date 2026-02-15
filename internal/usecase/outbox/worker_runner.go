@@ -255,12 +255,81 @@ func loadWorkResultFromContextPack(contextPackDir string) (WorkResultEnvelope, e
 	}
 
 	textPath := filepath.Join(contextPackDir, "work_result.txt")
-	result, err := loadWorkResultText(textPath)
+	if _, err := os.Stat(textPath); err == nil {
+		result, err := loadWorkResultText(textPath)
+		if err != nil {
+			return WorkResultEnvelope{}, err
+		}
+		result.Source = "text"
+		return result, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return WorkResultEnvelope{}, err
+	}
+
+	// Last-resort fallback: stdout/stderr logs only. The intent is to preserve
+	// a minimal anchor for Lead to route into manual intervention (needs-human)
+	// instead of failing with a raw file-not-found error.
+	result, err := loadWorkResultFromLogs(contextPackDir)
 	if err != nil {
 		return WorkResultEnvelope{}, err
 	}
-	result.Source = "text"
+	result.Source = "logs"
 	return result, nil
+}
+
+func loadWorkResultFromLogs(contextPackDir string) (WorkResultEnvelope, error) {
+	order, err := loadWorkOrder(filepath.Join(contextPackDir, "work_order.json"))
+	if err != nil {
+		return WorkResultEnvelope{}, err
+	}
+
+	stdoutPath := filepath.Join(contextPackDir, "stdout.log")
+	stderrPath := filepath.Join(contextPackDir, "stderr.log")
+	stdoutExists := false
+	stderrExists := false
+
+	if _, statErr := os.Stat(stdoutPath); statErr == nil {
+		stdoutExists = true
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return WorkResultEnvelope{}, statErr
+	}
+
+	if _, statErr := os.Stat(stderrPath); statErr == nil {
+		stderrExists = true
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return WorkResultEnvelope{}, statErr
+	}
+
+	if !stdoutExists && !stderrExists {
+		return WorkResultEnvelope{}, errors.New("work result missing: no work_result.{json,txt} and no stdout/stderr logs")
+	}
+
+	evidence := "none"
+	switch {
+	case stdoutExists && stderrExists:
+		evidence = "stdout.log, stderr.log"
+	case stdoutExists:
+		evidence = "stdout.log"
+	case stderrExists:
+		evidence = "stderr.log"
+	}
+
+	return WorkResultEnvelope{
+		IssueRef: order.IssueRef,
+		RunID:    order.RunID,
+		Status:   "blocked",
+		Summary:  "work_result.{json,txt} missing; see executor logs",
+		Changes: WorkResultChanges{
+			PR:     "none",
+			Commit: "none",
+		},
+		Tests: WorkResultTests{
+			Command:  "none",
+			Result:   "n/a",
+			Evidence: evidence,
+		},
+		ResultCode: "",
+	}, nil
 }
 
 func loadWorkResultJSON(path string) (WorkResultEnvelope, error) {

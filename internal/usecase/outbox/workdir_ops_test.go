@@ -31,7 +31,7 @@ func TestServiceCleanupWorkdirRemovesWorktree(t *testing.T) {
 
 	workflowPath := filepath.Join(repoDir, "workflow.toml")
 	workflow := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -90,7 +90,7 @@ func TestServiceCleanupWorkdirErrorsWhenWorkdirDisabled(t *testing.T) {
 	tempDir := t.TempDir()
 	workflowPath := filepath.Join(tempDir, "workflow.toml")
 	workflow := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"

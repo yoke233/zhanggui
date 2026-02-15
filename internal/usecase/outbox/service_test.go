@@ -636,7 +636,7 @@ func writeTestWorkflow(t *testing.T) string {
 	t.Helper()
 
 	content := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -654,6 +654,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [executors.backend]

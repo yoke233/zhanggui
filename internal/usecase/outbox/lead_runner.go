@@ -86,6 +86,8 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 	if len(listenLabels) == 0 {
 		listenLabels = []string{"to:" + role}
 	}
+	groupMode := normalizeGroupMode(group.Mode)
+	groupWriteback := normalizeGroupWriteback(group.Writeback)
 
 	assignee := strings.TrimSpace(input.Assignee)
 	if assignee == "" {
@@ -120,7 +122,7 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 		}
 	}
 
-	issueQueue, err := s.listRoleQueueIssues(ctx, role, listenLabels)
+	issueQueue, err := s.listRoleQueueIssues(ctx, listenLabels)
 	if err != nil {
 		return LeadSyncResult{}, err
 	}
@@ -165,6 +167,9 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 			Profile:        profile,
 			CursorAfter:    result.CursorAfter,
 			AllowSpawn:     allowSpawn,
+			GroupMode:      groupMode,
+			WritebackMode:  groupWriteback,
+			ListenLabels:   listenLabels,
 		})
 		if processErr != nil {
 			return LeadSyncResult{}, processErr
@@ -190,33 +195,10 @@ func (s *Service) LeadSyncOnce(ctx context.Context, input LeadSyncInput) (LeadSy
 	return result, nil
 }
 
-func (s *Service) listRoleQueueIssues(ctx context.Context, role string, listenLabels []string) ([]ports.OutboxIssue, error) {
-	normalizedRole := strings.TrimSpace(role)
-	if normalizedRole == "reviewer" && len(listenLabels) > 1 {
-		items := make([]ports.OutboxIssue, 0)
-		seen := make(map[uint64]struct{})
-		for _, label := range listenLabels {
-			normalizedLabel := strings.TrimSpace(label)
-			if normalizedLabel == "" {
-				continue
-			}
-			rows, err := s.repo.ListIssues(ctx, ports.OutboxIssueFilter{
-				IncludeClosed: false,
-				IncludeLabels: []string{normalizedLabel},
-				ExcludeLabels: []string{"autoflow:off"},
-			})
-			if err != nil {
-				return nil, err
-			}
-			for _, row := range rows {
-				if _, ok := seen[row.IssueID]; ok {
-					continue
-				}
-				seen[row.IssueID] = struct{}{}
-				items = append(items, row)
-			}
-		}
-		return items, nil
+func (s *Service) listRoleQueueIssues(ctx context.Context, listenLabels []string) ([]ports.OutboxIssue, error) {
+	listenLabels = normalizeLabels(listenLabels)
+	if len(listenLabels) == 0 {
+		return nil, nil
 	}
 
 	return s.repo.ListIssues(ctx, ports.OutboxIssueFilter{
@@ -237,6 +219,9 @@ type leadIssueProcessInput struct {
 	CursorAfter     uint64
 	AllowSpawn      bool
 	IgnoreStateSkip bool
+	GroupMode       string
+	WritebackMode   string
+	ListenLabels    []string
 }
 
 func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessInput) (leadIssueOutcome, error) {
@@ -245,7 +230,21 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	}
 
 	issueRef := formatIssueRef(input.Issue.IssueID)
-	if strings.TrimSpace(derefString(input.Issue.Assignee)) != input.Assignee {
+	issueAssignee := strings.TrimSpace(derefString(input.Issue.Assignee))
+	if isSubscriberMode(input.GroupMode) {
+		if issueAssignee == "" {
+			return leadIssueOutcome{}, nil
+		}
+	} else if issueAssignee != input.Assignee {
+		return leadIssueOutcome{}, nil
+	}
+
+	currentUpdatedAt := strings.TrimSpace(input.Issue.UpdatedAt)
+	seenUpdatedAt, seen, err := s.cache.Get(ctx, leadIssueSeenUpdatedAtKey(input.Role, issueRef))
+	if err != nil {
+		return leadIssueOutcome{}, err
+	}
+	if seen && strings.TrimSpace(seenUpdatedAt) != "" && strings.TrimSpace(seenUpdatedAt) == currentUpdatedAt {
 		return leadIssueOutcome{}, nil
 	}
 
@@ -256,11 +255,64 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	if containsString(labels, "autoflow:off") {
 		return leadIssueOutcome{}, nil
 	}
-	if !input.IgnoreStateSkip && shouldSkipLeadSpawnByState(input.Role, labels) {
+	if !input.IgnoreStateSkip && shouldSkipLeadSpawnByState(labels, input.ListenLabels) {
+		return leadIssueOutcome{}, nil
+	}
+	if isSubscriberMode(input.GroupMode) && !containsAllLabels(labels, input.ListenLabels) {
 		return leadIssueOutcome{}, nil
 	}
 
+	commentOnly := isCommentOnlyWriteback(input.WritebackMode)
+	writeComment := func(state string, body string) error {
+		effectiveState := state
+		if commentOnly {
+			effectiveState = ""
+		}
+		return s.CommentIssue(ctx, CommentIssueInput{
+			IssueRef: issueRef,
+			Actor:    input.Assignee,
+			State:    effectiveState,
+			Body:     body,
+		})
+	}
+	addNeedsHumanBestEffort := func() {
+		if commentOnly {
+			return
+		}
+		if containsString(labels, "needs-human") {
+			return
+		}
+		if addErr := s.AddIssueLabels(ctx, AddIssueLabelsInput{
+			IssueRef: issueRef,
+			Actor:    input.Assignee,
+			Labels:   []string{"needs-human"},
+		}); addErr != nil {
+			logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "add needs-human label failed", slog.Any("err", errs.Loggable(addErr)), slog.String("issue_ref", issueRef))
+		}
+	}
+	markSeen := func() error {
+		refreshed, err := s.repo.GetIssue(ctx, input.Issue.IssueID)
+		if err != nil {
+			return err
+		}
+		updatedAt := strings.TrimSpace(refreshed.UpdatedAt)
+		if updatedAt == "" {
+			updatedAt = currentUpdatedAt
+		}
+		return s.cache.Set(ctx, leadIssueSeenUpdatedAtKey(input.Role, issueRef), updatedAt, 0)
+	}
+
+	indexedVerdictsChanged := false
+	if shouldIndexVerdictLabels(input.Role, input.GroupMode, input.WritebackMode) {
+		changed, err := s.indexVerdictLabels(ctx, input.Issue.IssueID, input.Assignee, labels)
+		if err != nil {
+			return leadIssueOutcome{}, err
+		}
+		indexedVerdictsChanged = changed
+	}
+
 	if containsString(labels, "needs-human") {
+		summary := applyVerdictMarker(input.Role, "blocked", "manual_intervention", "issue has needs-human label")
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -270,19 +322,17 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			ResultCode:   "manual_intervention",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "manual:needs-human",
-			Summary:      "issue has needs-human label",
+			Summary:      summary,
 			BlockedBy:    []string{"needs-human"},
 			Next:         fmt.Sprintf("@%s remove needs-human after manual review", input.Role),
 			Tests:        WorkResultTests{},
 			Changes:      WorkResultChanges{},
 			OpenQuestion: "none",
 		})
-		if err := s.CommentIssue(ctx, CommentIssueInput{
-			IssueRef: issueRef,
-			Actor:    input.Assignee,
-			State:    "blocked",
-			Body:     body,
-		}); err != nil {
+		if err := writeComment("blocked", body); err != nil {
+			return leadIssueOutcome{}, err
+		}
+		if err := markSeen(); err != nil {
 			return leadIssueOutcome{}, err
 		}
 		return leadIssueOutcome{processed: true, blocked: true}, nil
@@ -294,6 +344,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		return leadIssueOutcome{}, err
 	}
 	if len(unresolved) > 0 {
+		summary := applyVerdictMarker(input.Role, "blocked", "dep_unresolved", "issue has unresolved dependencies")
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -303,24 +354,28 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			ResultCode:   "dep_unresolved",
 			ReadUpTo:     formatReadUpTo(input.CursorAfter),
 			Trigger:      "manual:depends-on",
-			Summary:      "issue has unresolved dependencies",
+			Summary:      summary,
 			BlockedBy:    unresolved,
 			Next:         fmt.Sprintf("@%s wait until dependencies are closed", input.Role),
 			Tests:        WorkResultTests{},
 			Changes:      WorkResultChanges{},
 			OpenQuestion: "none",
 		})
-		if err := s.CommentIssue(ctx, CommentIssueInput{
-			IssueRef: issueRef,
-			Actor:    input.Assignee,
-			State:    "blocked",
-			Body:     body,
-		}); err != nil {
+		if err := writeComment("blocked", body); err != nil {
+			return leadIssueOutcome{}, err
+		}
+		if err := markSeen(); err != nil {
 			return leadIssueOutcome{}, err
 		}
 		return leadIssueOutcome{processed: true, blocked: true}, nil
 	}
 	if !input.AllowSpawn {
+		if indexedVerdictsChanged {
+			if err := markSeen(); err != nil {
+				return leadIssueOutcome{}, err
+			}
+			return leadIssueOutcome{processed: true}, nil
+		}
 		return leadIssueOutcome{}, nil
 	}
 
@@ -357,6 +412,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 
 		workdirPath, err = workdirMgr.Prepare(ctx, input.Role, issueRef, runID)
 		if err != nil {
+			summary := applyVerdictMarker(input.Role, "blocked", "env_unavailable", "workdir prepare failed: "+err.Error())
 			body := buildStructuredComment(StructuredCommentInput{
 				Role:         input.Role,
 				IssueRef:     issueRef,
@@ -366,18 +422,16 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 				ResultCode:   "env_unavailable",
 				ReadUpTo:     formatReadUpTo(input.CursorAfter),
 				Trigger:      "workdir:prepare:" + runID,
-				Summary:      "workdir prepare failed: " + err.Error(),
+				Summary:      summary,
 				BlockedBy:    []string{"workdir-prepare"},
 				Next:         fmt.Sprintf("@%s fix git worktree setup and retry with a new run", input.Role),
 				OpenQuestion: "none",
 			})
-			if commentErr := s.CommentIssue(ctx, CommentIssueInput{
-				IssueRef: issueRef,
-				Actor:    input.Assignee,
-				State:    "blocked",
-				Body:     body,
-			}); commentErr != nil {
+			if commentErr := writeComment("blocked", body); commentErr != nil {
 				return leadIssueOutcome{}, commentErr
+			}
+			if err := markSeen(); err != nil {
+				return leadIssueOutcome{}, err
 			}
 			return leadIssueOutcome{processed: true, blocked: true}, nil
 		}
@@ -437,6 +491,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			resultCode = "manual_intervention"
 		}
 
+		summary = applyVerdictMarker(input.Role, "blocked", resultCode, summary)
 		// Worker execution errors are normalized into blocked events.
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
@@ -452,13 +507,14 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Next:         next,
 			OpenQuestion: "none",
 		})
-		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
-			IssueRef: issueRef,
-			Actor:    input.Assignee,
-			State:    "blocked",
-			Body:     body,
-		}); commentErr != nil {
+		if commentErr := writeComment("blocked", body); commentErr != nil {
 			return leadIssueOutcome{}, commentErr
+		}
+		if shouldAddNeedsHumanForResultCode(resultCode) {
+			addNeedsHumanBestEffort()
+		}
+		if err := markSeen(); err != nil {
+			return leadIssueOutcome{}, err
 		}
 		return leadIssueOutcome{processed: true, blocked: true, spawned: true}, nil
 	}
@@ -481,6 +537,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			resultCode = "manual_intervention"
 		}
 
+		summary = applyVerdictMarker(input.Role, "blocked", resultCode, summary)
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -495,22 +552,12 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Next:         next,
 			OpenQuestion: "none",
 		})
-		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
-			IssueRef: issueRef,
-			Actor:    input.Assignee,
-			State:    "blocked",
-			Body:     body,
-		}); commentErr != nil {
+		if commentErr := writeComment("blocked", body); commentErr != nil {
 			return leadIssueOutcome{}, commentErr
 		}
-		if !containsString(labels, "needs-human") {
-			if addErr := s.AddIssueLabels(ctx, AddIssueLabelsInput{
-				IssueRef: issueRef,
-				Actor:    input.Assignee,
-				Labels:   []string{"needs-human"},
-			}); addErr != nil {
-				logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "add needs-human label failed", slog.Any("err", errs.Loggable(addErr)), slog.String("issue_ref", issueRef))
-			}
+		addNeedsHumanBestEffort()
+		if err := markSeen(); err != nil {
+			return leadIssueOutcome{}, err
 		}
 		return leadIssueOutcome{processed: true, blocked: true, spawned: true}, nil
 	}
@@ -536,6 +583,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			resultCode = "manual_intervention"
 		}
 
+		summary = applyVerdictMarker(input.Role, "blocked", resultCode, summary)
 		body := buildStructuredComment(StructuredCommentInput{
 			Role:         input.Role,
 			IssueRef:     issueRef,
@@ -550,22 +598,12 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 			Next:         next,
 			OpenQuestion: "none",
 		})
-		if commentErr := s.CommentIssue(ctx, CommentIssueInput{
-			IssueRef: issueRef,
-			Actor:    input.Assignee,
-			State:    "blocked",
-			Body:     body,
-		}); commentErr != nil {
+		if commentErr := writeComment("blocked", body); commentErr != nil {
 			return leadIssueOutcome{}, commentErr
 		}
-		if !containsString(labels, "needs-human") {
-			if addErr := s.AddIssueLabels(ctx, AddIssueLabelsInput{
-				IssueRef: issueRef,
-				Actor:    input.Assignee,
-				Labels:   []string{"needs-human"},
-			}); addErr != nil {
-				logging.Error(logging.WithAttrs(ctx, slog.String("component", "outbox.lead")), "add needs-human label failed", slog.Any("err", errs.Loggable(addErr)), slog.String("issue_ref", issueRef))
-			}
+		addNeedsHumanBestEffort()
+		if err := markSeen(); err != nil {
+			return leadIssueOutcome{}, err
 		}
 		return leadIssueOutcome{processed: true, blocked: true, spawned: true}, nil
 	}
@@ -576,10 +614,15 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	next := "@integrator review and merge"
 	blockedBy := []string{"none"}
 	resultCode := "none"
+	needsHuman := false
 
 	if input.Role == "reviewer" {
 		summary = "review completed with evidence"
 		next = "@integrator finalize review decision"
+	}
+	if input.Role == "qa" {
+		summary = "qa completed with evidence"
+		next = "@integrator finalize qa decision"
 	}
 
 	if err := domainoutbox.ValidateWorkResultEvidence(result.toDomain()); err != nil {
@@ -589,6 +632,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		next = fmt.Sprintf("@%s provide PR/Commit and Tests evidence", input.Role)
 		blockedBy = []string{"missing-evidence"}
 		resultCode = "manual_intervention"
+		needsHuman = true
 	}
 
 	if input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested" {
@@ -601,13 +645,16 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		resultCode = "review_changes_requested"
 	}
 
-	if strings.TrimSpace(result.ResultCode) != "" && !(input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested") {
+	if !needsHuman && strings.TrimSpace(result.ResultCode) != "" && !(input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested") {
 		status = "blocked"
 		action = "blocked"
 		summary = "worker reported result_code: " + result.ResultCode
 		next = fmt.Sprintf("@%s investigate failure and rerun", input.Role)
 		blockedBy = []string{"worker-result-code"}
 		resultCode = strings.TrimSpace(result.ResultCode)
+		if shouldAddNeedsHumanForResultCode(resultCode) {
+			needsHuman = true
+		}
 	}
 
 	if strings.TrimSpace(result.Source) != "" {
@@ -628,6 +675,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		status = "blocked"
 		action = "blocked"
 		resultCode = "manual_intervention"
+		needsHuman = true
 		if strings.TrimSpace(summary) != "" && summary != cleanupSummary {
 			summary = summary + "; " + cleanupSummary
 		} else {
@@ -646,6 +694,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		blockedBy = normalizeLabels(cleanupBlockedBy)
 	}
 
+	summary = applyVerdictMarker(input.Role, status, resultCode, summary)
 	body := buildStructuredComment(StructuredCommentInput{
 		Role:         input.Role,
 		IssueRef:     issueRef,
@@ -662,12 +711,13 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		OpenQuestion: "none",
 		Next:         next,
 	})
-	if err := s.CommentIssue(ctx, CommentIssueInput{
-		IssueRef: issueRef,
-		Actor:    input.Assignee,
-		State:    status,
-		Body:     body,
-	}); err != nil {
+	if err := writeComment(status, body); err != nil {
+		return leadIssueOutcome{}, err
+	}
+	if needsHuman {
+		addNeedsHumanBestEffort()
+	}
+	if err := markSeen(); err != nil {
 		return leadIssueOutcome{}, err
 	}
 
@@ -676,6 +726,107 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 		blocked:   status == "blocked",
 		spawned:   true,
 	}, nil
+}
+
+func (s *Service) indexVerdictLabels(ctx context.Context, issueID uint64, actor string, currentLabels []string) (bool, error) {
+	events, err := s.repo.ListIssueEvents(ctx, issueID)
+	if err != nil {
+		return false, err
+	}
+
+	latestReview := ""
+	latestQA := ""
+	for _, event := range events {
+		marker := extractVerdictMarker(event.Body)
+		switch marker {
+		case "review:approved", "review:changes_requested":
+			latestReview = marker
+		case "qa:pass", "qa:fail":
+			latestQA = marker
+		}
+	}
+
+	changed := false
+	issueRef := formatIssueRef(issueID)
+
+	reviewLabels := []string{"review:approved", "review:changes_requested"}
+	qaLabels := []string{"qa:pass", "qa:fail"}
+
+	if latestReview != "" {
+		toRemove := make([]string, 0)
+		for _, label := range reviewLabels {
+			if label == latestReview {
+				continue
+			}
+			if containsString(currentLabels, label) {
+				toRemove = append(toRemove, label)
+			}
+		}
+		toAdd := make([]string, 0, 1)
+		if !containsString(currentLabels, latestReview) {
+			toAdd = append(toAdd, latestReview)
+		}
+
+		if len(toRemove) > 0 {
+			if err := s.RemoveIssueLabels(ctx, RemoveIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    actor,
+				Labels:   toRemove,
+			}); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+		if len(toAdd) > 0 {
+			if err := s.AddIssueLabels(ctx, AddIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    actor,
+				Labels:   toAdd,
+			}); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+
+	if latestQA != "" {
+		toRemove := make([]string, 0)
+		for _, label := range qaLabels {
+			if label == latestQA {
+				continue
+			}
+			if containsString(currentLabels, label) {
+				toRemove = append(toRemove, label)
+			}
+		}
+		toAdd := make([]string, 0, 1)
+		if !containsString(currentLabels, latestQA) {
+			toAdd = append(toAdd, latestQA)
+		}
+
+		if len(toRemove) > 0 {
+			if err := s.RemoveIssueLabels(ctx, RemoveIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    actor,
+				Labels:   toRemove,
+			}); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+		if len(toAdd) > 0 {
+			if err := s.AddIssueLabels(ctx, AddIssueLabelsInput{
+				IssueRef: issueRef,
+				Actor:    actor,
+				Labels:   toAdd,
+			}); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+
+	return changed, nil
 }
 
 func leadCursorKey(role string) string {
@@ -688,6 +839,10 @@ func leadActiveRunKey(role string, issueRef string) string {
 
 func leadRunSeqKey(role string, issueRef string) string {
 	return "lead:" + role + ":run_seq:" + issueRef
+}
+
+func leadIssueSeenUpdatedAtKey(role string, issueRef string) string {
+	return "lead:" + role + ":seen_issue_updated_at:" + issueRef
 }
 
 func (s *Service) getUintCache(ctx context.Context, key string) (uint64, error) {
@@ -836,13 +991,66 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func shouldSkipLeadSpawnByState(role string, labels []string) bool {
+func containsAllLabels(labels []string, required []string) bool {
+	for _, label := range required {
+		trimmed := strings.TrimSpace(label)
+		if trimmed == "" {
+			continue
+		}
+		if !containsString(labels, trimmed) {
+			return false
+		}
+	}
+	return true
+}
+
+func extractVerdictMarker(body string) string {
+	first := extractFirstSummaryBullet(body)
+	lower := strings.ToLower(strings.TrimSpace(first))
+	for _, marker := range []string{"review:approved", "review:changes_requested", "qa:pass", "qa:fail"} {
+		if strings.HasPrefix(lower, marker) {
+			return marker
+		}
+	}
+	return ""
+}
+
+func extractFirstSummaryBullet(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+
+	lines := strings.Split(body, "\n")
+	inSummary := false
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if !inSummary {
+			if line == "Summary:" {
+				inSummary = true
+			}
+			continue
+		}
+
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "- ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "- "))
+		}
+		if strings.HasSuffix(line, ":") {
+			return ""
+		}
+	}
+	return ""
+}
+
+func shouldSkipLeadSpawnByState(labels []string, listenLabels []string) bool {
 	state := currentStateLabel(labels)
 	switch state {
 	case "state:blocked", "state:done":
 		return true
 	case "state:review":
-		return strings.TrimSpace(role) != "reviewer"
+		return !containsString(listenLabels, "state:review")
 	default:
 		return false
 	}

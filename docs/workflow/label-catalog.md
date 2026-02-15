@@ -11,6 +11,8 @@
 - 路由：`to:*`
 - 状态：`state:*`
 - 决策：`decision:*`
+- 审查判定：`review:*`（Phase 2.8 起可选；本仓库已启用）
+- 质量判定：`qa:*`（Phase 2.8 起可选；本仓库已启用）
 - 控制：`needs-human`, `autoflow:off`
 - 类型：`kind:*`
 - 优先级：`prio:*`
@@ -40,6 +42,16 @@
 - `decision:proposed`
 - `decision:accepted`
 - `decision:rejected`
+
+### 审查判定标签（Phase 2.8）
+
+- `review:approved`
+- `review:changes_requested`
+
+### QA 判定标签（Phase 2.8）
+
+- `qa:pass`
+- `qa:fail`
 
 ### 控制标签
 
@@ -87,7 +99,7 @@
 
 备注：
 
-- 若后续引入质量类标签（例如 `review:*`），也应视为互斥集合（同一时刻最多一个结论）。
+- `review:*` 与 `qa:*` 均应视为互斥集合（同一时刻最多一个结论），并由单写者（推荐：`lead-integrator`）负责 normalize。
 
 ## 监听矩阵（默认）
 

@@ -37,7 +37,7 @@ func writeTestWorkflowWithWorkdir(t *testing.T) string {
 	t.Helper()
 
 	content := `
-version = 1
+version = 2
 
 [outbox]
 backend = "sqlite"
@@ -62,6 +62,8 @@ backend = "main"
 [groups.backend]
 role = "backend"
 max_concurrent = 4
+mode = "owner"
+writeback = "full"
 listen_labels = ["to:backend"]
 
 [executors.backend]
@@ -179,12 +181,84 @@ func TestLeadSyncOnceWorkdirCleanupFailureBlocksAndKeepsEvidence(t *testing.T) {
 	if !contains(got.Labels, "state:blocked") {
 		t.Fatalf("labels = %v", got.Labels)
 	}
-	last := got.Events[len(got.Events)-1].Body
-	if !strings.Contains(last, "workdir cleanup failed") || !strings.Contains(last, "workdir-cleanup") {
-		t.Fatalf("last event body = %s", last)
+	if !contains(got.Labels, "needs-human") {
+		t.Fatalf("labels = %v", got.Labels)
 	}
-	if !strings.Contains(last, "git:abc123") {
-		t.Fatalf("cleanup failure comment should keep evidence, body=%s", last)
+	found := ""
+	for _, evt := range got.Events {
+		if strings.Contains(evt.Body, "workdir cleanup failed") {
+			found = evt.Body
+			break
+		}
+	}
+	if found == "" {
+		last := got.Events[len(got.Events)-1].Body
+		t.Fatalf("cleanup failure comment not found; last event body = %s", last)
+	}
+	if !strings.Contains(found, "workdir cleanup failed") || !strings.Contains(found, "workdir-cleanup") {
+		t.Fatalf("cleanup failure comment body = %s", found)
+	}
+	if !strings.Contains(found, "git:abc123") {
+		t.Fatalf("cleanup failure comment should keep evidence, body=%s", found)
+	}
+}
+
+func TestLeadSyncOnceWorkerExecutionCleanupFailureAddsNeedsHuman(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	workflowPath := writeTestWorkflowWithWorkdir(t)
+	issueRef := createLeadClaimedIssue(t, svc, ctx, "worker execution cleanup fail", "body", []string{"to:backend", "state:todo"})
+
+	workdirPath := filepath.Join(filepath.Dir(workflowPath), ".worktrees", "runs", "backend", "local_1", "run")
+	workdirStub := &stubWorkdirManager{
+		preparePath: workdirPath,
+		cleanupErr:  errors.New("dirty workdir"),
+	}
+	svc.workdirFactory = func(_ workflowWorkdirConfig, _ string, _ string) (workdirManager, error) {
+		return workdirStub, nil
+	}
+
+	svc.workerInvoker = func(_ context.Context, _ invokeWorkerInput) error {
+		return errors.New("executor failed")
+	}
+
+	result, err := svc.LeadSyncOnce(ctx, LeadSyncInput{
+		Role:         "backend",
+		Assignee:     "lead-backend",
+		WorkflowFile: workflowPath,
+		EventBatch:   100,
+	})
+	if err != nil {
+		t.Fatalf("LeadSyncOnce() error = %v", err)
+	}
+	if result.Processed != 1 || result.Blocked != 1 || result.Spawned != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+
+	got, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !contains(got.Labels, "state:blocked") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	if !contains(got.Labels, "needs-human") {
+		t.Fatalf("labels = %v", got.Labels)
+	}
+	found := ""
+	for _, evt := range got.Events {
+		if strings.Contains(evt.Body, "worker execution failed") {
+			found = evt.Body
+			break
+		}
+	}
+	if found == "" {
+		last := got.Events[len(got.Events)-1].Body
+		t.Fatalf("worker execution failure comment not found; last event body = %s", last)
+	}
+	if !strings.Contains(found, "worker execution failed") || !strings.Contains(found, "workdir cleanup failed") {
+		t.Fatalf("worker execution failure comment body = %s", found)
 	}
 }
 

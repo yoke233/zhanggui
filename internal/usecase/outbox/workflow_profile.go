@@ -21,6 +21,8 @@ type workflowRolesConfig struct {
 type workflowGroupConfig struct {
 	Role          string   `toml:"role"`
 	MaxConcurrent int      `toml:"max_concurrent"`
+	Mode          string   `toml:"mode"`
+	Writeback     string   `toml:"writeback"`
 	ListenLabels  []string `toml:"listen_labels"`
 }
 
@@ -64,8 +66,44 @@ func loadWorkflowProfile(workflowFile string) (workflowProfile, error) {
 	if err := toml.Unmarshal(raw, &profile); err != nil {
 		return workflowProfile{}, err
 	}
+	if err := validateWorkflowProfile(profile); err != nil {
+		return workflowProfile{}, err
+	}
 	profile.Workdir = resolveWorkdirConfig(profile)
 	return profile, nil
+}
+
+func validateWorkflowProfile(profile workflowProfile) error {
+	if profile.Version != 2 {
+		return errors.New("unsupported workflow version: expected version = 2 (Phase 2.8 V2 baseline)")
+	}
+
+	for name, group := range profile.Groups {
+		role := strings.TrimSpace(group.Role)
+		if role == "" {
+			return errors.New("groups." + strings.TrimSpace(name) + ".role is required")
+		}
+
+		mode := strings.ToLower(strings.TrimSpace(group.Mode))
+		if mode == "" {
+			return errors.New("groups." + strings.TrimSpace(name) + ".mode is required")
+		}
+		if mode != "owner" && mode != "subscriber" {
+			return errors.New("groups." + strings.TrimSpace(name) + ".mode must be owner or subscriber")
+		}
+
+		writeback := strings.ToLower(strings.TrimSpace(group.Writeback))
+		if writeback == "" {
+			return errors.New("groups." + strings.TrimSpace(name) + ".writeback is required")
+		}
+		if writeback != "full" && writeback != "comment-only" {
+			return errors.New("groups." + strings.TrimSpace(name) + ".writeback must be full or comment-only")
+		}
+		if mode == "subscriber" && writeback != "comment-only" {
+			return errors.New("groups." + strings.TrimSpace(name) + ": subscriber mode requires writeback = comment-only")
+		}
+	}
+	return nil
 }
 
 func isRoleEnabled(profile workflowProfile, role string) bool {
