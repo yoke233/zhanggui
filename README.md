@@ -7,6 +7,7 @@
 - `gorm`：数据库访问层
 - `github.com/glebarez/sqlite`：无 CGO SQLite 驱动
 - `log/slog`：结构化日志（结合 `context.Context` 传递日志元信息）
+- `bubbletea` + `lipgloss`：Lead 控制台 TUI
 
 ## 目录结构
 
@@ -51,7 +52,31 @@ go run . outbox close --issue local#1 --actor lead-integrator --body-file mailbo
 go run . outbox show --issue local#1
 ```
 
-5. 运行 lint
+5. Phase-2 Lead 单次调度（sqlite outbox）
+
+```powershell
+go run . lead run --role backend --assignee lead-backend --workflow workflow.toml --once
+```
+
+6. Phase-2.1 Lead 控制台（TUI）
+
+```powershell
+go run . console lead --role backend --workflow workflow.toml --refresh-interval 5s
+```
+
+控制台快捷键：
+
+- `↑/k`、`↓/j`：切换 issue
+- `g`：刷新队列
+- `c`：claim / unclaim
+- `s`：spawn worker
+- `w`：switch worker（强制新 run）
+- `r`：normalize + reply
+- `b`：blocked / unblock
+- `x`：close issue
+- `q`：退出
+
+7. 运行 lint
 
 ```powershell
 go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run
@@ -99,7 +124,12 @@ $env:ZG_DATABASE_DSN = 'state/custom.sqlite'
 
 ## 说明
 
-当前已具备 Phase-1 本地闭环所需最小能力（Issue 创建、claim、结构化 comment、close）。
+当前已具备：
+
+- Phase-1 本地闭环（Issue 创建、claim、结构化 comment、close）
+- Phase-2 Lead 调度（polling/cursor/run_id）
+- Phase-2.1 本地 Lead 控制台（TUI：队列、详情、动作、审计）
+
 Outbox 的 Cache 走用例层抽象接口，当前使用 SQLite 适配器，未来可替换 Redis 而不改用例层。
 
 ## 日志与上下文约定
