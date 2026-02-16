@@ -1,0 +1,22 @@
+{
+  "action": "completed",
+  "check_run": {
+    "id": 99001,
+    "name": "ci/unit-tests",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/acme/zhanggui/actions/runs/99001",
+    "details_url": "https://github.com/acme/zhanggui/actions/runs/99001/job/1",
+    "app": {
+      "owner": {
+        "login": "github-actions[bot]"
+      }
+    }
+  },
+  "sender": {
+    "login": "github-actions[bot]"
+  },
+  "repository": {
+    "full_name": "acme/zhanggui"
+  }
+}

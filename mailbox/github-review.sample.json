@@ -1,0 +1,22 @@
+{
+  "action": "submitted",
+  "review": {
+    "id": 4001,
+    "state": "changes_requested",
+    "body": "please add negative-path tests before merge",
+    "html_url": "https://github.com/acme/zhanggui/pull/42#pullrequestreview-4001",
+    "user": {
+      "login": "reviewer-bot"
+    }
+  },
+  "pull_request": {
+    "number": 42,
+    "html_url": "https://github.com/acme/zhanggui/pull/42"
+  },
+  "sender": {
+    "login": "reviewer-bot"
+  },
+  "repository": {
+    "full_name": "acme/zhanggui"
+  }
+}

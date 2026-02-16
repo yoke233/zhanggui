@@ -1,0 +1,16 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 81002,
+    "status": "failed",
+    "ref": "main",
+    "url": "https://gitlab.example.com/acme/zhanggui/-/pipelines/81002",
+    "web_url": "https://gitlab.example.com/acme/zhanggui/-/pipelines/81002"
+  },
+  "project": {
+    "path_with_namespace": "acme/zhanggui"
+  },
+  "user": {
+    "username": "gitlab-ci-bot"
+  }
+}
