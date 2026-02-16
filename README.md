@@ -52,6 +52,21 @@ go run . outbox close --issue local#1 --actor lead-integrator --body-file mailbo
 go run . outbox show --issue local#1
 ```
 
+4.1 Phase-3 质量事件接入（本地模式，review/ci 回填）
+
+```powershell
+go run . outbox quality ingest --issue local#1 --category review --result changes_requested --source github --event-id pr#1/review#3 --actor quality-bot --evidence https://github.com/org/repo/pull/1#pullrequestreview-3
+go run . outbox quality ingest --issue local#1 --category ci --result fail --source github --event-id check#100 --actor quality-bot --evidence https://ci.example/build/100
+go run . outbox quality list --issue local#1 --limit 20
+```
+
+也支持直接给 webhook payload，让系统自动推断 `category/result/evidence`：
+
+```powershell
+go run . outbox quality ingest --issue local#1 --source github --payload-file .\mailbox\github-review.json
+go run . outbox quality ingest --issue local#1 --source github --payload-file .\mailbox\github-check-run.json
+```
+
 5. Phase-2 Lead 单次调度（sqlite outbox）
 
 ```powershell

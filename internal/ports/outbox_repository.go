@@ -40,12 +40,42 @@ type OutboxEventCreate struct {
 	CreatedAt string
 }
 
+type OutboxQualityEvent struct {
+	QualityEventID  uint64
+	IssueID         uint64
+	IdempotencyKey  string
+	Source          string
+	ExternalEventID string
+	Category        string
+	Result          string
+	Actor           string
+	Summary         string
+	EvidenceJSON    string
+	PayloadJSON     string
+	IngestedAt      string
+}
+
+type OutboxQualityEventCreate struct {
+	IssueID         uint64
+	IdempotencyKey  string
+	Source          string
+	ExternalEventID string
+	Category        string
+	Result          string
+	Actor           string
+	Summary         string
+	EvidenceJSON    string
+	PayloadJSON     string
+	IngestedAt      string
+}
+
 type OutboxReadRepository interface {
 	ListIssues(ctx context.Context, filter OutboxIssueFilter) ([]OutboxIssue, error)
 	GetIssue(ctx context.Context, issueID uint64) (OutboxIssue, error)
 	ListIssueLabels(ctx context.Context, issueID uint64) ([]string, error)
 	ListIssueEvents(ctx context.Context, issueID uint64) ([]OutboxEvent, error)
 	ListEventsAfter(ctx context.Context, afterEventID uint64, limit int) ([]OutboxEvent, error)
+	ListQualityEvents(ctx context.Context, issueID uint64, limit int) ([]OutboxQualityEvent, error)
 }
 
 type OutboxRepository interface {
@@ -59,4 +89,5 @@ type OutboxRepository interface {
 	RemoveIssueLabel(ctx context.Context, issueID uint64, label string) error
 	HasIssueLabel(ctx context.Context, issueID uint64, label string) (bool, error)
 	AppendEvent(ctx context.Context, input OutboxEventCreate) error
+	CreateQualityEvent(ctx context.Context, input OutboxQualityEventCreate) (bool, error)
 }

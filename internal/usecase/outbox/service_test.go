@@ -68,6 +68,7 @@ func setupServiceWithDB(t *testing.T) (*Service, *testCache, *gorm.DB) {
 		&model.IssueLabel{},
 		&model.Event{},
 		&model.OutboxKV{},
+		&model.QualityEvent{},
 	); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}

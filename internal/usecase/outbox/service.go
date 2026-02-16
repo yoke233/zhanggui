@@ -69,6 +69,30 @@ type UnclaimIssueInput struct {
 	Comment  string
 }
 
+type IngestQualityEventInput struct {
+	IssueRef         string
+	Source           string
+	ExternalEventID  string
+	Category         string
+	Result           string
+	Actor            string
+	Summary          string
+	Evidence         []string
+	Payload          string
+	ProvidedEventKey string
+}
+
+type IngestQualityEventResult struct {
+	IssueRef         string
+	IdempotencyKey   string
+	Duplicate        bool
+	CommentWritten   bool
+	Marker           string
+	RoutedRole       string
+	NormalizedKind   string
+	NormalizedResult string
+}
+
 type LeadRunIssueInput struct {
 	Role           string
 	Assignee       string
@@ -104,6 +128,20 @@ type EventItem struct {
 	Actor     string
 	CreatedAt string
 	Body      string
+}
+
+type QualityEventItem struct {
+	QualityEventID  uint64
+	IdempotencyKey  string
+	Source          string
+	ExternalEventID string
+	Category        string
+	Result          string
+	Actor           string
+	Summary         string
+	Evidence        []string
+	PayloadJSON     string
+	IngestedAt      string
 }
 
 type IssueDetail struct {

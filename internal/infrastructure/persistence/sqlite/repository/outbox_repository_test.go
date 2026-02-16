@@ -28,7 +28,7 @@ func setupOutboxRepository(t *testing.T) *OutboxRepository {
 	t.Cleanup(func() {
 		_ = sqlDB.Close()
 	})
-	if err := db.AutoMigrate(&model.Issue{}, &model.IssueLabel{}, &model.Event{}, &model.OutboxKV{}); err != nil {
+	if err := db.AutoMigrate(&model.Issue{}, &model.IssueLabel{}, &model.Event{}, &model.OutboxKV{}, &model.QualityEvent{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	return NewOutboxRepository(db)
@@ -114,5 +114,62 @@ func TestListEventsAfter(t *testing.T) {
 	}
 	if events[0].EventID != 2 || events[1].EventID != 3 {
 		t.Fatalf("ListEventsAfter() event ids = %d,%d", events[0].EventID, events[1].EventID)
+	}
+}
+
+func TestCreateQualityEventDeduplicatesByIdempotencyKey(t *testing.T) {
+	repo := setupOutboxRepository(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	issue, err := repo.CreateIssue(ctx, ports.OutboxIssue{
+		Title:     "quality",
+		Body:      "body",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, []string{"to:backend", "state:review"})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	input := ports.OutboxQualityEventCreate{
+		IssueID:         issue.IssueID,
+		IdempotencyKey:  "qevt:local#1:review:1",
+		Source:          "manual",
+		ExternalEventID: "review#1",
+		Category:        "review",
+		Result:          "approved",
+		Actor:           "quality-bot",
+		Summary:         "review approved",
+		EvidenceJSON:    `["https://example.com/review/1"]`,
+		PayloadJSON:     `{"kind":"review","result":"approved"}`,
+		IngestedAt:      now,
+	}
+
+	inserted, err := repo.CreateQualityEvent(ctx, input)
+	if err != nil {
+		t.Fatalf("CreateQualityEvent(first) error = %v", err)
+	}
+	if !inserted {
+		t.Fatalf("CreateQualityEvent(first) inserted = false, want true")
+	}
+
+	inserted, err = repo.CreateQualityEvent(ctx, input)
+	if err != nil {
+		t.Fatalf("CreateQualityEvent(duplicate) error = %v", err)
+	}
+	if inserted {
+		t.Fatalf("CreateQualityEvent(duplicate) inserted = true, want false")
+	}
+
+	events, err := repo.ListQualityEvents(ctx, issue.IssueID, 20)
+	if err != nil {
+		t.Fatalf("ListQualityEvents() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("ListQualityEvents() len = %d, want 1", len(events))
+	}
+	if events[0].IdempotencyKey != input.IdempotencyKey {
+		t.Fatalf("ListQualityEvents() key = %q, want %q", events[0].IdempotencyKey, input.IdempotencyKey)
 	}
 }

@@ -64,6 +64,7 @@ func (a *App) InitSchema(ctx context.Context) error {
 		&model.IssueLabel{},
 		&model.Event{},
 		&model.OutboxKV{},
+		&model.QualityEvent{},
 	); err != nil {
 		return errs.Wrap(err, "auto migrate schema")
 	}

@@ -145,6 +145,42 @@ func (r *OutboxRepository) ListEventsAfter(ctx context.Context, afterEventID uin
 	return items, nil
 }
 
+func (r *OutboxRepository) ListQualityEvents(ctx context.Context, issueID uint64, limit int) ([]ports.OutboxQualityEvent, error) {
+	db, err := r.dbFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	query := db.Model(&model.QualityEvent{}).Where("issue_id = ?", issueID).Order("quality_event_id desc")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var rows []model.QualityEvent
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, errs.Wrap(err, "query quality events")
+	}
+
+	items := make([]ports.OutboxQualityEvent, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, ports.OutboxQualityEvent{
+			QualityEventID:  row.QualityEventID,
+			IssueID:         row.IssueID,
+			IdempotencyKey:  row.IdempotencyKey,
+			Source:          row.Source,
+			ExternalEventID: row.ExternalEventID,
+			Category:        row.Category,
+			Result:          row.Result,
+			Actor:           row.Actor,
+			Summary:         row.Summary,
+			EvidenceJSON:    row.EvidenceJSON,
+			PayloadJSON:     row.PayloadJSON,
+			IngestedAt:      row.IngestedAt,
+		})
+	}
+	return items, nil
+}
+
 func (r *OutboxRepository) CreateIssue(ctx context.Context, issue ports.OutboxIssue, labels []string) (ports.OutboxIssue, error) {
 	if ports.TxFromContext(ctx) != nil {
 		db, err := r.dbFromContext(ctx)
@@ -360,6 +396,51 @@ func (r *OutboxRepository) AppendEvent(ctx context.Context, input ports.OutboxEv
 		return errs.Wrap(err, "insert event")
 	}
 	return nil
+}
+
+func (r *OutboxRepository) CreateQualityEvent(ctx context.Context, input ports.OutboxQualityEventCreate) (bool, error) {
+	if ports.TxFromContext(ctx) != nil {
+		db, err := r.dbFromContext(ctx)
+		if err != nil {
+			return false, err
+		}
+
+		row := model.QualityEvent{
+			IssueID:         input.IssueID,
+			IdempotencyKey:  input.IdempotencyKey,
+			Source:          input.Source,
+			ExternalEventID: input.ExternalEventID,
+			Category:        input.Category,
+			Result:          input.Result,
+			Actor:           input.Actor,
+			Summary:         input.Summary,
+			EvidenceJSON:    input.EvidenceJSON,
+			PayloadJSON:     input.PayloadJSON,
+			IngestedAt:      input.IngestedAt,
+		}
+		result := db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(&row)
+		if result.Error != nil {
+			return false, errs.Wrap(result.Error, "insert quality event")
+		}
+		return result.RowsAffected > 0, nil
+	}
+
+	inserted := false
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := ports.WithTxContext(ctx, tx)
+		ok, err := r.CreateQualityEvent(txCtx, input)
+		if err != nil {
+			return err
+		}
+		inserted = ok
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return inserted, nil
 }
 
 func getIssueByID(db *gorm.DB, issueID uint64) (ports.OutboxIssue, error) {
