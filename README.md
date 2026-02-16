@@ -58,6 +58,9 @@ go run . outbox show --issue local#1
 go run . outbox quality ingest --issue local#1 --category review --result changes_requested --source github --event-id pr#1/review#3 --actor quality-bot --evidence https://github.com/org/repo/pull/1#pullrequestreview-3
 go run . outbox quality ingest --issue local#1 --category ci --result fail --source github --event-id check#100 --actor quality-bot --evidence https://ci.example/build/100
 go run . outbox quality list --issue local#1 --limit 20
+go run . outbox quality ingest-batch --issue local#1 --source github --batch-file .\mailbox\quality-events.ndjson
+go run . outbox quality export --issue local#1 --format json --output .\mailbox\quality-events-export.json
+go run . outbox quality stats --issue local#1 --window 7d
 ```
 
 也支持直接给 webhook payload，让系统自动推断 `category/result/evidence`：
@@ -66,6 +69,55 @@ go run . outbox quality list --issue local#1 --limit 20
 go run . outbox quality ingest --issue local#1 --source github --payload-file .\mailbox\github-review.json
 go run . outbox quality ingest --issue local#1 --source github --payload-file .\mailbox\github-check-run.json
 ```
+
+4.2 Webhook 接入（本地）
+
+以下示例用于本地联调：webhook 网关接收 payload 后，按 `source` 推断质量语义，再回写到指定 `issue_ref`。
+
+启动命令（示例）：
+
+```powershell
+go run . outbox quality webhook --addr :8088 --github-secret dev-github-secret --gitlab-token dev-gitlab-token
+```
+
+GitHub Review webhook（`mailbox/github-review.sample.json`）：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8088/webhooks/github?issue_ref=local%231" `
+  -H "Content-Type: application/json" `
+  -H "X-GitHub-Event: pull_request_review" `
+  -H "X-GitHub-Delivery: gh-delivery-4001" `
+  -H "X-Hub-Signature-256: sha256=<github-hmac-hex>" `
+  --data-binary "@mailbox/github-review.sample.json"
+```
+
+GitHub Check Run webhook（`mailbox/github-check-run.sample.json`）：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8088/webhooks/github?issue_ref=local%231" `
+  -H "Content-Type: application/json" `
+  -H "X-GitHub-Event: check_run" `
+  -H "X-GitHub-Delivery: gh-delivery-99001" `
+  -H "X-Hub-Signature-256: sha256=<github-hmac-hex>" `
+  --data-binary "@mailbox/github-check-run.sample.json"
+```
+
+GitLab Pipeline webhook（`mailbox/gitlab-pipeline.sample.json`）：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8088/webhooks/gitlab?issue_ref=local%231" `
+  -H "Content-Type: application/json" `
+  -H "X-Gitlab-Event: Pipeline Hook" `
+  -H "X-Gitlab-Event-UUID: gl-event-81002" `
+  -H "X-Gitlab-Token: dev-gitlab-token" `
+  --data-binary "@mailbox/gitlab-pipeline.sample.json"
+```
+
+签名 / token 说明：
+
+- GitHub：使用 `X-Hub-Signature-256`，格式为 `sha256=<HMAC_HEX>`，HMAC key 对应 `--github-secret`。
+- GitLab：使用 `X-Gitlab-Token`，header 值需与 `--gitlab-token` 一致。
+- `issue_ref` 通过 query 传入（示例里 `local%231` 即 `local#1`）。
 
 5. Phase-2 Lead 单次调度（sqlite outbox）
 
