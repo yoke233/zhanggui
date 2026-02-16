@@ -77,6 +77,9 @@ func TestQualityWebhookGitHubSignaturePass(t *testing.T) {
 	if svc.input.Payload != payload {
 		t.Fatalf("payload = %q, want %q", svc.input.Payload, payload)
 	}
+	if svc.input.Category != "" || svc.input.Result != "" {
+		t.Fatalf("normal ingest should not force webhook audit fields, got category=%q result=%q", svc.input.Category, svc.input.Result)
+	}
 
 	body := decodeWebhookJSONBody(t, resp.Body.Bytes())
 	if body["issue_ref"] != "local#1" {
@@ -110,8 +113,26 @@ func TestQualityWebhookGitHubSignatureFail(t *testing.T) {
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d; body=%s", resp.Code, http.StatusUnauthorized, resp.Body.String())
 	}
-	if svc.called {
-		t.Fatal("service called = true, want false")
+	if !svc.called {
+		t.Fatal("service called = false, want true")
+	}
+	if svc.input.IssueRef != "local#1" {
+		t.Fatalf("issue_ref = %q, want local#1", svc.input.IssueRef)
+	}
+	if svc.input.Source != "github" {
+		t.Fatalf("source = %q, want github", svc.input.Source)
+	}
+	if svc.input.Category != "webhook" {
+		t.Fatalf("category = %q, want webhook", svc.input.Category)
+	}
+	if svc.input.Result != "auth_rejected" {
+		t.Fatalf("result = %q, want auth_rejected", svc.input.Result)
+	}
+	if !strings.Contains(svc.input.Summary, "invalid X-Hub-Signature-256") {
+		t.Fatalf("summary = %q, want contains invalid X-Hub-Signature-256", svc.input.Summary)
+	}
+	if svc.input.Payload != payload {
+		t.Fatalf("payload = %q, want %q", svc.input.Payload, payload)
 	}
 }
 
@@ -152,6 +173,9 @@ func TestQualityWebhookGitLabTokenPass(t *testing.T) {
 	if svc.input.ExternalEventID != "gl-event-1" {
 		t.Fatalf("external_event_id = %q, want gl-event-1", svc.input.ExternalEventID)
 	}
+	if svc.input.Category != "" || svc.input.Result != "" {
+		t.Fatalf("normal ingest should not force webhook audit fields, got category=%q result=%q", svc.input.Category, svc.input.Result)
+	}
 }
 
 func TestQualityWebhookGitLabTokenFail(t *testing.T) {
@@ -172,8 +196,26 @@ func TestQualityWebhookGitLabTokenFail(t *testing.T) {
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d; body=%s", resp.Code, http.StatusUnauthorized, resp.Body.String())
 	}
-	if svc.called {
-		t.Fatal("service called = true, want false")
+	if !svc.called {
+		t.Fatal("service called = false, want true")
+	}
+	if svc.input.IssueRef != "local#1" {
+		t.Fatalf("issue_ref = %q, want local#1", svc.input.IssueRef)
+	}
+	if svc.input.Source != "gitlab" {
+		t.Fatalf("source = %q, want gitlab", svc.input.Source)
+	}
+	if svc.input.Category != "webhook" {
+		t.Fatalf("category = %q, want webhook", svc.input.Category)
+	}
+	if svc.input.Result != "auth_rejected" {
+		t.Fatalf("result = %q, want auth_rejected", svc.input.Result)
+	}
+	if !strings.Contains(svc.input.Summary, "invalid X-Gitlab-Token") {
+		t.Fatalf("summary = %q, want contains invalid X-Gitlab-Token", svc.input.Summary)
+	}
+	if svc.input.Payload != payload {
+		t.Fatalf("payload = %q, want %q", svc.input.Payload, payload)
 	}
 }
 

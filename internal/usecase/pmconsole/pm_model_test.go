@@ -255,3 +255,66 @@ func TestIssueDetailLoadedAppliesCurrentSelection(t *testing.T) {
 		t.Fatalf("active run = (%v,%q), want (true,2026-02-15-backend-0002)", updated.activeRunFound, updated.activeRunID)
 	}
 }
+
+func TestViewDetailIncludesQualitySection(t *testing.T) {
+	model := &pmModel{
+		ctx:       context.Background(),
+		hasDetail: true,
+		detail:    outbox.IssueDetail{IssueRef: "local#10", Assignee: "lead-backend", Labels: []string{"to:backend", "state:doing"}},
+		qualityEvents: []outbox.QualityEventItem{
+			{Category: "review", Result: "approved", Actor: "alice", IngestedAt: "2026-02-16T10:00:00Z"},
+			{Category: "ci", Result: "pass", Actor: "quality-bot", IngestedAt: "2026-02-16T09:00:00Z"},
+			{Category: "review", Result: "changes_requested", Actor: "bob", IngestedAt: "2026-02-16T08:00:00Z"},
+			{Category: "ci", Result: "fail", Actor: "quality-bot", IngestedAt: "2026-02-16T07:00:00Z"},
+		},
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "Quality:") {
+		t.Fatalf("view missing Quality section: %s", view)
+	}
+	if !strings.Contains(view, "- review/approved actor=alice time=2026-02-16T10:00:00Z") {
+		t.Fatalf("view missing newest quality event: %s", view)
+	}
+	if !strings.Contains(view, "- review/changes_requested actor=bob time=2026-02-16T08:00:00Z") {
+		t.Fatalf("view missing third quality event: %s", view)
+	}
+	if strings.Contains(view, "- ci/fail actor=quality-bot time=2026-02-16T07:00:00Z") {
+		t.Fatalf("view should only render latest 3 quality events: %s", view)
+	}
+}
+
+func TestIssueDetailLoadedQualityUnavailableDoesNotBreakDetail(t *testing.T) {
+	model := &pmModel{
+		ctx: context.Background(),
+		issues: []outbox.IssueListItem{
+			{IssueRef: "local#20"},
+		},
+		selectedIndex: 0,
+	}
+
+	nextModel, _ := model.Update(issueDetailLoadedMsg{
+		issueRef:           "local#20",
+		hasDetail:          true,
+		detail:             outbox.IssueDetail{IssueRef: "local#20", Assignee: "lead-backend", Labels: []string{"to:backend", "state:doing"}},
+		qualityUnavailable: true,
+		activeRunID:        "2026-02-16-backend-0009",
+		activeRunFound:     true,
+	})
+
+	updated, ok := nextModel.(*pmModel)
+	if !ok {
+		t.Fatalf("type assertion failed: %T", nextModel)
+	}
+	if !updated.hasDetail {
+		t.Fatalf("detail should still be available when quality query fails")
+	}
+	if !updated.qualityUnavailable {
+		t.Fatalf("qualityUnavailable = false, want true")
+	}
+
+	view := updated.View()
+	if !strings.Contains(view, "Quality: unavailable") {
+		t.Fatalf("view should show quality unavailable state: %s", view)
+	}
+}

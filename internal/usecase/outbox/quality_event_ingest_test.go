@@ -340,3 +340,188 @@ func TestIngestQualityEventInfersGitHubCheckRunFailureFromPayload(t *testing.T) 
 		t.Fatalf("last event should contain check evidence url, got: %s", last)
 	}
 }
+
+func TestIngestQualityEventWebhookAuthRejectedAuditsOnly(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "webhook auth audit issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:review"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	beforeIssue, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(before) error = %v", err)
+	}
+
+	payload := `{"review":{"id":"42","state":"approved"}}`
+	result, err := svc.IngestQualityEvent(ctx, IngestQualityEventInput{
+		IssueRef:        issueRef,
+		Source:          "github",
+		ExternalEventID: "delivery-42",
+		Category:        "webhook",
+		Result:          "auth_rejected",
+		Actor:           "github-webhook",
+		Summary:         "webhook auth rejected: invalid X-Hub-Signature-256",
+		Payload:         payload,
+	})
+	if err != nil {
+		t.Fatalf("IngestQualityEvent() error = %v", err)
+	}
+	if result.Duplicate {
+		t.Fatalf("duplicate = true, want false")
+	}
+	if result.CommentWritten {
+		t.Fatalf("comment_written = true, want false")
+	}
+	if result.RoutedRole != "none" {
+		t.Fatalf("routed_role = %q, want none", result.RoutedRole)
+	}
+	if result.Marker != "webhook:auth_rejected" {
+		t.Fatalf("marker = %q, want webhook:auth_rejected", result.Marker)
+	}
+
+	afterIssue, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue(after) error = %v", err)
+	}
+	if len(afterIssue.Events) != len(beforeIssue.Events) {
+		t.Fatalf("issue events should not change, before=%d after=%d", len(beforeIssue.Events), len(afterIssue.Events))
+	}
+
+	items, err := svc.ListQualityEvents(ctx, issueRef, 20)
+	if err != nil {
+		t.Fatalf("ListQualityEvents() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListQualityEvents() len = %d, want 1", len(items))
+	}
+	if items[0].Category != "webhook" {
+		t.Fatalf("category = %q, want webhook", items[0].Category)
+	}
+	if items[0].Result != "auth_rejected" {
+		t.Fatalf("result = %q, want auth_rejected", items[0].Result)
+	}
+	if items[0].Summary != "webhook auth rejected: invalid X-Hub-Signature-256" {
+		t.Fatalf("summary = %q", items[0].Summary)
+	}
+	if items[0].PayloadJSON != payload {
+		t.Fatalf("payload = %q, want %q", items[0].PayloadJSON, payload)
+	}
+}
+
+func TestIngestQualityEventInfersGitLabMergeRequestApprovedFromPayload(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "gitlab merge request approved payload issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:review"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	payload := `{
+  "object_kind": "merge_request",
+  "user": { "username": "reviewer-b" },
+  "object_attributes": {
+    "id": 5011,
+    "iid": 88,
+    "title": "mr accepted",
+    "state": "merged",
+    "action": "merge",
+    "url": "https://gitlab.example.com/org/repo/-/merge_requests/88"
+  }
+}`
+
+	result, err := svc.IngestQualityEvent(ctx, IngestQualityEventInput{
+		IssueRef: issueRef,
+		Source:   "gitlab",
+		Payload:  payload,
+	})
+	if err != nil {
+		t.Fatalf("IngestQualityEvent() error = %v", err)
+	}
+	if result.Marker != "review:approved" {
+		t.Fatalf("marker = %q, want review:approved", result.Marker)
+	}
+	if result.RoutedRole != "integrator" {
+		t.Fatalf("routed role = %q, want integrator", result.RoutedRole)
+	}
+
+	items, err := svc.ListQualityEvents(ctx, issueRef, 20)
+	if err != nil {
+		t.Fatalf("ListQualityEvents() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListQualityEvents() len = %d, want 1", len(items))
+	}
+	if items[0].ExternalEventID != "gitlab:merge_request:5011" {
+		t.Fatalf("external_event_id = %q, want gitlab:merge_request:5011", items[0].ExternalEventID)
+	}
+	if len(items[0].Evidence) == 0 || items[0].Evidence[0] != "https://gitlab.example.com/org/repo/-/merge_requests/88" {
+		t.Fatalf("evidence = %v", items[0].Evidence)
+	}
+}
+
+func TestIngestQualityEventInfersGitLabMergeRequestChangesRequestedFromPayload(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "gitlab merge request changes requested payload issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "state:review"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	payload := `{
+  "object_kind": "merge_request",
+  "user": { "username": "reviewer-c" },
+  "labels": [{ "title": "changes_requested" }],
+  "object_attributes": {
+    "id": 5012,
+    "iid": 89,
+    "title": "needs fixes",
+    "state": "opened",
+    "action": "reopened",
+    "url": "https://gitlab.example.com/org/repo/-/merge_requests/89"
+  }
+}`
+
+	result, err := svc.IngestQualityEvent(ctx, IngestQualityEventInput{
+		IssueRef: issueRef,
+		Source:   "gitlab",
+		Payload:  payload,
+	})
+	if err != nil {
+		t.Fatalf("IngestQualityEvent() error = %v", err)
+	}
+	if result.Marker != "review:changes_requested" {
+		t.Fatalf("marker = %q, want review:changes_requested", result.Marker)
+	}
+	if result.RoutedRole != "backend" {
+		t.Fatalf("routed role = %q, want backend", result.RoutedRole)
+	}
+
+	issue, err := svc.GetIssue(ctx, issueRef)
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	last := issue.Events[len(issue.Events)-1].Body
+	if !strings.Contains(last, "review:changes_requested") {
+		t.Fatalf("last event should contain review:changes_requested, got: %s", last)
+	}
+	if !strings.Contains(last, "ResultCode: review_changes_requested") {
+		t.Fatalf("last event should contain review result code, got: %s", last)
+	}
+}

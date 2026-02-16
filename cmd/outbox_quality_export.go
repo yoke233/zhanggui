@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -28,6 +29,8 @@ var outboxQualityExportCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 		format, _ := cmd.Flags().GetString("format")
 		outPath, _ := cmd.Flags().GetString("out")
+		sinceRaw, _ := cmd.Flags().GetString("since")
+		untilRaw, _ := cmd.Flags().GetString("until")
 
 		if limit <= 0 {
 			limit = 200
@@ -41,13 +44,23 @@ var outboxQualityExportCmd = &cobra.Command{
 			return fmt.Errorf("unsupported format %q (expected: json or jsonl)", format)
 		}
 
+		window, err := parseQualityExportWindow(sinceRaw, untilRaw)
+		if err != nil {
+			return err
+		}
+
 		events, err := svc.ListQualityEvents(ctx, issueRef, limit)
 		if err != nil {
 			logging.Error(ctx, "list quality events for export failed", slog.Any("err", errs.Loggable(err)))
 			return errs.Wrap(err, "list quality events")
 		}
 
-		payload, err := marshalQualityExportPayload(events, format)
+		filteredEvents, err := filterQualityEventsByIngestedAt(events, window)
+		if err != nil {
+			return err
+		}
+
+		payload, err := marshalQualityExportPayload(filteredEvents, format)
 		if err != nil {
 			return err
 		}
@@ -89,7 +102,91 @@ func init() {
 	outboxQualityExportCmd.Flags().Int("limit", 200, "Max records to export")
 	outboxQualityExportCmd.Flags().String("format", "json", "Output format: json|jsonl")
 	outboxQualityExportCmd.Flags().String("out", "", "Output file path (default: stdout)")
+	outboxQualityExportCmd.Flags().String("since", "", "Filter events with ingested_at >= this time (RFC3339 or RFC3339Nano)")
+	outboxQualityExportCmd.Flags().String("until", "", "Filter events with ingested_at <= this time (RFC3339 or RFC3339Nano)")
 	_ = outboxQualityExportCmd.MarkFlagRequired("issue")
+}
+
+type qualityExportWindow struct {
+	since *time.Time
+	until *time.Time
+}
+
+func parseQualityExportWindow(sinceRaw string, untilRaw string) (qualityExportWindow, error) {
+	var out qualityExportWindow
+
+	since, err := parseQualityExportFlagTime("since", sinceRaw)
+	if err != nil {
+		return qualityExportWindow{}, err
+	}
+	until, err := parseQualityExportFlagTime("until", untilRaw)
+	if err != nil {
+		return qualityExportWindow{}, err
+	}
+
+	if since != nil && until != nil && since.After(*until) {
+		return qualityExportWindow{}, fmt.Errorf("invalid time window: --since %q is after --until %q", since.UTC().Format(time.RFC3339Nano), until.UTC().Format(time.RFC3339Nano))
+	}
+
+	out.since = since
+	out.until = until
+	return out, nil
+}
+
+func parseQualityExportFlagTime(flagName string, value string) (*time.Time, error) {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return nil, nil
+	}
+
+	parsed, ok := parseQualityExportTime(normalized)
+	if !ok {
+		return nil, fmt.Errorf("invalid --%s value %q: expected RFC3339 or RFC3339Nano timestamp", flagName, normalized)
+	}
+
+	return &parsed, nil
+}
+
+func parseQualityExportTime(value string) (time.Time, bool) {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return time.Time{}, false
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, normalized)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func filterQualityEventsByIngestedAt(events []outbox.QualityEventItem, window qualityExportWindow) ([]outbox.QualityEventItem, error) {
+	if window.since == nil && window.until == nil {
+		return events, nil
+	}
+
+	filtered := make([]outbox.QualityEventItem, 0, len(events))
+	for _, item := range events {
+		ingestedAt, ok := parseQualityExportTime(item.IngestedAt)
+		if !ok {
+			return nil, fmt.Errorf("invalid ingested_at %q for quality_event_id=%d", strings.TrimSpace(item.IngestedAt), item.QualityEventID)
+		}
+
+		if window.since != nil && ingestedAt.Before(*window.since) {
+			continue
+		}
+		if window.until != nil && ingestedAt.After(*window.until) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, nil
 }
 
 func marshalQualityExportPayload(events []outbox.QualityEventItem, format string) ([]byte, error) {

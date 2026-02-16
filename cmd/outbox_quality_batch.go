@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -25,6 +26,11 @@ type qualityBatchStats struct {
 	Failed    int
 }
 
+type qualityBatchFailureRecord struct {
+	File  string `json:"file"`
+	Error string `json:"error"`
+}
+
 var outboxQualityIngestBatchCmd = &cobra.Command{
 	Use:   "ingest-batch",
 	Short: "Batch ingest quality events from payload files",
@@ -35,6 +41,8 @@ var outboxQualityIngestBatchCmd = &cobra.Command{
 		source, _ := cmd.Flags().GetString("source")
 		payloadDir, _ := cmd.Flags().GetString("dir")
 		globPattern, _ := cmd.Flags().GetString("glob")
+		continueOnError, _ := cmd.Flags().GetBool("continue-on-error")
+		failedOutPath, _ := cmd.Flags().GetString("failed-out")
 
 		files, err := collectQualityBatchFiles(payloadDir, globPattern)
 		if err != nil {
@@ -45,6 +53,16 @@ var outboxQualityIngestBatchCmd = &cobra.Command{
 			Total: len(files),
 		}
 
+		failedOutFile, failedOutEncoder, err := openQualityBatchFailedOut(failedOutPath)
+		if err != nil {
+			return err
+		}
+		if failedOutFile != nil {
+			defer func() {
+				_ = failedOutFile.Close()
+			}()
+		}
+
 		for _, payloadFile := range files {
 			payload, err := os.ReadFile(payloadFile)
 			if err != nil {
@@ -52,6 +70,12 @@ var outboxQualityIngestBatchCmd = &cobra.Command{
 				logging.Error(ctx, "read quality batch payload failed", slog.String("path", payloadFile), slog.Any("err", errs.Loggable(err)))
 				if _, writeErr := fmt.Fprintf(cmd.ErrOrStderr(), "quality ingest failed: file=%s err=%v\n", payloadFile, err); writeErr != nil {
 					return errs.Wrap(writeErr, "write quality ingest-batch error output")
+				}
+				if writeErr := writeQualityBatchFailedOut(failedOutEncoder, payloadFile, err); writeErr != nil {
+					return writeErr
+				}
+				if !continueOnError {
+					break
 				}
 				continue
 			}
@@ -66,6 +90,12 @@ var outboxQualityIngestBatchCmd = &cobra.Command{
 				logging.Error(ctx, "ingest quality batch payload failed", slog.String("path", payloadFile), slog.Any("err", errs.Loggable(err)))
 				if _, writeErr := fmt.Fprintf(cmd.ErrOrStderr(), "quality ingest failed: file=%s err=%v\n", payloadFile, err); writeErr != nil {
 					return errs.Wrap(writeErr, "write quality ingest-batch error output")
+				}
+				if writeErr := writeQualityBatchFailedOut(failedOutEncoder, payloadFile, err); writeErr != nil {
+					return writeErr
+				}
+				if !continueOnError {
+					break
 				}
 				continue
 			}
@@ -105,8 +135,40 @@ func init() {
 	outboxQualityIngestBatchCmd.Flags().String("source", "manual", "Quality event source (for example github/gitlab/manual)")
 	outboxQualityIngestBatchCmd.Flags().String("dir", "", "Payload directory path")
 	outboxQualityIngestBatchCmd.Flags().String("glob", "*.json", "Payload file glob pattern")
+	outboxQualityIngestBatchCmd.Flags().Bool("continue-on-error", true, "Continue processing remaining files when a payload fails")
+	outboxQualityIngestBatchCmd.Flags().String("failed-out", "", "Optional JSONL output path for failed payload files")
 	_ = outboxQualityIngestBatchCmd.MarkFlagRequired("issue")
 	_ = outboxQualityIngestBatchCmd.MarkFlagRequired("dir")
+}
+
+func openQualityBatchFailedOut(pathValue string) (*os.File, *json.Encoder, error) {
+	normalizedPath := strings.TrimSpace(pathValue)
+	if normalizedPath == "" {
+		return nil, nil, nil
+	}
+
+	file, err := os.Create(normalizedPath)
+	if err != nil {
+		return nil, nil, errs.Wrapf(err, "create failed-out file %q", normalizedPath)
+	}
+	encoder := json.NewEncoder(file)
+	encoder.SetEscapeHTML(false)
+	return file, encoder, nil
+}
+
+func writeQualityBatchFailedOut(encoder *json.Encoder, payloadFile string, ingestErr error) error {
+	if encoder == nil {
+		return nil
+	}
+
+	record := qualityBatchFailureRecord{
+		File:  payloadFile,
+		Error: ingestErr.Error(),
+	}
+	if err := encoder.Encode(record); err != nil {
+		return errs.Wrapf(err, "write failed-out record for file %q", payloadFile)
+	}
+	return nil
 }
 
 func collectQualityBatchFiles(dir string, globPattern string) ([]string, error) {

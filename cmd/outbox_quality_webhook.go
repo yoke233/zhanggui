@@ -155,6 +155,7 @@ func (h *qualityWebhookHTTPHandler) handleIngest(
 	}
 
 	if err := validateAuth(payload); err != nil {
+		h.auditAuthRejected(r.Context(), issueRef, source, externalEventID, payload, err)
 		writeWebhookError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -175,6 +176,38 @@ func (h *qualityWebhookHTTPHandler) handleIngest(
 		Duplicate:  out.Duplicate,
 		Marker:     out.Marker,
 		RoutedRole: out.RoutedRole,
+	})
+}
+
+func (h *qualityWebhookHTTPHandler) auditAuthRejected(
+	ctx context.Context,
+	issueRef string,
+	source string,
+	externalEventID string,
+	payload []byte,
+	authErr error,
+) {
+	if h == nil || h.svc == nil {
+		return
+	}
+
+	summary := "webhook auth rejected"
+	if authErr != nil {
+		reason := strings.TrimSpace(authErr.Error())
+		if reason != "" {
+			summary = summary + ": " + reason
+		}
+	}
+
+	_, _ = h.svc.IngestQualityEvent(ctx, outbox.IngestQualityEventInput{
+		IssueRef:        strings.TrimSpace(issueRef),
+		Source:          strings.TrimSpace(source),
+		ExternalEventID: strings.TrimSpace(externalEventID),
+		Category:        "webhook",
+		Result:          "auth_rejected",
+		Actor:           strings.TrimSpace(source) + "-webhook",
+		Summary:         summary,
+		Payload:         string(payload),
 	})
 }
 

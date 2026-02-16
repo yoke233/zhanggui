@@ -20,6 +20,7 @@ import (
 )
 
 const maxShownEvents = 4
+const maxShownQualityEvents = 3
 const maxAuditLines = 8
 
 type PMOptions struct {
@@ -46,16 +47,18 @@ type pmModel struct {
 	enabledRoles   []string
 	enabledRoleSet map[string]struct{}
 
-	issues         []outbox.IssueListItem
-	selectedIndex  int
-	detail         outbox.IssueDetail
-	hasDetail      bool
-	activeRunID    string
-	activeRunFound bool
-	artifacts      runArtifacts
-	hasArtifacts   bool
-	status         string
-	auditLogs      []string
+	issues             []outbox.IssueListItem
+	selectedIndex      int
+	detail             outbox.IssueDetail
+	qualityEvents      []outbox.QualityEventItem
+	qualityUnavailable bool
+	hasDetail          bool
+	activeRunID        string
+	activeRunFound     bool
+	artifacts          runArtifacts
+	hasArtifacts       bool
+	status             string
+	auditLogs          []string
 }
 
 type issuesLoadedMsg struct {
@@ -69,14 +72,16 @@ type workflowSummaryLoadedMsg struct {
 }
 
 type issueDetailLoadedMsg struct {
-	issueRef       string
-	detail         outbox.IssueDetail
-	hasDetail      bool
-	activeRunID    string
-	activeRunFound bool
-	artifacts      runArtifacts
-	hasArtifacts   bool
-	err            error
+	issueRef           string
+	detail             outbox.IssueDetail
+	qualityEvents      []outbox.QualityEventItem
+	qualityUnavailable bool
+	hasDetail          bool
+	activeRunID        string
+	activeRunFound     bool
+	artifacts          runArtifacts
+	hasArtifacts       bool
+	err                error
 }
 
 type tickMsg struct{}
@@ -181,6 +186,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.issues) == 0 {
 			m.selectedIndex = 0
 			m.hasDetail = false
+			m.qualityEvents = nil
+			m.qualityUnavailable = false
 			m.activeRunID = ""
 			m.activeRunFound = false
 			m.hasArtifacts = false
@@ -202,6 +209,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil {
 			m.hasDetail = false
+			m.qualityEvents = nil
+			m.qualityUnavailable = false
 			m.activeRunID = ""
 			m.activeRunFound = false
 			m.hasArtifacts = false
@@ -211,6 +220,8 @@ func (m *pmModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.hasDetail = msg.hasDetail
 		m.detail = msg.detail
+		m.qualityEvents = msg.qualityEvents
+		m.qualityUnavailable = msg.qualityUnavailable
 		m.activeRunID = msg.activeRunID
 		m.activeRunFound = msg.activeRunFound
 		m.artifacts = msg.artifacts
@@ -383,6 +394,28 @@ func (m *pmModel) View() string {
 				builder.WriteString(fmt.Sprintf("- e%d %s %s\n", event.EventID, event.Actor, firstNonEmptyLine(event.Body)))
 			}
 		}
+		if m.qualityUnavailable {
+			builder.WriteString("Quality: unavailable\n")
+		} else {
+			builder.WriteString("Quality:\n")
+			if len(m.qualityEvents) == 0 {
+				builder.WriteString("- none\n")
+			} else {
+				shown := m.qualityEvents
+				if len(shown) > maxShownQualityEvents {
+					shown = shown[:maxShownQualityEvents]
+				}
+				for _, event := range shown {
+					builder.WriteString(fmt.Sprintf(
+						"- %s/%s actor=%s time=%s\n",
+						firstNonEmpty(event.Category, "-"),
+						firstNonEmpty(event.Result, "-"),
+						firstNonEmpty(event.Actor, "-"),
+						firstNonEmpty(event.IngestedAt, "-"),
+					))
+				}
+			}
+		}
 		builder.WriteString("\n")
 	}
 
@@ -461,6 +494,13 @@ func (m *pmModel) loadSelectedIssueDetailCmd() tea.Cmd {
 			}
 		}
 
+		qualityEvents, qualityErr := m.service.ListQualityEvents(m.ctx, detail.IssueRef, maxShownQualityEvents)
+		qualityUnavailable := false
+		if qualityErr != nil {
+			qualityEvents = nil
+			qualityUnavailable = true
+		}
+
 		activeRunID := ""
 		found := false
 		artifacts := runArtifacts{}
@@ -485,13 +525,15 @@ func (m *pmModel) loadSelectedIssueDetailCmd() tea.Cmd {
 		}
 
 		return issueDetailLoadedMsg{
-			issueRef:       selected.IssueRef,
-			detail:         detail,
-			hasDetail:      true,
-			activeRunID:    activeRunID,
-			activeRunFound: found,
-			artifacts:      artifacts,
-			hasArtifacts:   hasArtifacts,
+			issueRef:           selected.IssueRef,
+			detail:             detail,
+			qualityEvents:      qualityEvents,
+			qualityUnavailable: qualityUnavailable,
+			hasDetail:          true,
+			activeRunID:        activeRunID,
+			activeRunFound:     found,
+			artifacts:          artifacts,
+			hasArtifacts:       hasArtifacts,
 		}
 	}
 }

@@ -185,6 +185,50 @@ func inferGitLabQualityFields(root map[string]any) (qualityPayloadFields, error)
 			Summary:         summary,
 			Evidence:        evidence,
 		}, nil
+	case "merge_request":
+		attrs := mapField(root, "object_attributes")
+		if attrs == nil {
+			return qualityPayloadFields{}, errors.New("gitlab merge_request payload missing object_attributes")
+		}
+		result, err := mapGitLabMergeRequestActionStateToResult(
+			stringField(attrs, "action"),
+			stringField(attrs, "state"),
+			hasGitLabChangesRequestedMarker(root, attrs),
+		)
+		if err != nil {
+			return qualityPayloadFields{}, err
+		}
+
+		mergeRequestID := firstNonEmpty(
+			stringField(attrs, "id"),
+			stringField(attrs, "iid"),
+			"unknown",
+		)
+		actor := firstNonEmpty(
+			stringField(mapField(root, "user"), "username"),
+			"gitlab-bot",
+		)
+		summary := firstNonEmpty(
+			stringField(attrs, "title"),
+			"gitlab merge_request "+firstNonEmpty(
+				strings.ToLower(strings.TrimSpace(stringField(attrs, "action"))),
+				strings.ToLower(strings.TrimSpace(stringField(attrs, "state"))),
+				"unknown",
+			),
+		)
+		evidence := normalizeEvidenceLinks([]string{
+			stringField(attrs, "url"),
+			stringField(attrs, "web_url"),
+		})
+
+		return qualityPayloadFields{
+			Category:        qualityCategoryReview,
+			Result:          result,
+			ExternalEventID: "gitlab:merge_request:" + strings.TrimSpace(mergeRequestID),
+			Actor:           actor,
+			Summary:         summary,
+			Evidence:        evidence,
+		}, nil
 	default:
 		return qualityPayloadFields{}, fmt.Errorf("unsupported gitlab object_kind %q", objectKind)
 	}
@@ -226,6 +270,84 @@ func mapGitHubCheckConclusionToResult(value string) (string, error) {
 	}
 }
 
+func mapGitLabMergeRequestActionStateToResult(action string, state string, hasChangesRequestedMarker bool) (string, error) {
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	normalizedState := strings.ToLower(strings.TrimSpace(state))
+
+	switch normalizedAction {
+	case "merge", "merged", "approve", "approved", "approval":
+		return qualityResultApproved, nil
+	case "unapprove", "unapproved", "unapproval", "changes_requested", "request_changes", "requested_changes":
+		return qualityResultChangesRequested, nil
+	}
+
+	switch normalizedState {
+	case "merged", "approved":
+		return qualityResultApproved, nil
+	case "changes_requested", "needs_changes", "rejected":
+		return qualityResultChangesRequested, nil
+	}
+
+	if hasChangesRequestedMarker {
+		switch normalizedAction {
+		case "reopen", "reopened", "update", "updated":
+			return qualityResultChangesRequested, nil
+		}
+		switch normalizedState {
+		case "opened", "reopened":
+			return qualityResultChangesRequested, nil
+		}
+	}
+
+	return "", fmt.Errorf("unsupported gitlab merge_request action/state %q/%q", normalizedAction, normalizedState)
+}
+
+func hasGitLabChangesRequestedMarker(root map[string]any, attrs map[string]any) bool {
+	if boolField(attrs, "changes_requested") || boolField(root, "changes_requested") {
+		return true
+	}
+
+	labels := append(
+		gitLabLabelValues(root["labels"]),
+		gitLabLabelValues(attrs["labels"])...,
+	)
+	for _, label := range labels {
+		if compactQualityLabelToken(label) == "changesrequested" {
+			return true
+		}
+	}
+	return false
+}
+
+func gitLabLabelValues(raw any) []string {
+	items, ok := raw.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		switch value := item.(type) {
+		case string:
+			values = append(values, strings.TrimSpace(value))
+		case map[string]any:
+			title := firstNonEmpty(stringField(value, "title"), stringField(value, "name"))
+			if strings.TrimSpace(title) != "" {
+				values = append(values, strings.TrimSpace(title))
+			}
+		default:
+			values = append(values, strings.TrimSpace(fmt.Sprintf("%v", value)))
+		}
+	}
+	return values
+}
+
+func compactQualityLabelToken(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	replacer := strings.NewReplacer("-", "", "_", "", " ", "")
+	return replacer.Replace(value)
+}
+
 func mapField(root map[string]any, key string) map[string]any {
 	if root == nil {
 		return nil
@@ -265,6 +387,33 @@ func stringField(root map[string]any, key string) string {
 		return fmt.Sprintf("%d", v)
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", raw))
+	}
+}
+
+func boolField(root map[string]any, key string) bool {
+	if root == nil {
+		return false
+	}
+	raw, ok := root[key]
+	if !ok || raw == nil {
+		return false
+	}
+	switch value := raw.(type) {
+	case bool:
+		return value
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		return normalized == "true" || normalized == "1" || normalized == "yes"
+	case float64:
+		return value != 0
+	case int:
+		return value != 0
+	case int64:
+		return value != 0
+	case uint64:
+		return value != 0
+	default:
+		return false
 	}
 }
 

@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	qualityCategoryReview = "review"
-	qualityCategoryCI     = "ci"
+	qualityCategoryReview  = "review"
+	qualityCategoryCI      = "ci"
+	qualityCategoryWebhook = "webhook"
 
 	qualityResultApproved         = "approved"
 	qualityResultChangesRequested = "changes_requested"
 	qualityResultPass             = "pass"
 	qualityResultFail             = "fail"
+	qualityResultAuthRejected     = "auth_rejected"
 )
 
 func (s *Service) IngestQualityEvent(ctx context.Context, input IngestQualityEventInput) (IngestQualityEventResult, error) {
@@ -140,6 +142,11 @@ func (s *Service) IngestQualityEvent(ctx context.Context, input IngestQualityEve
 		}
 		if !inserted {
 			out.Duplicate = true
+			out.CommentWritten = false
+			out.RoutedRole = "none"
+			return nil
+		}
+		if writeback.SkipComment {
 			out.CommentWritten = false
 			out.RoutedRole = "none"
 			return nil
@@ -287,6 +294,7 @@ type qualityWriteback struct {
 	NextPrefix   string
 	NextSuffix   string
 	IsFailure    bool
+	SkipComment  bool
 }
 
 func resolveQualityWriteback(category string, resultValue string, summary string) (qualityWriteback, error) {
@@ -351,6 +359,23 @@ func resolveQualityWriteback(category string, resultValue string, summary string
 				IsFailure:    true,
 			}, nil
 		}
+	case qualityCategoryWebhook:
+		switch resultValue {
+		case qualityResultAuthRejected:
+			return qualityWriteback{
+				Marker:       "webhook:auth_rejected",
+				Summary:      summary,
+				Action:       "audit",
+				Status:       "none",
+				ResultCode:   "none",
+				BlockedBy:    []string{"none"},
+				TestsCommand: "webhook auth",
+				TestsResult:  "fail",
+				NextPrefix:   "",
+				NextSuffix:   "",
+				SkipComment:  true,
+			}, nil
+		}
 	}
 	return qualityWriteback{}, errors.New("unsupported quality event mapping")
 }
@@ -358,7 +383,7 @@ func resolveQualityWriteback(category string, resultValue string, summary string
 func normalizeQualityCategory(value string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	switch normalized {
-	case qualityCategoryReview, qualityCategoryCI:
+	case qualityCategoryReview, qualityCategoryCI, qualityCategoryWebhook:
 		return normalized, nil
 	case "":
 		return "", errors.New("quality event category is required")
@@ -376,6 +401,10 @@ func normalizeQualityResult(category string, value string) (string, error) {
 		}
 	case qualityCategoryCI:
 		if normalized == qualityResultPass || normalized == qualityResultFail {
+			return normalized, nil
+		}
+	case qualityCategoryWebhook:
+		if normalized == qualityResultAuthRejected {
 			return normalized, nil
 		}
 	}
@@ -422,6 +451,8 @@ func defaultQualitySummary(category string, resultValue string) string {
 			return "ci checks passed"
 		}
 		return "ci checks failed"
+	case qualityCategoryWebhook:
+		return "webhook auth rejected"
 	default:
 		return "quality event ingested"
 	}
