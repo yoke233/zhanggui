@@ -148,7 +148,40 @@ go run . console pm --workflow workflow.toml --refresh-interval 5s
 
 - `go run . console lead ...` 仍可用，但已标记为 deprecated（建议迁移到 `console pm`）。
 
-7. 运行 lint
+7. Codex wrapper 执行器（pipeline 角色）
+
+`workflow.toml` 已将 `backend/reviewer/qa` 三个执行器切换为 PowerShell wrapper：
+
+- `scripts/codex-coder.ps1`
+- `scripts/codex-review.ps1`
+- `scripts/codex-test.ps1`
+
+三个脚本都会输出压缩 JSON。`review/test` 至少包含：
+
+- `status`：`pass|fail`
+- `summary`：一句话摘要
+- `result_code`：`none` 或失败原因（如 `review_changes_requested`、`ci_failed`）
+- `evidence`：可追溯锚点
+
+`codex-coder.ps1` 额外输出 `commit` 字段（默认尝试读取当前 `HEAD`，失败回退 `none`）。
+
+本地快速验证：
+
+```powershell
+pwsh -NoProfile -File scripts/codex-coder.ps1
+pwsh -NoProfile -File scripts/codex-review.ps1
+pwsh -NoProfile -File scripts/codex-test.ps1
+```
+
+可通过环境变量模拟失败回路（示例）：
+
+```powershell
+$env:CODEX_REVIEW_STATUS = 'fail'
+pwsh -NoProfile -File scripts/codex-review.ps1
+Remove-Item Env:CODEX_REVIEW_STATUS
+```
+
+8. 运行 lint
 
 ```powershell
 go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run

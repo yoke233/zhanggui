@@ -179,6 +179,35 @@ func TestIngestQualityEventCIFailRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestIngestQualityEvent_CIFailRoutesToBackend(t *testing.T) {
+	svc, _ := setupService(t)
+	ctx := context.Background()
+
+	issueRef, err := svc.CreateIssue(ctx, CreateIssueInput{
+		Title:  "ci fail route issue",
+		Body:   "body",
+		Labels: []string{"to:backend", "to:qa", "state:review"},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue() error = %v", err)
+	}
+
+	result, err := svc.IngestQualityEvent(ctx, IngestQualityEventInput{
+		IssueRef: issueRef,
+		Source:   "manual",
+		Category: "ci",
+		Result:   "fail",
+		Actor:    "quality-bot",
+		Evidence: []string{"https://ci.local/build/1"},
+	})
+	if err != nil {
+		t.Fatalf("IngestQualityEvent() error = %v", err)
+	}
+	if result.RoutedRole != "backend" {
+		t.Fatalf("routed role = %q, want backend", result.RoutedRole)
+	}
+}
+
 func TestIngestQualityEventCIPassRoutesToIntegrator(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()

@@ -26,14 +26,16 @@ type Service struct {
 	workerInvoker    func(context.Context, invokeWorkerInput) error
 	workResultLoader func(string) (WorkResultEnvelope, error)
 	workdirFactory   func(workflowWorkdirConfig, string, string) (workdirManager, error)
+	codexRunner      codexRunner
 }
 
 // NewService wires outbox usecases with repository and optional cache.
 func NewService(repo ports.OutboxRepository, uow ports.UnitOfWork, cache ports.Cache) *Service {
 	return &Service{
-		repo:  repo,
-		uow:   uow,
-		cache: cache,
+		repo:        repo,
+		uow:         uow,
+		cache:       cache,
+		codexRunner: newDefaultCodexRunner(),
 	}
 }
 

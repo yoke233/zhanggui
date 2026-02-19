@@ -338,8 +338,13 @@ func init() {
 	outboxCmd.AddCommand(outboxListCmd)
 	outboxCmd.AddCommand(outboxShowCmd)
 	outboxCmd.AddCommand(outboxLabelCmd)
+	outboxCmd.AddCommand(outboxPipelineCmd)
+	outboxCmd.AddCommand(outboxMergeCmd)
 	outboxLabelCmd.AddCommand(outboxLabelAddCmd)
 	outboxLabelCmd.AddCommand(outboxLabelRemoveCmd)
+	outboxPipelineCmd.AddCommand(outboxPipelineRunCmd)
+	outboxMergeCmd.AddCommand(outboxMergeCheckCmd)
+	outboxMergeCmd.AddCommand(outboxMergeApplyCmd)
 
 	outboxCreateCmd.Flags().String("title", "", "Issue title")
 	outboxCreateCmd.Flags().String("body", "", "Issue body content")

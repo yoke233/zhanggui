@@ -154,7 +154,7 @@ func (s *Service) IngestQualityEvent(ctx context.Context, input IngestQualityEve
 
 		routedRole := "integrator"
 		if writeback.IsFailure {
-			routedRole = nextRoleForReviewChanges(labels)
+			routedRole = nextRoleForFixCycle(labels)
 		}
 		out.RoutedRole = routedRole
 

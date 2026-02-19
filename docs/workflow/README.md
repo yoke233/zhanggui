@@ -30,6 +30,7 @@ V1/V1.1 本项目的关键选择（先记住这几条，其它都是细节）：
 - `docs/workflow/outbox-and-mailbox-skill.md`：用 skill 将沟通写入 outbox（Outbox backend + 固定模板：GitHub Issues 或 SQLite）
 - `docs/workflow/approval-policy.md`：Issue 的“盖章/Accepted”审批策略（V1: any）
 - `docs/workflow/workflow-profile.md`：项目级 `workflow.toml` 规范（动态 repo/角色/并发/监听）
+- `workflow.toml`（仓库根目录）：当前项目实际生效的执行器映射（含 `scripts/codex-*.ps1`）
 - `docs/workflow/issue-protocol.md`：Issue 协作协议（labels、监听、claim、blocked、依赖、开工条件、评论模板）
 - `docs/workflow/label-catalog.md`：固定 label 集合、监听矩阵、状态迁移规则
 - `docs/workflow/memory-layout.md`：项目级记忆目录布局（shared + roles 子目录，不额外存 L3）
@@ -44,4 +45,27 @@ V1/V1.1 本项目的关键选择（先记住这几条，其它都是细节）：
 
 - `docs/subagent.md` 是 subagent 功能的用户文档；本目录更偏「协作流程与约定」。
 - 这里的约定会引用仓库已有能力：`sessions_spawn`（支持 `repo_dir`/`task_id`）、task 追踪、内置 `github` skill 等。
+
+## Codex Pipeline 执行器
+
+为了支持 `coding -> review -> test` 的自动化链路，项目根目录 `workflow.toml` 当前约定：
+
+- `executors.backend` 使用 `pwsh -NoProfile -File scripts/codex-coder.ps1`
+- `executors.reviewer` 使用 `pwsh -NoProfile -File scripts/codex-review.ps1`
+- `executors.qa` 使用 `pwsh -NoProfile -File scripts/codex-test.ps1`
+
+脚本输出为 JSON，`review/test` 至少包含：
+
+- `status`
+- `summary`
+- `result_code`
+- `evidence`
+
+建议在联调前先单独执行脚本确认输出：
+
+```powershell
+pwsh -NoProfile -File scripts/codex-coder.ps1
+pwsh -NoProfile -File scripts/codex-review.ps1
+pwsh -NoProfile -File scripts/codex-test.ps1
+```
 

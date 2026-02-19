@@ -636,7 +636,7 @@ func (s *Service) processLeadIssue(ctx context.Context, input leadIssueProcessIn
 	}
 
 	if input.Role == "reviewer" && strings.TrimSpace(result.ResultCode) == "review_changes_requested" {
-		targetRole := nextRoleForReviewChanges(labels)
+		targetRole := nextRoleForFixCycle(labels)
 		status = "blocked"
 		action = "blocked"
 		summary = "review requested changes"
@@ -1056,10 +1056,17 @@ func shouldSkipLeadSpawnByState(labels []string, listenLabels []string) bool {
 	}
 }
 
-func nextRoleForReviewChanges(labels []string) string {
-	if containsString(labels, "to:frontend") && !containsString(labels, "to:backend") {
+func nextRoleForFixCycle(labels []string) string {
+	if containsString(labels, "to:backend") {
+		return "backend"
+	}
+	if containsString(labels, "to:frontend") {
 		return "frontend"
 	}
+	return "backend"
+}
+
+func nextRoleForReviewChanges(labels []string) string {
 	if containsString(labels, "to:backend") {
 		return "backend"
 	}

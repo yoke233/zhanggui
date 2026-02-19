@@ -80,11 +80,16 @@ auto_block_when_dependency_open = true
 auto_unblock_when_dependency_closed = true
 
 [executors.backend]
-program = "go"
-args = ["test", "./..."]
-timeout_seconds = 1800
+program = "pwsh"
+args = ["-NoProfile", "-File", "scripts/codex-coder.ps1"]
+timeout_seconds = 3600
 
 [executors.reviewer]
-program = "go"
-args = ["test", "./..."]
+program = "pwsh"
+args = ["-NoProfile", "-File", "scripts/codex-review.ps1"]
+timeout_seconds = 1800
+
+[executors.qa]
+program = "pwsh"
+args = ["-NoProfile", "-File", "scripts/codex-test.ps1"]
 timeout_seconds = 1800
