@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(codex exec:*)",
+      "Bash(codex:*)",
+      "Bash(go version:*)",
+      "Bash(go mod:*)"
+    ]
+  }
+}
