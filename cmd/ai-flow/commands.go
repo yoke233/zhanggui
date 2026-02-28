@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/user/ai-workflow/internal/config"
@@ -15,6 +16,8 @@ import (
 	"github.com/user/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/user/ai-workflow/internal/plugins/factory"
 )
+
+var recoveryOnce sync.Once
 
 func bootstrap() (*engine.Executor, core.Store, error) {
 	cfg, err := loadBootstrapConfig()
@@ -30,6 +33,15 @@ func bootstrap() (*engine.Executor, core.Store, error) {
 	bus := eventbus.New()
 	logger := slog.Default()
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
+
+	recoveryOnce.Do(func() {
+		go func() {
+			if recErr := exec.RecoverActivePipelines(context.Background()); recErr != nil {
+				logger.Error("recovery failed", "error", recErr)
+			}
+		}()
+	})
+
 	return exec, bootstrapSet.Store, nil
 }
 
