@@ -249,19 +249,27 @@ func (s *SQLiteStore) GetActivePipelines() ([]core.Pipeline, error) {
 	}
 	defer rows.Close()
 
-	var out []core.Pipeline
+	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]core.Pipeline, 0, len(ids))
+	for _, id := range ids {
 		p, err := s.GetPipeline(id)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, *p)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *SQLiteStore) ListRunnablePipelines(limit int) ([]core.Pipeline, error) {
