@@ -73,11 +73,15 @@ type Pipeline struct {
 	WorktreePath string            `json:"worktree_path"`
 	ErrorMessage string            `json:"error_message,omitempty"`
 
-	MaxTotalRetries int `json:"max_total_retries"`
-	TotalRetries    int `json:"total_retries"`
+	MaxTotalRetries int    `json:"max_total_retries"`
+	TotalRetries    int    `json:"total_retries"`
+	RunCount        int    `json:"run_count,omitempty"`
+	LastErrorType   string `json:"last_error_type,omitempty"`
 
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	QueuedAt        time.Time `json:"queued_at,omitempty"`
+	LastHeartbeatAt time.Time `json:"last_heartbeat_at,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
