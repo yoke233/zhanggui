@@ -71,6 +71,15 @@ func (e *Executor) CreatePipeline(projectID, name, description, template string)
 }
 
 func (e *Executor) Run(ctx context.Context, pipelineID string) error {
+	return e.run(ctx, pipelineID, false)
+}
+
+// RunScheduled executes a pipeline that has already been CAS-marked as running by scheduler.
+func (e *Executor) RunScheduled(ctx context.Context, pipelineID string) error {
+	return e.run(ctx, pipelineID, true)
+}
+
+func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunning bool) error {
 	p, err := e.store.GetPipeline(pipelineID)
 	if err != nil {
 		return err
@@ -80,13 +89,22 @@ func (e *Executor) Run(ctx context.Context, pipelineID string) error {
 		return err
 	}
 
-	if err := core.ValidateTransition(p.Status, core.StatusRunning); err != nil {
-		return err
-	}
-	p.Status = core.StatusRunning
-	p.StartedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
-		return err
+	if allowAlreadyRunning && p.Status == core.StatusRunning {
+		if p.StartedAt.IsZero() {
+			p.StartedAt = time.Now()
+			if err := e.store.SavePipeline(p); err != nil {
+				return err
+			}
+		}
+	} else {
+		if err := core.ValidateTransition(p.Status, core.StatusRunning); err != nil {
+			return err
+		}
+		p.Status = core.StatusRunning
+		p.StartedAt = time.Now()
+		if err := e.store.SavePipeline(p); err != nil {
+			return err
+		}
 	}
 
 	for i := range p.Stages {
