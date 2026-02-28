@@ -196,12 +196,23 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				return e.failPipeline(p, fmt.Sprintf("retry budget exhausted at stage %s: %v", stage.Name, err), err)
 			}
 
-			if stage.OnFailure == core.OnFailureRetry && attempt < maxRetries {
-				continue
+			action, matched := EvaluateReactionRules(ReactionContext{
+				Stage:    stage,
+				Attempt:  attempt,
+				MaxRetry: maxRetries,
+				Err:      err,
+			}, CompileOnFailureReactions(stage))
+			if !matched {
+				action = ReactionAbortPipeline
 			}
 
-			switch stage.OnFailure {
-			case core.OnFailureSkip:
+			switch action {
+			case ReactionRetry:
+				if attempt < maxRetries {
+					continue
+				}
+				return e.failPipeline(p, fmt.Sprintf("stage %s exhausted retries(%d): %v", stage.Name, maxRetries, err), err)
+			case ReactionSkipStage:
 				stageSkipped = true
 				cpSkip := &core.Checkpoint{
 					PipelineID: p.ID,
@@ -216,7 +227,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				if saveErr := e.store.SaveCheckpoint(cpSkip); saveErr != nil {
 					return saveErr
 				}
-			case core.OnFailureHuman:
+			case ReactionEscalateHuman:
 				p.Status = core.StatusWaitingHuman
 				p.ErrorMessage = err.Error()
 				if saveErr := e.store.SavePipeline(p); saveErr != nil {
@@ -230,12 +241,10 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					Timestamp:  time.Now(),
 				})
 				return nil
-			case core.OnFailureAbort:
+			case ReactionAbortPipeline:
 				return e.failPipeline(p, fmt.Sprintf("stage %s failed: %v", stage.Name, err), err)
-			case core.OnFailureRetry:
-				return e.failPipeline(p, fmt.Sprintf("stage %s exhausted retries(%d): %v", stage.Name, maxRetries, err), err)
 			default:
-				return e.failPipeline(p, fmt.Sprintf("stage %s failed with unknown policy: %v", stage.Name, err), err)
+				return e.failPipeline(p, fmt.Sprintf("stage %s failed with unknown reaction %q: %v", stage.Name, action, err), err)
 			}
 
 			break
