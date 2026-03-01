@@ -54,6 +54,28 @@ func TestLoadDefaults_IncludesSpecConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_Defaults_GitHub(t *testing.T) {
+	cfg := Defaults()
+	if cfg.GitHub.Enabled {
+		t.Fatalf("expected github.enabled default false, got true")
+	}
+	if cfg.GitHub.Token != "" {
+		t.Fatalf("expected github.token default empty, got %q", cfg.GitHub.Token)
+	}
+	if cfg.GitHub.AppID != 0 {
+		t.Fatalf("expected github.app_id default 0, got %d", cfg.GitHub.AppID)
+	}
+	if cfg.GitHub.PrivateKeyPath != "" {
+		t.Fatalf("expected github.private_key_path default empty, got %q", cfg.GitHub.PrivateKeyPath)
+	}
+	if cfg.GitHub.InstallationID != 0 {
+		t.Fatalf("expected github.installation_id default 0, got %d", cfg.GitHub.InstallationID)
+	}
+	if cfg.GitHub.WebhookSecret != "" {
+		t.Fatalf("expected github.webhook_secret default empty, got %q", cfg.GitHub.WebhookSecret)
+	}
+}
+
 func TestConfigZeroValue_SpecSafeWhenMissing(t *testing.T) {
 	cfg := Config{}
 	ApplyConfigLayer(&cfg, &ConfigLayer{})

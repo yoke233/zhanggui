@@ -56,6 +56,9 @@ func Defaults() Config {
 			Host: "127.0.0.1",
 			Port: 8080,
 		},
+		GitHub: GitHubConfig{
+			Enabled: false,
+		},
 		Store: StoreConfig{
 			Driver: "sqlite",
 			Path:   "~/.ai-workflow/data.db",
