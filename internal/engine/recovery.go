@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/user/ai-workflow/internal/core"
@@ -88,5 +90,26 @@ func cleanupWorktree(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
-	return os.RemoveAll(path)
+
+	// Preferred cleanup path for git worktrees.
+	reset := exec.Command("git", "-C", path, "reset", "--hard")
+	if err := reset.Run(); err == nil {
+		clean := exec.Command("git", "-C", path, "clean", "-fd")
+		if err := clean.Run(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Fallback for non-git directories: clear contents but keep worktree root.
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(path, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }

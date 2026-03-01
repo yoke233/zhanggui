@@ -93,8 +93,11 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 	if runtime.calls != 1 {
 		t.Fatalf("expected one rerun attempt after recovery, calls=%d", runtime.calls)
 	}
-	if _, err := os.Stat(workDir); !os.IsNotExist(err) {
-		t.Fatalf("expected recovery to clean worktree path, stat err=%v", err)
+	if _, err := os.Stat(workDir); err != nil {
+		t.Fatalf("expected recovery to keep worktree root, stat err=%v", err)
+	}
+	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+		t.Fatalf("expected recovery to clear stale file, stat err=%v", err)
 	}
 
 	checkpoints, err := store.GetCheckpoints(p.ID)
