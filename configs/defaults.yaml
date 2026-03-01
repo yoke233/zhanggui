@@ -11,6 +11,13 @@ agents:
   openspec:
     binary: openspec
 
+spec:
+  enabled: false
+  provider: noop
+  on_failure: warn
+  openspec:
+    binary: openspec
+
 pipeline:
   default_template: standard
   global_timeout: 2h

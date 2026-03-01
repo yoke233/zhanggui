@@ -38,4 +38,34 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadDefaults_IncludesSpecConfig(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Spec.Enabled {
+		t.Fatalf("expected spec.enabled default false, got true")
+	}
+	if cfg.Spec.Provider != "noop" {
+		t.Fatalf("expected spec.provider default noop, got %q", cfg.Spec.Provider)
+	}
+	if cfg.Spec.OnFailure != "warn" {
+		t.Fatalf("expected spec.on_failure default warn, got %q", cfg.Spec.OnFailure)
+	}
+	if cfg.Spec.OpenSpec.Binary != "openspec" {
+		t.Fatalf("expected spec.openspec.binary default openspec, got %q", cfg.Spec.OpenSpec.Binary)
+	}
+}
+
+func TestConfigZeroValue_SpecSafeWhenMissing(t *testing.T) {
+	cfg := Config{}
+	ApplyConfigLayer(&cfg, &ConfigLayer{})
+	if cfg.Spec.Provider != "" {
+		t.Fatalf("expected zero-value provider to remain empty, got %q", cfg.Spec.Provider)
+	}
+	if cfg.Spec.OnFailure != "" {
+		t.Fatalf("expected zero-value on_failure to remain empty, got %q", cfg.Spec.OnFailure)
+	}
+	if cfg.Spec.Enabled {
+		t.Fatalf("expected zero-value spec.enabled false, got true")
+	}
+}
+
 func ptr[T any](v T) *T { return &v }

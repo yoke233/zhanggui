@@ -22,6 +22,14 @@ func Defaults() Config {
 				Binary: ptrValue("openspec"),
 			},
 		},
+		Spec: SpecConfig{
+			Enabled:   false,
+			Provider:  "noop",
+			OnFailure: "warn",
+			OpenSpec: SpecOpenSpecConfig{
+				Binary: "openspec",
+			},
+		},
 		Runtime: RuntimeConfig{
 			Driver: "process",
 		},

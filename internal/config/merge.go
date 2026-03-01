@@ -67,6 +67,7 @@ func cloneConfig(in Config) Config {
 		Codex:    cloneAgentConfig(in.Agents.Codex),
 		OpenSpec: cloneAgentConfig(in.Agents.OpenSpec),
 	}
+	out.Spec = cloneSpecConfig(in.Spec)
 	return out
 }
 
@@ -111,6 +112,23 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		cfg.Agents.Claude = MergeAgentConfig(cfg.Agents.Claude, agents.Claude)
 		cfg.Agents.Codex = MergeAgentConfig(cfg.Agents.Codex, agents.Codex)
 		cfg.Agents.OpenSpec = MergeAgentConfig(cfg.Agents.OpenSpec, agents.OpenSpec)
+	}
+
+	if spec := layer.Spec; spec != nil {
+		if spec.Enabled != nil {
+			cfg.Spec.Enabled = *spec.Enabled
+		}
+		if spec.Provider != nil {
+			cfg.Spec.Provider = *spec.Provider
+		}
+		if spec.OnFailure != nil {
+			cfg.Spec.OnFailure = *spec.OnFailure
+		}
+		if openSpec := spec.OpenSpec; openSpec != nil {
+			if openSpec.Binary != nil {
+				cfg.Spec.OpenSpec.Binary = *openSpec.Binary
+			}
+		}
 	}
 
 	if pipeline := layer.Pipeline; pipeline != nil {
@@ -226,4 +244,15 @@ func cloneStringSlicePtr(in *[]string) *[]string {
 	}
 	out := append([]string(nil), (*in)...)
 	return &out
+}
+
+func cloneSpecConfig(in SpecConfig) SpecConfig {
+	return SpecConfig{
+		Enabled:   in.Enabled,
+		Provider:  in.Provider,
+		OnFailure: in.OnFailure,
+		OpenSpec: SpecOpenSpecConfig{
+			Binary: in.OpenSpec.Binary,
+		},
+	}
 }

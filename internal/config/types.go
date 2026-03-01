@@ -4,6 +4,7 @@ import "time"
 
 type Config struct {
 	Agents    AgentsConfig    `yaml:"agents"`
+	Spec      SpecConfig      `yaml:"spec"`
 	Runtime   RuntimeConfig   `yaml:"runtime"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
@@ -29,6 +30,17 @@ type AgentConfig struct {
 	Reasoning    *string   `yaml:"reasoning"`
 	Sandbox      *string   `yaml:"sandbox"`
 	Approval     *string   `yaml:"approval"`
+}
+
+type SpecConfig struct {
+	Enabled   bool               `yaml:"enabled"`
+	Provider  string             `yaml:"provider"`
+	OnFailure string             `yaml:"on_failure"`
+	OpenSpec  SpecOpenSpecConfig `yaml:"openspec"`
+}
+
+type SpecOpenSpecConfig struct {
+	Binary string `yaml:"binary"`
 }
 
 type PipelineConfig struct {
@@ -92,6 +104,7 @@ type LogConfig struct {
 // ConfigLayer 表示可选覆盖层。nil 字段表示“未设置”，用于多层配置继承合并。
 type ConfigLayer struct {
 	Agents    *AgentsLayer    `yaml:"agents"`
+	Spec      *SpecLayer      `yaml:"spec"`
 	Runtime   *RuntimeLayer   `yaml:"runtime"`
 	Pipeline  *PipelineLayer  `yaml:"pipeline"`
 	Scheduler *SchedulerLayer `yaml:"scheduler"`
@@ -106,6 +119,17 @@ type AgentsLayer struct {
 	Claude   *AgentConfig `yaml:"claude"`
 	Codex    *AgentConfig `yaml:"codex"`
 	OpenSpec *AgentConfig `yaml:"openspec"`
+}
+
+type SpecLayer struct {
+	Enabled   *bool              `yaml:"enabled"`
+	Provider  *string            `yaml:"provider"`
+	OnFailure *string            `yaml:"on_failure"`
+	OpenSpec  *SpecOpenSpecLayer `yaml:"openspec"`
+}
+
+type SpecOpenSpecLayer struct {
+	Binary *string `yaml:"binary"`
 }
 
 type PipelineLayer struct {

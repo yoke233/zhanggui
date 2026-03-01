@@ -87,6 +87,53 @@ func TestMergeForPipeline_DoesNotMutateGlobalWithEnvOverride(t *testing.T) {
 	}
 }
 
+func TestMergeHierarchy_SpecLayerOverridesGlobal(t *testing.T) {
+	global := &Config{
+		Spec: SpecConfig{
+			Enabled:   true,
+			Provider:  "openspec",
+			OnFailure: "warn",
+			OpenSpec: SpecOpenSpecConfig{
+				Binary: "openspec-global",
+			},
+		},
+	}
+
+	project := &ConfigLayer{
+		Spec: &SpecLayer{
+			Provider: ptr("noop"),
+			OpenSpec: &SpecOpenSpecLayer{
+				Binary: ptr("openspec-project"),
+			},
+		},
+	}
+
+	override := map[string]any{
+		"spec": map[string]any{
+			"enabled":    false,
+			"on_failure": "fail",
+		},
+	}
+
+	merged, err := MergeForPipeline(global, project, override)
+	if err != nil {
+		t.Fatalf("MergeForPipeline returned error: %v", err)
+	}
+
+	if merged.Spec.Enabled {
+		t.Fatalf("expected pipeline override to disable spec, got enabled=true")
+	}
+	if merged.Spec.Provider != "noop" {
+		t.Fatalf("expected project layer provider noop, got %q", merged.Spec.Provider)
+	}
+	if merged.Spec.OnFailure != "fail" {
+		t.Fatalf("expected pipeline override on_failure=fail, got %q", merged.Spec.OnFailure)
+	}
+	if merged.Spec.OpenSpec.Binary != "openspec-project" {
+		t.Fatalf("expected project layer openspec.binary, got %q", merged.Spec.OpenSpec.Binary)
+	}
+}
+
 func ptrSlice(values ...string) *[]string {
 	v := append([]string(nil), values...)
 	return &v
