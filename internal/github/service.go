@@ -13,9 +13,10 @@ const statusLabelPrefix = "status:"
 
 // GitHubService provides reusable Issue/PR operations for business plugins.
 type GitHubService struct {
-	client *ghapi.Client
-	owner  string
-	repo   string
+	client   *ghapi.Client
+	owner    string
+	repo     string
+	outbound *OutboundQueue
 }
 
 type CreateIssueInput struct {
@@ -50,6 +51,15 @@ type MergePRInput struct {
 }
 
 func NewGitHubService(client *Client, owner string, repo string) (*GitHubService, error) {
+	return newGitHubServiceWithQueue(client, owner, repo, nil)
+}
+
+func newGitHubServiceWithQueue(
+	client *Client,
+	owner string,
+	repo string,
+	outbound *OutboundQueue,
+) (*GitHubService, error) {
 	if client == nil || client.Client() == nil {
 		return nil, errors.New("github service init: github client is required")
 	}
@@ -60,10 +70,18 @@ func NewGitHubService(client *Client, owner string, repo string) (*GitHubService
 		return nil, errors.New("github service init: owner and repo are required")
 	}
 
+	if outbound == nil {
+		outbound = NewOutboundQueue(OutboundQueueOptions{
+			RateLimitRPS:   defaultOutboundRateLimitRPS,
+			RateLimitBurst: defaultOutboundRateLimitBurst,
+		})
+	}
+
 	return &GitHubService{
-		client: client.Client(),
-		owner:  trimmedOwner,
-		repo:   trimmedRepo,
+		client:   client.Client(),
+		owner:    trimmedOwner,
+		repo:     trimmedRepo,
+		outbound: outbound,
 	}, nil
 }
 
@@ -87,8 +105,13 @@ func (s *GitHubService) CreateIssue(ctx context.Context, input CreateIssueInput)
 		req.Labels = &labels
 	}
 
-	issue, _, err := s.client.Issues.Create(ctx, s.owner, s.repo, req)
-	if err != nil {
+	var issue *ghapi.Issue
+	if err := s.executeOutboundWrite(ctx, 0, "create issue", func(ctx context.Context) (*ghapi.Response, error) {
+		var callErr error
+		var resp *ghapi.Response
+		issue, resp, callErr = s.client.Issues.Create(ctx, s.owner, s.repo, req)
+		return resp, callErr
+	}); err != nil {
 		return nil, s.wrapError("create issue", err)
 	}
 	return issue, nil
@@ -109,7 +132,15 @@ func (s *GitHubService) UpdateIssueLabels(ctx context.Context, issueNumber int, 
 		if !isStatusLabel(name) {
 			continue
 		}
-		if _, removeErr := s.client.Issues.RemoveLabelForIssue(ctx, s.owner, s.repo, issueNumber, name); removeErr != nil {
+		if removeErr := s.executeOutboundWrite(
+			ctx,
+			issueNumber,
+			"remove issue status label",
+			func(ctx context.Context) (*ghapi.Response, error) {
+				resp, err := s.client.Issues.RemoveLabelForIssue(ctx, s.owner, s.repo, issueNumber, name)
+				return resp, err
+			},
+		); removeErr != nil {
 			return s.wrapError("remove issue status label", removeErr)
 		}
 	}
@@ -119,7 +150,15 @@ func (s *GitHubService) UpdateIssueLabels(ctx context.Context, issueNumber int, 
 		return nil
 	}
 
-	if _, _, err := s.client.Issues.AddLabelsToIssue(ctx, s.owner, s.repo, issueNumber, added); err != nil {
+	if err := s.executeOutboundWrite(
+		ctx,
+		issueNumber,
+		"add issue labels",
+		func(ctx context.Context) (*ghapi.Response, error) {
+			_, resp, callErr := s.client.Issues.AddLabelsToIssue(ctx, s.owner, s.repo, issueNumber, added)
+			return resp, callErr
+		},
+	); err != nil {
 		return s.wrapError("add issue labels", err)
 	}
 	return nil
@@ -136,8 +175,18 @@ func (s *GitHubService) AddIssueComment(ctx context.Context, issueNumber int, bo
 	}
 
 	req := &ghapi.IssueComment{Body: &trimmed}
-	comment, _, err := s.client.Issues.CreateComment(ctx, s.owner, s.repo, issueNumber, req)
-	if err != nil {
+	var comment *ghapi.IssueComment
+	if err := s.executeOutboundWrite(
+		ctx,
+		issueNumber,
+		"add issue comment",
+		func(ctx context.Context) (*ghapi.Response, error) {
+			var callErr error
+			var resp *ghapi.Response
+			comment, resp, callErr = s.client.Issues.CreateComment(ctx, s.owner, s.repo, issueNumber, req)
+			return resp, callErr
+		},
+	); err != nil {
 		return nil, s.wrapError("add issue comment", err)
 	}
 	return comment, nil
@@ -168,8 +217,13 @@ func (s *GitHubService) CreatePR(ctx context.Context, input CreatePRInput) (*gha
 		req.MaintainerCanModify = input.MaintainerCanModify
 	}
 
-	pr, _, err := s.client.PullRequests.Create(ctx, s.owner, s.repo, req)
-	if err != nil {
+	var pr *ghapi.PullRequest
+	if err := s.executeOutboundWrite(ctx, 0, "create pr", func(ctx context.Context) (*ghapi.Response, error) {
+		var callErr error
+		var resp *ghapi.Response
+		pr, resp, callErr = s.client.PullRequests.Create(ctx, s.owner, s.repo, req)
+		return resp, callErr
+	}); err != nil {
 		return nil, s.wrapError("create pr", err)
 	}
 	return pr, nil
@@ -201,8 +255,13 @@ func (s *GitHubService) UpdatePR(ctx context.Context, number int, input UpdatePR
 		update.MaintainerCanModify = input.MaintainerCanModify
 	}
 
-	pr, _, err := s.client.PullRequests.Edit(ctx, s.owner, s.repo, number, update)
-	if err != nil {
+	var pr *ghapi.PullRequest
+	if err := s.executeOutboundWrite(ctx, number, "update pr", func(ctx context.Context) (*ghapi.Response, error) {
+		var callErr error
+		var resp *ghapi.Response
+		pr, resp, callErr = s.client.PullRequests.Edit(ctx, s.owner, s.repo, number, update)
+		return resp, callErr
+	}); err != nil {
 		return nil, s.wrapError("update pr", err)
 	}
 	return pr, nil
@@ -224,8 +283,13 @@ func (s *GitHubService) MergePR(ctx context.Context, number int, input MergePRIn
 		options = nil
 	}
 
-	result, _, err := s.client.PullRequests.Merge(ctx, s.owner, s.repo, number, trimmedMessage, options)
-	if err != nil {
+	var result *ghapi.PullRequestMergeResult
+	if err := s.executeOutboundWrite(ctx, number, "merge pr", func(ctx context.Context) (*ghapi.Response, error) {
+		var callErr error
+		var resp *ghapi.Response
+		result, resp, callErr = s.client.PullRequests.Merge(ctx, s.owner, s.repo, number, trimmedMessage, options)
+		return resp, callErr
+	}); err != nil {
 		return nil, s.wrapError("merge pr", err)
 	}
 	return result, nil
@@ -244,6 +308,25 @@ func (s *GitHubService) ensureReady(operation string) error {
 		return fmt.Errorf("github service %s: owner/repo are required", operation)
 	}
 	return nil
+}
+
+func (s *GitHubService) executeOutboundWrite(
+	ctx context.Context,
+	issueNumber int,
+	operation string,
+	execute func(context.Context) (*ghapi.Response, error),
+) error {
+	if s.outbound == nil {
+		s.outbound = NewOutboundQueue(OutboundQueueOptions{
+			RateLimitRPS:   defaultOutboundRateLimitRPS,
+			RateLimitBurst: defaultOutboundRateLimitBurst,
+		})
+	}
+	return s.outbound.Do(ctx, OutboundWriteRequest{
+		IssueNumber: issueNumber,
+		Operation:   operation,
+		Execute:     execute,
+	})
 }
 
 func (s *GitHubService) wrapError(operation string, err error) error {

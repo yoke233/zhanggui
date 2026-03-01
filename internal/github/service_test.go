@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"sync/atomic"
 	"strings"
 	"testing"
+	"time"
 
 	ghapi "github.com/google/go-github/v68/github"
 )
@@ -156,6 +158,53 @@ func TestGitHubService_AddIssueComment_Success(t *testing.T) {
 	}
 }
 
+func TestGitHubService_AddIssueComment_RetriesOnRateLimit(t *testing.T) {
+	clock := newFakeClock(time.Unix(0, 0))
+	queue := NewOutboundQueue(OutboundQueueOptions{
+		RateLimitRPS:        100,
+		RateLimitBurst:      100,
+		MaxRateLimitRetries: 3,
+		Now:                 clock.Now,
+		Sleep:               clock.Sleep,
+	})
+
+	attempts := int32(0)
+	service := newTestGitHubServiceWithQueue(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected method POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/repos/acme/demo/issues/7/comments" {
+			t.Fatalf("expected path /repos/acme/demo/issues/7/comments, got %s", r.URL.Path)
+		}
+
+		current := atomic.AddInt32(&attempts, 1)
+		if current == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"message":"rate limit exceeded"}`))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":9002,"body":"after retry"}`))
+	}, queue)
+
+	comment, err := service.AddIssueComment(context.Background(), 7, "after retry")
+	if err != nil {
+		t.Fatalf("AddIssueComment returned error: %v", err)
+	}
+	if comment.GetID() != 9002 {
+		t.Fatalf("expected comment id 9002, got %d", comment.GetID())
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if got := clock.TotalSlept(); got != 2*time.Second {
+		t.Fatalf("expected retry sleep 2s, got %v", got)
+	}
+}
+
 func TestGitHubService_CreateDraftPR_Success(t *testing.T) {
 	service := newTestGitHubService(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -208,6 +257,14 @@ func TestGitHubService_CreateDraftPR_Success(t *testing.T) {
 }
 
 func newTestGitHubService(t *testing.T, handler http.HandlerFunc) *GitHubService {
+	return newTestGitHubServiceWithQueue(t, handler, nil)
+}
+
+func newTestGitHubServiceWithQueue(
+	t *testing.T,
+	handler http.HandlerFunc,
+	queue *OutboundQueue,
+) *GitHubService {
 	t.Helper()
 
 	server := httptest.NewServer(handler)
@@ -226,7 +283,7 @@ func newTestGitHubService(t *testing.T, handler http.HandlerFunc) *GitHubService
 		httpClient: server.Client(),
 	}
 
-	service, err := NewGitHubService(wrappedClient, "acme", "demo")
+	service, err := newGitHubServiceWithQueue(wrappedClient, "acme", "demo", queue)
 	if err != nil {
 		t.Fatalf("NewGitHubService returned error: %v", err)
 	}
