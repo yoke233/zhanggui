@@ -33,7 +33,7 @@ type githubWebhookEnvelope struct {
 	} `json:"repository"`
 }
 
-func registerWebhookRoutes(r chi.Router, store core.Store, secret string) {
+func registerWebhookRoutes(r chi.Router, store core.Store, secret string) WebhookDeliveryReplayer {
 	var publisher interface{ Publish(evt core.Event) }
 	if bus := eventbus.Default(); bus != nil {
 		publisher = bus
@@ -48,6 +48,7 @@ func registerWebhookRoutes(r chi.Router, store core.Store, secret string) {
 		}),
 	}
 	r.Post("/webhook", h.handleWebhook)
+	return h.dispatcher
 }
 
 func (h *webhookHandlers) handleWebhook(w http.ResponseWriter, r *http.Request) {

@@ -28,19 +28,25 @@ type PipelineExecutor interface {
 	ApplyAction(ctx context.Context, action core.PipelineAction) error
 }
 
+// WebhookDeliveryReplayer replays failed webhook deliveries by delivery id.
+type WebhookDeliveryReplayer interface {
+	ReplayByDeliveryID(ctx context.Context, deliveryID string) (bool, error)
+}
+
 // Config controls web server behavior.
 type Config struct {
-	Addr           string
-	AuthEnabled    bool
-	BearerToken    string
-	WebhookSecret  string
-	AllowedOrigins []string
-	Frontend       fs.FS
-	Store          core.Store
-	PlanManager    PlanManager
-	PipelineExec   PipelineExecutor
-	Hub            *Hub
-	Logger         *log.Logger
+	Addr            string
+	AuthEnabled     bool
+	BearerToken     string
+	WebhookSecret   string
+	AllowedOrigins  []string
+	Frontend        fs.FS
+	Store           core.Store
+	PlanManager     PlanManager
+	PipelineExec    PipelineExecutor
+	WebhookReplayer WebhookDeliveryReplayer
+	Hub             *Hub
+	Logger          *log.Logger
 }
 
 // Server wraps the HTTP server and router for API serving.
@@ -81,7 +87,10 @@ func NewServer(cfg Config) *Server {
 
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
-	registerWebhookRoutes(r, cfg.Store, strings.TrimSpace(cfg.WebhookSecret))
+	webhookReplayer := registerWebhookRoutes(r, cfg.Store, strings.TrimSpace(cfg.WebhookSecret))
+	if cfg.WebhookReplayer != nil {
+		webhookReplayer = cfg.WebhookReplayer
+	}
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
@@ -92,6 +101,7 @@ func NewServer(cfg Config) *Server {
 		registerChatRoutes(r, cfg.Store, cfg.PlanManager)
 		registerPlanRoutes(r, cfg.Store, cfg.PlanManager)
 		registerTaskRoutes(r, cfg.Store)
+		registerAdminOpsRoutes(r, cfg.Store, cfg.BearerToken, webhookReplayer)
 		r.Get("/ws", hub.HandleWS)
 	})
 	if frontendFS != nil {

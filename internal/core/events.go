@@ -40,6 +40,7 @@ const (
 	EventGitHubPullRequestReviewSubmitted EventType = "github_pull_request_review_submitted"
 	EventGitHubPullRequestClosed          EventType = "github_pull_request_closed"
 	EventGitHubReconnected                EventType = "github_reconnected"
+	EventAdminOperation                   EventType = "admin_operation"
 )
 
 type Event struct {
