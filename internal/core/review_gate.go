@@ -10,6 +10,22 @@ type ReviewGate interface {
 	Cancel(ctx context.Context, reviewID string) error
 }
 
+const (
+	ReviewStatusPending          = "pending"
+	ReviewStatusApproved         = "approved"
+	ReviewStatusRejected         = "rejected"
+	ReviewStatusChangesRequested = "changes_requested"
+	ReviewStatusCancelled        = "cancelled"
+)
+
+const (
+	ReviewDecisionPending   = "pending"
+	ReviewDecisionApprove   = "approve"
+	ReviewDecisionReject    = "reject"
+	ReviewDecisionFix       = "fix"
+	ReviewDecisionCancelled = "cancelled"
+)
+
 type ReviewResult struct {
 	Status   string          `json:"status"`
 	Verdicts []ReviewVerdict `json:"verdicts"`

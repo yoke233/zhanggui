@@ -14,6 +14,7 @@ import (
 	agentcodex "github.com/user/ai-workflow/internal/plugins/agent-codex"
 	notifierdesktop "github.com/user/ai-workflow/internal/plugins/notifier-desktop"
 	reviewaipanel "github.com/user/ai-workflow/internal/plugins/review-ai-panel"
+	reviewgithubpr "github.com/user/ai-workflow/internal/plugins/review-github-pr"
 	reviewlocal "github.com/user/ai-workflow/internal/plugins/review-local"
 	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
 	scmgithub "github.com/user/ai-workflow/internal/plugins/scm-github"
@@ -176,6 +177,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	reviewGateRaw, err := reviewGateModule.Factory(map[string]any{
 		"store":      storePlugin.Store(),
 		"max_rounds": effective.Secretary.ReviewPanel.MaxRounds,
+		"github":     effective.GitHub,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build review gate plugin %q: %w", reviewGateName, err)
@@ -357,6 +359,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 				return reviewlocal.New(store), nil
 			},
 		},
+		reviewgithubpr.Module(),
 		{
 			Name: defaultTrackerPlugin,
 			Slot: core.SlotTracker,
