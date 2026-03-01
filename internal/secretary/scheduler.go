@@ -1161,10 +1161,13 @@ func schedulerDefaultStageConfig(id core.StageID) core.StageConfig {
 	}
 
 	switch id {
-	case core.StageRequirements, core.StageSpecGen, core.StageSpecReview, core.StageCodeReview:
+	case core.StageRequirements, core.StageCodeReview:
 		cfg.Agent = "claude"
 	case core.StageImplement, core.StageFixup:
 		cfg.Agent = "codex"
+	case core.StageE2ETest:
+		cfg.Agent = "codex"
+		cfg.Timeout = 15 * time.Minute
 	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
 		cfg.Timeout = 2 * time.Minute
 	}

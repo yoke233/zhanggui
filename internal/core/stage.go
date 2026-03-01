@@ -7,8 +7,6 @@ type StageID string
 
 const (
 	StageRequirements  StageID = "requirements"
-	StageSpecGen       StageID = "spec_gen"
-	StageSpecReview    StageID = "spec_review"
 	StageWorktreeSetup StageID = "worktree_setup"
 	StageImplement     StageID = "implement"
 	StageCodeReview    StageID = "code_review"

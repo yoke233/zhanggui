@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -408,14 +409,18 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 	if promptStage == "" {
 		promptStage = string(stage.Name)
 	}
+	executionContext, err := buildPromptExecutionContext(p, stage.Name)
+	if err != nil {
+		return fmt.Errorf("build prompt execution context: %w", err)
+	}
 	prompt, err := RenderPrompt(promptStage, PromptVars{
-		ProjectName:  project.Name,
-		ChangeName:   p.Name,
-		RepoPath:     project.RepoPath,
-		WorktreePath: p.WorktreePath,
-		Requirements: p.Description,
-		RetryError:   p.ErrorMessage,
-		RetryCount:   p.TotalRetries,
+		ProjectName:      project.Name,
+		RepoPath:         project.RepoPath,
+		WorktreePath:     p.WorktreePath,
+		Requirements:     p.Description,
+		ExecutionContext: executionContext,
+		RetryError:       p.ErrorMessage,
+		RetryCount:       p.TotalRetries,
 	})
 	if err != nil {
 		return fmt.Errorf("render prompt: %w", err)
@@ -475,6 +480,21 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("wait session: %w", err)
 	}
 	return nil
+}
+
+func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, error) {
+	ctx := map[string]string{
+		"pipeline_id":   p.ID,
+		"pipeline_name": p.Name,
+		"stage":         string(stage),
+		"template":      p.Template,
+		"branch_name":   p.BranchName,
+	}
+	payload, err := json.Marshal(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
 }
 
 func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Pipeline) error {
@@ -554,10 +574,13 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 		OnFailure:  core.OnFailureHuman,
 	}
 	switch id {
-	case core.StageRequirements, core.StageSpecGen, core.StageSpecReview, core.StageCodeReview:
+	case core.StageRequirements, core.StageCodeReview:
 		cfg.Agent = "claude"
 	case core.StageImplement, core.StageFixup:
 		cfg.Agent = "codex"
+	case core.StageE2ETest:
+		cfg.Agent = "codex"
+		cfg.Timeout = 15 * time.Minute
 	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
 		cfg.Agent = ""
 		cfg.Timeout = 2 * time.Minute

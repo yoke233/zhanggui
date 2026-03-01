@@ -11,17 +11,15 @@ import (
 var promptFS embed.FS
 
 type PromptVars struct {
-	ProjectName    string
-	ChangeName     string
-	RepoPath       string
-	WorktreePath   string
-	Requirements   string
-	SpecPath       string
-	TasksMD        string
-	PreviousReview string
-	HumanFeedback  string
-	RetryError     string
-	RetryCount     int
+	ProjectName      string
+	RepoPath         string
+	WorktreePath     string
+	Requirements     string
+	ExecutionContext string
+	PreviousReview   string
+	HumanFeedback    string
+	RetryError       string
+	RetryCount       int
 }
 
 func RenderPrompt(stage string, vars PromptVars) (string, error) {

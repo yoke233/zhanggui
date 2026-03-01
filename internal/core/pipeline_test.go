@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestValidateTransition(t *testing.T) {
 	valid := []struct {
@@ -37,6 +41,25 @@ func TestValidateTransition(t *testing.T) {
 	for _, tt := range invalid {
 		if err := ValidateTransition(tt.from, tt.to); err == nil {
 			t.Errorf("expected invalid: %s -> %s, got nil", tt.from, tt.to)
+		}
+	}
+}
+
+func TestStageSource_NoLegacySpecStages(t *testing.T) {
+	content, err := os.ReadFile("stage.go")
+	if err != nil {
+		t.Fatalf("read stage.go: %v", err)
+	}
+
+	src := string(content)
+	for _, legacy := range []string{
+		"StageSpecGen",
+		"StageSpecReview",
+		"spec_gen",
+		"spec_review",
+	} {
+		if strings.Contains(src, legacy) {
+			t.Fatalf("legacy stage marker %q should be removed from stage.go", legacy)
 		}
 	}
 }

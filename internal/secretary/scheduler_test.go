@@ -658,6 +658,34 @@ func TestDepScheduler_StartPlanRejectsInvalidState(t *testing.T) {
 	}
 }
 
+func TestSchedulerDefaultStageConfig_DefaultAgentAndE2E(t *testing.T) {
+	for _, stageID := range []core.StageID{
+		core.StageRequirements,
+		core.StageCodeReview,
+	} {
+		cfg := schedulerDefaultStageConfig(stageID)
+		if cfg.Agent != "claude" {
+			t.Fatalf("stage %s should default to claude, got %q", stageID, cfg.Agent)
+		}
+	}
+
+	for _, stageID := range []core.StageID{
+		core.StageImplement,
+		core.StageFixup,
+		core.StageE2ETest,
+	} {
+		cfg := schedulerDefaultStageConfig(stageID)
+		if cfg.Agent != "codex" {
+			t.Fatalf("stage %s should default to codex, got %q", stageID, cfg.Agent)
+		}
+	}
+
+	cfg := schedulerDefaultStageConfig(core.StageE2ETest)
+	if cfg.Timeout != 15*time.Minute {
+		t.Fatalf("e2e_test timeout mismatch, got %s want %s", cfg.Timeout, 15*time.Minute)
+	}
+}
+
 type schedulerRunner struct {
 	mu    sync.Mutex
 	calls []string
