@@ -24,6 +24,7 @@ type webhookHandlers struct {
 	store       core.Store
 	secret      string
 	executor    PipelineExecutor
+	stageRoles  map[core.StageID]string
 	dispatcher  *ghwebhook.WebhookDispatcher
 	prLifecycle *ghwebhook.PRLifecycle
 }
@@ -57,7 +58,7 @@ type githubWebhookEnvelope struct {
 	} `json:"sender"`
 }
 
-func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExecutor, secret string) WebhookDeliveryReplayer {
+func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExecutor, secret string, stageRoleBindings map[string]string) WebhookDeliveryReplayer {
 	var publisher interface{ Publish(evt core.Event) }
 	if bus := eventbus.Default(); bus != nil {
 		publisher = bus
@@ -67,6 +68,7 @@ func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExec
 		store:       store,
 		secret:      strings.TrimSpace(secret),
 		executor:    executor,
+		stageRoles:  normalizeStageRoleBindings(stageRoleBindings),
 		prLifecycle: ghwebhook.NewPRLifecycle(store, nil),
 	}
 	h.dispatcher = ghwebhook.NewWebhookDispatcher(ghwebhook.WebhookDispatcherOptions{
@@ -230,7 +232,7 @@ func (h *webhookHandlers) createPipelineForTrigger(
 	if h == nil || h.store == nil {
 		return nil, errors.New("store is required")
 	}
-	stages, err := buildPipelineStages(template)
+	stages, err := buildPipelineStages(template, h.stageRoles)
 	if err != nil {
 		return nil, err
 	}

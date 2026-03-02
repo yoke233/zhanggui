@@ -107,7 +107,9 @@ func Defaults() Config {
 				StageRoles: map[string]string{
 					"requirements": "worker",
 					"implement":    "worker",
-					"verify":       "reviewer",
+					"code_review":  "reviewer",
+					"fixup":        "worker",
+					"e2e_test":     "worker",
 				},
 			},
 			ReviewOrchestrator: ReviewRoleBindings{

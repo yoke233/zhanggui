@@ -507,8 +507,8 @@ func TestReviewOrchestratorUsesRoleBindings(t *testing.T) {
 					Terminal: true,
 				},
 				SessionPolicy: acpclient.SessionPolicy{
-					Reuse:       true,
-					ResetPrompt: true,
+					Reuse:       false,
+					ResetPrompt: false,
 				},
 			},
 			{
@@ -520,8 +520,8 @@ func TestReviewOrchestratorUsesRoleBindings(t *testing.T) {
 					Terminal: true,
 				},
 				SessionPolicy: acpclient.SessionPolicy{
-					Reuse:       true,
-					ResetPrompt: true,
+					Reuse:       false,
+					ResetPrompt: false,
 				},
 			},
 		},

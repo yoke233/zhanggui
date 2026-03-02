@@ -535,7 +535,7 @@ func startSecretarySession(
 	metadata := map[string]string{
 		"role_id": roleID,
 	}
-	if sessionID := strings.TrimSpace(persistedSessionID); sessionID != "" {
+	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedSecretarySession(resolvedRole.SessionPolicy, sessionID) {
 		loaded, err := client.LoadSession(ctx, acpclient.LoadSessionRequest{
 			SessionID: sessionID,
 			CWD:       trimmedCWD,
@@ -560,6 +560,19 @@ func startSecretarySession(
 		return acpclient.SessionInfo{}, "", err
 	}
 	return session, roleID, nil
+}
+
+func shouldLoadPersistedSecretarySession(policy acpclient.SessionPolicy, persistedSessionID string) bool {
+	if strings.TrimSpace(persistedSessionID) == "" {
+		return false
+	}
+	if !policy.Reuse {
+		return false
+	}
+	if !policy.PreferLoadSession {
+		return false
+	}
+	return true
 }
 
 func roleContextJSON(roleID string) string {

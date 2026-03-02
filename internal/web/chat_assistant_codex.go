@@ -2,150 +2,50 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
-	"time"
 )
 
-type codexCommandRunner interface {
-	Run(ctx context.Context, workDir, command string, args []string) (stdout string, stderr string, err error)
-}
-
-// CodexChatAssistant calls codex exec/exec resume and parses JSONL events.
+// CodexChatAssistant starts ACP sessions through role-driven resolver and returns one reply turn.
 type CodexChatAssistant struct {
-	binary    string
-	model     string
-	reasoning string
-	runner    codexCommandRunner
+	assistant *ACPChatAssistant
 }
 
-// NewCodexChatAssistant creates a ChatAssistant backed by codex CLI.
+// NewCodexChatAssistant creates a ChatAssistant backed by ACP client launch.
 func NewCodexChatAssistant(binary, model, reasoning string) ChatAssistant {
 	trimmedBinary := strings.TrimSpace(binary)
 	if trimmedBinary == "" {
 		trimmedBinary = "codex"
 	}
-	return &CodexChatAssistant{
-		binary:    trimmedBinary,
-		model:     strings.TrimSpace(model),
-		reasoning: strings.TrimSpace(reasoning),
-		runner:    shellClaudeCommandRunner{},
-	}
+	return newCodexChatAssistantForTest(trimmedBinary, model, reasoning, ACPChatAssistantDeps{})
 }
 
-func newCodexChatAssistantForTest(binary, model, reasoning string, runner codexCommandRunner) *CodexChatAssistant {
+func newCodexChatAssistantForTest(binary, model, reasoning string, deps ACPChatAssistantDeps) *CodexChatAssistant {
 	trimmedBinary := strings.TrimSpace(binary)
 	if trimmedBinary == "" {
 		trimmedBinary = "codex"
 	}
-	if runner == nil {
-		runner = shellClaudeCommandRunner{}
+	launchEnv := map[string]string{}
+	if trimmedModel := strings.TrimSpace(model); trimmedModel != "" {
+		launchEnv["AI_WORKFLOW_CODEX_MODEL"] = trimmedModel
+	}
+	if trimmedReasoning := strings.TrimSpace(reasoning); trimmedReasoning != "" {
+		launchEnv["AI_WORKFLOW_CODEX_REASONING"] = trimmedReasoning
+	}
+	if len(launchEnv) == 0 {
+		launchEnv = nil
+	}
+	if deps.RoleResolver == nil {
+		deps.RoleResolver = newLegacyProviderRoleResolver("codex", trimmedBinary, nil, launchEnv)
 	}
 	return &CodexChatAssistant{
-		binary:    trimmedBinary,
-		model:     strings.TrimSpace(model),
-		reasoning: strings.TrimSpace(reasoning),
-		runner:    runner,
+		assistant: newACPChatAssistant(deps),
 	}
 }
 
 func (a *CodexChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) (ChatAssistantResponse, error) {
-	if a == nil {
+	if a == nil || a.assistant == nil {
 		return ChatAssistantResponse{}, errors.New("chat assistant is nil")
 	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		return ChatAssistantResponse{}, errors.New("message is required")
-	}
-	message = messageWithRoleContext(req.Role, message)
-	if a.runner == nil {
-		return ChatAssistantResponse{}, errors.New("chat assistant runner is not configured")
-	}
-
-	// Note: `-a` is a global flag (must appear before `exec`).
-	args := make([]string, 0, 24)
-	if strings.TrimSpace(req.WorkDir) != "" {
-		args = append(args, "-C", strings.TrimSpace(req.WorkDir))
-	}
-	args = append(args, "-a", "never", "exec")
-	if strings.TrimSpace(req.AgentSessionID) != "" {
-		args = append(args, "resume", "--json", "--color", "never", "--disable", "shell_tool", strings.TrimSpace(req.AgentSessionID), message)
-	} else {
-		args = append(args, "--json", "--color", "never", "--disable", "shell_tool", message)
-	}
-	if a.model != "" {
-		args = append(args, "-m", a.model)
-	}
-	if a.reasoning != "" {
-		args = append(args, "-c", "model_reasoning_effort="+a.reasoning)
-	}
-
-	runCtx, cancel := withDefaultTimeout(ctx, 90*time.Second)
-	defer cancel()
-	stdout, stderr, err := a.runner.Run(runCtx, "", a.binary, args)
-	if err != nil {
-		detail := strings.TrimSpace(stderr)
-		if detail == "" {
-			detail = strings.TrimSpace(stdout)
-		}
-		if detail == "" {
-			detail = err.Error()
-		}
-		return ChatAssistantResponse{}, fmt.Errorf("codex command failed: %s", detail)
-	}
-
-	reply, sessionID, parseErr := parseCodexJSONL(stdout)
-	if parseErr != nil {
-		return ChatAssistantResponse{}, parseErr
-	}
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(req.AgentSessionID)
-	}
-	return ChatAssistantResponse{
-		Reply:          reply,
-		AgentSessionID: sessionID,
-	}, nil
-}
-
-func parseCodexJSONL(output string) (reply string, sessionID string, err error) {
-	lines := strings.Split(output, "\n")
-	textParts := make([]string, 0, 8)
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		var raw map[string]any
-		if jsonErr := json.Unmarshal([]byte(trimmed), &raw); jsonErr != nil {
-			continue
-		}
-
-		eventType := extractString(raw["type"])
-		if sid := extractString(raw["thread_id"]); sid != "" {
-			sessionID = sid
-		}
-
-		if eventType == "item.completed" {
-			item, _ := raw["item"].(map[string]any)
-			if sid := extractString(item["thread_id"]); sid != "" {
-				sessionID = sid
-			}
-			itemType := extractString(item["type"])
-			if itemType == "agent_message" {
-				text := strings.TrimSpace(extractString(item["text"]))
-				if text != "" {
-					textParts = append(textParts, text)
-				}
-			}
-		}
-	}
-
-	reply = strings.TrimSpace(strings.Join(textParts, "\n\n"))
-	if reply == "" {
-		return "", sessionID, errors.New("codex returned empty reply")
-	}
-	return reply, sessionID, nil
+	return a.assistant.Reply(ctx, req)
 }

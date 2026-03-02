@@ -88,9 +88,9 @@ func TestActionReject_InvalidateFollowingCheckpoints(t *testing.T) {
 		Status:       core.StatusWaitingHuman,
 		CurrentStage: core.StageFixup,
 		Stages: []core.StageConfig{
-			{Name: core.StageImplement, Agent: "codex"},
-			{Name: core.StageFixup, Agent: "codex"},
-			{Name: core.StageCodeReview, Agent: "claude"},
+			{Name: core.StageImplement, Agent: "codex", Role: "worker"},
+			{Name: core.StageFixup, Agent: "codex", Role: "worker"},
+			{Name: core.StageCodeReview, Agent: "claude", Role: "reviewer"},
 		},
 		Artifacts: map[string]string{},
 		Config:    map[string]any{},
@@ -160,7 +160,7 @@ func TestActionPauseResume_ReRunCurrentStage(t *testing.T) {
 		Status:       core.StatusRunning,
 		CurrentStage: core.StageImplement,
 		Stages: []core.StageConfig{
-			{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
+			{Name: core.StageImplement, Agent: "codex", Role: "worker", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 		},
 		Artifacts:    map[string]string{},
 		Config:       map[string]any{},

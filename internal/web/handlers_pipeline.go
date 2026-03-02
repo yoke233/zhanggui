@@ -14,8 +14,9 @@ import (
 )
 
 type pipelineHandlers struct {
-	store    core.Store
-	executor PipelineExecutor
+	store      core.Store
+	executor   PipelineExecutor
+	stageRoles map[core.StageID]string
 }
 
 type createPipelineRequest struct {
@@ -43,10 +44,11 @@ type pipelineActionResponse struct {
 	CurrentStage string `json:"current_stage,omitempty"`
 }
 
-func registerPipelineRoutes(r chi.Router, store core.Store, executor PipelineExecutor) {
+func registerPipelineRoutes(r chi.Router, store core.Store, executor PipelineExecutor, stageRoleBindings map[string]string) {
 	h := &pipelineHandlers{
-		store:    store,
-		executor: executor,
+		store:      store,
+		executor:   executor,
+		stageRoles: normalizeStageRoleBindings(stageRoleBindings),
 	}
 	r.Get("/pipelines/{id}", h.getPipelineByID)
 	r.Get("/projects/{projectID}/pipelines", h.listPipelines)
@@ -138,7 +140,7 @@ func (h *pipelineHandlers) createPipeline(w http.ResponseWriter, r *http.Request
 	if req.Template == "" {
 		req.Template = "standard"
 	}
-	stages, err := buildPipelineStages(req.Template)
+	stages, err := buildPipelineStages(req.Template, h.stageRoles)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_TEMPLATE")
 		return
@@ -392,7 +394,7 @@ func normalizePipelineForAPI(item core.Pipeline) core.Pipeline {
 	return item
 }
 
-func buildPipelineStages(template string) ([]core.StageConfig, error) {
+func buildPipelineStages(template string, stageRoles map[core.StageID]string) ([]core.StageConfig, error) {
 	stageIDs, ok := engine.Templates[template]
 	if !ok {
 		return nil, fmt.Errorf("unknown template: %s", template)
@@ -401,8 +403,27 @@ func buildPipelineStages(template string) ([]core.StageConfig, error) {
 	stages := make([]core.StageConfig, len(stageIDs))
 	for i, stageID := range stageIDs {
 		stages[i] = defaultPipelineStageConfig(stageID)
+		if role, ok := stageRoles[stageID]; ok {
+			stages[i].Role = role
+		}
 	}
 	return stages, nil
+}
+
+func normalizeStageRoleBindings(stageRoleBindings map[string]string) map[core.StageID]string {
+	if len(stageRoleBindings) == 0 {
+		return nil
+	}
+	normalized := make(map[core.StageID]string, len(stageRoleBindings))
+	for rawStage, rawRole := range stageRoleBindings {
+		stage := core.StageID(strings.TrimSpace(rawStage))
+		role := strings.TrimSpace(rawRole)
+		if stage == "" || role == "" {
+			continue
+		}
+		normalized[stage] = role
+	}
+	return normalized
 }
 
 func defaultPipelineStageConfig(id core.StageID) core.StageConfig {

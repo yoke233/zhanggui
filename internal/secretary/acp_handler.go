@@ -46,6 +46,16 @@ func NewACPHandler(cwd string, sessionID string, publisher acpEventPublisher) *A
 	}
 }
 
+func (h *ACPHandler) SetSessionID(sessionID string) {
+	if h == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sessionID = strings.TrimSpace(sessionID)
+}
+
 func (h *ACPHandler) HandleWriteFile(_ context.Context, req acpclient.WriteFileRequest) (acpclient.WriteFileResult, error) {
 	if h == nil {
 		return acpclient.WriteFileResult{}, errors.New("acp handler is nil")

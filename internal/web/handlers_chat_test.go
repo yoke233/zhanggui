@@ -353,6 +353,9 @@ func TestChatSessionCreateWithRole(t *testing.T) {
 	if calls[0].Message != "请以 reviewer 视角给建议" {
 		t.Fatalf("expected assistant request message forwarded, got %q", calls[0].Message)
 	}
+	if calls[0].WorkDir != project.RepoPath {
+		t.Fatalf("expected assistant request workdir %q, got %q", project.RepoPath, calls[0].WorkDir)
+	}
 
 	session, err := store.GetChatSession(created.SessionID)
 	if err != nil {
@@ -497,8 +500,14 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected one assistant call, got %d", len(calls))
 	}
+	if calls[0].Role != "secretary" {
+		t.Fatalf("expected default role secretary, got %q", calls[0].Role)
+	}
 	if calls[0].AgentSessionID != "claude-sid-old" {
 		t.Fatalf("expected resume from old session id, got %q", calls[0].AgentSessionID)
+	}
+	if calls[0].WorkDir != project.RepoPath {
+		t.Fatalf("expected assistant request workdir %q, got %q", project.RepoPath, calls[0].WorkDir)
 	}
 }
 

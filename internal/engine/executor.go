@@ -26,6 +26,7 @@ type Executor struct {
 	bus          *eventbus.Bus
 	agents       map[string]core.AgentPlugin
 	roleResolver *acpclient.RoleResolver
+	stageRoles   map[core.StageID]string
 	runtime      core.RuntimePlugin
 	logger       *slog.Logger
 
@@ -55,6 +56,24 @@ func (e *Executor) SetRoleResolver(resolver *acpclient.RoleResolver) {
 	e.roleResolver = resolver
 }
 
+func (e *Executor) SetPipelineStageRoles(stageRoles map[string]string) {
+	if len(stageRoles) == 0 {
+		e.stageRoles = nil
+		return
+	}
+
+	normalized := make(map[core.StageID]string, len(stageRoles))
+	for rawStage, rawRole := range stageRoles {
+		stage := core.StageID(strings.TrimSpace(rawStage))
+		role := strings.TrimSpace(rawRole)
+		if stage == "" || role == "" {
+			continue
+		}
+		normalized[stage] = role
+	}
+	e.stageRoles = normalized
+}
+
 func (e *Executor) CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error) {
 	stageIDs, ok := Templates[template]
 	if !ok {
@@ -64,6 +83,9 @@ func (e *Executor) CreatePipeline(projectID, name, description, template string)
 	stages := make([]core.StageConfig, len(stageIDs))
 	for i, sid := range stageIDs {
 		stages[i] = defaultStageConfig(sid)
+		if role, ok := e.stageRoles[sid]; ok {
+			stages[i].Role = role
+		}
 	}
 
 	p := &core.Pipeline{
@@ -579,16 +601,28 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 }
 
 func (e *Executor) resolveStageAgentName(stage *core.StageConfig) (string, error) {
-	agentName := stage.Agent
-	if stage.Role != "" && e.roleResolver != nil {
-		resolvedAgent, _, err := e.roleResolver.Resolve(stage.Role)
-		if err != nil {
-			return "", fmt.Errorf("stage role not resolved: %w", err)
-		}
-		if strings.TrimSpace(resolvedAgent.ID) == "" {
-			return "", fmt.Errorf("stage role not resolved: role %q resolved empty agent id", stage.Role)
-		}
-		agentName = resolvedAgent.ID
+	if stage == nil {
+		return "", errors.New("stage config is nil")
+	}
+	if !stageRequiresRole(stage.Name) {
+		return "", nil
+	}
+
+	roleName := strings.TrimSpace(stage.Role)
+	if roleName == "" {
+		return "", fmt.Errorf("stage role is required for stage %q", stage.Name)
+	}
+	if e.roleResolver == nil {
+		return "", fmt.Errorf("stage role resolver is not configured for stage %q (role=%q)", stage.Name, roleName)
+	}
+
+	resolvedAgent, _, err := e.roleResolver.Resolve(roleName)
+	if err != nil {
+		return "", fmt.Errorf("stage role not resolved for stage %q (role=%q): %w", stage.Name, roleName, err)
+	}
+	agentName := strings.TrimSpace(resolvedAgent.ID)
+	if agentName == "" {
+		return "", fmt.Errorf("stage role not resolved for stage %q (role=%q): resolved empty agent id", stage.Name, roleName)
 	}
 	return agentName, nil
 }
@@ -601,12 +635,18 @@ func (e *Executor) resolveStageAgent(stage *core.StageConfig) (string, core.Agen
 
 	agent, ok := e.agents[agentName]
 	if !ok {
-		if stage.Role != "" && e.roleResolver != nil {
-			return "", nil, fmt.Errorf("stage role not resolved: role %q -> agent %q not found", stage.Role, agentName)
-		}
-		return "", nil, fmt.Errorf("agent %q not found", agentName)
+		return "", nil, fmt.Errorf("stage role not resolved for stage %q (role=%q): agent plugin %q not found", stage.Name, strings.TrimSpace(stage.Role), agentName)
 	}
 	return agentName, agent, nil
+}
+
+func stageRequiresRole(stage core.StageID) bool {
+	switch stage {
+	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
+		return false
+	default:
+		return true
+	}
 }
 
 func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, error) {

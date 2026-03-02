@@ -107,6 +107,72 @@ func TestCreatePipelineThenGetPipelineByProjectAndGlobal(t *testing.T) {
 	}
 }
 
+func TestCreatePipeline_StageRoleBindingsApplied(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-role-bindings",
+		Name:     "project-pipe-role-bindings",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-role-bindings"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store: store,
+		PipelineStageRoles: map[string]string{
+			"requirements": "worker",
+			"implement":    "worker",
+			"code_review":  "reviewer",
+		},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	createBody := map[string]any{
+		"name":        "pipeline-role",
+		"description": "pipeline role bindings",
+		"template":    "quick",
+	}
+	rawBody, err := json.Marshal(createBody)
+	if err != nil {
+		t.Fatalf("marshal create pipeline body: %v", err)
+	}
+
+	createResp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-pipe-role-bindings/pipelines",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST /api/v1/projects/{pid}/pipelines: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResp.StatusCode)
+	}
+
+	var created core.Pipeline
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created pipeline: %v", err)
+	}
+
+	roleByStage := make(map[core.StageID]string, len(created.Stages))
+	for _, stage := range created.Stages {
+		roleByStage[stage.Name] = stage.Role
+	}
+
+	if got := roleByStage[core.StageRequirements]; got != "worker" {
+		t.Fatalf("expected requirements role worker, got %q", got)
+	}
+	if got := roleByStage[core.StageImplement]; got != "worker" {
+		t.Fatalf("expected implement role worker, got %q", got)
+	}
+	if got := roleByStage[core.StageCodeReview]; got != "reviewer" {
+		t.Fatalf("expected code_review role reviewer, got %q", got)
+	}
+}
+
 func TestGetPipelineCheckpoints(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{

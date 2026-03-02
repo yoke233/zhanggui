@@ -124,11 +124,75 @@ func newTestStore(t *testing.T) *storesqlite.SQLiteStore {
 
 func newExecutor(store core.Store, agents map[string]core.AgentPlugin, runtime core.RuntimePlugin) *Executor {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewExecutor(store, eventbus.New(), agents, runtime, logger)
+	execEngine := NewExecutor(store, eventbus.New(), agents, runtime, logger)
+	if defaultAgent := defaultTestAgentName(agents); defaultAgent != "" {
+		execEngine.SetRoleResolver(acpclient.NewRoleResolver(
+			[]acpclient.AgentProfile{
+				{
+					ID: defaultAgent,
+					CapabilitiesMax: acpclient.ClientCapabilities{
+						FSRead:   true,
+						FSWrite:  true,
+						Terminal: true,
+					},
+				},
+			},
+			[]acpclient.RoleProfile{
+				{
+					ID:      "worker",
+					AgentID: defaultAgent,
+					Capabilities: acpclient.ClientCapabilities{
+						FSRead:   true,
+						FSWrite:  true,
+						Terminal: true,
+					},
+				},
+				{
+					ID:      "reviewer",
+					AgentID: defaultAgent,
+					Capabilities: acpclient.ClientCapabilities{
+						FSRead:   true,
+						FSWrite:  true,
+						Terminal: true,
+					},
+				},
+			},
+		))
+	}
+	return execEngine
+}
+
+func defaultTestAgentName(agents map[string]core.AgentPlugin) string {
+	if plugin, ok := agents["codex"]; ok && plugin != nil {
+		return "codex"
+	}
+	if plugin, ok := agents["claude"]; ok && plugin != nil {
+		return "claude"
+	}
+	for rawName, plugin := range agents {
+		name := strings.TrimSpace(rawName)
+		if name == "" || plugin == nil {
+			continue
+		}
+		return name
+	}
+	return ""
 }
 
 func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, stages []core.StageConfig) *core.Pipeline {
 	t.Helper()
+
+	normalizedStages := make([]core.StageConfig, len(stages))
+	copy(normalizedStages, stages)
+	for i := range normalizedStages {
+		if strings.TrimSpace(normalizedStages[i].Role) != "" {
+			continue
+		}
+		if !stageRequiresRole(normalizedStages[i].Name) {
+			continue
+		}
+		normalizedStages[i].Role = defaultTestRoleForStage(normalizedStages[i].Name)
+	}
 
 	project := &core.Project{
 		ID:       "proj-1",
@@ -146,7 +210,7 @@ func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, st
 		Description:     "需求A",
 		Template:        "quick",
 		Status:          core.StatusCreated,
-		Stages:          stages,
+		Stages:          normalizedStages,
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{},
 		MaxTotalRetries: 20,
@@ -157,6 +221,15 @@ func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, st
 		t.Fatal(err)
 	}
 	return p
+}
+
+func defaultTestRoleForStage(stage core.StageID) string {
+	switch stage {
+	case core.StageCodeReview:
+		return "reviewer"
+	default:
+		return "worker"
+	}
 }
 
 func setupGitRepo(t *testing.T) string {
@@ -576,5 +649,122 @@ func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
 	}
 	if runtime.calls != 0 {
 		t.Fatalf("expected runtime not to start session on missing role, got calls=%d", runtime.calls)
+	}
+}
+
+func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{name: "codex"}
+
+	project := &core.Project{
+		ID:       "proj-empty-role",
+		Name:     "proj-empty-role",
+		RepoPath: workDir,
+	}
+	if err := store.CreateProject(project); err != nil {
+		t.Fatal(err)
+	}
+	p := &core.Pipeline{
+		ID:           "pipe-empty-role",
+		ProjectID:    project.ID,
+		Name:         "pipe-empty-role",
+		Template:     "quick",
+		Status:       core.StatusCreated,
+		CurrentStage: core.StageImplement,
+		Stages: []core.StageConfig{
+			{
+				Name:       core.StageImplement,
+				Agent:      "codex",
+				OnFailure:  core.OnFailureAbort,
+				MaxRetries: 0,
+			},
+		},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		WorktreePath:    workDir,
+		MaxTotalRetries: 5,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "worker",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	)
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine.SetRoleResolver(resolver)
+
+	err := execEngine.Run(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected empty stage role to fail pipeline run")
+	}
+	if !strings.Contains(err.Error(), "stage role is required") {
+		t.Fatalf("expected missing stage role failure, got %v", err)
+	}
+	if runtime.calls != 0 {
+		t.Fatalf("expected runtime not to start session on empty role, got calls=%d", runtime.calls)
+	}
+}
+
+func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{name: "codex"}
+
+	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+		{
+			Name:       core.StageImplement,
+			Role:       "worker",
+			OnFailure:  core.OnFailureAbort,
+			MaxRetries: 0,
+		},
+	})
+	p.WorktreePath = workDir
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatal(err)
+	}
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine.SetRoleResolver(nil)
+
+	err := execEngine.Run(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected missing role resolver to fail pipeline run")
+	}
+	if !strings.Contains(err.Error(), "role resolver is not configured") {
+		t.Fatalf("expected missing resolver failure, got %v", err)
+	}
+	if runtime.calls != 0 {
+		t.Fatalf("expected runtime not to start session without resolver, got calls=%d", runtime.calls)
 	}
 }

@@ -134,6 +134,47 @@ func TestDefaultStageConfig_DefaultAgentAndE2E(t *testing.T) {
 	})
 }
 
+func TestCreatePipeline_FillsStageRolesFromBindings(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	project := &core.Project{
+		ID:       "proj-role-bindings",
+		Name:     "proj-role-bindings",
+		RepoPath: t.TempDir(),
+	}
+	if err := store.CreateProject(project); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, nil)
+	execEngine.SetPipelineStageRoles(map[string]string{
+		"requirements": "worker",
+		"implement":    "worker",
+		"code_review":  "reviewer",
+	})
+
+	p, err := execEngine.CreatePipeline(project.ID, "pipe-role", "desc", "quick")
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+
+	roleByStage := make(map[core.StageID]string, len(p.Stages))
+	for _, stage := range p.Stages {
+		roleByStage[stage.Name] = stage.Role
+	}
+
+	if got := roleByStage[core.StageRequirements]; got != "worker" {
+		t.Fatalf("expected requirements role worker, got %q", got)
+	}
+	if got := roleByStage[core.StageImplement]; got != "worker" {
+		t.Fatalf("expected implement role worker, got %q", got)
+	}
+	if got := roleByStage[core.StageCodeReview]; got != "reviewer" {
+		t.Fatalf("expected code_review role reviewer, got %q", got)
+	}
+}
+
 func TestPromptVars_NoLegacyPipelineSpecFields(t *testing.T) {
 	content, err := os.ReadFile("prompts.go")
 	if err != nil {

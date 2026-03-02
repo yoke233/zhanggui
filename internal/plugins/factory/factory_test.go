@@ -110,7 +110,11 @@ func TestFactoryBuildsRoleResolver_TrimmedNamesResolve(t *testing.T) {
 			},
 		},
 		ReviewOrchestrator: config.ReviewRoleBindings{
-			Reviewers:  map[string]string{},
+			Reviewers: map[string]string{
+				"completeness": "worker",
+				"dependency":   "worker",
+				"feasibility":  "worker",
+			},
 			Aggregator: "worker",
 		},
 		PlanParser: config.SingleRoleBinding{
@@ -232,7 +236,11 @@ func TestFactoryBuildRoleAgentMustBeExecutable(t *testing.T) {
 			},
 		},
 		ReviewOrchestrator: config.ReviewRoleBindings{
-			Reviewers:  map[string]string{},
+			Reviewers: map[string]string{
+				"completeness": "worker",
+				"dependency":   "worker",
+				"feasibility":  "worker",
+			},
 			Aggregator: "worker",
 		},
 		PlanParser: config.SingleRoleBinding{

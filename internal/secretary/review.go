@@ -113,10 +113,11 @@ type Regenerator interface {
 }
 
 type ReviewOrchestrator struct {
-	Store      ReviewStore
-	Reviewers  []Reviewer
-	Aggregator Aggregator
-	MaxRounds  int
+	Store       ReviewStore
+	Reviewers   []Reviewer
+	Aggregator  Aggregator
+	MaxRounds   int
+	RoleRuntime *ReviewRoleRuntime
 }
 
 func (p *ReviewOrchestrator) Run(ctx context.Context, plan *core.TaskPlan, input ReviewInput) (*ReviewResult, error) {

@@ -173,7 +173,7 @@ func TestRunServer_PortPriority(t *testing.T) {
 			newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 				return fakeScheduler, nil
 			}
-			newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig) (serverPlanManager, error) {
+			newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, _ config.RoleBindings) (serverPlanManager, error) {
 				return fakePlanManager, nil
 			}
 			newAPIServer = func(cfg web.Config) apiServer {
@@ -220,7 +220,7 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig) (serverPlanManager, error) {
+	newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, _ config.RoleBindings) (serverPlanManager, error) {
 		return fakePlanManager, nil
 	}
 	newAPIServer = func(_ web.Config) apiServer {
@@ -242,6 +242,54 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	}
 	if !fakePlanManager.stopCalled {
 		t.Fatal("expected plan manager stop to be called on server start failure")
+	}
+}
+
+func TestRunServer_PlanManagerReceivesReviewRoleBindings(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+
+	origSchedulerFactory := newServerScheduler
+	origServerFactory := newAPIServer
+	origPlanManagerFactory := newServerPlanManager
+	t.Cleanup(func() {
+		newServerScheduler = origSchedulerFactory
+		newAPIServer = origServerFactory
+		newServerPlanManager = origPlanManagerFactory
+	})
+
+	startErr := errors.New("server start failed")
+	fakeScheduler := &testScheduler{}
+	fakePlanManager := &testServerPlanManager{}
+	var capturedRoleBinds config.RoleBindings
+
+	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
+		return fakeScheduler, nil
+	}
+	newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, roleBinds config.RoleBindings) (serverPlanManager, error) {
+		capturedRoleBinds = roleBinds
+		return fakePlanManager, nil
+	}
+	newAPIServer = func(_ web.Config) apiServer {
+		return &testAPIServer{startErr: startErr}
+	}
+
+	err := runServer(context.Background(), nil)
+	if !errors.Is(err, startErr) {
+		t.Fatalf("expected server start error, got %v", err)
+	}
+	if got := capturedRoleBinds.ReviewOrchestrator.Aggregator; got != "aggregator" {
+		t.Fatalf("captured review_orchestrator aggregator binding = %q, want %q", got, "aggregator")
+	}
+	if got := capturedRoleBinds.ReviewOrchestrator.Reviewers["completeness"]; got != "reviewer" {
+		t.Fatalf("captured completeness reviewer binding = %q, want %q", got, "reviewer")
+	}
+	if got := capturedRoleBinds.ReviewOrchestrator.Reviewers["dependency"]; got != "reviewer" {
+		t.Fatalf("captured dependency reviewer binding = %q, want %q", got, "reviewer")
+	}
+	if got := capturedRoleBinds.ReviewOrchestrator.Reviewers["feasibility"]; got != "reviewer" {
+		t.Fatalf("captured feasibility reviewer binding = %q, want %q", got, "reviewer")
 	}
 }
 

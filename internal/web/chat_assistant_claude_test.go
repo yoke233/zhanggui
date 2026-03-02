@@ -3,154 +3,413 @@ package web
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/user/ai-workflow/internal/acpclient"
+	"github.com/user/ai-workflow/internal/core"
 )
 
-func TestClaudeChatAssistantReplyBuildsNewSessionCommand(t *testing.T) {
-	runner := &recordingClaudeRunner{
-		stdout: strings.Join([]string{
-			`{"type":"system","session_id":"sid-1"}`,
-			`{"type":"assistant","message":{"content":[{"type":"text","text":"hello from claude"}]}}`,
-			`{"type":"result","result":"ok"}`,
-		}, "\n"),
+func TestClaudeChatAssistantReplyUsesLoadSessionThenPrompt(t *testing.T) {
+	resolver := &stubChatRoleResolver{
+		agent: acpclient.AgentProfile{
+			ID:            "claude",
+			LaunchCommand: "claude-agent-acp",
+			LaunchArgs:    []string{"--stdio"},
+			Env: map[string]string{
+				"CLAUDE_DEBUG": "1",
+			},
+		},
+		roles: map[string]acpclient.RoleProfile{
+			"reviewer": {
+				ID:      "reviewer",
+				AgentID: "claude",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  false,
+					Terminal: false,
+				},
+				SessionPolicy: acpclient.SessionPolicy{
+					Reuse:             true,
+					PreferLoadSession: true,
+				},
+			},
+		},
 	}
-	assistant := newClaudeChatAssistantForTest("claude", 1, runner)
+	client := &stubACPClient{
+		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
+		promptResp: &acpclient.PromptResult{
+			Text: "hello from acp",
+		},
+	}
+	factory := &recordingACPClientFactory{client: client}
+	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
+		DefaultRoleID: "secretary",
+		RoleResolver:  resolver,
+		ClientFactory: factory,
+	})
 
 	got, err := assistant.Reply(context.Background(), ChatAssistantRequest{
-		Message: "hello",
-		WorkDir: "D:/repo/demo",
-	})
-	if err != nil {
-		t.Fatalf("Reply returned error: %v", err)
-	}
-
-	if got.Reply != "hello from claude" {
-		t.Fatalf("expected reply %q, got %q", "hello from claude", got.Reply)
-	}
-	if got.AgentSessionID != "sid-1" {
-		t.Fatalf("expected session id %q, got %q", "sid-1", got.AgentSessionID)
-	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("expected one runner call, got %d", len(runner.calls))
-	}
-	call := runner.calls[0]
-	if call.command != "claude" {
-		t.Fatalf("expected command claude, got %s", call.command)
-	}
-	if call.workDir != "D:/repo/demo" {
-		t.Fatalf("expected workDir D:/repo/demo, got %s", call.workDir)
-	}
-	joined := strings.Join(call.args, " ")
-	if strings.Contains(joined, "--resume") {
-		t.Fatalf("did not expect --resume for first turn, args=%v", call.args)
-	}
-	if !strings.Contains(joined, "--output-format stream-json") || !strings.Contains(joined, "--verbose") {
-		t.Fatalf("expected stream-json + --verbose args, got %v", call.args)
-	}
-}
-
-func TestClaudeChatAssistantReplyInjectsRoleContext(t *testing.T) {
-	runner := &recordingClaudeRunner{
-		stdout: strings.Join([]string{
-			`{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}`,
-			`{"type":"result","result":"ok"}`,
-		}, "\n"),
-	}
-	assistant := newClaudeChatAssistantForTest("claude", 1, runner)
-
-	_, err := assistant.Reply(context.Background(), ChatAssistantRequest{
-		Message: "hello",
-		Role:    "reviewer",
-	})
-	if err != nil {
-		t.Fatalf("Reply returned error: %v", err)
-	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("expected one runner call, got %d", len(runner.calls))
-	}
-	joined := strings.Join(runner.calls[0].args, " ")
-	if !strings.Contains(joined, "[role_id=reviewer]") {
-		t.Fatalf("expected role context in args, got %v", runner.calls[0].args)
-	}
-}
-
-func TestClaudeChatAssistantReplyUsesResumeForExistingSession(t *testing.T) {
-	runner := &recordingClaudeRunner{
-		stdout: `{"type":"assistant","message":{"content":[{"type":"text","text":"next turn"}]}}`,
-	}
-	assistant := newClaudeChatAssistantForTest("claude", 1, runner)
-
-	got, err := assistant.Reply(context.Background(), ChatAssistantRequest{
-		Message:        "continue",
+		Message:        "hello",
+		Role:           "reviewer",
+		WorkDir:        "D:/repo/demo",
 		AgentSessionID: "sid-old",
 	})
 	if err != nil {
 		t.Fatalf("Reply returned error: %v", err)
 	}
-	if got.AgentSessionID != "sid-old" {
-		t.Fatalf("expected fallback session id sid-old, got %q", got.AgentSessionID)
+
+	if got.Reply != "hello from acp" {
+		t.Fatalf("expected reply %q, got %q", "hello from acp", got.Reply)
 	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("expected one runner call, got %d", len(runner.calls))
+	if got.AgentSessionID != "sid-loaded" {
+		t.Fatalf("expected session id %q, got %q", "sid-loaded", got.AgentSessionID)
 	}
-	args := runner.calls[0].args
-	if len(args) < 2 || args[0] != "--resume" || args[1] != "sid-old" {
-		t.Fatalf("expected --resume sid-old prefix, got %v", args)
+	if len(factory.launches) != 1 {
+		t.Fatalf("expected one launch config, got %d", len(factory.launches))
+	}
+	launch := factory.launches[0]
+	if launch.Command != "claude-agent-acp" {
+		t.Fatalf("launch command = %q, want %q", launch.Command, "claude-agent-acp")
+	}
+	if len(launch.Args) != 1 || launch.Args[0] != "--stdio" {
+		t.Fatalf("launch args = %#v, want [--stdio]", launch.Args)
+	}
+	if launch.WorkDir != "D:/repo/demo" {
+		t.Fatalf("launch workdir = %q, want %q", launch.WorkDir, "D:/repo/demo")
+	}
+	if gotEnv := launch.Env["CLAUDE_DEBUG"]; gotEnv != "1" {
+		t.Fatalf("launch env CLAUDE_DEBUG = %q, want %q", gotEnv, "1")
+	}
+	if len(client.loadReqs) != 1 {
+		t.Fatalf("expected one LoadSession call, got %d", len(client.loadReqs))
+	}
+	if len(client.newReqs) != 0 {
+		t.Fatalf("expected no NewSession call when load succeeds, got %d", len(client.newReqs))
+	}
+	if len(client.promptReqs) != 1 {
+		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
+	}
+	if gotRole := client.loadReqs[0].Metadata["role_id"]; gotRole != "reviewer" {
+		t.Fatalf("load metadata role_id = %q, want %q", gotRole, "reviewer")
+	}
+	if gotRole := client.promptReqs[0].Metadata["role_id"]; gotRole != "reviewer" {
+		t.Fatalf("prompt metadata role_id = %q, want %q", gotRole, "reviewer")
+	}
+	if len(resolver.calls) != 1 || resolver.calls[0] != "reviewer" {
+		t.Fatalf("resolver calls = %#v, want [reviewer]", resolver.calls)
 	}
 }
 
-func TestClaudeChatAssistantReplyReturnsCommandError(t *testing.T) {
-	runner := &recordingClaudeRunner{
-		stderr: "auth failed",
-		err:    errors.New("exit status 1"),
+func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T) {
+	resolver := &stubChatRoleResolver{
+		agent: acpclient.AgentProfile{
+			ID:            "claude",
+			LaunchCommand: "claude-agent-acp",
+		},
+		roles: map[string]acpclient.RoleProfile{
+			"secretary": {
+				ID:      "secretary",
+				AgentID: "claude",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				SessionPolicy: acpclient.SessionPolicy{
+					Reuse:             true,
+					PreferLoadSession: true,
+				},
+			},
+		},
 	}
-	assistant := newClaudeChatAssistantForTest("claude", 1, runner)
+	client := &stubACPClient{
+		loadErr: errors.New("session not found"),
+		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		promptResp: &acpclient.PromptResult{
+			Text: "new-session-reply",
+		},
+	}
+	factory := &recordingACPClientFactory{client: client}
+	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
+		DefaultRoleID: "secretary",
+		RoleResolver:  resolver,
+		ClientFactory: factory,
+	})
+
+	got, err := assistant.Reply(context.Background(), ChatAssistantRequest{
+		Message:        "continue",
+		WorkDir:        "D:/repo/demo",
+		AgentSessionID: "sid-old",
+	})
+	if err != nil {
+		t.Fatalf("Reply returned error: %v", err)
+	}
+	if got.AgentSessionID != "sid-new" {
+		t.Fatalf("expected fallback new session id %q, got %q", "sid-new", got.AgentSessionID)
+	}
+	if len(client.loadReqs) != 1 {
+		t.Fatalf("expected one LoadSession call, got %d", len(client.loadReqs))
+	}
+	if len(client.newReqs) != 1 {
+		t.Fatalf("expected one NewSession call, got %d", len(client.newReqs))
+	}
+	if len(client.promptReqs) != 1 {
+		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
+	}
+	if client.newReqs[0].CWD != "D:/repo/demo" {
+		t.Fatalf("new session cwd = %q, want %q", client.newReqs[0].CWD, "D:/repo/demo")
+	}
+	if gotRole := client.newReqs[0].Metadata["role_id"]; gotRole != "secretary" {
+		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "secretary")
+	}
+}
+
+func TestClaudeChatAssistantReplyPublishesWriteFileEventViaACPHandler(t *testing.T) {
+	cwd := t.TempDir()
+	pub := &recordingEventPublisher{}
+	resolver := &stubChatRoleResolver{
+		agent: acpclient.AgentProfile{
+			ID:            "claude",
+			LaunchCommand: "claude-agent-acp",
+		},
+		roles: map[string]acpclient.RoleProfile{
+			"secretary": {
+				ID:      "secretary",
+				AgentID: "claude",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	}
+	client := &stubACPClient{
+		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		promptResp: &acpclient.PromptResult{
+			Text: "done",
+		},
+		writeReqOnPrompt: &acpclient.WriteFileRequest{
+			Path:    filepath.Join("plans", "plan-a.md"),
+			Content: "hello",
+		},
+	}
+	factory := &recordingACPClientFactory{client: client}
+	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
+		DefaultRoleID:  "secretary",
+		RoleResolver:   resolver,
+		ClientFactory:  factory,
+		EventPublisher: pub,
+	})
+
+	_, err := assistant.Reply(context.Background(), ChatAssistantRequest{
+		Message: "write plan",
+		WorkDir: cwd,
+	})
+	if err != nil {
+		t.Fatalf("Reply returned error: %v", err)
+	}
+	events := pub.Events()
+	if len(events) == 0 {
+		t.Fatal("expected files changed event")
+	}
+	if events[0].Type != core.EventSecretaryFilesChanged {
+		t.Fatalf("event type = %q, want %q", events[0].Type, core.EventSecretaryFilesChanged)
+	}
+	if events[0].Data["session_id"] != "sid-new" {
+		t.Fatalf("event session_id = %q, want %q", events[0].Data["session_id"], "sid-new")
+	}
+	if !strings.Contains(events[0].Data["file_paths"], "plans/plan-a.md") {
+		t.Fatalf("event file_paths = %q, want contains %q", events[0].Data["file_paths"], "plans/plan-a.md")
+	}
+	writtenPath := filepath.Join(cwd, "plans", "plan-a.md")
+	content, readErr := os.ReadFile(writtenPath)
+	if readErr != nil {
+		t.Fatalf("read written file failed: %v", readErr)
+	}
+	if string(content) != "hello" {
+		t.Fatalf("written file content = %q, want %q", string(content), "hello")
+	}
+}
+
+func TestClaudeChatAssistantReplyReturnsPromptError(t *testing.T) {
+	resolver := &stubChatRoleResolver{
+		agent: acpclient.AgentProfile{
+			ID:            "claude",
+			LaunchCommand: "claude-agent-acp",
+		},
+		roles: map[string]acpclient.RoleProfile{
+			"secretary": {
+				ID:      "secretary",
+				AgentID: "claude",
+			},
+		},
+	}
+	client := &stubACPClient{
+		newResp:   acpclient.SessionInfo{SessionID: "sid-new"},
+		promptErr: errors.New("prompt failed"),
+	}
+	factory := &recordingACPClientFactory{client: client}
+	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
+		DefaultRoleID: "secretary",
+		RoleResolver:  resolver,
+		ClientFactory: factory,
+	})
 
 	_, err := assistant.Reply(context.Background(), ChatAssistantRequest{
 		Message: "hello",
 	})
 	if err == nil {
-		t.Fatal("expected error when runner fails")
+		t.Fatal("expected error when prompt fails")
 	}
-	if !strings.Contains(err.Error(), "auth failed") {
-		t.Fatalf("expected stderr detail in error, got %v", err)
-	}
-}
-
-func TestParseClaudeStreamJSONUsesResultFallback(t *testing.T) {
-	reply, sessionID, err := parseClaudeStreamJSON(`{"type":"result","session_id":"sid-2","result":"fallback reply"}`)
-	if err != nil {
-		t.Fatalf("parseClaudeStreamJSON returned error: %v", err)
-	}
-	if reply != "fallback reply" {
-		t.Fatalf("expected fallback reply, got %q", reply)
-	}
-	if sessionID != "sid-2" {
-		t.Fatalf("expected session id sid-2, got %q", sessionID)
+	if !strings.Contains(err.Error(), "prompt") {
+		t.Fatalf("expected prompt error detail, got %v", err)
 	}
 }
 
-type recordingClaudeRunner struct {
-	stdout string
-	stderr string
-	err    error
-	calls  []claudeRunnerCall
+type stubChatRoleResolver struct {
+	mu    sync.Mutex
+	agent acpclient.AgentProfile
+	roles map[string]acpclient.RoleProfile
+	calls []string
 }
 
-type claudeRunnerCall struct {
-	command string
-	workDir string
-	args    []string
+func (r *stubChatRoleResolver) Resolve(roleID string) (acpclient.AgentProfile, acpclient.RoleProfile, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, roleID)
+	role, ok := r.roles[roleID]
+	if !ok {
+		return acpclient.AgentProfile{}, acpclient.RoleProfile{}, errors.New("role not found")
+	}
+	return r.agent, role, nil
 }
 
-func (r *recordingClaudeRunner) Run(_ context.Context, workDir, command string, args []string) (string, string, error) {
-	clonedArgs := make([]string, len(args))
-	copy(clonedArgs, args)
-	r.calls = append(r.calls, claudeRunnerCall{
-		command: command,
-		workDir: workDir,
-		args:    clonedArgs,
-	})
-	return r.stdout, r.stderr, r.err
+type recordingACPClientFactory struct {
+	mu       sync.Mutex
+	client   *stubACPClient
+	err      error
+	launches []acpclient.LaunchConfig
+	caps     []acpclient.ClientCapabilities
+	handlers []acpclient.Handler
+}
+
+func (f *recordingACPClientFactory) New(
+	_ context.Context,
+	cfg acpclient.LaunchConfig,
+	handler acpclient.Handler,
+	capabilities acpclient.ClientCapabilities,
+) (ChatACPClient, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.launches = append(f.launches, cfg)
+	f.caps = append(f.caps, capabilities)
+	f.handlers = append(f.handlers, handler)
+	if f.client != nil {
+		f.client.handler = handler
+		return f.client, nil
+	}
+	return &stubACPClient{handler: handler}, nil
+}
+
+type stubACPClient struct {
+	mu sync.Mutex
+
+	handler acpclient.Handler
+
+	loadReqs   []acpclient.LoadSessionRequest
+	newReqs    []acpclient.NewSessionRequest
+	promptReqs []acpclient.PromptRequest
+
+	loadResp   acpclient.SessionInfo
+	newResp    acpclient.SessionInfo
+	promptResp *acpclient.PromptResult
+
+	loadErr   error
+	newErr    error
+	promptErr error
+	closeErr  error
+
+	writeReqOnPrompt *acpclient.WriteFileRequest
+}
+
+func (c *stubACPClient) LoadSession(_ context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.loadReqs = append(c.loadReqs, req)
+	if c.loadErr != nil {
+		return acpclient.SessionInfo{}, c.loadErr
+	}
+	if strings.TrimSpace(c.loadResp.SessionID) == "" {
+		return acpclient.SessionInfo{SessionID: "sid-load-default"}, nil
+	}
+	return c.loadResp, nil
+}
+
+func (c *stubACPClient) NewSession(_ context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.newReqs = append(c.newReqs, req)
+	if c.newErr != nil {
+		return acpclient.SessionInfo{}, c.newErr
+	}
+	if strings.TrimSpace(c.newResp.SessionID) == "" {
+		return acpclient.SessionInfo{SessionID: "sid-new-default"}, nil
+	}
+	return c.newResp, nil
+}
+
+func (c *stubACPClient) Prompt(ctx context.Context, req acpclient.PromptRequest) (*acpclient.PromptResult, error) {
+	c.mu.Lock()
+	c.promptReqs = append(c.promptReqs, req)
+	writeReq := c.writeReqOnPrompt
+	handler := c.handler
+	promptErr := c.promptErr
+	promptResp := c.promptResp
+	c.mu.Unlock()
+
+	if writeReq != nil && handler != nil {
+		if _, err := handler.HandleWriteFile(ctx, *writeReq); err != nil {
+			return nil, err
+		}
+	}
+	if promptErr != nil {
+		return nil, promptErr
+	}
+	if promptResp != nil {
+		return promptResp, nil
+	}
+	return &acpclient.PromptResult{Text: "ok"}, nil
+}
+
+func (c *stubACPClient) Close(_ context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closeErr
+}
+
+type recordingEventPublisher struct {
+	mu     sync.Mutex
+	events []core.Event
+}
+
+func (p *recordingEventPublisher) Publish(evt core.Event) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = append(p.events, evt)
+}
+
+func (p *recordingEventPublisher) Events() []core.Event {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]core.Event, len(p.events))
+	copy(out, p.events)
+	return out
 }

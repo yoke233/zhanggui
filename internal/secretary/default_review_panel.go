@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 )
 
@@ -12,11 +13,33 @@ const (
 	defaultCompletenessReviewerName = "completeness"
 	defaultDependencyReviewerName   = "dependency"
 	defaultFeasibilityReviewerName  = "feasibility"
+	defaultReviewerRoleID           = "reviewer"
+	defaultAggregatorRoleID         = "aggregator"
 )
 
 // NewDefaultReviewOrchestrator builds a runnable review orchestrator with rule-based reviewers.
 // This keeps P2 production path working without requiring external AI backends.
 func NewDefaultReviewOrchestrator(store ReviewStore) *ReviewOrchestrator {
+	return newDefaultReviewOrchestrator(store, defaultReviewRoleRuntime())
+}
+
+func NewDefaultReviewOrchestratorFromBindings(
+	store ReviewStore,
+	bindings ReviewRoleBindingInput,
+	resolver *acpclient.RoleResolver,
+) (*ReviewOrchestrator, error) {
+	runtime, err := ResolveReviewOrchestratorRoles(bindings, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return newDefaultReviewOrchestrator(store, runtime), nil
+}
+
+func newDefaultReviewOrchestrator(store ReviewStore, runtime *ReviewRoleRuntime) *ReviewOrchestrator {
+	effectiveRuntime := runtime
+	if effectiveRuntime == nil {
+		effectiveRuntime = defaultReviewRoleRuntime()
+	}
 	return &ReviewOrchestrator{
 		Store: store,
 		Reviewers: []Reviewer{
@@ -24,9 +47,42 @@ func NewDefaultReviewOrchestrator(store ReviewStore) *ReviewOrchestrator {
 			newDependencyReviewer(),
 			newFeasibilityReviewer(),
 		},
-		Aggregator: newRuleAggregator(),
-		MaxRounds:  defaultReviewMaxRounds,
+		Aggregator:  newRuleAggregator(),
+		MaxRounds:   defaultReviewMaxRounds,
+		RoleRuntime: cloneReviewRoleRuntime(effectiveRuntime),
 	}
+}
+
+func defaultReviewRoleBindings() ReviewRoleBindingInput {
+	return ReviewRoleBindingInput{
+		Reviewers: map[string]string{
+			defaultCompletenessReviewerName: defaultReviewerRoleID,
+			defaultDependencyReviewerName:   defaultReviewerRoleID,
+			defaultFeasibilityReviewerName:  defaultReviewerRoleID,
+		},
+		Aggregator: defaultAggregatorRoleID,
+	}
+}
+
+func defaultReviewRoleRuntime() *ReviewRoleRuntime {
+	runtime, err := ResolveReviewOrchestratorRoles(defaultReviewRoleBindings(), nil)
+	if err != nil {
+		return &ReviewRoleRuntime{
+			ReviewerRoles: map[string]string{
+				defaultCompletenessReviewerName: defaultReviewerRoleID,
+				defaultDependencyReviewerName:   defaultReviewerRoleID,
+				defaultFeasibilityReviewerName:  defaultReviewerRoleID,
+			},
+			ReviewerSessionPolicies: map[string]acpclient.SessionPolicy{
+				defaultCompletenessReviewerName: defaultReviewSessionPolicy,
+				defaultDependencyReviewerName:   defaultReviewSessionPolicy,
+				defaultFeasibilityReviewerName:  defaultReviewSessionPolicy,
+			},
+			AggregatorRole:          defaultAggregatorRoleID,
+			AggregatorSessionPolicy: defaultReviewSessionPolicy,
+		}
+	}
+	return runtime
 }
 
 type ruleReviewer struct {

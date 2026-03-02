@@ -195,9 +195,14 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotReviewGate, reviewGateName)
 	}
 	reviewGateRaw, err := reviewGateModule.Factory(map[string]any{
-		"store":      storePlugin.Store(),
-		"max_rounds": effective.Secretary.ReviewOrchestrator.MaxRounds,
-		"github":     effective.GitHub,
+		"store": storePlugin.Store(),
+		"review_orchestrator_bindings": secretary.ReviewRoleBindingInput{
+			Reviewers:  cloneStringMapForFactory(effective.RoleBinds.ReviewOrchestrator.Reviewers),
+			Aggregator: effective.RoleBinds.ReviewOrchestrator.Aggregator,
+		},
+		"role_resolver": roleResolver,
+		"max_rounds":    effective.Secretary.ReviewOrchestrator.MaxRounds,
+		"github":        effective.GitHub,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build review gate plugin %q: %w", reviewGateName, err)
@@ -356,6 +361,18 @@ func newDefaultRegistry() (*core.Registry, error) {
 				}
 
 				panel := secretary.NewDefaultReviewOrchestrator(store)
+				if rawBindings, ok := cfg["review_orchestrator_bindings"]; ok {
+					bindings, ok := rawBindings.(secretary.ReviewRoleBindingInput)
+					if !ok {
+						return nil, fmt.Errorf("%s requires valid review_orchestrator_bindings", defaultReviewGatePlugin)
+					}
+					resolver, _ := cfg["role_resolver"].(*acpclient.RoleResolver)
+					resolvedPanel, err := secretary.NewDefaultReviewOrchestratorFromBindings(store, bindings, resolver)
+					if err != nil {
+						return nil, fmt.Errorf("build review orchestrator from role bindings: %w", err)
+					}
+					panel = resolvedPanel
+				}
 				if maxRounds, ok := cfg["max_rounds"].(int); ok && maxRounds > 0 {
 					panel.MaxRounds = maxRounds
 				}
