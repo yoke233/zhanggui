@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestMergeAgentConfig(t *testing.T) {
 	global := &AgentConfig{Binary: ptr("claude"), MaxTurns: ptr(30)}
@@ -59,19 +62,52 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadDefaults_IncludesSpecConfig(t *testing.T) {
+func TestLoadDefaults_UsesACPAgentProfiles(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Spec.Enabled {
-		t.Fatalf("expected spec.enabled default false, got true")
+	agents := cfg.EffectiveAgentProfiles()
+	if len(agents) == 0 {
+		t.Fatal("expected non-empty effective agent profiles")
 	}
-	if cfg.Spec.Provider != "noop" {
-		t.Fatalf("expected spec.provider default noop, got %q", cfg.Spec.Provider)
+
+	byName := make(map[string]AgentProfileConfig, len(agents))
+	for _, agent := range agents {
+		byName[agent.Name] = agent
 	}
-	if cfg.Spec.OnFailure != "warn" {
-		t.Fatalf("expected spec.on_failure default warn, got %q", cfg.Spec.OnFailure)
+
+	claude, ok := byName["claude"]
+	if !ok {
+		t.Fatal("expected default claude agent profile")
 	}
-	if cfg.Spec.OpenSpec.Binary != "openspec" {
-		t.Fatalf("expected spec.openspec.binary default openspec, got %q", cfg.Spec.OpenSpec.Binary)
+	if claude.LaunchCommand != "npx" {
+		t.Fatalf("expected claude launch command npx, got %q", claude.LaunchCommand)
+	}
+	if !slices.Equal(claude.LaunchArgs, []string{"-y", "@zed-industries/claude-agent-acp@latest"}) {
+		t.Fatalf("unexpected claude launch args: %#v", claude.LaunchArgs)
+	}
+
+	codex, ok := byName["codex"]
+	if !ok {
+		t.Fatal("expected default codex agent profile")
+	}
+	if codex.LaunchCommand != "npx" {
+		t.Fatalf("expected codex launch command npx, got %q", codex.LaunchCommand)
+	}
+	if !slices.Equal(codex.LaunchArgs, []string{"-y", "@zed-industries/codex-acp@latest"}) {
+		t.Fatalf("unexpected codex launch args: %#v", codex.LaunchArgs)
+	}
+}
+
+func TestLoadDefaults_SecretaryRoleUsesClaude(t *testing.T) {
+	cfg := Defaults()
+	secretaryAgent := ""
+	for _, role := range cfg.Roles {
+		if role.Name == "secretary" {
+			secretaryAgent = role.Agent
+			break
+		}
+	}
+	if secretaryAgent != "claude" {
+		t.Fatalf("expected secretary role bind to claude agent, got %q", secretaryAgent)
 	}
 }
 
@@ -94,20 +130,6 @@ func TestConfig_Defaults_GitHub(t *testing.T) {
 	}
 	if cfg.GitHub.WebhookSecret != "" {
 		t.Fatalf("expected github.webhook_secret default empty, got %q", cfg.GitHub.WebhookSecret)
-	}
-}
-
-func TestConfigZeroValue_SpecSafeWhenMissing(t *testing.T) {
-	cfg := Config{}
-	ApplyConfigLayer(&cfg, &ConfigLayer{})
-	if cfg.Spec.Provider != "" {
-		t.Fatalf("expected zero-value provider to remain empty, got %q", cfg.Spec.Provider)
-	}
-	if cfg.Spec.OnFailure != "" {
-		t.Fatalf("expected zero-value on_failure to remain empty, got %q", cfg.Spec.OnFailure)
-	}
-	if cfg.Spec.Enabled {
-		t.Fatalf("expected zero-value spec.enabled false, got true")
 	}
 }
 

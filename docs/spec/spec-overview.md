@@ -75,12 +75,12 @@
 │  └──────────────────────────────────────────────────────────┘   │
 │                          │                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │              Plugin 层（8 个可插拔槽位）                   │   │
+│  │              Plugin 层（7 个可插拔槽位）                   │   │
 │  │                                                          │   │
-│  │  ┌─ Workspace ────┐  ┌─ Spec ───────┐  ┌─ SCM ────────┐ │   │
-│  │  │ worktree       │  │ openspec     │  │ github       │ │   │
-│  │  │ clone          │  │              │  │              │ │   │
-│  │  └────────────────┘  └──────────────┘  └──────────────┘ │   │
+│  │  ┌─ Workspace ────┐  ┌─ SCM ────────┐                   │   │
+│  │  │ worktree       │  │ github       │                   │   │
+│  │  │ clone          │  │              │                   │   │
+│  │  └────────────────┘  └──────────────┘                   │   │
 │  │                                                          │   │
 │  │  ┌─ Notifier ────┐  ┌─ Store ──────┐  ┌─ Terminal ───┐ │   │
 │  │  │ desktop       │  │ sqlite       │  │ web (主)     │ │   │
@@ -102,7 +102,6 @@
 | 槽位 | 职责 | 默认实现 | 可扩展 |
 |---|---|---|---|
 | Workspace | 代码隔离方式 | worktree | clone |
-| Spec | 项目规格上下文（供 Secretary Agent 使用） | openspec | 自定义 spec 源（Notion, Confluence 等） |
 | SCM | 代码托管操作 | local-git（本地分支/commit/push） | github（PR/Issue 同步） |
 | Notifier | 人工通知渠道 | desktop | slack, webhook |
 | Store | 状态持久化 | sqlite | postgres（远程） |
@@ -152,7 +151,7 @@ type Plugin interface {
 - **全链路可审计** — 每个操作（对话、文件生成、审批、执行、人工操作）均记录审计日志
 - **P0 接口先行，实现从简** — P0 阶段定义 Go interface（Store, ReviewGate 等）约束设计质量，但只实现一个 concrete 实现（process + worktree + sqlite），直接 `New()` 构造，不引入 factory 注册和动态加载。P1 再引入 factory + 配置驱动。
 
-借鉴来源：ComposioHQ/agent-orchestrator 的 6 槽位 Plugin 架构（Agent、Runtime、Workspace、SCM、Notifier、Terminal），调整为 Go interface + factory 模式，删除 Agent + Runtime 槽位（ACP Client 接管），新增 Spec、Store、ReviewGate、Tracker 四个槽位，共 8 个。
+借鉴来源：ComposioHQ/agent-orchestrator 的 6 槽位 Plugin 架构（Agent、Runtime、Workspace、SCM、Notifier、Terminal），调整为 Go interface + factory 模式，删除 Agent + Runtime 槽位（ACP Client 接管），新增 Store、ReviewGate、Tracker 三个槽位，共 7 个。
 
 ## 技术选型
 
@@ -207,7 +206,6 @@ ai-workflow/
 │   │   └── protocol.go           # JSON-RPC 消息定义
 │   │
 │   ├── plugins/                # 所有插件实现
-│   │   ├── spec-openspec/      # Spec 插件：OpenSpec
 │   │   ├── workspace-worktree/ # Workspace 插件：git worktree
 │   │   ├── scm-github/         # SCM 插件：GitHub PR/分支
 │   │   ├── review-ai-panel/    # ReviewGate 插件：Multi-Agent 审核委员会

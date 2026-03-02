@@ -31,11 +31,35 @@ func Defaults() Config {
 			OpenSpec: &AgentConfig{
 				Binary: ptrValue("openspec"),
 			},
+			Profiles: []AgentProfileConfig{
+				{
+					Name:          "claude",
+					LaunchCommand: "npx",
+					LaunchArgs:    []string{"-y", "@zed-industries/claude-agent-acp@latest"},
+					Env:           map[string]string{},
+					CapabilitiesMax: CapabilitiesConfig{
+						FSRead:   true,
+						FSWrite:  true,
+						Terminal: true,
+					},
+				},
+				{
+					Name:          "codex",
+					LaunchCommand: "npx",
+					LaunchArgs:    []string{"-y", "@zed-industries/codex-acp@latest"},
+					Env:           map[string]string{},
+					CapabilitiesMax: CapabilitiesConfig{
+						FSRead:   true,
+						FSWrite:  true,
+						Terminal: true,
+					},
+				},
+			},
 		},
 		Roles: []RoleConfig{
 			{
 				Name:           "secretary",
-				Agent:          "codex",
+				Agent:          "claude",
 				PromptTemplate: "secretary_system",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
@@ -62,7 +86,7 @@ func Defaults() Config {
 			},
 			{
 				Name:           "reviewer",
-				Agent:          "codex",
+				Agent:          "claude",
 				PromptTemplate: "code_review",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
@@ -76,7 +100,7 @@ func Defaults() Config {
 			},
 			{
 				Name:           "aggregator",
-				Agent:          "codex",
+				Agent:          "claude",
 				PromptTemplate: "review_aggregator",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
@@ -90,7 +114,7 @@ func Defaults() Config {
 			},
 			{
 				Name:           "plan_parser",
-				Agent:          "codex",
+				Agent:          "claude",
 				PromptTemplate: "plan_parser",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
@@ -122,14 +146,6 @@ func Defaults() Config {
 			},
 			PlanParser: SingleRoleBinding{
 				Role: "plan_parser",
-			},
-		},
-		Spec: SpecConfig{
-			Enabled:   false,
-			Provider:  "noop",
-			OnFailure: "warn",
-			OpenSpec: SpecOpenSpecConfig{
-				Binary: "openspec",
 			},
 		},
 		Runtime: RuntimeConfig{

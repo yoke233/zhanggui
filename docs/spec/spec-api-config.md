@@ -302,6 +302,38 @@ Secretary Layer 新增事件说明：
 | `plan_failed` | TaskPlan 失败 |
 | `plan_partially_done` | 部分成功部分失败（含 stats） |
 
+### Chat 流式事件映射
+
+为支持异步化 Chat（`POST /chat` 立即返回 `202 Accepted`），后端将 ACP 事件标准化为应用层 `chat_run_*` WebSocket 事件。前端只依赖本节约定消费，不直接耦合 ACP 原始协议字段。
+
+ACP 到应用层事件映射如下：
+
+| ACP 来源 | 应用层 WS 事件 | 说明 |
+|------|------|------|
+| `session`（会话开始执行当前 turn） | `chat_run_started` | 标记当前 `session_id` 进入运行态 |
+| `update.sessionUpdate`（增量更新） | `chat_run_update` | 使用 `data.acp.sessionUpdate` 区分更新种类 |
+| `session`（当前 turn 正常结束） | `chat_run_completed` | 标记完成，前端可触发一次 `GET /chat/:sid` 刷新持久化消息 |
+| `session`（当前 turn 失败） | `chat_run_failed` | `data.error` 传递失败原因 |
+| `session`（收到取消并终止） | `chat_run_cancelled` | 标记已取消 |
+
+字段保留与透传策略：
+
+- `data.session_id`：必须保留，前端以此过滤当前会话事件。
+- 应用层事件字段保持 snake_case（如 `session_id`、`chat_run_update`、`chat_run_completed`）。
+- `data.acp`：原样透传 ACP 增量对象，内部字段保持 ACP 的 camelCase（如 `sessionUpdate`、`content.text`、`toolCall` 等）。
+- `data.error`：失败/取消场景可选字段，原样透传。
+
+前端更新类型处理约定：
+
+- 已知类型：按专项渲染逻辑处理（当前至少支持 `acp.sessionUpdate=agent_message_chunk` 的流式文本拼接）。
+- 未知 `acp.sessionUpdate`：静默忽略，不抛错、不终止当前流式过程。
+
+版本演进与兼容策略：
+
+- 服务端新增 `acp.sessionUpdate` 类型时，不修改既有字段语义；客户端按“已知类型处理、未知类型忽略”策略保持兼容。
+- 旧客户端遇到新增 `acp.sessionUpdate` 仅忽略该条更新，仍可完成 `started -> completed/failed/cancelled` 主流程。
+- 需要破坏式变更时，应通过新事件类型或版本字段显式发布，不覆盖已有事件含义。
+
 客户端消息（Client → Server）：
 
 ```json
@@ -357,8 +389,8 @@ EventBus 事件
 # Agent Profile（统一启动配置）
 agents:
   - name: claude                              # Agent 标识符
-    launch_command: "claude-agent-acp"        # npm install -g @zed-industries/claude-agent-acp
-    launch_args: []                           # 启动参数
+    launch_command: "npx" 
+    launch_args: ["-y", "@zed-industries/claude-agent-acp@latest"]
     env: {}                                   # 环境变量
     capabilities_max:                         # 能力上限（角色配置不能超出此上限）
       fs_read: true
@@ -469,20 +501,6 @@ role_bindings:
     aggregator: aggregator
   plan_parser:
     role: plan_parser
-
-# Spec 插件配置（仅 Secretary Layer 使用，Pipeline 不读取）
-spec:
-  provider: openspec                 # openspec | mcp | none | custom
-  enabled: true
-  on_failure: warn                   # warn | fail
-  openspec:
-    binary: openspec
-    profile: core
-  # mcp:                             # provider=mcp 时启用（P4 预留）
-  #   endpoint: http://127.0.0.1:8081/spec
-  #   api_key: ${MCP_API_KEY}
-  #   timeout: 15s
-  #   context_limit: 20
 
 # 默认 Pipeline 行为
 pipeline:
@@ -640,17 +658,6 @@ role_bindings:
       code_review: reviewer
   secretary:
     role: secretary
-
-# 覆盖 Spec 插件配置（仅影响 Secretary 上下文增强）
-spec:
-  provider: openspec                 # openspec | mcp | none | custom
-  enabled: true
-  openspec:
-    profile: app-a
-  # mcp:
-  #   endpoint: http://127.0.0.1:8081/spec
-  #   timeout: 10s
-  #   context_limit: 10
 
 # 自定义模板
 custom_templates:

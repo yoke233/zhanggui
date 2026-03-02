@@ -77,7 +77,6 @@ func cloneConfig(in Config) Config {
 	}
 	out.Roles = cloneRoles(in.Roles)
 	out.RoleBinds = cloneRoleBindings(in.RoleBinds)
-	out.Spec = cloneSpecConfig(in.Spec)
 	out.GitHub = cloneGitHubConfig(in.GitHub)
 	return out
 }
@@ -152,23 +151,6 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			}
 			if v.Aggregator != nil {
 				cfg.RoleBinds.ReviewOrchestrator.Aggregator = *v.Aggregator
-			}
-		}
-	}
-
-	if spec := layer.Spec; spec != nil {
-		if spec.Enabled != nil {
-			cfg.Spec.Enabled = *spec.Enabled
-		}
-		if spec.Provider != nil {
-			cfg.Spec.Provider = *spec.Provider
-		}
-		if spec.OnFailure != nil {
-			cfg.Spec.OnFailure = *spec.OnFailure
-		}
-		if openSpec := spec.OpenSpec; openSpec != nil {
-			if openSpec.Binary != nil {
-				cfg.Spec.OpenSpec.Binary = *openSpec.Binary
 			}
 		}
 	}
@@ -354,17 +336,6 @@ func cloneStringSlicePtr(in *[]string) *[]string {
 	}
 	out := append([]string(nil), (*in)...)
 	return &out
-}
-
-func cloneSpecConfig(in SpecConfig) SpecConfig {
-	return SpecConfig{
-		Enabled:   in.Enabled,
-		Provider:  in.Provider,
-		OnFailure: in.OnFailure,
-		OpenSpec: SpecOpenSpecConfig{
-			Binary: in.OpenSpec.Binary,
-		},
-	}
 }
 
 func cloneGitHubConfig(in GitHubConfig) GitHubConfig {

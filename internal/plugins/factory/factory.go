@@ -7,25 +7,24 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/user/ai-workflow/internal/acpclient"
-	"github.com/user/ai-workflow/internal/config"
-	"github.com/user/ai-workflow/internal/core"
-	githubsvc "github.com/user/ai-workflow/internal/github"
-	agentclaude "github.com/user/ai-workflow/internal/plugins/agent-claude"
-	agentcodex "github.com/user/ai-workflow/internal/plugins/agent-codex"
-	notifierdesktop "github.com/user/ai-workflow/internal/plugins/notifier-desktop"
-	reviewaipanel "github.com/user/ai-workflow/internal/plugins/review-ai-panel"
-	reviewgithubpr "github.com/user/ai-workflow/internal/plugins/review-github-pr"
-	reviewlocal "github.com/user/ai-workflow/internal/plugins/review-local"
-	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
-	scmgithub "github.com/user/ai-workflow/internal/plugins/scm-github"
-	scmlocalgit "github.com/user/ai-workflow/internal/plugins/scm-local-git"
-	specnoop "github.com/user/ai-workflow/internal/plugins/spec-noop"
-	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
-	trackergithub "github.com/user/ai-workflow/internal/plugins/tracker-github"
-	trackerlocal "github.com/user/ai-workflow/internal/plugins/tracker-local"
-	workspaceworktree "github.com/user/ai-workflow/internal/plugins/workspace-worktree"
-	"github.com/user/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/core"
+	githubsvc "github.com/yoke233/ai-workflow/internal/github"
+	agentclaude "github.com/yoke233/ai-workflow/internal/plugins/agent-claude"
+	agentcodex "github.com/yoke233/ai-workflow/internal/plugins/agent-codex"
+	notifierdesktop "github.com/yoke233/ai-workflow/internal/plugins/notifier-desktop"
+	reviewaipanel "github.com/yoke233/ai-workflow/internal/plugins/review-ai-panel"
+	reviewgithubpr "github.com/yoke233/ai-workflow/internal/plugins/review-github-pr"
+	reviewlocal "github.com/yoke233/ai-workflow/internal/plugins/review-local"
+	runtimeprocess "github.com/yoke233/ai-workflow/internal/plugins/runtime-process"
+	scmgithub "github.com/yoke233/ai-workflow/internal/plugins/scm-github"
+	scmlocalgit "github.com/yoke233/ai-workflow/internal/plugins/scm-local-git"
+storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
+	trackergithub "github.com/yoke233/ai-workflow/internal/plugins/tracker-github"
+	trackerlocal "github.com/yoke233/ai-workflow/internal/plugins/tracker-local"
+	workspaceworktree "github.com/yoke233/ai-workflow/internal/plugins/workspace-worktree"
+	"github.com/yoke233/ai-workflow/internal/secretary"
 )
 
 // BootstrapSet contains initialized plugins required by engine bootstrap.
@@ -38,8 +37,7 @@ type BootstrapSet struct {
 	Tracker      core.Tracker
 	SCM          core.SCM
 	Notifier     core.Notifier
-	Spec         core.SpecPlugin
-	Workspace    core.WorkspacePlugin
+	Workspace core.WorkspacePlugin
 }
 
 const (
@@ -286,10 +284,6 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		return nil, fmt.Errorf("plugin is not a notifier plugin: slot=%s name=%s", core.SlotNotifier, defaultNotifierPlugin)
 	}
 
-	specPlugin, err := buildSpecPluginWithPolicy(registry, effective.Spec)
-	if err != nil {
-		return nil, err
-	}
 	workspaceModule, ok := registry.Get(core.SlotWorkspace, defaultWorkspacePlugin)
 	if !ok {
 		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotWorkspace, defaultWorkspacePlugin)
@@ -312,8 +306,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		Tracker:      trackerPlugin,
 		SCM:          scmPlugin,
 		Notifier:     notifierPlugin,
-		Spec:         specPlugin,
-		Workspace:    workspacePlugin,
+		Workspace: workspacePlugin,
 	}, nil
 }
 
@@ -441,7 +434,6 @@ func newDefaultRegistry() (*core.Registry, error) {
 			},
 		},
 		workspaceworktree.Module(),
-		specnoop.Module(),
 	}
 
 	for _, module := range modules {
@@ -478,15 +470,6 @@ func withDefaults(cfg config.Config) config.Config {
 	}
 	if cfg.Store.Path == "" {
 		cfg.Store.Path = def.Store.Path
-	}
-	if strings.TrimSpace(cfg.Spec.Provider) == "" {
-		cfg.Spec.Provider = def.Spec.Provider
-	}
-	if strings.TrimSpace(cfg.Spec.OnFailure) == "" {
-		cfg.Spec.OnFailure = def.Spec.OnFailure
-	}
-	if strings.TrimSpace(cfg.Spec.OpenSpec.Binary) == "" {
-		cfg.Spec.OpenSpec.Binary = def.Spec.OpenSpec.Binary
 	}
 	return cfg
 }
@@ -626,64 +609,3 @@ func expandPath(path string) string {
 	return trimmed
 }
 
-func buildSpecPluginWithPolicy(registry *core.Registry, cfg config.SpecConfig) (core.SpecPlugin, error) {
-	fallbackNoop := func() (core.SpecPlugin, error) {
-		return buildAndInitSpecPlugin(registry, "noop", cfg)
-	}
-
-	if !cfg.Enabled {
-		return fallbackNoop()
-	}
-
-	provider := strings.TrimSpace(cfg.Provider)
-	if provider == "" || strings.EqualFold(provider, "noop") {
-		return fallbackNoop()
-	}
-
-	plugin, err := buildAndInitSpecPlugin(registry, provider, cfg)
-	if err == nil {
-		return plugin, nil
-	}
-
-	if normalizeSpecOnFailure(cfg.OnFailure) == "fail" {
-		return nil, fmt.Errorf("spec provider %q: %w", provider, err)
-	}
-
-	fmt.Fprintf(os.Stderr, "warning: spec provider %q unavailable, fallback to noop: %v\n", provider, err)
-	return fallbackNoop()
-}
-
-func buildAndInitSpecPlugin(registry *core.Registry, provider string, cfg config.SpecConfig) (core.SpecPlugin, error) {
-	module, ok := registry.Get(core.SlotSpec, provider)
-	if !ok {
-		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotSpec, provider)
-	}
-
-	raw, err := module.Factory(map[string]any{
-		"provider":        provider,
-		"openspec_binary": cfg.OpenSpec.Binary,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build spec plugin %q: %w", provider, err)
-	}
-
-	plugin, ok := raw.(core.SpecPlugin)
-	if !ok {
-		return nil, fmt.Errorf("plugin is not a spec plugin: slot=%s name=%s", core.SlotSpec, provider)
-	}
-
-	if err := plugin.Init(context.Background()); err != nil {
-		_ = plugin.Close()
-		return nil, fmt.Errorf("init spec plugin %q: %w", provider, err)
-	}
-	return plugin, nil
-}
-
-func normalizeSpecOnFailure(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "fail":
-		return "fail"
-	default:
-		return "warn"
-	}
-}

@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/ai-workflow/internal/config"
-	"github.com/user/ai-workflow/internal/core"
-	"github.com/user/ai-workflow/internal/engine"
-	"github.com/user/ai-workflow/internal/eventbus"
-	pluginfactory "github.com/user/ai-workflow/internal/plugins/factory"
-	"github.com/user/ai-workflow/internal/secretary"
-	"github.com/user/ai-workflow/internal/web"
+	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/engine"
+	"github.com/yoke233/ai-workflow/internal/eventbus"
+	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
+	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/web"
 )
 
 func TestCLI_PipelineActionCommand(t *testing.T) {
@@ -362,23 +362,6 @@ func reserveFreePort(t *testing.T) int {
 		t.Fatalf("unexpected listener addr type: %T", ln.Addr())
 	}
 	return addr.Port
-}
-
-func TestBootstrapWithEventBus_ContainsSpecPlugin(t *testing.T) {
-	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
-	t.Setenv("USERPROFILE", tempHome)
-
-	_, bootstrapSet, bus, err := bootstrapWithEventBus()
-	if err != nil {
-		t.Fatalf("bootstrapWithEventBus() error = %v", err)
-	}
-	defer bootstrapSet.Store.Close()
-	defer bus.Close()
-
-	if bootstrapSet.Spec == nil {
-		t.Fatal("expected bootstrap set to include spec plugin")
-	}
 }
 
 type testAPIServer struct {

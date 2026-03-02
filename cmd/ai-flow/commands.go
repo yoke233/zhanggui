@@ -18,13 +18,13 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/user/ai-workflow/internal/config"
-	"github.com/user/ai-workflow/internal/core"
-	"github.com/user/ai-workflow/internal/engine"
-	"github.com/user/ai-workflow/internal/eventbus"
-	pluginfactory "github.com/user/ai-workflow/internal/plugins/factory"
-	"github.com/user/ai-workflow/internal/secretary"
-	"github.com/user/ai-workflow/internal/web"
+	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/engine"
+	"github.com/yoke233/ai-workflow/internal/eventbus"
+	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
+	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/web"
 )
 
 var recoveryOnce sync.Once
@@ -66,9 +66,6 @@ var (
 		}
 		if bootstrapSet == nil {
 			return nil, errors.New("bootstrap set is required for plan manager")
-		}
-		if bootstrapSet.Spec == nil {
-			return nil, errors.New("spec plugin is required for plan manager")
 		}
 		agentPlugin, err := selectSecretaryAgentPlugin(bootstrapSet.Agents)
 		if err != nil {
@@ -137,9 +134,6 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	bootstrapSet, err := pluginfactory.BuildFromConfig(*cfg)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	if bootstrapSet.Spec == nil {
-		return nil, nil, nil, errors.New("spec plugin is not configured in bootstrap set")
 	}
 	if bootstrapSet.Workspace == nil {
 		return nil, nil, nil, errors.New("workspace plugin is not configured in bootstrap set")
@@ -596,6 +590,7 @@ func runServer(ctx context.Context, args []string) error {
 		Store:              store,
 		PlanManager:        planManager,
 		ChatAssistant:      chatAssistant,
+		EventPublisher:     bus,
 		PipelineExec:       exec,
 		PipelineStageRoles: cfg.RoleBinds.Pipeline.StageRoles,
 		PlanParserRoleID:   strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
