@@ -23,6 +23,13 @@ Use the `executing-wave-plans` skill as the default execution contract for wave 
 
 In plan files, avoid restating the full generic gate sequence repeatedly. Keep only wave-specific acceptance and verification requirements that execution cannot infer.
 
+Worktree scope must be plan-level:
+- default: create one branch/worktree for the whole plan before Wave 1
+- default: reuse the same branch/worktree across Wave 2..N
+- if per-wave base worktrees are used (for example `wave1`, `wave2`), require explicit merge-back into one shared plan integration branch before each wave exit gate
+- next wave must start from the merged plan integration branch state, not from isolated per-wave state
+- if in-wave parallel lanes are needed, allow temporary lane worktrees only inside that wave
+
 ## When to Use
 - User asks to split a complex delivery into phases/waves.
 - Work includes cross-module changes with dependencies.
@@ -69,6 +76,7 @@ The main plan must include:
 5. Per-wave output file links
 6. Full regression command set
 7. Test policy: unit-first TDD in tasks + mandatory e2e/smoke per wave + boundary-triggered integration/contract tests
+8. Workspace strategy: preferred single plan-level branch/worktree naming + reuse rule across all waves; if per-wave worktrees are used, include merge-back path and integration evidence requirements
 
 ## Wave Plan Structure
 Each wave file must include:
@@ -154,8 +162,8 @@ git log --oneline -n 30
 ## Execution Handoff
 After writing and saving the plan, offer:
 
-1. Current Session: execute wave-by-wave in this session using `executing-wave-plans`.
-2. Parallel Session (separate): execute using `executing-wave-plans` in a new session.
+1. Current Session: execute wave-by-wave in this session using `executing-wave-plans`, by default with one plan-level worktree; if wave-level worktrees are used, merge each wave back into the same plan integration branch before continuing.
+2. Parallel Session (separate): execute using `executing-wave-plans` in a new session, by default with one plan-level worktree; if wave-level worktrees are used, merge each wave back into the same plan integration branch before continuing.
 
 ## Done Criteria
 - Main plan + wave files are generated and linked.

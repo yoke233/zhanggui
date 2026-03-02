@@ -31,7 +31,8 @@
       "Bash(where *)",
       "Bash(tree *)",
       "Bash(curl *)",
-      "Bash(wget *)"
+      "Bash(wget *)",
+      "Bash(do echo:*)"
     ]
   }
 }

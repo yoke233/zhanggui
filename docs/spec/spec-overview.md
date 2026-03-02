@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-一个用 Go 编写的**智能任务分解与并行执行平台**，通过 ACP（Agent Client Protocol）统一 Agent 通信。用户通过 Web Workbench 与 Secretary Agent 进行多轮对话，Secretary 作为持久交互式 Agent（工作目录即项目目录，拥有文件读写权限）理解需求并探索代码。当需求明确后，用户指示 Secretary 在项目中生成计划文件（格式自由），经用户勾选后提交为结构化 TaskPlan，再由 Multi-Agent 审核委员会自动审核纠错，DAG Scheduler 管理依赖关系并行调度多个 Pipeline 执行。每个子任务由 Claude Code、Codex CLI 等 AI 编码工具（均通过 ACP 协议驱动）独立完成。提供 Web Workbench 作为主操作界面（含全局 Admin 管理视图），GitHub 集成作为可选增强。
+一个用 Go 编写的**智能任务分解与并行执行平台**，通过 ACP（Agent Client Protocol）统一 Secretary 与执行 Agent 的通信。用户通过 Web Workbench 与 Secretary Agent 进行多轮对话，Secretary 作为持久交互式 Agent（工作目录即项目目录，拥有文件读写权限）理解需求并探索代码。当需求明确后，用户指示 Secretary 在项目中生成计划文件（格式自由），经用户勾选后提交为结构化 TaskPlan，再由 Multi-Agent 审核委员会自动审核纠错，DAG Scheduler 管理依赖关系并行调度多个 Pipeline 执行。每个子任务由 Claude Code、Codex CLI 等 AI 编码工具（均通过 ACP 协议驱动）独立完成。提供 Web Workbench 作为主操作界面（含全局 Admin 管理视图），GitHub 集成作为可选增强。
 
 ## 要解决的问题
 
@@ -40,7 +40,7 @@
 │  └──────────────────────┬──────────────────────────────────┘   │
 │                         │                                      │
 │  ┌──────────────────────▼──────────────────────────────────┐   │
-│  │              Multi-Agent Review Panel                      │   │
+│  │          Multi-Agent Review Orchestrator                   │   │
 │  │   completeness │ dependency │ feasibility │ aggregator    │   │
 │  └───────────────────────────┬──────────────────────────────┘   │
 │                              │ 审核通过 → 每个 TaskItem          │
@@ -131,8 +131,9 @@ type Plugin interface {
 }
 
 // ACP Client — 统一 Agent 通信层（非插件，核心基础设施）
-// 详见 spec-agent-drivers.md Section II
-// agents 配置决定启动命令，ACPClient 处理所有 Agent 交互
+// 详见 spec-agent-drivers.md（ACP Client 章节）
+// agents 定义启动参数，roles 定义角色行为，role_bindings 定义调用方绑定
+// ACPClient 处理所有 Agent 交互
 ```
 
 ### 设计原则
@@ -141,7 +142,9 @@ type Plugin interface {
 - **换任何一个插件不影响其他插件** — 换 SCM 插件不需要改 Pipeline Engine
 - **配置驱动** — YAML 中声明使用哪个插件，启动时动态加载
 - **本地优先，外部增强** — 核心功能（任务拆解、审核、调度、执行）完全在本地 SQLite + Git 上运行，GitHub/Linear 等外部系统是可选的状态镜像
-- **ACP 协议统一通信** — 所有 Agent 交互通过 ACP（JSON-RPC 2.0 over stdio），不区分 Claude/Codex，启动命令是配置项
+- **ACP 协议统一通信** — 所有 Agent 交互通过 ACP（JSON-RPC 2.0 over stdio），模型实现与调用方解耦
+- **Agent/Role 解耦配置** — `agents` 只定义启动参数与能力上限，`roles` 定义行为策略，`role_bindings` 负责把业务调用映射到角色
+- **Bootstrap 统一接入 ACP Client** — 启动阶段按 `agents + roles + role_bindings` 构建 RoleResolver，不再维护 runtime 段
 - **1 TaskItem = 1 Pipeline** — 每个子任务对应一个独立 Pipeline，执行器只管自己的 Pipeline，依赖调度交给 DAG Scheduler
 - **审核默认自动** — Multi-Agent 审核委员会自动审核纠错，人工是兜底而非默认
 - **Secretary 是持久 Agent** — Secretary 不是一次性 LLM 调用，而是一个持久运行的交互式 Agent session，拥有项目文件读写权限，对话不自动生成 Plan
@@ -252,7 +255,7 @@ ai-workflow/
 │   │   ├── components/
 │   │   │   ├── DAGGraph.tsx    # React Flow DAG 组件
 │   │   │   ├── TaskCard.tsx    # 任务卡片
-│   │   │   ├── ReviewPanel.tsx # 审核面板
+│   │   │   ├── ReviewOrchestratorPanel.tsx # 审核编排面板
 │   │   │   └── ChatMessage.tsx # 聊天消息气泡
 │   │   ├── stores/
 │   │   │   └── useStore.ts     # Zustand 状态管理
@@ -268,7 +271,8 @@ ai-workflow/
 │       ├── code_review.tmpl
 │       ├── fixup.tmpl
 │       ├── e2e_test.tmpl
-│       ├── secretary.tmpl      # Secretary Agent 任务拆解
+│       ├── secretary_system.tmpl
+│       ├── plan_parser.tmpl
 │       ├── review_completeness.tmpl
 │       ├── review_dependency.tmpl
 │       ├── review_feasibility.tmpl
@@ -288,7 +292,7 @@ ai-workflow/
    └── 输入 Git URL → 系统 clone 到 ~/.ai-workflow/repos/{project-id}/
 
 2. 进入 Workbench → Chat View，启动 Secretary Agent 持久 session
-   ├── Secretary = Claude Agent（可切换），工作目录 = 项目目录
+   ├── Secretary = 选定 Agent（默认 claude，可切换），工作目录 = 项目目录
    ├── 拥有文件读写权限，可探索代码、运行命令
    └── 可通过查询工具实时查看项目进度、Pipeline 状态
 
@@ -306,7 +310,7 @@ ai-workflow/
    ├── 后端调用 AI（Plan Parser）解析选中文件为结构化 TaskPlan + TaskItems
    └── TaskPlan 记录源文件路径列表（source_files），写入 Store，状态 draft
 
-6. Multi-Agent Review Panel 自动审核
+6. Multi-Agent Review Orchestrator 自动审核
    ├── 完整性 Agent + 依赖性 Agent + 可行性 Agent 并行审核
    ├── Aggregator 综合研判 → approve / fix / escalate
    └── fix 时自动修正并重新审核（最多 N 轮）
@@ -335,20 +339,20 @@ ai-workflow/
 全程审计日志：每个步骤（对话、文件生成、审批、执行、人工操作）
 均记录到 audit_log 表，支持按项目/操作类型/时间范围查询。
 
-直接模式（跳过 Secretary Layer，兼容 P0 行为）：
+直接模式（跳过 Secretary Layer）：
 用户也可以直接创建单个 Pipeline，不经过任务拆解。
-此时行为和 P0 完全一致，Secretary Layer 不参与。
+此时 Secretary Layer 不参与。
 ```
 
 ## 实施分期
 
 | 阶段 | 范围 | 产出 |
 |---|---|---|
-| P0 ✅ | Agent Driver + Pipeline Engine + CLI/TUI | 本地单任务自动化工具 |
+| P0 ✅ | ACP Client（Agent 通信） + Pipeline Engine + CLI/TUI | 本地单任务自动化工具 |
 | P1 ✅ | 多项目调度 + 配置驱动工厂 + 崩溃恢复 | Scheduler + Registry + 三级配置 + Reactions V1 |
 | P2-Foundation | 插件接口 + API 基础设施 | ReviewGate/Tracker/SCM/Notifier 接口 + local 默认实现 + REST/WS |
 | P2a | Secretary Agent + TaskPlan + DAG Scheduler | 对话 → 任务拆解 → 依赖并行执行（纯后端） |
-| P2b | Multi-Agent Review Panel | AI 强门禁审核（3 Reviewer + Aggregator，max_rounds=2） |
+| P2b | Multi-Agent Review Orchestrator | AI 强门禁审核（3 Reviewer + Aggregator，max_rounds=2） |
 | P2c | Workbench UI (Web) | Chat + Plan + Board + Pipeline 四视图，Web 为主界面 |
 | P3 | GitHub 集成（**可选增强**） | github-issue Tracker + github-pr ReviewGate + Webhook |
 | P4 | 高级定制 + MCP 扩展 + 通知 | 自定义 Template + Slack/Webhook 通知 |

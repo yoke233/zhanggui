@@ -160,7 +160,7 @@ Pipeline 已创建：`pipeline-20260228-abc123`
 | `/modify <feedback>` | 带反馈重跑当前阶段 | P4 |
 | `/skip` | 跳过当前阶段 | P4 |
 | `/rerun` | 重跑当前阶段 | P4 |
-| `/switch <agent>` | 换 Agent 重跑 | P4 |
+| `/switch <role>` | 切换角色并重跑 | P4 |
 | `/pause` / `/resume` | 暂停/恢复 Pipeline | P4 |
 | `/logs [stage]` | 查看某阶段日志摘要 | P4 |
 
@@ -247,7 +247,7 @@ pipeline: failed        ← 失败后替换 active
 
 </details>
 
-⏳ 下一步：`code_review`（Claude 审查中...）
+⏳ 下一步：`code_review`（Agent (ACP) 审查中...）
 ```
 
 ## 五、自动 PR 创建
@@ -288,7 +288,7 @@ Closes #{issue_number}
 |---|---|
 | Pipeline | `{pipeline_id}` |
 | 模板 | `{template}` |
-| 实现 Agent | Codex (gpt-5.3-codex) |
+| 实现 Agent（ACP） | agent={agent_name} |
 | 耗时 | {duration} |
 
 ---

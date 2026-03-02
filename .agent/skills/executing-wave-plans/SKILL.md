@@ -20,12 +20,22 @@ Execute plan work one wave at a time with hard gates between waves. This skill o
 - Stop conditions and escalation behavior when blocked
 - Default TDD development discipline
 - Default in-wave parallel execution strategy
+- Workspace lifecycle and cross-wave convergence policy
 
 ## What Must Stay In Plan
 - Wave map, task IDs, and dependency DAG
 - Exact files and implementation steps per task
 - Wave-specific verification commands
 - Wave-specific acceptance criteria and business/architecture constraints
+
+## Worktree Scope (Mandatory)
+- Default: create one base branch/worktree for the whole plan before Wave 1.
+- Default: reuse that same base branch/worktree for Wave 2..N.
+- Exception: per-wave base worktrees (for example `wave1`, `wave2`) are allowed when needed for coordination or isolation.
+- Mandatory convergence: each wave must be merged/rebased/cherry-picked back into one shared plan integration branch before that wave exit gate is passed.
+- Next wave must start from the updated plan integration branch state.
+- Optional in-wave parallel lanes may use temporary lane branches/worktrees only inside the current wave.
+- Merge lane work back to the current working base (plan base or wave base) before the wave exit gate, then close lane worktrees.
 
 ## TDD Baseline (Mandatory)
 For every implementation task:
@@ -56,7 +66,7 @@ Default mode: sequential tasks within current wave.
 Optional in-wave parallel mode is allowed only when all conditions hold:
 - tasks are dependency-independent
 - no shared critical files
-- each lane has isolated branch/worktree
+- each lane has isolated temporary branch/worktree created from the same current working base (plan base or wave base)
 - each lane still follows TDD and review policy
 
 Cross-wave parallelism is forbidden.
@@ -65,14 +75,20 @@ Cross-wave parallelism is forbidden.
 
 ### Step 1: Preflight
 1. Read the plan and identify all waves in order.
-2. Confirm branch/worktree safety before implementation.
-3. Raise plan ambiguity before writing code.
+2. Set workspace model upfront:
+   - default model: create or verify one base plan branch/worktree via `superpowers:using-git-worktrees` (run once per plan)
+   - exception model: if using per-wave base worktrees, define the shared plan integration branch and merge-back method before coding
+3. Confirm branch/worktree safety before implementation.
+4. Raise plan ambiguity before writing code.
 
 ### Step 2: Execute Current Wave
 1. Execute only tasks in the current wave.
 2. Track task status (`pending` -> `in_progress` -> `completed`).
 3. Enforce unit-first TDD per task and wave-level e2e verification.
 4. Do not start tasks from later waves, even if they look unblocked.
+5. Keep plan continuity:
+   - default model: stay on the same base plan worktree across all waves
+   - exception model: if on per-wave base worktrees, merge back into the shared integration branch before wave verdict and start next wave from that merged state
 
 ### Step 3: Run Wave Exit Gate (Mandatory)
 1. **Code committed:** at least one traceable commit/PR linked to wave scope
@@ -117,5 +133,5 @@ Stop immediately when:
 
 ## Integration
 **Required workflow skills:**
-- **superpowers:using-git-worktrees** - set up isolated workspace before execution
+- **superpowers:using-git-worktrees** - set up isolated workspace model before execution (default one plan-level worktree; exception per-wave worktrees with mandatory merge-back to shared integration branch)
 - **superpowers:finishing-a-development-branch** - finish branch flow after final wave is accepted
