@@ -10,12 +10,21 @@
 可行性审核结果：
 {{.FeasibilityVerdict}}
 
+{{- if .PlanFileContents }}
+原始计划文件内容：
+{{.PlanFileContents}}
+{{- else }}
 原始任务清单（JSON）：
 {{.TasksJSON}}
+{{- end }}
 
 决策规则：
 1. 仅当三份审核均可接受且不存在未解决 critical 问题时，选择 approve。
+{{- if .PlanFileContents }}
+2. 若存在问题但可通过修改原始计划文件自动修复，选择 fix，并给出 suggestions（纯文本修改建议，不是 revised_tasks）。
+{{- else }}
 2. 若存在问题但可通过编辑任务清单自动修复，选择 fix，并给出修正后的完整任务清单。
+{{- end }}
 3. 若问题严重且无法安全自动修复，选择 escalate，并给出明确原因。
 
 输出要求（必须严格遵守）：
@@ -24,15 +33,27 @@
 {
   "decision": "approve"
 }
+{{- if .PlanFileContents }}
+{
+  "decision": "fix",
+  "suggestions": "<必须，给 Secretary 的可执行修改建议文本>",
+  "reason": "<可选，说明修正思路>"
+}
+{{- else }}
 {
   "decision": "fix",
   "revised_tasks": [...],
   "reason": "<可选，说明修正思路>"
 }
+{{- end }}
 {
   "decision": "escalate",
   "reason": "<必须，说明为何无法自动修正>"
 }
-3. "decision": "approve" 时不要输出 revised_tasks。
-4. "decision": "fix" 时必须输出 revised_tasks，且内容为可直接替换的完整任务清单（不是增量 patch）。
-5. "decision": "escalate" 时必须输出 reason，且不要输出 revised_tasks。
+3. "decision": "approve" 时不要输出 revised_tasks 或 suggestions。
+{{- if .PlanFileContents }}
+4. file-based 的 "decision":"fix" 时必须输出 suggestions，且不要输出 revised_tasks。
+{{- else }}
+4. tasks-based 的 "decision":"fix" 时必须输出 revised_tasks，且内容为可直接替换的完整任务清单（不是增量 patch），且不要输出 suggestions。
+{{- end }}
+5. "decision": "escalate" 时必须输出 reason，且不要输出 revised_tasks 或 suggestions。

@@ -432,6 +432,10 @@ func (m *testServerPlanManager) CreateDraft(_ context.Context, _ secretary.Creat
 	return nil, nil
 }
 
+func (m *testServerPlanManager) CreateDraftFromFiles(_ context.Context, _ secretary.CreateDraftInput) (*core.TaskPlan, error) {
+	return nil, nil
+}
+
 func (m *testServerPlanManager) SubmitReview(_ context.Context, _ string, _ secretary.ReviewInput) (*core.TaskPlan, error) {
 	return nil, nil
 }

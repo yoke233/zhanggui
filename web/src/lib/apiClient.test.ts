@@ -337,4 +337,137 @@ describe("apiClient", () => {
       ref: "main",
     });
   });
+
+  it("createPlanFromFiles 命中 from-files 路由并返回规范化任务结构", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "plan-files-1",
+          project_id: "proj-1",
+          session_id: "chat-1",
+          name: "Plan From Files",
+          status: "draft",
+          wait_reason: "",
+          fail_policy: "block",
+          review_round: 0,
+          spec_profile: "default",
+          contract_version: "v1",
+          contract_checksum: "checksum",
+          tasks: [
+            {
+              id: "task-1",
+              plan_id: "plan-files-1",
+              title: "Parse files",
+              description: "parse target files",
+              labels: [],
+              depends_on: [],
+              inputs: null,
+              outputs: null,
+              acceptance: null,
+              constraints: null,
+              template: "standard",
+              pipeline_id: "",
+              external_id: "",
+              status: "pending",
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+            },
+          ],
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const plan = await client.createPlanFromFiles("proj-1", {
+      session_id: "chat-1",
+      name: "Plan From Files",
+      fail_policy: "block",
+      file_paths: ["cmd/ai-flow/main.go", "internal/core/workflow.go"],
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/plans/from-files",
+    );
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const parsedBody = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+    expect(parsedBody).toEqual({
+      session_id: "chat-1",
+      name: "Plan From Files",
+      fail_policy: "block",
+      file_paths: ["cmd/ai-flow/main.go", "internal/core/workflow.go"],
+    });
+    expect(plan.tasks[0]?.inputs).toEqual([]);
+    expect(plan.tasks[0]?.outputs).toEqual([]);
+    expect(plan.tasks[0]?.acceptance).toEqual([]);
+    expect(plan.tasks[0]?.constraints).toEqual([]);
+  });
+
+  it("仓库树/状态/diff 接口命中正确路由并透传查询参数", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            dir: "",
+            items: [],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            file_path: "src/main.ts",
+            diff: "diff --git a/src/main.ts b/src/main.ts",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    await client.getRepoTree("proj-1", "src");
+    await client.getRepoStatus("proj-1");
+    await client.getRepoDiff("proj-1", "src/main.ts");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/repo/tree?dir=src",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/repo/status",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/repo/diff?file=src%2Fmain.ts",
+    );
+  });
 });

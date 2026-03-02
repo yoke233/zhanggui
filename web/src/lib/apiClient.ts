@@ -5,6 +5,7 @@ import type {
   ApiStatsResponse,
   CreateChatResponse,
   CreateChatRequest,
+  CreatePlanFromFilesRequest,
   CreatePlanResponse,
   CreatePipelineRequest,
   CreateProjectCreateRequest,
@@ -22,6 +23,9 @@ import type {
   PlanActionRequest,
   PlanActionResponse,
   PlanDagResponse,
+  RepoDiffResponse,
+  RepoStatusResponse,
+  RepoTreeResponse,
   SubmitPlanReviewResponse,
   TaskActionRequest,
   TaskActionResponse,
@@ -274,6 +278,10 @@ export interface ApiClient {
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
+  createPlanFromFiles(
+    projectId: string,
+    body: CreatePlanFromFilesRequest,
+  ): Promise<CreatePlanResponse>;
   submitPlanReview(projectId: string, planId: string): Promise<SubmitPlanReviewResponse>;
   applyPlanAction(
     projectId: string,
@@ -293,6 +301,9 @@ export interface ApiClient {
     projectId: string,
     pipelineId: string,
   ): Promise<GetPipelineCheckpointsResponse>;
+  getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
+  getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
+  getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
   applyPipelineAction(
     projectId: string,
     pipelineId: string,
@@ -433,6 +444,14 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       });
       return normalizeApiTaskPlan(response);
     },
+    createPlanFromFiles: async (projectId, body) => {
+      const response = await request<CreatePlanResponse, CreatePlanFromFilesRequest>({
+        path: `/projects/${projectId}/plans/from-files`,
+        method: "POST",
+        body,
+      });
+      return normalizeApiTaskPlan(response);
+    },
     submitPlanReview: (projectId, planId) =>
       request<SubmitPlanReviewResponse>({
         path: `/projects/${projectId}/plans/${planId}/review`,
@@ -473,6 +492,24 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     getPipelineCheckpoints: (projectId, pipelineId) =>
       request<GetPipelineCheckpointsResponse>({
         path: `/projects/${projectId}/pipelines/${pipelineId}/checkpoints`,
+      }),
+    getRepoTree: (projectId, dir) =>
+      request<RepoTreeResponse>({
+        path: `/projects/${projectId}/repo/tree`,
+        query: {
+          dir: dir?.trim() ? dir : undefined,
+        },
+      }),
+    getRepoStatus: (projectId) =>
+      request<RepoStatusResponse>({
+        path: `/projects/${projectId}/repo/status`,
+      }),
+    getRepoDiff: (projectId, filePath) =>
+      request<RepoDiffResponse>({
+        path: `/projects/${projectId}/repo/diff`,
+        query: {
+          file: filePath,
+        },
       }),
     applyPipelineAction: (projectId, pipelineId, body) =>
       request<PipelineActionResponse, PipelineActionRequest>({

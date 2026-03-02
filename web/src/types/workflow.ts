@@ -111,6 +111,8 @@ export interface TaskPlan {
   status: TaskPlanStatus;
   wait_reason: string;
   tasks: TaskItem[];
+  source_files?: string[];
+  file_contents?: Record<string, string>;
   fail_policy: "block" | "skip" | "human";
   review_round: number;
   created_at: string;

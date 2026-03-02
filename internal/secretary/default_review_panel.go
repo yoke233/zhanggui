@@ -3,6 +3,7 @@ package secretary
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/user/ai-workflow/internal/acpclient"
@@ -87,7 +88,7 @@ func defaultReviewRoleRuntime() *ReviewRoleRuntime {
 
 type ruleReviewer struct {
 	name string
-	run  func(plan *core.TaskPlan) []core.ReviewIssue
+	run  func(input ReviewerInput) []core.ReviewIssue
 }
 
 func (r ruleReviewer) Name() string {
@@ -98,7 +99,7 @@ func (r ruleReviewer) Review(_ context.Context, input ReviewerInput) (core.Revie
 	if input.Plan == nil {
 		return core.ReviewVerdict{}, fmt.Errorf("reviewer %s: plan is nil", r.name)
 	}
-	issues := r.run(input.Plan)
+	issues := r.run(input)
 	status := "pass"
 	score := 100
 	if len(issues) > 0 {
@@ -116,8 +117,40 @@ func (r ruleReviewer) Review(_ context.Context, input ReviewerInput) (core.Revie
 func newCompletenessReviewer() Reviewer {
 	return ruleReviewer{
 		name: defaultCompletenessReviewerName,
-		run: func(plan *core.TaskPlan) []core.ReviewIssue {
+		run: func(input ReviewerInput) []core.ReviewIssue {
+			plan := input.Plan
 			issues := make([]core.ReviewIssue, 0)
+			if isFileBasedPlan(plan, input.PlanFileContents) {
+				fileContents := cloneStringMap(input.PlanFileContents)
+				if len(fileContents) == 0 {
+					fileContents = loadPlanFileContents(plan)
+				}
+				if len(fileContents) == 0 {
+					return []core.ReviewIssue{
+						{
+							Severity:    "error",
+							Description: "file-based plan has no file contents",
+							Suggestion:  "provide non-empty file contents for parser input",
+						},
+					}
+				}
+				paths := make([]string, 0, len(fileContents))
+				for path := range fileContents {
+					paths = append(paths, path)
+				}
+				slices.Sort(paths)
+				for _, path := range paths {
+					if strings.TrimSpace(fileContents[path]) != "" {
+						continue
+					}
+					issues = append(issues, core.ReviewIssue{
+						Severity:    "error",
+						Description: fmt.Sprintf("file content is empty: %s", path),
+						Suggestion:  "provide non-empty file content for each source file",
+					})
+				}
+				return issues
+			}
 			if len(plan.Tasks) == 0 {
 				return []core.ReviewIssue{
 					{
@@ -157,7 +190,11 @@ func newCompletenessReviewer() Reviewer {
 func newDependencyReviewer() Reviewer {
 	return ruleReviewer{
 		name: defaultDependencyReviewerName,
-		run: func(plan *core.TaskPlan) []core.ReviewIssue {
+		run: func(input ReviewerInput) []core.ReviewIssue {
+			if isFileBasedPlan(input.Plan, input.PlanFileContents) {
+				return nil
+			}
+			plan := input.Plan
 			dag := Build(plan.Tasks)
 			if err := dag.Validate(); err != nil {
 				return []core.ReviewIssue{
@@ -176,7 +213,11 @@ func newDependencyReviewer() Reviewer {
 func newFeasibilityReviewer() Reviewer {
 	return ruleReviewer{
 		name: defaultFeasibilityReviewerName,
-		run: func(plan *core.TaskPlan) []core.ReviewIssue {
+		run: func(input ReviewerInput) []core.ReviewIssue {
+			if isFileBasedPlan(input.Plan, input.PlanFileContents) {
+				return nil
+			}
+			plan := input.Plan
 			issues := make([]core.ReviewIssue, 0)
 			for i := range plan.Tasks {
 				task := plan.Tasks[i]

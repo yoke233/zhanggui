@@ -13,6 +13,7 @@ const (
 	WaitNone          WaitReason = ""
 	WaitFinalApproval WaitReason = "final_approval"
 	WaitFeedbackReq   WaitReason = "feedback_required"
+	WaitParseFailed   WaitReason = "parse_failed"
 )
 
 type TaskPlanStatus string
@@ -50,20 +51,26 @@ const (
 )
 
 type TaskPlan struct {
-	ID               string         `json:"id"`
-	ProjectID        string         `json:"project_id"`
-	SessionID        string         `json:"session_id"`
-	Name             string         `json:"name"`
-	Status           TaskPlanStatus `json:"status"`
-	WaitReason       WaitReason     `json:"wait_reason"`
-	Tasks            []TaskItem     `json:"tasks"`
-	FailPolicy       FailurePolicy  `json:"fail_policy"`
-	ReviewRound      int            `json:"review_round"`
-	SpecProfile      string         `json:"spec_profile"`
-	ContractVersion  string         `json:"contract_version"`
-	ContractChecksum string         `json:"contract_checksum"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	ID               string            `json:"id"`
+	ProjectID        string            `json:"project_id"`
+	SessionID        string            `json:"session_id"`
+	Name             string            `json:"name"`
+	Status           TaskPlanStatus    `json:"status"`
+	WaitReason       WaitReason        `json:"wait_reason"`
+	Tasks            []TaskItem        `json:"tasks"`
+	SourceFiles      []string          `json:"source_files,omitempty"`
+	FileContents     map[string]string `json:"file_contents,omitempty"`
+	FailPolicy       FailurePolicy     `json:"fail_policy"`
+	ReviewRound      int               `json:"review_round"`
+	SpecProfile      string            `json:"spec_profile"`
+	ContractVersion  string            `json:"contract_version"`
+	ContractChecksum string            `json:"contract_checksum"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+}
+
+func (p TaskPlan) HasPendingFileContents() bool {
+	return len(p.FileContents) > 0 && len(p.Tasks) == 0
 }
 
 type TaskItem struct {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -18,11 +19,13 @@ const (
 )
 
 type CreateDraftInput struct {
-	ProjectID  string
-	SessionID  string
-	Name       string
-	FailPolicy core.FailurePolicy
-	Request    Request
+	ProjectID    string
+	SessionID    string
+	Name         string
+	FailPolicy   core.FailurePolicy
+	Request      Request
+	SourceFiles  []string
+	FileContents map[string]string
 }
 
 type PlanAction struct {
@@ -55,8 +58,11 @@ type taskItemsCleaner interface {
 }
 
 type managerPlanContext struct {
-	Request     Request
-	ReviewInput ReviewInput
+	Request              Request
+	ReviewInput          ReviewInput
+	SourceFiles          []string
+	FileContents         map[string]string
+	ParseFailedFeedbacks []HumanFeedback
 }
 
 type ManagerOption func(*Manager)
@@ -192,7 +198,61 @@ func (m *Manager) CreateDraft(ctx context.Context, input CreateDraftInput) (*cor
 	}
 
 	m.updatePlanMeta(planID, func(meta *managerPlanContext) {
-		meta.Request = input.Request
+		meta.Request = cloneManagerRequest(input.Request)
+	})
+
+	return m.GetPlan(ctx, planID)
+}
+
+func (m *Manager) CreateDraftFromFiles(ctx context.Context, input CreateDraftInput) (*core.TaskPlan, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	projectID := strings.TrimSpace(input.ProjectID)
+	if projectID == "" {
+		return nil, errors.New("project id is required")
+	}
+
+	sourceFiles, fileContents := normalizeSourceInputs(input.SourceFiles, input.FileContents)
+	if len(fileContents) == 0 {
+		return nil, errors.New("file contents are required")
+	}
+
+	planID := core.NewTaskPlanID()
+	planName := strings.TrimSpace(input.Name)
+	if planName == "" {
+		planName = planID
+	}
+
+	failPolicy := input.FailPolicy
+	if failPolicy == "" {
+		failPolicy = core.FailBlock
+	}
+
+	draft := &core.TaskPlan{
+		ID:         planID,
+		ProjectID:  projectID,
+		SessionID:  strings.TrimSpace(input.SessionID),
+		Name:       planName,
+		Status:     core.PlanDraft,
+		WaitReason: core.WaitNone,
+		FailPolicy: failPolicy,
+		Tasks:      nil,
+	}
+	setPlanSourceFiles(draft, sourceFiles)
+	setPlanFileContents(draft, fileContents)
+	if err := m.savePlanAndTasks(draft); err != nil {
+		return nil, err
+	}
+
+	m.updatePlanMeta(planID, func(meta *managerPlanContext) {
+		meta.Request = cloneManagerRequest(input.Request)
+		meta.SourceFiles = cloneStringSlice(sourceFiles)
+		meta.FileContents = cloneStringMap(fileContents)
 	})
 
 	return m.GetPlan(ctx, planID)
@@ -212,6 +272,13 @@ func (m *Manager) SubmitReview(ctx context.Context, planID string, input ReviewI
 	}
 	if plan.Status != core.PlanDraft && plan.Status != core.PlanReviewing {
 		return nil, fmt.Errorf("submit review requires draft/reviewing, got %s", plan.Status)
+	}
+	if hasPendingFileContents(plan, m.loadPlanFileContents(plan.ID)) && len(input.PlanFileContents) == 0 {
+		planFileContents := m.loadPlanFileContents(plan.ID)
+		if len(planFileContents) == 0 {
+			planFileContents = loadPlanFileContents(plan)
+		}
+		input.PlanFileContents = cloneStringMap(planFileContents)
 	}
 
 	if m.reviewGate != nil {
@@ -279,6 +346,9 @@ func (m *Manager) applyApprove(ctx context.Context, plan *core.TaskPlan) (*core.
 			plan.WaitReason,
 		)
 	}
+	if hasPendingFileContents(plan, m.loadPlanFileContents(plan.ID)) {
+		return m.parseAndSchedule(ctx, plan)
+	}
 	if err := m.scheduler.StartPlan(ctx, plan); err != nil {
 		return nil, fmt.Errorf("start plan scheduler: %w", err)
 	}
@@ -289,15 +359,33 @@ func (m *Manager) applyReject(ctx context.Context, plan *core.TaskPlan, action P
 	if plan.Status != core.PlanWaitingHuman {
 		return nil, fmt.Errorf("reject requires waiting_human, got %s", plan.Status)
 	}
-	if plan.WaitReason != core.WaitFinalApproval && plan.WaitReason != core.WaitFeedbackReq {
+	if plan.WaitReason != core.WaitFinalApproval && plan.WaitReason != core.WaitFeedbackReq && !isWaitParseFailed(plan.WaitReason) {
 		return nil, fmt.Errorf(
-			"reject requires waiting_human/final_approval|feedback_required, got %s/%s",
+			"reject requires waiting_human/final_approval|feedback_required|parse_failed, got %s/%s",
 			plan.Status,
 			plan.WaitReason,
 		)
 	}
 	if err := validateRejectFeedback(action.Feedback); err != nil {
 		return nil, err
+	}
+	if isWaitParseFailed(plan.WaitReason) {
+		feedback := HumanFeedback{
+			Category:          action.Feedback.Category,
+			Detail:            strings.TrimSpace(action.Feedback.Detail),
+			ExpectedDirection: strings.TrimSpace(action.Feedback.ExpectedDirection),
+		}
+		m.updatePlanMeta(plan.ID, func(meta *managerPlanContext) {
+			meta.ParseFailedFeedbacks = append(meta.ParseFailedFeedbacks, feedback)
+		})
+
+		updated := cloneManagerPlan(plan)
+		updated.Status = core.PlanWaitingHuman
+		updated.WaitReason = core.WaitFinalApproval
+		if err := m.store.SaveTaskPlan(updated); err != nil {
+			return nil, fmt.Errorf("save parse_failed reject reset: %w", err)
+		}
+		return m.GetPlan(ctx, updated.ID)
 	}
 
 	regenerator, err := m.newRegenerator(plan.ID)
@@ -331,6 +419,114 @@ func (m *Manager) applyReject(ctx context.Context, plan *core.TaskPlan, action P
 		return fallbackPlan, nil
 	}
 	return m.submitReviewWithPanel(ctx, regenerated, reviewInput)
+}
+
+func (m *Manager) parseAndSchedule(ctx context.Context, plan *core.TaskPlan) (*core.TaskPlan, error) {
+	if plan == nil {
+		return nil, errors.New("task plan is required")
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" {
+		return nil, errors.New("task plan id is required")
+	}
+
+	meta, ok := m.loadPlanMeta(planID)
+	baseRequest := cloneManagerRequest(meta.Request)
+	var err error
+	if !ok {
+		baseRequest, err = m.hydrateRequestFromStore(planID, Request{})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		baseRequest, err = m.hydrateRequestFromStore(planID, baseRequest)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	sourceFiles := cloneStringSlice(meta.SourceFiles)
+	fileContents := cloneStringMap(meta.FileContents)
+	if len(sourceFiles) == 0 {
+		sourceFiles = loadPlanSourceFiles(plan)
+	}
+	if len(fileContents) == 0 {
+		fileContents = loadPlanFileContents(plan)
+	}
+	sourceFiles, fileContents = normalizeSourceInputs(sourceFiles, fileContents)
+	if len(fileContents) == 0 {
+		return m.markParseFailed(ctx, plan)
+	}
+
+	baseRequest.SourceFiles = cloneStringSlice(sourceFiles)
+	baseRequest.FileContents = cloneStringMap(fileContents)
+	if len(meta.ParseFailedFeedbacks) > 0 {
+		lastFeedback := meta.ParseFailedFeedbacks[len(meta.ParseFailedFeedbacks)-1]
+		feedbackJSON, marshalErr := marshalCompactJSON(lastFeedback)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal parse_failed feedback: %w", marshalErr)
+		}
+		baseRequest.HumanFeedbackJSON = feedbackJSON
+	}
+
+	m.updatePlanMeta(planID, func(next *managerPlanContext) {
+		next.Request = cloneManagerRequest(baseRequest)
+		next.SourceFiles = cloneStringSlice(sourceFiles)
+		next.FileContents = cloneStringMap(fileContents)
+	})
+
+	parsedPlan, err := m.agent.Decompose(ctx, baseRequest)
+	if err != nil {
+		return m.markParseFailed(ctx, plan)
+	}
+	if parsedPlan == nil {
+		return m.markParseFailed(ctx, plan)
+	}
+
+	normalizedTasks, err := m.normalizeTaskSet(planID, parsedPlan.Tasks)
+	if err != nil {
+		return m.markParseFailed(ctx, plan)
+	}
+
+	graph := Build(normalizedTasks)
+	if err := graph.Validate(); err != nil {
+		return m.markParseFailed(ctx, plan)
+	}
+
+	updated := cloneManagerPlan(plan)
+	if parsedName := strings.TrimSpace(parsedPlan.Name); parsedName != "" {
+		updated.Name = parsedName
+	}
+	updated.Tasks = normalizedTasks
+	updated.Status = core.PlanApproved
+	updated.WaitReason = core.WaitNone
+	setPlanSourceFiles(updated, sourceFiles)
+	setPlanFileContents(updated, fileContents)
+	if err := m.savePlanAndTasks(updated); err != nil {
+		return nil, err
+	}
+
+	if err := m.scheduler.StartPlan(ctx, updated); err != nil {
+		return nil, fmt.Errorf("start plan scheduler: %w", err)
+	}
+	m.updatePlanMeta(planID, func(next *managerPlanContext) {
+		next.ParseFailedFeedbacks = nil
+	})
+	return m.GetPlan(ctx, updated.ID)
+}
+
+func (m *Manager) markParseFailed(ctx context.Context, plan *core.TaskPlan) (*core.TaskPlan, error) {
+	updated := cloneManagerPlan(plan)
+	updated.Status = core.PlanWaitingHuman
+	updated.WaitReason = waitReasonParseFailed
+	if err := m.store.SaveTaskPlan(updated); err != nil {
+		return nil, fmt.Errorf("save parse_failed plan: %w", err)
+	}
+	latest, err := m.GetPlan(ctx, updated.ID)
+	if err != nil {
+		return nil, err
+	}
+	return latest, nil
 }
 
 func (m *Manager) applyAbandon(ctx context.Context, plan *core.TaskPlan) (*core.TaskPlan, error) {
@@ -385,7 +581,7 @@ func (m *Manager) submitReviewWithPanel(ctx context.Context, plan *core.TaskPlan
 	}
 
 	m.updatePlanMeta(result.Plan.ID, func(meta *managerPlanContext) {
-		meta.ReviewInput = input
+		meta.ReviewInput = cloneManagerReviewInput(input)
 	})
 
 	return m.GetPlan(ctx, result.Plan.ID)
@@ -421,7 +617,7 @@ func (m *Manager) submitReviewWithGate(ctx context.Context, plan *core.TaskPlan,
 	}
 
 	m.updatePlanMeta(reviewingPlan.ID, func(meta *managerPlanContext) {
-		meta.ReviewInput = input
+		meta.ReviewInput = cloneManagerReviewInput(input)
 	})
 
 	return m.GetPlan(ctx, reviewingPlan.ID)
@@ -566,7 +762,7 @@ func (m *Manager) updatePlanMeta(planID string, mutate func(meta *managerPlanCon
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	meta := m.planMeta[planID]
+	meta := cloneManagerPlanContext(m.planMeta[planID])
 	mutate(&meta)
 	m.planMeta[planID] = meta
 }
@@ -574,7 +770,20 @@ func (m *Manager) updatePlanMeta(planID string, mutate func(meta *managerPlanCon
 func (m *Manager) loadReviewInput(planID string) ReviewInput {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.planMeta[planID].ReviewInput
+	return cloneManagerReviewInput(m.planMeta[planID].ReviewInput)
+}
+
+func (m *Manager) loadPlanMeta(planID string) (managerPlanContext, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	meta, ok := m.planMeta[planID]
+	return cloneManagerPlanContext(meta), ok
+}
+
+func (m *Manager) loadPlanFileContents(planID string) map[string]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneStringMap(m.planMeta[planID].FileContents)
 }
 
 func (m *Manager) newRegenerator(planID string) (Regenerator, error) {
@@ -582,7 +791,7 @@ func (m *Manager) newRegenerator(planID string) (Regenerator, error) {
 	meta, ok := m.planMeta[planID]
 	m.mu.RUnlock()
 
-	baseRequest := meta.Request
+	baseRequest := cloneManagerRequest(meta.Request)
 	var err error
 	if !ok {
 		baseRequest, err = m.hydrateRequestFromStore(planID, Request{})
@@ -737,6 +946,7 @@ func cloneManagerPlan(plan *core.TaskPlan) *core.TaskPlan {
 	}
 	cp := *plan
 	cp.Tasks = cloneManagerTaskItems(plan.Tasks)
+	copyPlanOptionalFileFields(&cp, plan)
 	return &cp
 }
 
@@ -745,6 +955,73 @@ func cloneManagerTaskItems(items []core.TaskItem) []core.TaskItem {
 		return nil
 	}
 	out := make([]core.TaskItem, len(items))
-	copy(out, items)
+	for i, item := range items {
+		out[i] = item
+		out[i].Labels = append([]string(nil), item.Labels...)
+		out[i].DependsOn = append([]string(nil), item.DependsOn...)
+		out[i].Inputs = append([]string(nil), item.Inputs...)
+		out[i].Outputs = append([]string(nil), item.Outputs...)
+		out[i].Acceptance = append([]string(nil), item.Acceptance...)
+		out[i].Constraints = append([]string(nil), item.Constraints...)
+	}
 	return out
+}
+
+func cloneManagerRequest(req Request) Request {
+	cp := req
+	cp.Env = copyMap(req.Env)
+	cp.SourceFiles = cloneStringSlice(req.SourceFiles)
+	cp.FileContents = cloneStringMap(req.FileContents)
+	return cp
+}
+
+func cloneManagerReviewInput(input ReviewInput) ReviewInput {
+	cp := input
+	cp.PlanFileContents = cloneStringMap(input.PlanFileContents)
+	return cp
+}
+
+func cloneManagerPlanContext(meta managerPlanContext) managerPlanContext {
+	return managerPlanContext{
+		Request:              cloneManagerRequest(meta.Request),
+		ReviewInput:          cloneManagerReviewInput(meta.ReviewInput),
+		SourceFiles:          cloneStringSlice(meta.SourceFiles),
+		FileContents:         cloneStringMap(meta.FileContents),
+		ParseFailedFeedbacks: append([]HumanFeedback(nil), meta.ParseFailedFeedbacks...),
+	}
+}
+
+func normalizeSourceInputs(sourceFiles []string, fileContents map[string]string) ([]string, map[string]string) {
+	normalizedContents := make(map[string]string, len(fileContents))
+	for path, content := range fileContents {
+		trimmedPath := strings.TrimSpace(path)
+		if trimmedPath == "" {
+			continue
+		}
+		normalizedContents[trimmedPath] = content
+	}
+
+	seen := map[string]struct{}{}
+	normalizedSources := make([]string, 0, len(sourceFiles)+len(normalizedContents))
+	for _, path := range sourceFiles {
+		trimmedPath := strings.TrimSpace(path)
+		if trimmedPath == "" {
+			continue
+		}
+		if _, ok := seen[trimmedPath]; ok {
+			continue
+		}
+		seen[trimmedPath] = struct{}{}
+		normalizedSources = append(normalizedSources, trimmedPath)
+	}
+	for path := range normalizedContents {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		normalizedSources = append(normalizedSources, path)
+	}
+	slices.Sort(normalizedSources)
+
+	return normalizedSources, normalizedContents
 }

@@ -6,6 +6,49 @@ import ChatView from "./ChatView";
 import type { ApiClient } from "../lib/apiClient";
 import type { ApiTaskPlan, CreateChatResponse } from "../types/api";
 
+vi.mock("../components/FileTree", () => ({
+  default: ({
+    onToggleFile,
+    selectedFiles,
+  }: {
+    onToggleFile: (filePath: string, selected: boolean) => void;
+    selectedFiles: string[];
+  }) => (
+    <div>
+      <p>FileTreeMock</p>
+      <button
+        type="button"
+        onClick={() => {
+          onToggleFile("cmd/app/main.go", true);
+        }}
+      >
+        选择 main.go
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onToggleFile("internal/core/task.go", true);
+        }}
+      >
+        选择 task.go
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onToggleFile("cmd/app/main.go", false);
+        }}
+      >
+        取消 main.go
+      </button>
+      <p data-testid="selected-files-count">{selectedFiles.length}</p>
+    </div>
+  ),
+}));
+
+vi.mock("../components/GitStatusPanel", () => ({
+  default: () => <div>GitStatusPanelMock</div>,
+}));
+
 const buildPlan = (id: string): ApiTaskPlan => ({
   id,
   project_id: "proj-1",
@@ -47,6 +90,10 @@ const createMockApiClient = (): ApiClient => {
     updated_at: "2026-03-01T10:01:00.000Z",
   });
   const createPlan = vi.fn().mockResolvedValue(buildPlan("plan-1"));
+  const createPlanFromFiles = vi.fn().mockResolvedValue(buildPlan("plan-files-1"));
+  const getRepoTree = vi.fn().mockResolvedValue({ dir: "", items: [] });
+  const getRepoStatus = vi.fn().mockResolvedValue({ items: [] });
+  const getRepoDiff = vi.fn().mockResolvedValue({ file_path: "", diff: "" });
 
   return {
     request: vi.fn(),
@@ -62,6 +109,10 @@ const createMockApiClient = (): ApiClient => {
     createChat,
     getChat,
     createPlan,
+    createPlanFromFiles,
+    getRepoTree,
+    getRepoStatus,
+    getRepoDiff,
     listPlans: vi.fn(),
     getPlanDag: vi.fn(),
   } as unknown as ApiClient;
@@ -222,6 +273,34 @@ describe("ChatView", () => {
     expect(screen.queryByText("已创建计划：plan-stale")).toBeNull();
   });
 
+  it("输入文件路径后可调用 createPlanFromFiles", async () => {
+    const apiClient = createMockApiClient();
+
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请拆分任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
+    });
+
+    fireEvent.change(screen.getByLabelText("文件路径（逗号分隔）"), {
+      target: { value: "cmd/app/main.go, internal/core/task.go,  ,web/src/App.tsx" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "从文件创建计划" }));
+
+    await waitFor(() => {
+      expect(apiClient.createPlanFromFiles).toHaveBeenCalledWith("proj-1", {
+        session_id: "chat-1",
+        file_paths: ["cmd/app/main.go", "internal/core/task.go", "web/src/App.tsx"],
+      });
+    });
+    expect(screen.getByText("已从文件创建计划：plan-files-1")).toBeTruthy();
+  });
+
   it("助手消息支持基础 Markdown 渲染", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.getChat).mockResolvedValue({
@@ -251,6 +330,34 @@ describe("ChatView", () => {
     const link = screen.getByRole("link", { name: "文档" }) as HTMLAnchorElement;
     expect(link.href).toBe("https://example.com/");
     expect(screen.getByText("run test")).toBeTruthy();
+  });
+
+  it("文件树选择会自动同步到文件路径输入框", () => {
+    const apiClient = createMockApiClient();
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    const input = screen.getByLabelText("文件路径（逗号分隔）") as HTMLInputElement;
+    expect(input.value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "选择 main.go" }));
+    expect(input.value).toBe("cmd/app/main.go");
+
+    fireEvent.click(screen.getByRole("button", { name: "选择 task.go" }));
+    expect(input.value).toBe("cmd/app/main.go, internal/core/task.go");
+
+    fireEvent.click(screen.getByRole("button", { name: "取消 main.go" }));
+    expect(input.value).toBe("internal/core/task.go");
+  });
+
+  it("左侧面板支持在文件树与 Git Status 之间切换", () => {
+    const apiClient = createMockApiClient();
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    expect(screen.getByText("FileTreeMock")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Git Status" }));
+    expect(screen.getByText("GitStatusPanelMock")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "文件树" }));
+    expect(screen.getByText("FileTreeMock")).toBeTruthy();
   });
 
 });

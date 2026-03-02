@@ -287,6 +287,423 @@ func TestManager_ApplyPlanActionApproveRequiresFinalApproval(t *testing.T) {
 	}
 }
 
+func TestManager_CreateDraftFromFiles(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-file-draft")
+	agent := &fakeManagerAgent{
+		outputs: []*core.TaskPlan{
+			{
+				Name: "should-not-be-called",
+				Tasks: []core.TaskItem{
+					{
+						ID:          "task-unexpected",
+						Title:       "unexpected",
+						Description: "unexpected",
+						Template:    "standard",
+					},
+				},
+			},
+		},
+	}
+	manager, err := NewManager(store, agent, &fakeManagerReviewOrchestrator{}, &fakeManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	draft, err := manager.CreateDraftFromFiles(context.Background(), CreateDraftInput{
+		ProjectID: project.ID,
+		Name:      "file-based-draft",
+		Request: Request{
+			Conversation: "基于提供的文件内容拆解任务",
+			ProjectName:  "manager-file-draft",
+			RepoPath:     project.RepoPath,
+		},
+		SourceFiles: []string{
+			"docs/spec.md",
+		},
+		FileContents: map[string]string{
+			"docs/spec.md": "# Feature spec",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromFiles() error = %v", err)
+	}
+	if draft.Status != core.PlanDraft {
+		t.Fatalf("draft status = %q, want %q", draft.Status, core.PlanDraft)
+	}
+	if len(draft.Tasks) != 0 {
+		t.Fatalf("draft tasks = %d, want 0 for file-based draft", len(draft.Tasks))
+	}
+	if len(agent.calls) != 0 {
+		t.Fatalf("agent Decompose calls = %d, want 0 for CreateDraftFromFiles", len(agent.calls))
+	}
+
+	meta, ok := manager.planMeta[draft.ID]
+	if !ok {
+		t.Fatalf("planMeta for %s not found", draft.ID)
+	}
+	if len(meta.FileContents) != 1 || strings.TrimSpace(meta.FileContents["docs/spec.md"]) == "" {
+		t.Fatalf("planMeta.fileContents mismatch: %#v", meta.FileContents)
+	}
+	if len(meta.SourceFiles) != 1 || meta.SourceFiles[0] != "docs/spec.md" {
+		t.Fatalf("planMeta.sourceFiles mismatch: %#v", meta.SourceFiles)
+	}
+}
+
+func TestManager_ApplyPlanActionApproveFileBasedParseAndScheduleSuccess(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-file-approve-success")
+	agent := &fakeManagerAgent{
+		outputs: []*core.TaskPlan{
+			{
+				Name: "parsed-from-files",
+				Tasks: []core.TaskItem{
+					{
+						ID:          "task-file-1",
+						Title:       "从文件拆解任务",
+						Description: "根据文件内容拆解并生成可执行任务",
+						Template:    "standard",
+						Status:      core.ItemPending,
+					},
+				},
+			},
+		},
+	}
+	scheduler := &fakeManagerScheduler{store: store}
+	manager, err := NewManager(store, agent, &fakeManagerReviewOrchestrator{}, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	draft, err := manager.CreateDraftFromFiles(context.Background(), CreateDraftInput{
+		ProjectID: project.ID,
+		Name:      "file-based-approve",
+		Request: Request{
+			Conversation: "根据 docs/spec.md 生成任务清单",
+			ProjectName:  "manager-file-approve-success",
+			TechStack:    "go",
+			RepoPath:     project.RepoPath,
+		},
+		SourceFiles: []string{
+			"docs/spec.md",
+		},
+		FileContents: map[string]string{
+			"docs/spec.md": "spec content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromFiles() error = %v", err)
+	}
+
+	readyToApprove := cloneManagerTestPlan(draft)
+	readyToApprove.Status = core.PlanWaitingHuman
+	readyToApprove.WaitReason = core.WaitFinalApproval
+	if err := store.SaveTaskPlan(readyToApprove); err != nil {
+		t.Fatalf("SaveTaskPlan(waiting final_approval) error = %v", err)
+	}
+
+	updated, err := manager.ApplyPlanAction(context.Background(), draft.ID, PlanAction{
+		Action: PlanActionApprove,
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlanAction(approve) error = %v", err)
+	}
+	if updated.Status != core.PlanExecuting {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.PlanExecuting)
+	}
+	if scheduler.startPlanCalls != 1 {
+		t.Fatalf("scheduler StartPlan calls = %d, want 1", scheduler.startPlanCalls)
+	}
+	if len(agent.calls) != 1 {
+		t.Fatalf("agent Decompose calls = %d, want 1", len(agent.calls))
+	}
+	if strings.TrimSpace(agent.calls[0].FileContents["docs/spec.md"]) == "" {
+		t.Fatalf("agent decompose request file contents missing: %#v", agent.calls[0].FileContents)
+	}
+
+	persisted, err := manager.GetPlan(context.Background(), draft.ID)
+	if err != nil {
+		t.Fatalf("GetPlan() error = %v", err)
+	}
+	if len(persisted.Tasks) != 1 || persisted.Tasks[0].ID != "task-file-1" {
+		t.Fatalf("persisted tasks mismatch after parse-and-schedule: %#v", persisted.Tasks)
+	}
+}
+
+func TestManager_ApplyPlanActionApproveFileBasedParseFailureSetsParseFailed(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-file-approve-parse-fail")
+	agent := &fakeManagerAgent{
+		err: errors.New("decompose failed"),
+	}
+	scheduler := &fakeManagerScheduler{store: store}
+	manager, err := NewManager(store, agent, &fakeManagerReviewOrchestrator{}, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	draft, err := manager.CreateDraftFromFiles(context.Background(), CreateDraftInput{
+		ProjectID: project.ID,
+		Name:      "file-based-parse-fail",
+		Request: Request{
+			Conversation: "从文件解析任务",
+			ProjectName:  "manager-file-approve-parse-fail",
+			RepoPath:     project.RepoPath,
+		},
+		FileContents: map[string]string{
+			"docs/spec.md": "spec content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromFiles() error = %v", err)
+	}
+
+	readyToApprove := cloneManagerTestPlan(draft)
+	readyToApprove.Status = core.PlanWaitingHuman
+	readyToApprove.WaitReason = core.WaitFinalApproval
+	if err := store.SaveTaskPlan(readyToApprove); err != nil {
+		t.Fatalf("SaveTaskPlan(waiting final_approval) error = %v", err)
+	}
+
+	updated, err := manager.ApplyPlanAction(context.Background(), draft.ID, PlanAction{
+		Action: PlanActionApprove,
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlanAction(approve) error = %v", err)
+	}
+	if updated.Status != core.PlanWaitingHuman {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.PlanWaitingHuman)
+	}
+	if updated.WaitReason != waitReasonParseFailed {
+		t.Fatalf("updated wait_reason = %q, want %q", updated.WaitReason, waitReasonParseFailed)
+	}
+	if scheduler.startPlanCalls != 0 {
+		t.Fatalf("scheduler StartPlan calls = %d, want 0 when parse fails", scheduler.startPlanCalls)
+	}
+}
+
+func TestManager_ApplyPlanActionApproveFileBasedDAGFailureSetsParseFailed(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-file-approve-dag-fail")
+	agent := &fakeManagerAgent{
+		outputs: []*core.TaskPlan{
+			{
+				Name: "parsed-with-cycle",
+				Tasks: []core.TaskItem{
+					{
+						ID:          "task-cycle-1",
+						Title:       "A",
+						Description: "A",
+						Template:    "standard",
+						DependsOn:   []string{"task-cycle-2"},
+					},
+					{
+						ID:          "task-cycle-2",
+						Title:       "B",
+						Description: "B",
+						Template:    "standard",
+						DependsOn:   []string{"task-cycle-1"},
+					},
+				},
+			},
+		},
+	}
+	scheduler := &fakeManagerScheduler{store: store}
+	manager, err := NewManager(store, agent, &fakeManagerReviewOrchestrator{}, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	draft, err := manager.CreateDraftFromFiles(context.Background(), CreateDraftInput{
+		ProjectID: project.ID,
+		Name:      "file-based-dag-fail",
+		Request: Request{
+			Conversation: "从文件解析任务",
+			ProjectName:  "manager-file-approve-dag-fail",
+			RepoPath:     project.RepoPath,
+		},
+		FileContents: map[string]string{
+			"docs/spec.md": "spec content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromFiles() error = %v", err)
+	}
+
+	readyToApprove := cloneManagerTestPlan(draft)
+	readyToApprove.Status = core.PlanWaitingHuman
+	readyToApprove.WaitReason = core.WaitFinalApproval
+	if err := store.SaveTaskPlan(readyToApprove); err != nil {
+		t.Fatalf("SaveTaskPlan(waiting final_approval) error = %v", err)
+	}
+
+	updated, err := manager.ApplyPlanAction(context.Background(), draft.ID, PlanAction{
+		Action: PlanActionApprove,
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlanAction(approve) error = %v", err)
+	}
+	if updated.Status != core.PlanWaitingHuman {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.PlanWaitingHuman)
+	}
+	if updated.WaitReason != waitReasonParseFailed {
+		t.Fatalf("updated wait_reason = %q, want %q", updated.WaitReason, waitReasonParseFailed)
+	}
+	if scheduler.startPlanCalls != 0 {
+		t.Fatalf("scheduler StartPlan calls = %d, want 0 when dag validate fails", scheduler.startPlanCalls)
+	}
+}
+
+func TestManager_ApplyPlanActionRejectParseFailedResetsToFinalApproval(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-file-reject-parse-failed")
+	agent := &fakeManagerAgent{}
+	review := &fakeManagerReviewOrchestrator{}
+	manager, err := NewManager(store, agent, review, &fakeManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	draft, err := manager.CreateDraftFromFiles(context.Background(), CreateDraftInput{
+		ProjectID: project.ID,
+		Name:      "file-based-reject-parse-failed",
+		Request: Request{
+			Conversation: "从文件解析任务",
+			ProjectName:  "manager-file-reject-parse-failed",
+			RepoPath:     project.RepoPath,
+		},
+		FileContents: map[string]string{
+			"docs/spec.md": "spec content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromFiles() error = %v", err)
+	}
+
+	parseFailedPlan := cloneManagerTestPlan(draft)
+	parseFailedPlan.Status = core.PlanWaitingHuman
+	parseFailedPlan.WaitReason = waitReasonParseFailed
+	if err := store.SaveTaskPlan(parseFailedPlan); err != nil {
+		t.Fatalf("SaveTaskPlan(parse_failed) error = %v", err)
+	}
+
+	updated, err := manager.ApplyPlanAction(context.Background(), draft.ID, PlanAction{
+		Action: PlanActionReject,
+		Feedback: &HumanFeedback{
+			Category: FeedbackCoverageGap,
+			Detail:   "解析失败后我补充了文件边界和验收标准，请按新描述重新解析任务。",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlanAction(reject) error = %v", err)
+	}
+	if updated.Status != core.PlanWaitingHuman {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.PlanWaitingHuman)
+	}
+	if updated.WaitReason != core.WaitFinalApproval {
+		t.Fatalf("updated wait_reason = %q, want %q", updated.WaitReason, core.WaitFinalApproval)
+	}
+	if review.handleRejectCalls != 0 {
+		t.Fatalf("HandleHumanReject calls = %d, want 0 for parse_failed reject branch", review.handleRejectCalls)
+	}
+
+	meta, ok := manager.planMeta[draft.ID]
+	if !ok {
+		t.Fatalf("planMeta for %s not found", draft.ID)
+	}
+	if len(meta.ParseFailedFeedbacks) != 1 {
+		t.Fatalf("parse_failed feedback count = %d, want 1", len(meta.ParseFailedFeedbacks))
+	}
+	if meta.ParseFailedFeedbacks[0].Category != FeedbackCoverageGap {
+		t.Fatalf("parse_failed feedback category = %q, want %q", meta.ParseFailedFeedbacks[0].Category, FeedbackCoverageGap)
+	}
+}
+
+func TestManager_ApplyPlanActionApproveTasksBasedDoesNotParseFiles(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateManagerProject(t, store, "proj-manager-approve-tasks-based")
+	plan := mustCreateManagerPlan(
+		t,
+		store,
+		project.ID,
+		"plan-manager-approve-tasks-based",
+		core.PlanWaitingHuman,
+		core.WaitFinalApproval,
+	)
+	task := core.TaskItem{
+		ID:          "task-tasks-based-1",
+		PlanID:      plan.ID,
+		Title:       "tasks-based",
+		Description: "existing tasks based flow",
+		Template:    "standard",
+		Status:      core.ItemPending,
+	}
+	if err := store.CreateTaskItem(&task); err != nil {
+		t.Fatalf("CreateTaskItem() error = %v", err)
+	}
+
+	agent := &fakeManagerAgent{
+		outputs: []*core.TaskPlan{
+			{
+				Name: "unexpected-parse",
+				Tasks: []core.TaskItem{
+					{
+						ID:          "task-unexpected-parse",
+						Title:       "unexpected",
+						Description: "unexpected",
+						Template:    "standard",
+					},
+				},
+			},
+		},
+	}
+	scheduler := &fakeManagerScheduler{store: store}
+	manager, err := NewManager(store, agent, &fakeManagerReviewOrchestrator{}, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	updated, err := manager.ApplyPlanAction(context.Background(), plan.ID, PlanAction{
+		Action: PlanActionApprove,
+	})
+	if err != nil {
+		t.Fatalf("ApplyPlanAction(approve) error = %v", err)
+	}
+	if updated.Status != core.PlanExecuting {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.PlanExecuting)
+	}
+	if scheduler.startPlanCalls != 1 {
+		t.Fatalf("scheduler StartPlan calls = %d, want 1", scheduler.startPlanCalls)
+	}
+	if len(agent.calls) != 0 {
+		t.Fatalf("agent Decompose calls = %d, want 0 for tasks-based approve", len(agent.calls))
+	}
+}
+
 func TestManager_ApplyPlanActionRejectTriggersRegeneration(t *testing.T) {
 	t.Parallel()
 
@@ -663,7 +1080,7 @@ func TestManager_ApplyPlanActionRejectRequiresAllowedWaitReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("ApplyPlanAction(reject) should fail for waiting_human + empty wait_reason")
 	}
-	if !strings.Contains(err.Error(), "reject requires waiting_human/final_approval|feedback_required") {
+	if !strings.Contains(err.Error(), "reject requires waiting_human/final_approval|feedback_required|parse_failed") {
 		t.Fatalf("error = %v, want wait_reason guard", err)
 	}
 }
@@ -1047,12 +1464,7 @@ func (s *fakeManagerScheduler) StartPlan(_ context.Context, plan *core.TaskPlan)
 }
 
 func cloneManagerTestPlan(plan *core.TaskPlan) *core.TaskPlan {
-	if plan == nil {
-		return nil
-	}
-	cp := *plan
-	cp.Tasks = append([]core.TaskItem(nil), plan.Tasks...)
-	return &cp
+	return cloneManagerPlan(plan)
 }
 
 type fakeManagerReviewGate struct {

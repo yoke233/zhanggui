@@ -249,6 +249,72 @@ func TestPlanParserUsesRoleBinding(t *testing.T) {
 	assertRoleID(t, agent.opts[1].AppendContext, "custom_role")
 }
 
+func TestRenderPrompt_UsesFileContentsWhenConversationMissing(t *testing.T) {
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	driver, err := NewAgentWithTemplatePath(&mockAgent{}, nil, templatePath)
+	if err != nil {
+		t.Fatalf("new secretary agent: %v", err)
+	}
+
+	prompt, err := driver.RenderPrompt(Request{
+		FileContents: map[string]string{
+			"docs/plans/wave3.md": "## Wave3\n- parser 支持 file-based 输入\n- 回归测试",
+			"README.md":           "",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderPrompt with file contents: %v", err)
+	}
+
+	for _, needle := range []string{
+		"输入 5：计划文件内容（按路径聚合，用于 TaskPlan 解析）",
+		"<<<FILE:README.md>>>",
+		"(empty file)",
+		"<<<FILE:docs/plans/wave3.md>>>",
+		"parser 支持 file-based 输入",
+		"基于 2 个计划文件解析任务清单",
+	} {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("prompt must include %q, got:\n%s", needle, prompt)
+		}
+	}
+
+	first := strings.Index(prompt, "<<<FILE:README.md>>>")
+	second := strings.Index(prompt, "<<<FILE:docs/plans/wave3.md>>>")
+	if first < 0 || second < 0 || first >= second {
+		t.Fatalf("file content blocks must be stable-sorted by path, got prompt:\n%s", prompt)
+	}
+}
+
+func TestRenderPrompt_AppendsFileContentsToConversation(t *testing.T) {
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	driver, err := NewAgentWithTemplatePath(&mockAgent{}, nil, templatePath)
+	if err != nil {
+		t.Fatalf("new secretary agent: %v", err)
+	}
+
+	req := Request{
+		Conversation: "用户希望把计划文件解析为结构化 tasks，并保留原始语义。",
+		FileContents: map[string]string{
+			"plan.md": "1. 先实现 parser\n2. 再补审查",
+		},
+	}
+	prompt, err := driver.RenderPrompt(req)
+	if err != nil {
+		t.Fatalf("RenderPrompt with conversation + file contents: %v", err)
+	}
+
+	for _, needle := range []string{
+		req.Conversation,
+		"<<<FILE:plan.md>>>",
+		"1. 先实现 parser",
+	} {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("prompt must include %q, got:\n%s", needle, prompt)
+		}
+	}
+}
+
 func TestSecretaryUsesBoundRole(t *testing.T) {
 	resolver := acpclient.NewRoleResolver(
 		[]acpclient.AgentProfile{

@@ -335,6 +335,11 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     activePlan.status === "waiting_human" &&
     activePlan.wait_reason === "final_approval" &&
     !actionLoading;
+  const canRetryParse =
+    !!activePlan &&
+    activePlan.status === "waiting_human" &&
+    activePlan.wait_reason === "parse_failed" &&
+    !actionLoading;
   const canReject =
     !!activePlan &&
     activePlan.status === "waiting_human" &&
@@ -499,16 +504,24 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold">审核操作区</h3>
             {activePlan ? (
-              <p className="mt-1 text-xs text-slate-600">
-                当前计划：{activePlan.name || activePlan.id} · status={activePlan.status}
-                {activePlan.review_round > 0 ? ` · 审查轮次=${activePlan.review_round}` : ""}
-                {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
-              </p>
+              <>
+                <p className="mt-1 text-xs text-slate-600">
+                  当前计划：{activePlan.name || activePlan.id} · status={activePlan.status}
+                  {activePlan.review_round > 0 ? ` · 审查轮次=${activePlan.review_round}` : ""}
+                  {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
+                </p>
+                {activePlan.status === "waiting_human" &&
+                activePlan.wait_reason === "parse_failed" ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    解析失败（parse_failed），请修正输入后点击“重试解析”继续。
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="mt-1 text-xs text-slate-500">请选择计划后再操作。</p>
             )}
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               <button
                 type="button"
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
@@ -528,6 +541,16 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
                 }}
               >
                 通过
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canRetryParse}
+                onClick={() => {
+                  void handleApplyPlanAction("approve");
+                }}
+              >
+                重试解析
               </button>
               <button
                 type="button"

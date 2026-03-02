@@ -607,32 +607,53 @@ func (s *SQLiteStore) DeleteChatSession(id string) error {
 }
 
 func (s *SQLiteStore) CreateTaskPlan(plan *core.TaskPlan) error {
-	_, err := s.db.Exec(
+	sourceFilesJSON, err := marshalJSON(plan.SourceFiles)
+	if err != nil {
+		return err
+	}
+	fileContentsJSON, err := marshalJSON(plan.FileContents)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
 		`INSERT INTO task_plans (
 			id, project_id, session_id, name, status, wait_reason, fail_policy, review_round,
-			spec_profile, contract_version, contract_checksum
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			spec_profile, contract_version, contract_checksum, source_files, file_contents
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		plan.ID, plan.ProjectID, nullableString(plan.SessionID), plan.Name, plan.Status, plan.WaitReason, plan.FailPolicy, plan.ReviewRound,
-		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum,
+		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum, sourceFilesJSON, fileContentsJSON,
 	)
 	return err
 }
 
 func (s *SQLiteStore) GetTaskPlan(id string) (*core.TaskPlan, error) {
 	plan := &core.TaskPlan{}
+	var (
+		sourceFilesJSON  string
+		fileContentsJSON string
+	)
 	err := s.db.QueryRow(
 		`SELECT id, project_id, COALESCE(session_id, ''), name, status, wait_reason, fail_policy, review_round,
-		        COALESCE(spec_profile, ''), COALESCE(contract_version, ''), COALESCE(contract_checksum, ''), created_at, updated_at
+		        COALESCE(spec_profile, ''), COALESCE(contract_version, ''), COALESCE(contract_checksum, ''),
+		        COALESCE(source_files, '[]'), COALESCE(file_contents, '{}'), created_at, updated_at
 		 FROM task_plans WHERE id=?`,
 		id,
 	).Scan(
 		&plan.ID, &plan.ProjectID, &plan.SessionID, &plan.Name, &plan.Status, &plan.WaitReason, &plan.FailPolicy,
-		&plan.ReviewRound, &plan.SpecProfile, &plan.ContractVersion, &plan.ContractChecksum, &plan.CreatedAt, &plan.UpdatedAt,
+		&plan.ReviewRound, &plan.SpecProfile, &plan.ContractVersion, &plan.ContractChecksum,
+		&sourceFilesJSON, &fileContentsJSON, &plan.CreatedAt, &plan.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("task plan %s not found", id)
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSON(sourceFilesJSON, &plan.SourceFiles); err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSONObject(fileContentsJSON, &plan.FileContents); err != nil {
 		return nil, err
 	}
 	tasks, err := s.GetTaskItemsByPlan(plan.ID)
@@ -644,11 +665,20 @@ func (s *SQLiteStore) GetTaskPlan(id string) (*core.TaskPlan, error) {
 }
 
 func (s *SQLiteStore) SaveTaskPlan(plan *core.TaskPlan) error {
-	_, err := s.db.Exec(`
+	sourceFilesJSON, err := marshalJSON(plan.SourceFiles)
+	if err != nil {
+		return err
+	}
+	fileContentsJSON, err := marshalJSON(plan.FileContents)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
 INSERT INTO task_plans (
 	id, project_id, session_id, name, status, wait_reason, fail_policy, review_round,
-	spec_profile, contract_version, contract_checksum
-) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+	spec_profile, contract_version, contract_checksum, source_files, file_contents
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	project_id=excluded.project_id,
 	session_id=excluded.session_id,
@@ -660,15 +690,26 @@ ON CONFLICT(id) DO UPDATE SET
 	spec_profile=excluded.spec_profile,
 	contract_version=excluded.contract_version,
 	contract_checksum=excluded.contract_checksum,
+	source_files=excluded.source_files,
+	file_contents=excluded.file_contents,
 	updated_at=CURRENT_TIMESTAMP`,
 		plan.ID, plan.ProjectID, nullableString(plan.SessionID), plan.Name, plan.Status, plan.WaitReason, plan.FailPolicy, plan.ReviewRound,
-		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum,
+		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum, sourceFilesJSON, fileContentsJSON,
 	)
 	return err
 }
 
 // ReplaceTaskPlanAndItems atomically upserts a plan and replaces all its task_items.
 func (s *SQLiteStore) ReplaceTaskPlanAndItems(plan *core.TaskPlan, items []core.TaskItem) error {
+	sourceFilesJSON, err := marshalJSON(plan.SourceFiles)
+	if err != nil {
+		return err
+	}
+	fileContentsJSON, err := marshalJSON(plan.FileContents)
+	if err != nil {
+		return err
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -684,8 +725,8 @@ func (s *SQLiteStore) ReplaceTaskPlanAndItems(plan *core.TaskPlan, items []core.
 	if _, err := tx.Exec(`
 INSERT INTO task_plans (
 	id, project_id, session_id, name, status, wait_reason, fail_policy, review_round,
-	spec_profile, contract_version, contract_checksum
-) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+	spec_profile, contract_version, contract_checksum, source_files, file_contents
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	project_id=excluded.project_id,
 	session_id=excluded.session_id,
@@ -697,9 +738,11 @@ ON CONFLICT(id) DO UPDATE SET
 	spec_profile=excluded.spec_profile,
 	contract_version=excluded.contract_version,
 	contract_checksum=excluded.contract_checksum,
+	source_files=excluded.source_files,
+	file_contents=excluded.file_contents,
 	updated_at=CURRENT_TIMESTAMP`,
 		plan.ID, plan.ProjectID, nullableString(plan.SessionID), plan.Name, plan.Status, plan.WaitReason, plan.FailPolicy, plan.ReviewRound,
-		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum,
+		plan.SpecProfile, plan.ContractVersion, plan.ContractChecksum, sourceFilesJSON, fileContentsJSON,
 	); err != nil {
 		return err
 	}
@@ -765,7 +808,8 @@ ON CONFLICT(id) DO UPDATE SET
 
 func (s *SQLiteStore) ListTaskPlans(projectID string, filter core.TaskPlanFilter) ([]core.TaskPlan, error) {
 	query := `SELECT id, project_id, COALESCE(session_id, ''), name, status, wait_reason, fail_policy, review_round,
-	                 COALESCE(spec_profile, ''), COALESCE(contract_version, ''), COALESCE(contract_checksum, ''), created_at, updated_at
+	                 COALESCE(spec_profile, ''), COALESCE(contract_version, ''), COALESCE(contract_checksum, ''),
+	                 COALESCE(source_files, '[]'), COALESCE(file_contents, '{}'), created_at, updated_at
 	          FROM task_plans WHERE project_id=?`
 	args := []any{projectID}
 	if filter.Status != "" {
@@ -790,11 +834,22 @@ func (s *SQLiteStore) ListTaskPlans(projectID string, filter core.TaskPlanFilter
 
 	var out []core.TaskPlan
 	for rows.Next() {
-		var plan core.TaskPlan
+		var (
+			plan             core.TaskPlan
+			sourceFilesJSON  string
+			fileContentsJSON string
+		)
 		if err := rows.Scan(
 			&plan.ID, &plan.ProjectID, &plan.SessionID, &plan.Name, &plan.Status, &plan.WaitReason, &plan.FailPolicy,
-			&plan.ReviewRound, &plan.SpecProfile, &plan.ContractVersion, &plan.ContractChecksum, &plan.CreatedAt, &plan.UpdatedAt,
+			&plan.ReviewRound, &plan.SpecProfile, &plan.ContractVersion, &plan.ContractChecksum,
+			&sourceFilesJSON, &fileContentsJSON, &plan.CreatedAt, &plan.UpdatedAt,
 		); err != nil {
+			return nil, err
+		}
+		if err := unmarshalJSON(sourceFilesJSON, &plan.SourceFiles); err != nil {
+			return nil, err
+		}
+		if err := unmarshalJSONObject(fileContentsJSON, &plan.FileContents); err != nil {
 			return nil, err
 		}
 		out = append(out, plan)
@@ -1218,9 +1273,17 @@ func marshalJSON(v any) (string, error) {
 }
 
 func unmarshalJSON(raw string, target any) error {
+	return unmarshalJSONWithDefault(raw, "[]", target)
+}
+
+func unmarshalJSONObject(raw string, target any) error {
+	return unmarshalJSONWithDefault(raw, "{}", target)
+}
+
+func unmarshalJSONWithDefault(raw, fallback string, target any) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		trimmed = "[]"
+		trimmed = fallback
 	}
 	return json.Unmarshal([]byte(trimmed), target)
 }

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
 import type { ChatMessage } from "../types/workflow";
+import FileTree from "../components/FileTree";
+import GitStatusPanel from "../components/GitStatusPanel";
 
 interface ChatViewProps {
   apiClient: ApiClient;
@@ -36,6 +38,22 @@ const getErrorMessage = (error: unknown): string => {
     return error.message;
   }
   return "请求失败，请稍后重试";
+};
+
+const parseFilePathsDraft = (raw: string): string[] => {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .forEach((item) => {
+      if (!seen.has(item)) {
+        seen.add(item);
+        unique.push(item);
+      }
+    });
+  return unique;
 };
 
 const parseInlineMarkdown = (text: string, keyPrefix: string) => {
@@ -198,30 +216,43 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
 
 const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
   const [draft, setDraft] = useState("");
+  const [filePathsDraft, setFilePathsDraft] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [leftPanelTab, setLeftPanelTab] = useState<"tree" | "git">("tree");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
+  const [planFromFilesLoading, setPlanFromFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
   const chatRequestIdRef = useRef(0);
   const planRequestIdRef = useRef(0);
+  const planFromFilesRequestIdRef = useRef(0);
 
   useEffect(() => {
     chatRequestIdRef.current += 1;
     planRequestIdRef.current += 1;
+    planFromFilesRequestIdRef.current += 1;
     setDraft("");
+    setFilePathsDraft("");
+    setSelectedFiles([]);
+    setLeftPanelTab("tree");
     setSessionId(null);
     setMessages([]);
     setError(null);
     setPlanNotice(null);
     setChatLoading(false);
     setPlanLoading(false);
+    setPlanFromFilesLoading(false);
   }, [projectId]);
 
   const hasMessages = messages.length > 0;
   const canSubmit = draft.trim().length > 0 && !chatLoading;
   const canCreatePlan = !!sessionId && !planLoading;
+  const filePaths = useMemo(() => parseFilePathsDraft(filePathsDraft), [filePathsDraft]);
+  const canCreatePlanFromFiles =
+    !!sessionId && filePaths.length > 0 && !planFromFilesLoading;
 
   const sortedMessages = useMemo(
     () =>
@@ -303,14 +334,114 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
     }
   };
 
+  const handleCreatePlanFromFiles = async () => {
+    if (!sessionId || filePaths.length === 0) {
+      return;
+    }
+
+    setPlanFromFilesLoading(true);
+    setError(null);
+    setPlanNotice(null);
+    const requestId = planFromFilesRequestIdRef.current + 1;
+    planFromFilesRequestIdRef.current = requestId;
+    const targetProjectId = projectId;
+    const targetSessionId = sessionId;
+    try {
+      const createdPlan = await apiClient.createPlanFromFiles(targetProjectId, {
+        session_id: targetSessionId,
+        file_paths: filePaths,
+      });
+      if (planFromFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+      setPlanNotice(`已从文件创建计划：${createdPlan.id}`);
+    } catch (requestError) {
+      if (planFromFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+      setError(getErrorMessage(requestError));
+    } finally {
+      if (planFromFilesRequestIdRef.current === requestId) {
+        setPlanFromFilesLoading(false);
+      }
+    }
+  };
+
+  const handleToggleFile = (filePath: string, selected: boolean) => {
+    const normalizedPath = filePath.trim();
+    if (!normalizedPath) {
+      return;
+    }
+
+    setSelectedFiles((prev) => {
+      const exists = prev.includes(normalizedPath);
+      let next = prev;
+      if (selected && !exists) {
+        next = [...prev, normalizedPath];
+      }
+      if (!selected && exists) {
+        next = prev.filter((item) => item !== normalizedPath);
+      }
+      setFilePathsDraft(next.join(", "));
+      return next;
+    });
+  };
+
   const targetSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
     targetSessionIdRef.current = sessionId;
   }, [sessionId]);
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_320px]">
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="grid gap-4 lg:grid-cols-[280px_minmax(0,2fr)_320px]">
+      <aside className="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:flex lg:min-h-[680px] lg:flex-col">
+        <h3 className="text-base font-semibold text-slate-900">仓库视图</h3>
+        <p className="mt-1 text-xs text-slate-600">
+          在文件树中选择文件后，会自动同步到右侧“文件路径”输入框。
+        </p>
+        <div className="mt-3 grid grid-cols-2 rounded-md bg-slate-100 p-1 text-xs">
+          <button
+            type="button"
+            className={`rounded px-2 py-1 font-medium ${
+              leftPanelTab === "tree"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+            onClick={() => {
+              setLeftPanelTab("tree");
+            }}
+          >
+            文件树
+          </button>
+          <button
+            type="button"
+            className={`rounded px-2 py-1 font-medium ${
+              leftPanelTab === "git"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+            onClick={() => {
+              setLeftPanelTab("git");
+            }}
+          >
+            Git Status
+          </button>
+        </div>
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+          {leftPanelTab === "tree" ? (
+            <FileTree
+              apiClient={apiClient}
+              projectId={projectId}
+              selectedFiles={selectedFiles}
+              onToggleFile={handleToggleFile}
+            />
+          ) : (
+            <GitStatusPanel apiClient={apiClient} projectId={projectId} />
+          )}
+        </div>
+      </aside>
+
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-xl font-bold">Chat</h2>
         <p className="mt-1 text-sm text-slate-600">
           发送消息后调用 POST /chat 创建会话，再调用 GET /chat/:sid 获取完整历史。
@@ -383,6 +514,31 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
           }}
         >
           {planLoading ? "创建计划中..." : "基于当前会话创建计划"}
+        </button>
+
+        <label className="mt-3 block text-xs text-slate-700" htmlFor="plan-file-paths">
+          文件路径（逗号分隔）
+          <input
+            id="plan-file-paths"
+            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            placeholder="例如：cmd/app/main.go, internal/core/task.go"
+            value={filePathsDraft}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setFilePathsDraft(nextValue);
+              setSelectedFiles(parseFilePathsDraft(nextValue));
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="mt-2 w-full rounded-md border border-sky-700 px-3 py-2 text-sm font-semibold text-sky-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+          disabled={!canCreatePlanFromFiles}
+          onClick={() => {
+            void handleCreatePlanFromFiles();
+          }}
+        >
+          {planFromFilesLoading ? "从文件创建中..." : "从文件创建计划"}
         </button>
 
         {planNotice ? (

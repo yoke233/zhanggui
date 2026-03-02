@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS task_plans (
     spec_profile      TEXT NOT NULL DEFAULT '',
     contract_version  TEXT NOT NULL DEFAULT '',
     contract_checksum TEXT NOT NULL DEFAULT '',
+    source_files      TEXT NOT NULL DEFAULT '[]',
+    file_contents     TEXT NOT NULL DEFAULT '{}',
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -186,6 +188,8 @@ func applyMigrations(db *sql.DB) error {
 		"spec_profile":      "spec_profile TEXT NOT NULL DEFAULT ''",
 		"contract_version":  "contract_version TEXT NOT NULL DEFAULT ''",
 		"contract_checksum": "contract_checksum TEXT NOT NULL DEFAULT ''",
+		"source_files":      "source_files TEXT NOT NULL DEFAULT '[]'",
+		"file_contents":     "file_contents TEXT NOT NULL DEFAULT '{}'",
 	}); err != nil {
 		return err
 	}

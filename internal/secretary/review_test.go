@@ -136,6 +136,102 @@ func TestReviewOrchestratorRunFixThenApprovePath(t *testing.T) {
 	}
 }
 
+func TestReviewOrchestratorRunFixFileBasedKeepsTasksAndRecordsSuggestions(t *testing.T) {
+	t.Parallel()
+
+	store := newMockReviewStore()
+	var sawPlanFileContents atomic.Bool
+
+	panel := ReviewOrchestrator{
+		Store: store,
+		Reviewers: []Reviewer{
+			newStubReviewer("completeness", func(_ context.Context, input ReviewerInput) (core.ReviewVerdict, error) {
+				if input.Round == 1 {
+					if strings.TrimSpace(input.PlanFileContents["docs/spec.md"]) != "" {
+						sawPlanFileContents.Store(true)
+					}
+				}
+				if input.Round == 2 && len(input.Plan.Tasks) != 0 {
+					t.Fatalf("file-based fix should keep tasks unchanged, got %d tasks", len(input.Plan.Tasks))
+				}
+				return reviewerVerdict("completeness", input.Round), nil
+			}),
+			newStubReviewer("dependency", func(_ context.Context, input ReviewerInput) (core.ReviewVerdict, error) {
+				return reviewerVerdict("dependency", input.Round), nil
+			}),
+			newStubReviewer("feasibility", func(_ context.Context, input ReviewerInput) (core.ReviewVerdict, error) {
+				return reviewerVerdict("feasibility", input.Round), nil
+			}),
+		},
+		Aggregator: newStubAggregator(func(_ context.Context, input AggregatorInput) (AggregatorDecision, error) {
+			switch input.Round {
+			case 1:
+				return AggregatorDecision{
+					Decision:    DecisionFix,
+					Suggestions: "建议先按文件内容抽取模块边界，再进行任务拆分",
+				}, nil
+			case 2:
+				return AggregatorDecision{
+					Decision: DecisionApprove,
+				}, nil
+			default:
+				return AggregatorDecision{}, errors.New("unexpected round")
+			}
+		}),
+	}
+
+	plan := &core.TaskPlan{
+		ID:         "plan-review-file-fix",
+		ProjectID:  "proj-review",
+		Name:       "review-file-plan",
+		Status:     core.PlanDraft,
+		WaitReason: core.WaitNone,
+		FailPolicy: core.FailBlock,
+		Tasks:      nil,
+	}
+
+	result, err := panel.Run(context.Background(), plan, ReviewInput{
+		PlanFileContents: map[string]string{
+			"docs/spec.md": "Feature spec from files.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Decision != DecisionApprove {
+		t.Fatalf("decision = %q, want %q", result.Decision, DecisionApprove)
+	}
+	if result.Round != 2 {
+		t.Fatalf("round = %d, want 2", result.Round)
+	}
+	if len(result.Plan.Tasks) != 0 {
+		t.Fatalf("result plan tasks = %d, want 0 for file-based flow", len(result.Plan.Tasks))
+	}
+	if !sawPlanFileContents.Load() {
+		t.Fatal("reviewer should receive plan file contents")
+	}
+
+	records, err := store.GetReviewRecords(result.Plan.ID)
+	if err != nil {
+		t.Fatalf("GetReviewRecords() error = %v", err)
+	}
+	foundSuggestion := false
+	for _, record := range records {
+		if record.Reviewer != "aggregator" || record.Round != 1 {
+			continue
+		}
+		for _, fix := range record.Fixes {
+			if strings.Contains(fix.Suggestion, "模块边界") {
+				foundSuggestion = true
+				break
+			}
+		}
+	}
+	if !foundSuggestion {
+		t.Fatal("round1 aggregator fixes should include suggestion for file-based fix flow")
+	}
+}
+
 func TestReviewOrchestratorRunEscalatePath(t *testing.T) {
 	t.Parallel()
 

@@ -122,3 +122,65 @@ func TestTaskPlanJSON_RoundTrip_WithContractFields(t *testing.T) {
 		t.Fatalf("structured contract fields missing after round-trip: %+v", got.Tasks[0])
 	}
 }
+
+func TestTaskPlan_HasPendingFileContents(t *testing.T) {
+	plan := TaskPlan{
+		FileContents: map[string]string{
+			"internal/core/taskplan.go": "package core",
+		},
+		Tasks: nil,
+	}
+	if !plan.HasPendingFileContents() {
+		t.Fatal("expected HasPendingFileContents to be true when file contents exist and tasks are empty")
+	}
+}
+
+func TestTaskPlan_HasPendingFileContents_FalseWhenTasksExist(t *testing.T) {
+	plan := TaskPlan{
+		FileContents: map[string]string{
+			"internal/core/taskplan.go": "package core",
+		},
+		Tasks: []TaskItem{
+			{ID: "task-a3f1b2c0-1", Description: "has task"},
+		},
+	}
+	if plan.HasPendingFileContents() {
+		t.Fatal("expected HasPendingFileContents to be false when tasks exist")
+	}
+}
+
+func TestTaskPlanJSON_RoundTrip_WithWaitParseFailed(t *testing.T) {
+	plan := TaskPlan{
+		ID:         "plan-20260302-a1b2c3d4",
+		ProjectID:  "proj-parse",
+		Name:       "parse-failed-plan",
+		Status:     PlanWaitingHuman,
+		WaitReason: WaitParseFailed,
+		SourceFiles: []string{
+			"internal/core/taskplan.go",
+		},
+		FileContents: map[string]string{
+			"internal/core/taskplan.go": "package core",
+		},
+	}
+
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("marshal plan: %v", err)
+	}
+
+	var got TaskPlan
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("unmarshal plan: %v", err)
+	}
+
+	if got.WaitReason != WaitParseFailed {
+		t.Fatalf("wait reason mismatch after round-trip: got=%q want=%q", got.WaitReason, WaitParseFailed)
+	}
+	if len(got.SourceFiles) != 1 || got.SourceFiles[0] != "internal/core/taskplan.go" {
+		t.Fatalf("source_files mismatch after round-trip: %#v", got.SourceFiles)
+	}
+	if got.FileContents["internal/core/taskplan.go"] != "package core" {
+		t.Fatalf("file_contents mismatch after round-trip: %#v", got.FileContents)
+	}
+}

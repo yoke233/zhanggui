@@ -83,6 +83,7 @@ const createMockApiClient = (): ApiClient => {
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    createPlanFromFiles: vi.fn(),
     submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
     applyPlanAction: vi.fn().mockResolvedValue({ status: "executing" }),
     applyTaskAction: vi.fn(),
@@ -362,6 +363,47 @@ describe("PlanView", () => {
     await waitFor(() => {
       expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
         action: "abort",
+      });
+    });
+  });
+
+  it("parse_failed 场景展示重试解析并触发 approve 动作", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan("plan-1", "Plan One", {
+          status: "waiting_human",
+          wait_reason: "parse_failed",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    const wsClient = createMockWsClient();
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+    });
+
+    expect(screen.getByText("解析失败（parse_failed），请修正输入后点击“重试解析”继续。")).toBeTruthy();
+    const retryParseButton = screen.getByRole("button", { name: "重试解析" });
+    expect(retryParseButton).toBeTruthy();
+    expect((retryParseButton as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(retryParseButton);
+
+    await waitFor(() => {
+      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
+        action: "approve",
       });
     });
   });

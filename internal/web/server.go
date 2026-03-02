@@ -19,6 +19,7 @@ import (
 // PlanManager defines the task-plan orchestration APIs required by plan handlers.
 type PlanManager interface {
 	CreateDraft(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
+	CreateDraftFromFiles(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
 	SubmitReview(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error)
 	ApplyPlanAction(ctx context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error)
 }
@@ -106,6 +107,7 @@ func NewServer(cfg Config) *Server {
 		}
 		r.Get("/stats", handleStats)
 		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
+		registerRepoRoutes(r, cfg.Store)
 		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec, cfg.PipelineStageRoles)
 		registerChatRoutes(r, cfg.Store, cfg.ChatAssistant)
 		registerPlanRoutes(r, cfg.Store, cfg.PlanManager, cfg.PlanParserRoleID)

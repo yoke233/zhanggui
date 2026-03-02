@@ -33,6 +33,8 @@ func TestMigration_AddsTaskContractColumns_BackwardCompatible(t *testing.T) {
 	assertColumnExists(t, db, "task_plans", "spec_profile")
 	assertColumnExists(t, db, "task_plans", "contract_version")
 	assertColumnExists(t, db, "task_plans", "contract_checksum")
+	assertColumnExists(t, db, "task_plans", "source_files")
+	assertColumnExists(t, db, "task_plans", "file_contents")
 	assertColumnExists(t, db, "task_items", "inputs")
 	assertColumnExists(t, db, "task_items", "outputs")
 	assertColumnExists(t, db, "task_items", "acceptance")

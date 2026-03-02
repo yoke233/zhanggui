@@ -37,10 +37,11 @@ type Aggregator interface {
 }
 
 type ReviewerInput struct {
-	Plan           *core.TaskPlan
-	Round          int
-	Conversation   string
-	ProjectContext string
+	Plan             *core.TaskPlan
+	Round            int
+	Conversation     string
+	ProjectContext   string
+	PlanFileContents map[string]string
 }
 
 type AggregatorInput struct {
@@ -53,12 +54,14 @@ type AggregatorDecision struct {
 	Decision     string
 	RevisedTasks []core.TaskItem
 	Fixes        []core.ProposedFix
+	Suggestions  string
 	Reason       string
 }
 
 type ReviewInput struct {
-	Conversation   string
-	ProjectContext string
+	Conversation     string
+	ProjectContext   string
+	PlanFileContents map[string]string
 }
 
 type ReviewResult struct {
@@ -127,7 +130,7 @@ func (p *ReviewOrchestrator) Run(ctx context.Context, plan *core.TaskPlan, input
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := p.validateForRun(plan); err != nil {
+	if err := p.validateForRun(plan, input.PlanFileContents); err != nil {
 		return nil, err
 	}
 
@@ -218,11 +221,15 @@ func (p *ReviewOrchestrator) Run(ctx context.Context, plan *core.TaskPlan, input
 					Round:    round,
 				}, nil
 			}
-			if err := validateStructuredTasks(working.ContractVersion, decision.RevisedTasks); err != nil {
-				return nil, fmt.Errorf("invalid revised tasks in round %d: %w", round, err)
+			if !hasPendingFileContents(&working, input.PlanFileContents) {
+				if len(decision.RevisedTasks) == 0 {
+					return nil, fmt.Errorf("invalid revised tasks in round %d: fix decision requires revised_tasks", round)
+				}
+				if err := validateStructuredTasks(working.ContractVersion, decision.RevisedTasks); err != nil {
+					return nil, fmt.Errorf("invalid revised tasks in round %d: %w", round, err)
+				}
+				working.Tasks = cloneTaskItems(decision.RevisedTasks)
 			}
-
-			working.Tasks = cloneTaskItems(decision.RevisedTasks)
 			working.Status = core.PlanReviewing
 			working.WaitReason = core.WaitNone
 		}
@@ -321,7 +328,7 @@ func (f HumanFeedback) Validate() error {
 	return nil
 }
 
-func (p *ReviewOrchestrator) validateForRun(plan *core.TaskPlan) error {
+func (p *ReviewOrchestrator) validateForRun(plan *core.TaskPlan, planFileContents map[string]string) error {
 	if p == nil {
 		return errors.New("review orchestrator is nil")
 	}
@@ -348,8 +355,10 @@ func (p *ReviewOrchestrator) validateForRun(plan *core.TaskPlan) error {
 	if p.Aggregator == nil {
 		return errors.New("aggregator is required")
 	}
-	if err := validateStructuredTasks(plan.ContractVersion, plan.Tasks); err != nil {
-		return err
+	if !hasPendingFileContents(plan, planFileContents) {
+		if err := validateStructuredTasks(plan.ContractVersion, plan.Tasks); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -392,10 +401,11 @@ func (p *ReviewOrchestrator) runReviewersParallel(ctx context.Context, plan *cor
 		go func(i int, rv Reviewer) {
 			defer wg.Done()
 			verdict, err := rv.Review(ctx, ReviewerInput{
-				Plan:           cloneReviewPlanPtr(plan),
-				Round:          round,
-				Conversation:   input.Conversation,
-				ProjectContext: input.ProjectContext,
+				Plan:             cloneReviewPlanPtr(plan),
+				Round:            round,
+				Conversation:     input.Conversation,
+				ProjectContext:   input.ProjectContext,
+				PlanFileContents: cloneStringMap(input.PlanFileContents),
 			})
 			if err != nil {
 				ch <- reviewResult{index: i, err: fmt.Errorf("reviewer %s: %w", rv.Name(), err)}
@@ -456,7 +466,11 @@ func (p *ReviewOrchestrator) persistAggregatorRecord(planID string, round int, d
 		Fixes:    cloneFixes(decision.Fixes),
 	}
 	if normalizedDecision == DecisionFix && len(record.Fixes) == 0 {
-		record.Fixes = tasksToFixes(decision.RevisedTasks)
+		if len(decision.RevisedTasks) > 0 {
+			record.Fixes = tasksToFixes(decision.RevisedTasks)
+		} else {
+			record.Fixes = suggestionsToFixes(decision.Suggestions)
+		}
 	}
 	if err := p.Store.SaveReviewRecord(record); err != nil {
 		return fmt.Errorf("save aggregator record round %d: %w", round, err)
@@ -474,8 +488,8 @@ func validateAggregatorDecision(decision *AggregatorDecision) error {
 	case DecisionApprove:
 		return nil
 	case DecisionFix:
-		if len(decision.RevisedTasks) == 0 {
-			return errors.New("fix decision requires revised_tasks")
+		if len(decision.RevisedTasks) == 0 && len(decision.Fixes) == 0 && strings.TrimSpace(decision.Suggestions) == "" {
+			return errors.New("fix decision requires revised_tasks/fixes/suggestions")
 		}
 		return nil
 	case DecisionEscalate:
@@ -523,6 +537,19 @@ func tasksToFixes(tasks []core.TaskItem) []core.ProposedFix {
 		})
 	}
 	return out
+}
+
+func suggestionsToFixes(suggestions string) []core.ProposedFix {
+	trimmed := strings.TrimSpace(suggestions)
+	if trimmed == "" {
+		return nil
+	}
+	return []core.ProposedFix{
+		{
+			Description: "review suggestions",
+			Suggestion:  trimmed,
+		},
+	}
 }
 
 func summarizeAIReview(records []core.ReviewRecord) AIReviewSummary {
@@ -649,6 +676,7 @@ func cloneTaskItems(in []core.TaskItem) []core.TaskItem {
 func cloneReviewPlan(plan core.TaskPlan) core.TaskPlan {
 	cp := plan
 	cp.Tasks = cloneTaskItems(plan.Tasks)
+	copyPlanOptionalFileFields(&cp, &plan)
 	return cp
 }
 

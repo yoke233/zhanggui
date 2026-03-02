@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -34,6 +35,11 @@ type Request struct {
 	TechStack    string
 	RepoPath     string
 	Role         string
+	SourceFiles  []string
+
+	// FileContents is optional file-based plan input for parser extraction.
+	// key: file path, value: raw file content snapshot.
+	FileContents map[string]string
 
 	// Regeneration input fields (rules 10.3).
 	OriginalConversationSummary string
@@ -206,10 +212,28 @@ func (a *Agent) Decompose(ctx context.Context, req Request) (*core.TaskPlan, err
 }
 
 func (a *Agent) RenderPrompt(req Request) (string, error) {
-	conversation := strings.TrimSpace(req.Conversation)
+	rawConversation := strings.TrimSpace(req.Conversation)
+	fileContext := renderFileContentsContext(req.FileContents)
+
+	conversation := rawConversation
+	if fileContext != "" {
+		if conversation == "" {
+			conversation = fileContext
+		} else {
+			conversation = conversation + "\n\n" + fileContext
+		}
+	}
+
 	originalSummary := strings.TrimSpace(req.OriginalConversationSummary)
 	if originalSummary == "" {
-		originalSummary = conversation
+		switch {
+		case rawConversation != "":
+			originalSummary = rawConversation
+		case fileContext != "":
+			originalSummary = summarizeFileContents(req.FileContents)
+		default:
+			originalSummary = conversation
+		}
 	}
 	if originalSummary == "" {
 		return "", errors.New("conversation is required")
@@ -487,6 +511,83 @@ func defaultJSONPlaceholder(value string) string {
 		return "{}"
 	}
 	return trimmed
+}
+
+type fileContentEntry struct {
+	Path    string
+	Content string
+}
+
+func sortedFileContentEntries(fileContents map[string]string) []fileContentEntry {
+	if len(fileContents) == 0 {
+		return nil
+	}
+
+	paths := make([]string, 0, len(fileContents))
+	for path := range fileContents {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	seen := make(map[string]struct{}, len(paths))
+	entries := make([]fileContentEntry, 0, len(paths))
+	for _, originalPath := range paths {
+		path := strings.TrimSpace(originalPath)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		entries = append(entries, fileContentEntry{
+			Path:    path,
+			Content: fileContents[originalPath],
+		})
+	}
+	return entries
+}
+
+func renderFileContentsContext(fileContents map[string]string) string {
+	entries := sortedFileContentEntries(fileContents)
+	if len(entries) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("输入 5：计划文件内容（按路径聚合，用于 TaskPlan 解析）\n")
+	for i, entry := range entries {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("<<<FILE:")
+		b.WriteString(entry.Path)
+		b.WriteString(">>>\n")
+
+		if strings.TrimSpace(entry.Content) == "" {
+			b.WriteString("(empty file)\n")
+		} else {
+			b.WriteString(entry.Content)
+			if !strings.HasSuffix(entry.Content, "\n") {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("<<<END FILE>>>\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func summarizeFileContents(fileContents map[string]string) string {
+	entries := sortedFileContentEntries(fileContents)
+	if len(entries) == 0 {
+		return ""
+	}
+
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, entry.Path)
+	}
+	return fmt.Sprintf("基于 %d 个计划文件解析任务清单：%s", len(paths), strings.Join(paths, ", "))
 }
 
 func resolveRoleID(role string) string {
