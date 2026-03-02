@@ -452,6 +452,7 @@ type Notification struct {
     Body       string
     PipelineID string
     ProjectID  string
+    PlanID     string  // 关联的 TaskPlan ID（如有），便于端到端追踪
     ActionURL  string  // 深链到 Dashboard 或 GitHub Issue
 }
 ```
@@ -467,8 +468,8 @@ Pipeline 可以从以下来源创建：
 | 来源 | 说明 | 阶段 |
 |------|------|------|
 | 手动创建 | 用户通过 CLI/TUI/Web 直接创建单个 Pipeline | P0 ✅ |
-| **DAG Scheduler 自动创建** | **Secretary Layer 审核通过后，为每个 TaskItem 自动创建 Pipeline** | **P2a** |
-| GitHub Issue 触发 | Webhook 监听 Issue 事件自动创建 | P3（可选） |
+| **DAG Scheduler 自动创建** | **Secretary Layer 审核通过后，为每个 TaskItem 自动创建 Pipeline** | **P2a ✅** |
+| GitHub Issue 触发 | Webhook 监听 Issue 事件自动创建 | P3 🔧 |
 
 当由 DAG Scheduler 创建时：
 - Pipeline.Name = TaskItem.Title

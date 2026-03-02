@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/secretary"
@@ -235,7 +238,8 @@ func TestCreateChatSessionTriggersSecretaryDraftWhenPlanManagerConfigured(t *tes
 	defer ts.Close()
 
 	rawBody, err := json.Marshal(map[string]any{
-		"message": "请拆分一个认证系统改造计划",
+		"message":          "请拆分一个认证系统改造计划",
+		"auto_create_plan": true,
 	})
 	if err != nil {
 		t.Fatalf("marshal request body: %v", err)
@@ -279,4 +283,223 @@ func TestCreateChatSessionTriggersSecretaryDraftWhenPlanManagerConfigured(t *tes
 	if plan.SessionID != created.SessionID {
 		t.Fatalf("plan session id = %s, want %s", plan.SessionID, created.SessionID)
 	}
+}
+
+func TestCreateChatSessionDoesNotAutoCreatePlanByDefault(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-plan-default-off",
+		Name:     "chat-plan-default-off",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-plan-default-off"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	createDraftCalled := false
+	planManager := &testPlanManager{
+		createDraftFn: func(_ context.Context, _ secretary.CreateDraftInput) (*core.TaskPlan, error) {
+			createDraftCalled = true
+			return nil, nil
+		},
+	}
+
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "默认不自动建计划",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-plan-default-off/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var created createChatSessionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create chat response: %v", err)
+	}
+	if created.PlanID != "" {
+		t.Fatalf("expected empty plan_id by default, got %s", created.PlanID)
+	}
+	if createDraftCalled {
+		t.Fatal("expected no auto draft creation when auto_create_plan is not set")
+	}
+}
+
+func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-continue",
+		Name:     "chat-continue",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-continue"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	existing := &core.ChatSession{
+		ID:             "chat-20260302-cont",
+		ProjectID:      project.ID,
+		AgentSessionID: "claude-sid-old",
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "第一轮", Time: time.Now().UTC()},
+			{Role: "assistant", Content: "第一轮回复", Time: time.Now().UTC()},
+		},
+	}
+	if err := store.CreateChatSession(existing); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		response: ChatAssistantResponse{
+			Reply:          "第二轮回复",
+			AgentSessionID: "claude-sid-new",
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:         store,
+		ChatAssistant: assistant,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"session_id": existing.ID,
+		"message":    "第二轮问题",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-continue/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST continue chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var out createChatSessionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if out.SessionID != existing.ID {
+		t.Fatalf("expected same session id %q, got %q", existing.ID, out.SessionID)
+	}
+	if out.Reply != "第二轮回复" {
+		t.Fatalf("expected assistant reply %q, got %q", "第二轮回复", out.Reply)
+	}
+
+	updated, err := store.GetChatSession(existing.ID)
+	if err != nil {
+		t.Fatalf("reload chat session: %v", err)
+	}
+	if updated.AgentSessionID != "claude-sid-new" {
+		t.Fatalf("expected updated agent_session_id %q, got %q", "claude-sid-new", updated.AgentSessionID)
+	}
+	if len(updated.Messages) != 4 {
+		t.Fatalf("expected 4 total messages after continuation, got %d", len(updated.Messages))
+	}
+	if updated.Messages[2].Content != "第二轮问题" || updated.Messages[3].Content != "第二轮回复" {
+		t.Fatalf("unexpected continuation message pair: %#v", updated.Messages[2:])
+	}
+
+	calls := assistant.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected one assistant call, got %d", len(calls))
+	}
+	if calls[0].AgentSessionID != "claude-sid-old" {
+		t.Fatalf("expected resume from old session id, got %q", calls[0].AgentSessionID)
+	}
+}
+
+func TestCreateChatSessionAssistantFailureReturnsBadGateway(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-assistant-fail",
+		Name:     "chat-assistant-fail",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-assistant-fail"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		err: errors.New("claude unavailable"),
+	}
+	srv := NewServer(Config{
+		Store:         store,
+		ChatAssistant: assistant,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "请回复",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-assistant-fail/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", resp.StatusCode)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode api error: %v", err)
+	}
+	if apiErr.Code != "CHAT_ASSISTANT_FAILED" {
+		t.Fatalf("expected CHAT_ASSISTANT_FAILED, got %s", apiErr.Code)
+	}
+}
+
+type stubChatAssistant struct {
+	mu       sync.Mutex
+	response ChatAssistantResponse
+	err      error
+	calls    []ChatAssistantRequest
+}
+
+func (s *stubChatAssistant) Reply(_ context.Context, req ChatAssistantRequest) (ChatAssistantResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, req)
+	if s.err != nil {
+		return ChatAssistantResponse{}, s.err
+	}
+	return s.response, nil
+}
+
+func (s *stubChatAssistant) Calls() []ChatAssistantRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ChatAssistantRequest, len(s.calls))
+	copy(out, s.calls)
+	return out
 }

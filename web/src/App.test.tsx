@@ -1,25 +1,21 @@
 /** @vitest-environment jsdom */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WsEnvelope } from "./types/ws";
+
+type AppWsStatus = "idle" | "connecting" | "open" | "closed";
+type WsAnyHandler = (payload: unknown, raw: MessageEvent<string>) => void;
+type WsStatusHandler = (status: AppWsStatus) => void;
 
 const mocks = vi.hoisted(() => {
-  const listProjects = vi.fn().mockResolvedValue([
-    {
-      id: "proj-1",
-      name: "Alpha",
-      repo_path: "D:/repo/alpha",
-      created_at: "2026-03-01T10:00:00.000Z",
-      updated_at: "2026-03-01T10:00:00.000Z",
-    },
-    {
-      id: "proj-2",
-      name: "Beta",
-      repo_path: "D:/repo/beta",
-      created_at: "2026-03-01T10:00:00.000Z",
-      updated_at: "2026-03-01T10:00:00.000Z",
-    },
-  ]);
+  const listProjects = vi.fn();
+  const createProjectCreateRequest = vi.fn();
+  const getProjectCreateRequest = vi.fn();
+
+  const anyHandlers = new Set<WsAnyHandler>();
+  const statusHandlers = new Set<WsStatusHandler>();
+  let wsStatus: AppWsStatus = "open";
 
   const apiClient = {
     request: vi.fn(),
@@ -30,32 +26,78 @@ const mocks = vi.hoisted(() => {
     getStats: vi.fn(),
     listProjects,
     createProject: vi.fn(),
+    createProjectCreateRequest,
+    getProjectCreateRequest,
     listPipelines: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
     createPipeline: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    submitPlanReview: vi.fn(),
+    applyPlanAction: vi.fn(),
+    applyTaskAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
     getPlanDag: vi.fn().mockResolvedValue({
       nodes: [],
       edges: [],
       stats: { total: 0, pending: 0, ready: 0, running: 0, done: 0, failed: 0 },
     }),
+    getPipeline: vi.fn(),
+    getPipelineCheckpoints: vi.fn(),
+    applyPipelineAction: vi.fn(),
   };
 
   const wsClient = {
     connect: vi.fn(),
     disconnect: vi.fn(),
     send: vi.fn(),
-    subscribe: vi.fn().mockReturnValue(() => {}),
-    onStatusChange: vi.fn().mockReturnValue(() => {}),
-    getStatus: vi.fn().mockReturnValue("idle"),
+    subscribe: vi.fn((type: string, handler: WsAnyHandler) => {
+      if (type === "*") {
+        anyHandlers.add(handler);
+      }
+      return () => {
+        if (type === "*") {
+          anyHandlers.delete(handler);
+        }
+      };
+    }),
+    onStatusChange: vi.fn((handler: WsStatusHandler) => {
+      statusHandlers.add(handler);
+      return () => {
+        statusHandlers.delete(handler);
+      };
+    }),
+    getStatus: vi.fn(() => wsStatus),
+  };
+
+  const emitEnvelope = (envelope: WsEnvelope): void => {
+    anyHandlers.forEach((handler) => {
+      handler(envelope, {} as MessageEvent<string>);
+    });
+  };
+
+  const setWsStatus = (nextStatus: AppWsStatus): void => {
+    wsStatus = nextStatus;
+    statusHandlers.forEach((handler) => {
+      handler(nextStatus);
+    });
+  };
+
+  const resetState = (): void => {
+    anyHandlers.clear();
+    statusHandlers.clear();
+    wsStatus = "open";
   };
 
   return {
     apiClient,
     wsClient,
     listProjects,
+    createProjectCreateRequest,
+    getProjectCreateRequest,
+    emitEnvelope,
+    setWsStatus,
+    resetState,
   };
 });
 
@@ -89,7 +131,42 @@ vi.mock("./views/PipelineView", () => ({
 
 import App from "./App";
 
+const baseProject = {
+  id: "proj-1",
+  name: "Alpha",
+  repo_path: "D:/repo/alpha",
+  created_at: "2026-03-01T10:00:00.000Z",
+  updated_at: "2026-03-01T10:00:00.000Z",
+};
+
 describe("App", () => {
+  beforeEach(() => {
+    mocks.resetState();
+    mocks.listProjects.mockReset();
+    mocks.createProjectCreateRequest.mockReset();
+    mocks.getProjectCreateRequest.mockReset();
+    mocks.listProjects.mockResolvedValue([
+      baseProject,
+      {
+        id: "proj-2",
+        name: "Beta",
+        repo_path: "D:/repo/beta",
+        created_at: "2026-03-01T10:00:00.000Z",
+        updated_at: "2026-03-01T10:00:00.000Z",
+      },
+    ]);
+    mocks.createProjectCreateRequest.mockResolvedValue({ request_id: "req-default" });
+    mocks.getProjectCreateRequest.mockResolvedValue({
+      request_id: "req-default",
+      status: "running",
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
   it("加载项目、支持项目切换与四视图切换", async () => {
     render(<App />);
 
@@ -113,5 +190,127 @@ describe("App", () => {
 
     fireEvent.change(projectSelect, { target: { value: "proj-2" } });
     expect(projectSelect.value).toBe("proj-2");
+  });
+
+  it("创建成功后会刷新项目列表并自动选中新项目", async () => {
+    mocks.listProjects.mockResolvedValueOnce([baseProject]).mockResolvedValueOnce([
+      baseProject,
+      {
+        id: "proj-9",
+        name: "Gamma",
+        repo_path: "D:/repo/gamma",
+        created_at: "2026-03-02T08:00:00.000Z",
+        updated_at: "2026-03-02T08:00:00.000Z",
+      },
+    ]);
+    mocks.createProjectCreateRequest.mockResolvedValueOnce({ request_id: "req-9" });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText("项目名称"), {
+      target: { value: "Gamma" },
+    });
+    fireEvent.change(screen.getByLabelText("仓库路径"), {
+      target: { value: "D:/repo/gamma" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => {
+      expect(mocks.createProjectCreateRequest).toHaveBeenCalledWith({
+        name: "Gamma",
+        source_type: "local_path",
+        repo_path: "D:/repo/gamma",
+      });
+    });
+
+    await act(async () => {
+      mocks.emitEnvelope({
+        type: "project_create_succeeded",
+        data: {
+          request_id: "req-9",
+          project_id: "proj-9",
+          message: "创建完成",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(2);
+      expect((screen.getByLabelText("当前项目") as HTMLSelectElement).value).toBe("proj-9");
+    });
+  });
+
+  it("创建失败时会显示错误且不触发项目列表刷新", async () => {
+    mocks.listProjects.mockResolvedValueOnce([baseProject]);
+    mocks.createProjectCreateRequest.mockResolvedValueOnce({ request_id: "req-fail" });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText("项目名称"), {
+      target: { value: "Broken" },
+    });
+    fireEvent.change(screen.getByLabelText("仓库路径"), {
+      target: { value: "D:/repo/broken" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => {
+      expect(mocks.createProjectCreateRequest).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      mocks.emitEnvelope({
+        type: "project_create_failed",
+        data: {
+          request_id: "req-fail",
+          error: "权限不足",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("权限不足")).toBeTruthy();
+    });
+    expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("来源切换逻辑在 App 中可正常工作", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText("项目来源"), {
+      target: { value: "local_new" },
+    });
+    expect(screen.queryByLabelText("仓库路径")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("项目来源"), {
+      target: { value: "github_clone" },
+    });
+    expect(screen.getByLabelText("GitHub Owner")).toBeTruthy();
+    expect(screen.getByLabelText("GitHub Repo")).toBeTruthy();
+    expect(screen.queryByLabelText("仓库路径")).toBeNull();
+  });
+
+  it("listProjects 返回 null 时会回退为空数组并保持可交互", async () => {
+    mocks.listProjects.mockResolvedValueOnce(null);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    expect((screen.getByLabelText("当前项目") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText("暂无可用项目。请先在后端创建项目，或点击“刷新项目”重试。")).toBeTruthy();
   });
 });

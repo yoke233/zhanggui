@@ -23,6 +23,7 @@ func TestChatSessionCRUD(t *testing.T) {
 	session := &core.ChatSession{
 		ID:        "chat-20260301-aaaabbbb",
 		ProjectID: project.ID,
+		AgentSessionID: "claude-session-initial",
 		Messages: []core.ChatMessage{
 			{Role: "user", Content: "需要新增 OAuth 登录", Time: now},
 		},
@@ -37,6 +38,9 @@ func TestChatSessionCRUD(t *testing.T) {
 	}
 	if got.ProjectID != project.ID {
 		t.Fatalf("expected project_id=%s, got %s", project.ID, got.ProjectID)
+	}
+	if got.AgentSessionID != "claude-session-initial" {
+		t.Fatalf("expected agent_session_id persisted, got %q", got.AgentSessionID)
 	}
 	if len(got.Messages) != 1 || got.Messages[0].Role != "user" {
 		t.Fatalf("unexpected chat messages: %#v", got.Messages)
@@ -55,6 +59,7 @@ func TestChatSessionCRUD(t *testing.T) {
 		Content: "我先拆分任务",
 		Time:    now.Add(time.Minute),
 	})
+	session.AgentSessionID = "claude-session-updated"
 	if err := s.UpdateChatSession(session); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +70,9 @@ func TestChatSessionCRUD(t *testing.T) {
 	}
 	if len(updated.Messages) != 2 || updated.Messages[1].Role != "assistant" {
 		t.Fatalf("unexpected updated messages: %#v", updated.Messages)
+	}
+	if updated.AgentSessionID != "claude-session-updated" {
+		t.Fatalf("expected updated agent_session_id, got %q", updated.AgentSessionID)
 	}
 
 	if err := s.DeleteChatSession(session.ID); err != nil {

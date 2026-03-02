@@ -15,6 +15,7 @@ import (
 type chatHandlers struct {
 	store       core.Store
 	planManager PlanManager
+	assistant   ChatAssistant
 }
 
 type chatSessionDeleter interface {
@@ -22,7 +23,9 @@ type chatSessionDeleter interface {
 }
 
 type createChatSessionRequest struct {
-	Message string `json:"message"`
+	Message        string `json:"message"`
+	SessionID      string `json:"session_id,omitempty"`
+	AutoCreatePlan bool   `json:"auto_create_plan,omitempty"`
 }
 
 type createChatSessionResponse struct {
@@ -31,10 +34,11 @@ type createChatSessionResponse struct {
 	PlanID    string `json:"plan_id,omitempty"`
 }
 
-func registerChatRoutes(r chi.Router, store core.Store, planManager PlanManager) {
+func registerChatRoutes(r chi.Router, store core.Store, planManager PlanManager, assistant ChatAssistant) {
 	h := &chatHandlers{
 		store:       store,
 		planManager: planManager,
+		assistant:   assistant,
 	}
 	r.Post("/projects/{projectID}/chat", h.createSession)
 	r.Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
@@ -71,36 +75,83 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Message = strings.TrimSpace(req.Message)
+	req.SessionID = strings.TrimSpace(req.SessionID)
 	if req.Message == "" {
 		writeAPIError(w, http.StatusBadRequest, "message is required", "MESSAGE_REQUIRED")
 		return
 	}
 
-	now := time.Now().UTC()
-	reply := "已收到你的需求，我会先整理成任务计划草案。"
-	session := &core.ChatSession{
-		ID:        core.NewChatSessionID(),
-		ProjectID: projectID,
-		Messages: []core.ChatMessage{
-			{
-				Role:    "user",
-				Content: req.Message,
-				Time:    now,
-			},
-			{
-				Role:    "assistant",
-				Content: reply,
-				Time:    now,
-			},
-		},
+	isNewSession := req.SessionID == ""
+	var session *core.ChatSession
+	if isNewSession {
+		session = &core.ChatSession{
+			ID:        core.NewChatSessionID(),
+			ProjectID: projectID,
+		}
+	} else {
+		existing, err := h.store.GetChatSession(req.SessionID)
+		if err != nil {
+			if isNotFoundError(err) {
+				writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", req.SessionID), "CHAT_SESSION_NOT_FOUND")
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "failed to load chat session", "GET_CHAT_SESSION_FAILED")
+			return
+		}
+		if existing.ProjectID != projectID {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found in project %s", req.SessionID, projectID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		session = existing
 	}
-	if err := h.store.CreateChatSession(session); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to create chat session", "CREATE_CHAT_SESSION_FAILED")
-		return
+
+	now := time.Now().UTC()
+	session.Messages = append(session.Messages, core.ChatMessage{
+		Role:    "user",
+		Content: req.Message,
+		Time:    now,
+	})
+
+	reply := "已收到你的需求，我会先整理成任务计划草案。"
+	if h.assistant != nil {
+		assistantResp, err := h.assistant.Reply(r.Context(), ChatAssistantRequest{
+			Message:        req.Message,
+			WorkDir:        strings.TrimSpace(project.RepoPath),
+			AgentSessionID: strings.TrimSpace(session.AgentSessionID),
+		})
+		if err != nil {
+			writeAPIError(w, http.StatusBadGateway, "chat assistant failed", "CHAT_ASSISTANT_FAILED")
+			return
+		}
+		reply = strings.TrimSpace(assistantResp.Reply)
+		if reply == "" {
+			writeAPIError(w, http.StatusBadGateway, "chat assistant returned empty reply", "CHAT_ASSISTANT_EMPTY_REPLY")
+			return
+		}
+		if strings.TrimSpace(assistantResp.AgentSessionID) != "" {
+			session.AgentSessionID = strings.TrimSpace(assistantResp.AgentSessionID)
+		}
+	}
+	session.Messages = append(session.Messages, core.ChatMessage{
+		Role:    "assistant",
+		Content: reply,
+		Time:    now,
+	})
+
+	if isNewSession {
+		if err := h.store.CreateChatSession(session); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to create chat session", "CREATE_CHAT_SESSION_FAILED")
+			return
+		}
+	} else {
+		if err := h.store.UpdateChatSession(session); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to update chat session", "UPDATE_CHAT_SESSION_FAILED")
+			return
+		}
 	}
 
 	createdPlanID := ""
-	if h.planManager != nil {
+	if isNewSession && req.AutoCreatePlan && h.planManager != nil {
 		createReq := secretary.Request{
 			Conversation: summarizeChatMessages(session.Messages),
 			ProjectName:  strings.TrimSpace(project.Name),

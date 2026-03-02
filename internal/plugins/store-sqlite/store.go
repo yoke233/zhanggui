@@ -514,8 +514,8 @@ func (s *SQLiteStore) CreateChatSession(session *core.ChatSession) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO chat_sessions (id, project_id, messages) VALUES (?,?,?)`,
-		session.ID, session.ProjectID, messagesJSON,
+		`INSERT INTO chat_sessions (id, project_id, agent_session_id, messages) VALUES (?,?,?,?)`,
+		session.ID, session.ProjectID, session.AgentSessionID, messagesJSON,
 	)
 	return err
 }
@@ -524,9 +524,9 @@ func (s *SQLiteStore) GetChatSession(id string) (*core.ChatSession, error) {
 	session := &core.ChatSession{}
 	var messagesJSON string
 	err := s.db.QueryRow(
-		`SELECT id, project_id, messages, created_at, updated_at FROM chat_sessions WHERE id=?`,
+		`SELECT id, project_id, COALESCE(agent_session_id, ''), messages, created_at, updated_at FROM chat_sessions WHERE id=?`,
 		id,
-	).Scan(&session.ID, &session.ProjectID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("chat session %s not found", id)
 	}
@@ -545,8 +545,8 @@ func (s *SQLiteStore) UpdateChatSession(session *core.ChatSession) error {
 		return err
 	}
 	result, err := s.db.Exec(
-		`UPDATE chat_sessions SET messages=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		messagesJSON, session.ID,
+		`UPDATE chat_sessions SET messages=?, agent_session_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		messagesJSON, session.AgentSessionID, session.ID,
 	)
 	if err != nil {
 		return err
@@ -563,7 +563,7 @@ func (s *SQLiteStore) UpdateChatSession(session *core.ChatSession) error {
 
 func (s *SQLiteStore) ListChatSessions(projectID string) ([]core.ChatSession, error) {
 	rows, err := s.db.Query(
-		`SELECT id, project_id, messages, created_at, updated_at
+		`SELECT id, project_id, COALESCE(agent_session_id, ''), messages, created_at, updated_at
 		 FROM chat_sessions
 		 WHERE project_id=?
 		 ORDER BY created_at DESC`,
@@ -580,7 +580,7 @@ func (s *SQLiteStore) ListChatSessions(projectID string) ([]core.ChatSession, er
 			session      core.ChatSession
 			messagesJSON string
 		)
-		if err := rows.Scan(&session.ID, &session.ProjectID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if err := unmarshalJSON(messagesJSON, &session.Messages); err != nil {
@@ -902,11 +902,11 @@ func (s *SQLiteStore) CreateTaskItem(item *core.TaskItem) error {
 func (s *SQLiteStore) GetTaskItem(id string) (*core.TaskItem, error) {
 	item := &core.TaskItem{}
 	var (
-		labelsJSON    string
-		dependsOnJSON string
-		inputsJSON    string
-		outputsJSON   string
-		acceptanceJSON string
+		labelsJSON      string
+		dependsOnJSON   string
+		inputsJSON      string
+		outputsJSON     string
+		acceptanceJSON  string
 		constraintsJSON string
 	)
 	err := s.db.QueryRow(
@@ -1021,12 +1021,12 @@ func (s *SQLiteStore) GetTaskItemsByPlan(planID string) ([]core.TaskItem, error)
 	var out []core.TaskItem
 	for rows.Next() {
 		var (
-			item          core.TaskItem
-			labelsJSON    string
-			dependsOnJSON string
-			inputsJSON    string
-			outputsJSON   string
-			acceptanceJSON string
+			item            core.TaskItem
+			labelsJSON      string
+			dependsOnJSON   string
+			inputsJSON      string
+			outputsJSON     string
+			acceptanceJSON  string
 			constraintsJSON string
 		)
 		if err := rows.Scan(
@@ -1077,11 +1077,11 @@ func (s *SQLiteStore) GetTaskItemByPipeline(pipelineID string) (*core.TaskItem, 
 
 	item := &core.TaskItem{}
 	var (
-		labelsJSON    string
-		dependsOnJSON string
-		inputsJSON    string
-		outputsJSON   string
-		acceptanceJSON string
+		labelsJSON      string
+		dependsOnJSON   string
+		inputsJSON      string
+		outputsJSON     string
+		acceptanceJSON  string
 		constraintsJSON string
 	)
 	err = s.db.QueryRow(

@@ -7,6 +7,25 @@ export interface WsEnvelope<TPayload = unknown> {
   payload?: TPayload;
 }
 
+export type ProjectCreateEventType =
+  | "project_create_started"
+  | "project_create_progress"
+  | "project_create_succeeded"
+  | "project_create_failed";
+
+export interface ProjectCreateEventPayload {
+  request_id?: string;
+  project_id?: string;
+  progress?: number;
+  message?: string;
+  error?: string;
+}
+
+export interface ProjectCreateEventEnvelope
+  extends WsEnvelope<ProjectCreateEventPayload> {
+  type: ProjectCreateEventType;
+}
+
 export interface WsClientMessage {
   type:
     | "subscribe_plan"

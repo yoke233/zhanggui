@@ -546,6 +546,35 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	hub := web.NewHub()
+	claudeBinary := "claude"
+	if cfg.Agents.Claude != nil && cfg.Agents.Claude.Binary != nil && strings.TrimSpace(*cfg.Agents.Claude.Binary) != "" {
+		claudeBinary = strings.TrimSpace(*cfg.Agents.Claude.Binary)
+	}
+	codexBinary := "codex"
+	codexModel := "gpt-5.3-codex"
+	codexReasoning := "high"
+	if cfg.Agents.Codex != nil {
+		if cfg.Agents.Codex.Binary != nil && strings.TrimSpace(*cfg.Agents.Codex.Binary) != "" {
+			codexBinary = strings.TrimSpace(*cfg.Agents.Codex.Binary)
+		}
+		if cfg.Agents.Codex.Model != nil && strings.TrimSpace(*cfg.Agents.Codex.Model) != "" {
+			codexModel = strings.TrimSpace(*cfg.Agents.Codex.Model)
+		}
+		if cfg.Agents.Codex.Reasoning != nil && strings.TrimSpace(*cfg.Agents.Codex.Reasoning) != "" {
+			codexReasoning = strings.TrimSpace(*cfg.Agents.Codex.Reasoning)
+		}
+	}
+	chatProvider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_WORKFLOW_CHAT_PROVIDER")))
+	var chatAssistant web.ChatAssistant
+	switch chatProvider {
+	case "", "claude":
+		chatAssistant = web.NewClaudeChatAssistant(claudeBinary)
+	case "codex":
+		chatAssistant = web.NewCodexChatAssistant(codexBinary, codexModel, codexReasoning)
+	default:
+		fmt.Printf("Unknown AI_WORKFLOW_CHAT_PROVIDER=%q, fallback to claude\n", chatProvider)
+		chatAssistant = web.NewClaudeChatAssistant(claudeBinary)
+	}
 	sub := bus.Subscribe()
 	bridgeDone := make(chan struct{})
 	go func() {
@@ -570,6 +599,7 @@ func runServer(ctx context.Context, args []string) error {
 		WebhookSecret: cfg.GitHub.WebhookSecret,
 		Store:         store,
 		PlanManager:   planManager,
+		ChatAssistant: chatAssistant,
 		PipelineExec:  exec,
 		Hub:           hub,
 	})

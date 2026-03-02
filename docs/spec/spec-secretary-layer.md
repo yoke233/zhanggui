@@ -587,7 +587,9 @@ DAG Scheduler 复用现有的全局信号量，不引入额外的并发控制：
         (其他 ready 的 Task 排队等待信号量)
 ```
 
-所有 Pipeline 共享同一个信号量池，不区分来源。先 ready 的先获取信号量（FIFO）。
+所有 Pipeline 共享同一个信号量池，不区分来源。当前调度策略为 FIFO（先 ready 的先获取信号量）。
+
+> **P4 演进：优先级调度**。计划为 TaskItem 增加 `priority` 字段（P0 紧急 / P1 高 / P2 普通，默认 P2），DAG Scheduler 按优先级排序 ready 队列。同时支持优先级继承：如果高优先级任务被低优先级上游阻塞，自动提升上游优先级，促使阻塞链尽快完成。当前阶段 FIFO 已满足需求，不提前引入复杂性。
 
 ### 失败处理详细规则
 
@@ -651,9 +653,9 @@ type ReviewResult struct {
 
 | 实现 | 说明 | 阶段 |
 |------|------|------|
-| `review-ai-panel` | Multi-Agent 审核委员会（默认） | P2b |
-| `review-local` | Workbench/TUI 中人工直接审批 | P2a |
-| `review-github-pr` | 创建 PR 提交 tasks.json，等 merge | P3 |
+| `review-ai-panel` | Multi-Agent 审核委员会（默认） | P2b ✅ |
+| `review-local` | Workbench/TUI 中人工直接审批 | P2a ✅ |
+| `review-github-pr` | 创建 PR 提交 tasks.json，等 merge | P3 🔧 |
 
 ### Tracker 插件
 
@@ -675,8 +677,8 @@ type Tracker interface {
 
 | 实现 | 说明 | 阶段 |
 |------|------|------|
-| `tracker-local` | 纯本地，不同步到外部系统（默认，空实现） | P2a |
-| `tracker-github` | 同步为 GitHub Issue + Label 管理 | P3 |
+| `tracker-local` | 纯本地，不同步到外部系统（默认，空实现） | P2a ✅ |
+| `tracker-github` | 同步为 GitHub Issue + Label 管理 | P3 🔧 |
 | `tracker-linear` | 同步到 Linear | P4 |
 
 `tracker-local` 是一个 no-op 实现——所有状态都在 SQLite 的 `task_items` 表中，不需要外部同步。Tracker 插件只负责**镜像**到外部系统，不是核心逻辑。

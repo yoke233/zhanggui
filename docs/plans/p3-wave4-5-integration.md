@@ -8,11 +8,12 @@
 
 ## Wave 4 Depends On
 
-- `[W3-T1, W3-T2, W3-T3, W3-T4]`
+- `[W3-T1, W3-T2, W3-T3, W3-T4, W25-T3, W25-T5, W25-T6]`
 
 ## Wave 4 Entry Data
 
 - 双向同步主链路已可用。
+- Wave 2.5 的 queue/DLQ/reconcile/trace/admin/permission gate 已通过。
 - 当前默认插件仍可退回 local 模式。
 - CLI 已有基础命令框架（`cmd/ai-flow/commands.go`）。
 
@@ -166,7 +167,7 @@ git commit -m "feat(github): wire plugins into factory and cli validation"
 - Modify: `internal/core/review_gate.go`
 - Test: `internal/plugins/review-github-pr/review_test.go`
 
-**Depends on:** `[W3-T2, W2-T2]`
+**Depends on:** `[W3-T2, W2-T2, W4-T2]`
 
 **Step 1: Write failing test**
 ```text

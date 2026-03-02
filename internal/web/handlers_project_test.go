@@ -2,12 +2,18 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/user/ai-workflow/internal/core"
 )
 
@@ -110,4 +116,518 @@ func TestCreateProjectThenGetProject(t *testing.T) {
 	if got.ID != created.ID {
 		t.Fatalf("expected id %s, got %s", created.ID, got.ID)
 	}
+}
+
+func TestCreateProjectRequestValidation(t *testing.T) {
+	store := newTestStore(t)
+	provisioner := &stubProjectRepoProvisioner{}
+	srv := NewServer(Config{
+		Store:                  store,
+		ProjectRepoProvisioner: provisioner,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name     string
+		body     map[string]any
+		wantCode string
+	}{
+		{
+			name: "missing source type",
+			body: map[string]any{
+				"name": "proj-1",
+			},
+			wantCode: "SOURCE_TYPE_REQUIRED",
+		},
+		{
+			name: "invalid source type",
+			body: map[string]any{
+				"name":        "proj-1",
+				"source_type": "random_source",
+			},
+			wantCode: "INVALID_SOURCE_TYPE",
+		},
+		{
+			name: "local path missing repo path",
+			body: map[string]any{
+				"name":        "proj-1",
+				"source_type": string(projectSourceTypeLocalPath),
+			},
+			wantCode: "REPO_PATH_REQUIRED",
+		},
+		{
+			name: "local new missing slug and name",
+			body: map[string]any{
+				"source_type": string(projectSourceTypeLocalNew),
+			},
+			wantCode: "SLUG_REQUIRED",
+		},
+		{
+			name: "github clone missing owner",
+			body: map[string]any{
+				"name":        "proj-1",
+				"source_type": string(projectSourceTypeGitHubClone),
+				"github": map[string]any{
+					"repo": "demo",
+				},
+			},
+			wantCode: "GITHUB_OWNER_REQUIRED",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.body)
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
+			if err != nil {
+				t.Fatalf("POST create request: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", resp.StatusCode)
+			}
+			var out apiError
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatalf("decode error payload: %v", err)
+			}
+			if out.Code != tc.wantCode {
+				t.Fatalf("expected code %s, got %s", tc.wantCode, out.Code)
+			}
+		})
+	}
+}
+
+func TestCreateProjectRequestLifecycleSucceeded(t *testing.T) {
+	store := newTestStore(t)
+	repoPath := filepath.Join(t.TempDir(), "repo-local-path")
+	provisioner := &stubProjectRepoProvisioner{
+		delay: 80 * time.Millisecond,
+	}
+	srv := NewServer(Config{
+		Store:                  store,
+		ProjectRepoProvisioner: provisioner,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqBody := map[string]any{
+		"name":        "proj-async-local-path",
+		"source_type": string(projectSourceTypeLocalPath),
+		"repo_path":   repoPath,
+	}
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST create request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	var accepted createProjectRequestAcceptedPayload
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+		t.Fatalf("decode accepted payload: %v", err)
+	}
+	if strings.TrimSpace(accepted.RequestID) == "" {
+		t.Fatal("expected request_id")
+	}
+	if accepted.Status != string(projectCreateRequestStatusPending) {
+		t.Fatalf("expected pending status, got %s", accepted.Status)
+	}
+
+	finalState, seenStatuses := waitForCreateRequestTerminalState(t, ts.URL, accepted.RequestID, 5*time.Second)
+	if finalState.Status != string(projectCreateRequestStatusSucceeded) {
+		t.Fatalf("expected succeeded status, got %+v", finalState)
+	}
+	if finalState.Step != "complete" {
+		t.Fatalf("expected final step %q, got %q", "complete", finalState.Step)
+	}
+	if finalState.Progress != 100 {
+		t.Fatalf("expected final progress 100, got %d", finalState.Progress)
+	}
+	if _, ok := seenStatuses[string(projectCreateRequestStatusRunning)]; !ok {
+		t.Fatalf("expected to observe running status, seen=%v", seenStatuses)
+	}
+	if finalState.ProjectID == "" {
+		t.Fatal("expected project_id in succeeded state")
+	}
+	if finalState.RepoPath != repoPath {
+		t.Fatalf("expected repo_path %s, got %s", repoPath, finalState.RepoPath)
+	}
+
+	getResp, err := http.Get(ts.URL + "/api/v1/projects/" + finalState.ProjectID)
+	if err != nil {
+		t.Fatalf("GET project: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for created project, got %d", getResp.StatusCode)
+	}
+	var created core.Project
+	if err := json.NewDecoder(getResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created project: %v", err)
+	}
+	if created.Name != "proj-async-local-path" {
+		t.Fatalf("expected project name %s, got %s", "proj-async-local-path", created.Name)
+	}
+	if created.RepoPath != repoPath {
+		t.Fatalf("expected project repo_path %s, got %s", repoPath, created.RepoPath)
+	}
+
+	calls := provisioner.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 provisioner call, got %d", len(calls))
+	}
+	if calls[0].SourceType != string(projectSourceTypeLocalPath) {
+		t.Fatalf("expected source type %s, got %s", projectSourceTypeLocalPath, calls[0].SourceType)
+	}
+	if calls[0].RepoPath != repoPath {
+		t.Fatalf("expected repo_path %s in provisioner call, got %s", repoPath, calls[0].RepoPath)
+	}
+}
+
+func TestCreateProjectRequestGitHubCloneAcceptsTopLevelFields(t *testing.T) {
+	store := newTestStore(t)
+	repoPath := filepath.Join(t.TempDir(), "repo-github-clone")
+	provisioner := &stubProjectRepoProvisioner{
+		result: ProjectRepoProvisionResult{
+			RepoPath:    repoPath,
+			GitHubOwner: "acme",
+			GitHubRepo:  "demo-repo",
+		},
+	}
+	srv := NewServer(Config{
+		Store:                  store,
+		ProjectRepoProvisioner: provisioner,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqBody := map[string]any{
+		"source_type": string(projectSourceTypeGitHubClone),
+		"owner":       "acme",
+		"repo":        "demo-repo",
+		"ref":         "main",
+	}
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST create request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+
+	var accepted createProjectRequestAcceptedPayload
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+		t.Fatalf("decode accepted payload: %v", err)
+	}
+	finalState, _ := waitForCreateRequestTerminalState(t, ts.URL, accepted.RequestID, 5*time.Second)
+	if finalState.Status != string(projectCreateRequestStatusSucceeded) {
+		t.Fatalf("expected succeeded status, got %+v", finalState)
+	}
+	if finalState.Progress != 100 {
+		t.Fatalf("expected final progress 100, got %d", finalState.Progress)
+	}
+
+	calls := provisioner.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 provisioner call, got %d", len(calls))
+	}
+	if calls[0].SourceType != string(projectSourceTypeGitHubClone) {
+		t.Fatalf("expected source type %s, got %s", projectSourceTypeGitHubClone, calls[0].SourceType)
+	}
+	if calls[0].GitHubOwner != "acme" {
+		t.Fatalf("expected github owner %q, got %q", "acme", calls[0].GitHubOwner)
+	}
+	if calls[0].GitHubRepo != "demo-repo" {
+		t.Fatalf("expected github repo %q, got %q", "demo-repo", calls[0].GitHubRepo)
+	}
+	if calls[0].GitHubRef != "main" {
+		t.Fatalf("expected github ref %q, got %q", "main", calls[0].GitHubRef)
+	}
+
+	project, err := store.GetProject(finalState.ProjectID)
+	if err != nil {
+		t.Fatalf("load created project: %v", err)
+	}
+	if project.Name != "demo-repo" {
+		t.Fatalf("expected project name %q, got %q", "demo-repo", project.Name)
+	}
+	if project.RepoPath != repoPath {
+		t.Fatalf("expected repo path %q, got %q", repoPath, project.RepoPath)
+	}
+}
+
+func TestCreateProjectRequestLifecycleFailed(t *testing.T) {
+	store := newTestStore(t)
+	provisioner := &stubProjectRepoProvisioner{
+		err: errors.New("provision failed"),
+	}
+	srv := NewServer(Config{
+		Store:                  store,
+		ProjectRepoProvisioner: provisioner,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	reqBody := map[string]any{
+		"name":        "proj-async-failed",
+		"source_type": string(projectSourceTypeLocalPath),
+		"repo_path":   filepath.Join(t.TempDir(), "repo-local-path-failed"),
+	}
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST create request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	var accepted createProjectRequestAcceptedPayload
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+		t.Fatalf("decode accepted payload: %v", err)
+	}
+
+	finalState, _ := waitForCreateRequestTerminalState(t, ts.URL, accepted.RequestID, 5*time.Second)
+	if finalState.Status != string(projectCreateRequestStatusFailed) {
+		t.Fatalf("expected failed status, got %+v", finalState)
+	}
+	if !strings.Contains(finalState.Error, "provision failed") {
+		t.Fatalf("expected failure message to contain %q, got %q", "provision failed", finalState.Error)
+	}
+	if strings.TrimSpace(finalState.ProjectID) != "" {
+		t.Fatalf("expected empty project_id for failed request, got %s", finalState.ProjectID)
+	}
+
+	projects, err := store.ListProjects(core.ProjectFilter{})
+	if err != nil {
+		t.Fatalf("list projects after failed create: %v", err)
+	}
+	if len(projects) != 0 {
+		t.Fatalf("expected no created projects after failure, got %d", len(projects))
+	}
+}
+
+func TestGetProjectCreateRequestNotFound(t *testing.T) {
+	store := newTestStore(t)
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/create-requests/not-exists")
+	if err != nil {
+		t.Fatalf("GET create request by id: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	var out apiError
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode error payload: %v", err)
+	}
+	if out.Code != "CREATE_REQUEST_NOT_FOUND" {
+		t.Fatalf("expected code CREATE_REQUEST_NOT_FOUND, got %s", out.Code)
+	}
+}
+
+func TestCreateProjectRequestBroadcastsProgressEvents(t *testing.T) {
+	store := newTestStore(t)
+	provisioner := &stubProjectRepoProvisioner{
+		delay: 80 * time.Millisecond,
+	}
+	hub := NewHub()
+	srv := NewServer(Config{
+		Store:                  store,
+		Hub:                    hub,
+		ProjectRepoProvisioner: provisioner,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	if !waitForConnections(hub, 1, time.Second) {
+		t.Fatal("ws connection did not register in hub")
+	}
+
+	reqBody := map[string]any{
+		"name":        "proj-async-events",
+		"source_type": string(projectSourceTypeLocalPath),
+		"repo_path":   filepath.Join(t.TempDir(), "repo-local-path-events"),
+	}
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST create request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	var accepted createProjectRequestAcceptedPayload
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+		t.Fatalf("decode accepted payload: %v", err)
+	}
+
+	gotTypes := map[string]bool{}
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		msg := readWSMessage(t, conn, 2*time.Second)
+		reqID, _ := msg.Data["request_id"].(string)
+		if reqID != accepted.RequestID {
+			continue
+		}
+		sourceType, _ := msg.Data["source_type"].(string)
+		if sourceType != string(projectSourceTypeLocalPath) {
+			t.Fatalf("expected source_type %s, got %s", projectSourceTypeLocalPath, sourceType)
+		}
+		step, _ := msg.Data["step"].(string)
+		if strings.TrimSpace(step) == "" {
+			t.Fatalf("expected non-empty step, msg=%+v", msg)
+		}
+		message, _ := msg.Data["message"].(string)
+		if strings.TrimSpace(message) == "" {
+			t.Fatalf("expected non-empty message, msg=%+v", msg)
+		}
+		gotTypes[msg.Type] = true
+		if msg.Type == "project_create_succeeded" {
+			break
+		}
+	}
+
+	if !gotTypes["project_create_started"] {
+		t.Fatalf("expected project_create_started event, got=%v", gotTypes)
+	}
+	if !gotTypes["project_create_progress"] {
+		t.Fatalf("expected project_create_progress event, got=%v", gotTypes)
+	}
+	if !gotTypes["project_create_succeeded"] {
+		t.Fatalf("expected project_create_succeeded event, got=%v", gotTypes)
+	}
+}
+
+type createProjectRequestAcceptedPayload struct {
+	RequestID string `json:"request_id"`
+	Status    string `json:"status"`
+}
+
+type createProjectRequestStatePayload struct {
+	RequestID  string `json:"request_id"`
+	SourceType string `json:"source_type"`
+	Status     string `json:"status"`
+	ProjectID  string `json:"project_id,omitempty"`
+	RepoPath   string `json:"repo_path,omitempty"`
+	Step       string `json:"step,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Progress   int    `json:"progress"`
+	Error      string `json:"error,omitempty"`
+}
+
+func waitForCreateRequestTerminalState(
+	t *testing.T,
+	baseURL string,
+	requestID string,
+	timeout time.Duration,
+) (createProjectRequestStatePayload, map[string]struct{}) {
+	t.Helper()
+
+	seenStatuses := map[string]struct{}{}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + "/api/v1/projects/create-requests/" + requestID)
+		if err != nil {
+			t.Fatalf("GET create request state: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			t.Fatalf("expected 200 while polling create request, got %d", resp.StatusCode)
+		}
+
+		var state createProjectRequestStatePayload
+		if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+			_ = resp.Body.Close()
+			t.Fatalf("decode create request state: %v", err)
+		}
+		_ = resp.Body.Close()
+		seenStatuses[state.Status] = struct{}{}
+		if state.Status == string(projectCreateRequestStatusSucceeded) || state.Status == string(projectCreateRequestStatusFailed) {
+			return state, seenStatuses
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("timeout waiting for create request %s to finish", requestID)
+	return createProjectRequestStatePayload{}, seenStatuses
+}
+
+type stubProjectRepoProvisioner struct {
+	mu     sync.Mutex
+	delay  time.Duration
+	result ProjectRepoProvisionResult
+	err    error
+	calls  []ProjectRepoProvisionInput
+}
+
+func (s *stubProjectRepoProvisioner) Provision(ctx context.Context, input ProjectRepoProvisionInput) (ProjectRepoProvisionResult, error) {
+	if s.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return ProjectRepoProvisionResult{}, ctx.Err()
+		case <-time.After(s.delay):
+		}
+	}
+
+	s.mu.Lock()
+	s.calls = append(s.calls, input)
+	result := s.result
+	err := s.err
+	s.mu.Unlock()
+
+	if err != nil {
+		return ProjectRepoProvisionResult{}, err
+	}
+
+	if strings.TrimSpace(result.RepoPath) == "" {
+		result.RepoPath = strings.TrimSpace(input.RepoPath)
+	}
+	if strings.TrimSpace(result.GitHubOwner) == "" {
+		result.GitHubOwner = strings.TrimSpace(input.GitHubOwner)
+	}
+	if strings.TrimSpace(result.GitHubRepo) == "" {
+		result.GitHubRepo = strings.TrimSpace(input.GitHubRepo)
+	}
+	return result, nil
+}
+
+func (s *stubProjectRepoProvisioner) Calls() []ProjectRepoProvisionInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ProjectRepoProvisionInput, len(s.calls))
+	copy(out, s.calls)
+	return out
 }

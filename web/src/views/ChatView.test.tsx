@@ -101,6 +101,38 @@ describe("ChatView", () => {
     expect(screen.getByText("已完成拆分")).toBeTruthy();
   });
 
+  it("已有会话时发送消息会携带 session_id 继续对话", async () => {
+    const apiClient = createMockApiClient();
+
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "第一轮" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.createChat).toHaveBeenNthCalledWith(1, "proj-1", {
+        message: "第一轮",
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "第二轮" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.createChat).toHaveBeenNthCalledWith(2, "proj-1", {
+        message: "第二轮",
+        session_id: "chat-1",
+      });
+    });
+  });
+
   it("会话创建后可触发 createPlan", async () => {
     const apiClient = createMockApiClient();
 

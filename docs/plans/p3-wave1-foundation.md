@@ -86,7 +86,7 @@ Expected: 事件常量缺失/配置合并失败/工厂选择断言失败。
 
 **Step 3: Minimal implementation**
 ```text
-补齐 GitHub 事件常量；扩展 GitHub 配置结构（plugins/pr/label_mapping/authorized_usernames/auto_trigger）；
+补齐 GitHub 事件常量；扩展 GitHub 配置结构（`enabled`、认证字段、`owner/repo`、`webhook_secret`、`webhook_enabled`、`pr_enabled`、`label_mapping`、`authorized_usernames`、`auto_trigger`、`pr.*`）；
 在工厂中引入按 github.enabled 与显式覆盖选择插件名的决策函数（仅决策，不要求插件已实现）。
 ```
 
@@ -216,6 +216,7 @@ git commit -m "feat(github): add reusable github service operations"
 - Wave-specific acceptance:
   - [ ] `internal/github` 基础客户端与通用操作层可用，相关测试通过。
   - [ ] `internal/web` 已支持 `/webhook` 验签与项目路由。
+  - [ ] GitHub 配置模型与 `docs/spec` 语义一致（无 `plugins` 伪字段漂移）。
   - [ ] `github.enabled=false` 下全量核心测试不回归失败。
 - Wave-specific verification:
   - [ ] `go test ./internal/github ./internal/web ./internal/config ./internal/plugins/factory -run 'GitHub|Webhook|Factory'` 通过。

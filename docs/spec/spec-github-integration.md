@@ -2,7 +2,9 @@
 
 > **重要：GitHub 集成是可选增强，不是必需组件。** 系统的核心功能（任务拆解、审核、DAG 调度、Pipeline 执行）完全在本地运行（SQLite + 本地 Git）。GitHub 集成提供双向状态同步：GitHub Issue/PR 的变化驱动 Pipeline，Pipeline 的执行进度反映到 Issue/PR。启用后，用户可以在 GitHub 上通过评论驱动整个开发流程。
 >
-> **阶段：P3**（P0~P2 不需要 GitHub 即可完整运行）
+> **阶段：P3**（P0~P2 已完成，不需要 GitHub 即可完整运行）
+>
+> **当前进度**：Wave1（基础设施）✅ 已完成——GitHub 认证客户端、Service 操作层（Issue/PR/Label CRUD）、Webhook 端点与 HMAC-SHA256 签名验证、多项目路由、配置体系与工厂选择逻辑。Wave2（核心业务：tracker-github、scm-github、Issue 触发、斜杠命令）🔧 进行中。review-github-pr 为可选增强，不阻塞 P3 Done——默认审核仍使用 review-ai-panel。
 
 ## 前置条件：基础设施抽象
 
@@ -12,6 +14,8 @@ GitHub 集成通过两个插件槽位接入系统，不侵入核心逻辑：
 |---------|------------|---------------------|------|
 | Tracker | `tracker-github` | `tracker-local`（空实现） | 将 TaskItem 同步为 GitHub Issue + Label 管理 |
 | ReviewGate | `review-github-pr` | `review-ai-panel`（Multi-Agent 审核） | 将 TaskPlan 审核通过 GitHub PR 进行 |
+
+> 注：`tracker-linear` 作为 Tracker 扩展实现属于 P4 范围，见 [spec-overview.md](spec-overview.md) 的插件槽位与路线图；本文件聚焦 GitHub 场景，不展开 Linear 细节。
 
 核心逻辑（DAG Scheduler、Pipeline Engine）只依赖抽象接口，不直接调用 GitHub API。
 
@@ -124,14 +128,13 @@ github:
 🤖 **AI Workflow Orchestrator**
 
 Pipeline 已创建：`pipeline-20260228-abc123`
-模板：`standard`（由标签 `type: bug` 推断）
+模板：`quick`（由标签 `type: bug` 推断）
 
 阶段：requirements → worktree_setup → implement → code_review → fixup → merge → cleanup
 
 使用斜杠命令控制流程：
 - `/approve` — 审批当前阶段
 - `/reject {stage} {reason}` — 回退到指定阶段
-- `/pause` / `/resume` — 暂停/恢复
 - `/status` — 查看当前状态
 - `/abort` — 终止
 ```
@@ -165,7 +168,7 @@ Pipeline 已创建：`pipeline-20260228-abc123`
 
 - 只识别评论第一行以 `/` 开头的内容
 - 命令不区分大小写
-- 如果评论者不在 authorized_users 列表中，忽略并回复无权限提示
+- 默认按 `author_association` 做权限判定；若评论者在 `authorized_usernames` 白名单中则覆盖放行
 - 无法识别的命令回复帮助信息
 
 ### 权限控制
@@ -358,6 +361,36 @@ ai-flow project scan ~/projects/
 - GitHub API 认证用户限制 5000 req/hour
 - 每次 Pipeline 大约消耗 10-20 个 API 请求（标签更新 + 评论 + PR 操作）
 - 按此计算，单小时可支撑约 250-500 个 Pipeline 操作，完全够用
+
+### 写操作限流器
+
+所有 GitHub API 写操作（创建 Issue、更新标签、添加评论、创建/合并 PR）经过统一的令牌桶限流器，防止批量操作耗尽配额：
+
+```go
+type RateLimitedService struct {
+    inner   *GitHubService
+    limiter *rate.Limiter  // golang.org/x/time/rate
+}
+```
+
+限流规则：
+- GitHub 认证用户主配额 5000 req/h ≈ 1.39 req/s；此外还有 secondary rate limit（短时间突发会触发 HTTP 403）
+- 默认速率：1 req/s，burst 5（对齐主配额，短暂突发不超 secondary limit）
+- 写操作前调用 `limiter.Wait(ctx)`，阻塞等待令牌
+- 读操作不限流（GET 有独立的更高配额，且本系统读操作频率很低）
+- 收到 HTTP 429 或 403（secondary limit）时，解析 `Retry-After` header，退避后重试（最多 3 次）
+- 限流导致的延迟只记录 warning 日志，不阻塞 Pipeline 执行（标签/评论是辅助信息）
+
+配置项（`github:` 段）：
+
+```yaml
+github:
+  rate_limit:
+    requests_per_second: 1     # 写操作每秒最大请求数（5000/h ≈ 1.39/s，留余量）
+    burst: 5                   # 突发容量（应对短时集中操作，如创建 Plan 的多个 Issue）
+    retry_on_limit: true       # 收到 429/403 时自动退避重试
+    max_retries: 3             # 限流重试上限
+```
 
 ### Token 配置
 

@@ -19,6 +19,31 @@ export interface CreateProjectRequest {
   };
 }
 
+export type ProjectSourceType = "local_path" | "local_new" | "github_clone";
+
+export interface CreateProjectCreateRequest {
+  name: string;
+  source_type: ProjectSourceType;
+  repo_path?: string;
+  owner?: string;
+  repo?: string;
+  ref?: string;
+}
+
+export interface CreateProjectCreateRequestResponse {
+  request_id: string;
+}
+
+export interface GetProjectCreateRequestResponse {
+  request_id: string;
+  status: "pending" | "running" | "succeeded" | "failed" | string;
+  source_type?: ProjectSourceType;
+  project_id?: string;
+  progress?: number;
+  message?: string;
+  error?: string;
+}
+
 export interface CreatePipelineRequest {
   name: string;
   description?: string;
@@ -28,6 +53,7 @@ export interface CreatePipelineRequest {
 
 export interface CreateChatRequest {
   message: string;
+  session_id?: string;
 }
 
 export interface CreatePlanRequest {
@@ -106,7 +132,7 @@ export interface PipelineCheckpoint {
 
 export type GetPipelineCheckpointsResponse = PipelineCheckpoint[];
 
-export type ListProjectsResponse = Project[];
+export type ListProjectsResponse = Project[] | null;
 
 export interface PaginatedResponse<T> {
   items: T[];

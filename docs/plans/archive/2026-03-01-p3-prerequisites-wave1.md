@@ -4,7 +4,7 @@
 
 ## Wave Goal
 
-彻底移除 Pipeline 级 `spec_gen/spec_review` 执行语义，统一到“worktree_setup -> requirements -> implement -> code_review/fixup/e2e_test”的新阶段模型。
+彻底移除 Pipeline 级 `spec_gen/spec_review` 执行语义，统一到“requirements -> worktree_setup -> implement -> code_review/fixup/e2e_test”的新阶段模型。
 
 ## Depends On
 
@@ -33,7 +33,7 @@
 新增/调整测试：
 - 验证 Templates["full"] 不含 spec_gen/spec_review，且含 e2e_test。
 - 验证 stage 常量集合不再包含 StageSpecGen/StageSpecReview。
-- 验证 full 模板顺序为 worktree_setup -> requirements -> implement。
+- 验证 full 模板顺序为 requirements -> worktree_setup -> implement。
 ```
 
 **Step 2: Run to confirm failure**
@@ -43,16 +43,16 @@ Expected: 断言失败（旧阶段仍存在）。
 **Step 3: Minimal implementation**
 ```text
 删除 StageSpecGen/StageSpecReview 常量。
-重写 full 模板：worktree_setup -> requirements -> implement -> code_review -> fixup -> e2e_test -> merge -> cleanup。
-本 Wave 不改 requirements 的运行前置约束（仍要求 worktree_path 非空），因此必须保持 worktree_setup 在 requirements 前。
+重写 full 模板：requirements -> worktree_setup -> implement -> code_review -> fixup -> e2e_test -> merge -> cleanup。
+同步修正 requirements 运行前置约束：requirements 不再要求 worktree_path，worktree 相关依赖统一在 worktree_setup/implement 阶段消费。
 同步修正受影响的模板测试和默认推断逻辑。
 ```
 
 **Step 4: Run tests to confirm pass**
 Run: `go test ./internal/core ./internal/engine -run 'Template|Stage'`
 Expected: PASS。
-Run: `go test ./internal/engine -run 'Integration|Full.*Order|Worktree.*Requirements'`
-Expected: PASS（真实执行路径证明 requirements 启动前 worktree_path 已就绪）。
+Run: `go test ./internal/engine -run 'Integration|Full.*Order|Requirements.*Worktree'`
+Expected: PASS（真实执行路径证明 requirements 可先于 worktree_setup 执行）。
 
 **Step 5: Commit**
 ```bash
@@ -162,7 +162,7 @@ git commit -m "refactor(prompt): remove pipeline spec artifacts from prompt vars
 
 ### Smoke Cases
 - `full` 模板会包含 `e2e_test` 且无 spec 阶段。
-- `full` 执行时，首个 agent stage 为 `requirements` 且启动时 `worktree_path` 非空。
+- `full` 执行时，`requirements` 先于 `worktree_setup` 且不依赖 `worktree_path`。
 - `quick` 模板在 needs_fix 时仍能动态插入 fixup。
 
 ## Wave Exit Gate
@@ -174,7 +174,7 @@ git commit -m "refactor(prompt): remove pipeline spec artifacts from prompt vars
 - Wave-specific verification:
   - [ ] `go build ./...` 通过。
   - [ ] `go test ./internal/core ./internal/engine ./internal/web ./internal/secretary` 通过。
-  - [ ] `go test ./internal/engine -run 'Integration|Full.*Order|Worktree.*Requirements'` 通过（非纯单测 smoke）。
+  - [ ] `go test ./internal/engine -run 'Integration|Full.*Order|Requirements.*Worktree'` 通过（非纯单测 smoke）。
 - Boundary-change verification (if triggered):
   - [ ] `rg -n 'StageSpecGen|StageSpecReview|spec_gen|spec_review' internal cmd` 结果仅允许测试说明/注释语境。
 

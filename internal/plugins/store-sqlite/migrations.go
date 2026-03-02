@@ -101,6 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_human_actions_pipeline ON human_actions(pipeline_
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id          TEXT PRIMARY KEY,
     project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    agent_session_id TEXT NOT NULL DEFAULT '',
     messages    TEXT NOT NULL DEFAULT '[]',
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -191,6 +192,11 @@ func applyMigrations(db *sql.DB) error {
 		"outputs":     "outputs TEXT DEFAULT '[]'",
 		"acceptance":  "acceptance TEXT DEFAULT '[]'",
 		"constraints": "constraints TEXT DEFAULT '[]'",
+	}); err != nil {
+		return err
+	}
+	if err := ensureColumns(db, "chat_sessions", map[string]string{
+		"agent_session_id": "agent_session_id TEXT NOT NULL DEFAULT ''",
 	}); err != nil {
 		return err
 	}

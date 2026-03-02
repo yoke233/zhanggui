@@ -8,11 +8,13 @@ import (
 
 // ChatSession stores a conversation history for one project-scoped request.
 type ChatSession struct {
-	ID        string        `json:"id"`
-	ProjectID string        `json:"project_id"`
-	Messages  []ChatMessage `json:"messages"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	// AgentSessionID stores provider-native session id (e.g. Claude session_id) for multi-turn resume.
+	AgentSessionID string        `json:"agent_session_id,omitempty"`
+	Messages       []ChatMessage `json:"messages"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
 }
 
 // ChatMessage is one turn inside a chat session.

@@ -1,6 +1,6 @@
 # P3 Wave 2 — 插件实现（gh-5~7）
 
-> **For Agent:** REQUIRED SUB-SKILL: Use executing-wave-plans to implement this wave and gate it before Wave 3.
+> **For Agent:** REQUIRED SUB-SKILL: Use executing-wave-plans to implement this wave and gate it before Wave 2.5.
 
 ## Wave Goal
 
@@ -118,6 +118,7 @@ git commit -m "feat(scm): add github scm plugin"
 - TestWebhookDispatcher_DifferentIssues_CanRunInParallel
 - TestWebhookDispatcher_DeduplicatesDeliveryID
 - TestWebhookDispatcher_PublishesEventGitHubWebhookReceived
+- TestWebhookDispatcher_CleansIssueMutexAfterCloseOrPipelineDone
 ```
 
 **Step 2: Run to confirm failure**
@@ -127,6 +128,7 @@ Expected: 分发器缺失，串行化断言失败。
 **Step 3: Minimal implementation**
 ```text
 实现按 issue number 的串行执行器 + 短期去重缓存（delivery id）。
+实现 mutex 生命周期管理：Issue 关闭或 Pipeline 完成后延迟 5 分钟清理该 issue 锁（防止尾部事件并发竞态）。
 将 handlers_webhook 入站 payload 统一交给 dispatcher。
 ```
 
@@ -168,12 +170,14 @@ git commit -m "feat(github): add webhook dispatcher with per-issue serialization
 - 同一 `issue_number=101` 的两次事件串行执行且顺序可断言。
 - `issue_number=101/102` 两组事件可并行处理。
 - tracker 创建任务时回写 `external_id`，失败时仅 warning。
+- `issue_number=101` 关闭后，5 分钟延迟窗口过后其 mutex 被回收；新事件可重新创建锁并继续串行。
 
 ## Wave Exit Gate
 - Execute mandatory gate sequence via `executing-wave-plans`.
 - Wave-specific acceptance:
   - [ ] `tracker-github` 与 `scm-github` 包均可独立通过测试。
   - [ ] Webhook dispatcher 实现 per-issue 串行与 delivery 去重。
+  - [ ] Webhook dispatcher 实现 issue 级 mutex 延迟回收策略（5 分钟）。
   - [ ] GitHub API 调用失败不阻塞主执行链路。
 - Wave-specific verification:
   - [ ] `go test ./internal/plugins/tracker-github ./internal/plugins/scm-github ./internal/github -run 'GitHubTracker|GitHubSCM|WebhookDispatcher'` 通过。

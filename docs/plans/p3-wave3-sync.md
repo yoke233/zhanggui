@@ -8,11 +8,14 @@
 
 ## Depends On
 
-- `[W2-T1, W2-T2, W2-T3]`
+- `[W2-T1, W2-T2, W2-T3, W25-T1, W25-T2, W25-T3, W25-T4, W25-T6]`
 
 ## Wave Entry Data
 
 - `tracker-github`、`scm-github`、Webhook dispatcher 已可用。
+- GitHub 出站写操作统一经过 queue（带限流与幂等键）。
+- Webhook 失败事件已进入 DLQ，支持 replay；对账任务可修复状态漂移。
+- Trace ID 可从 webhook/命令入口贯穿到 Pipeline 与日志。
 - Pipeline 主阶段命名以新 spec 为准：`requirements/worktree_setup/implement/code_review/fixup/e2e_test/merge/cleanup`。
 - Pipeline 与 TaskItem 通过 `task_item_id` 关联，GitHub 层不得复制任务契约。
 
@@ -45,6 +48,7 @@ Expected: 触发服务不存在或幂等断言失败。
 ```text
 实现 TriggerFromIssue / TriggerFromCommand。
 保证幂等：同 project_id + issue_number 不重复创建 pipeline。
+所有回帖/标签写入必须通过 outbound queue，携带 issue 维度 idempotency key 与 trace_id。
 创建成功后在 Issue 回帖写入 pipeline_id 与可用命令。
 ```
 
@@ -76,6 +80,8 @@ git commit -m "feat(github): add issue to pipeline trigger"
 - TestParseSlashCommand_Reject_WithStageAndReason  # 示例: /reject implement 数据模型需要重做
 - TestParseSlashCommand_Reject_CodeReview
 - TestSlashACL_UnauthorizedUser_Denied
+- TestSlashACL_AuthorAssociationMatrix_AppliesDefaultPermissions
+- TestSlashACL_WhitelistOverridesAuthorAssociation
 ```
 
 **Step 2: Run to confirm failure**
@@ -86,7 +92,8 @@ Expected: 解析器缺失或旧 stage 名导致断言失败。
 ```text
 实现命令解析：/approve /reject /status /abort /run。
 reject 仅允许当前模板中存在的 stage id；错误 stage 返回提示评论。
-按配置 authorized_usernames 做 ACL。
+ACL 规则按 spec 执行：优先读取 `author_association` 映射命令权限，再由 `authorized_usernames` 白名单做覆盖放行。
+命令执行日志必须落 trace_id + actor + association + action，便于审计与追踪。
 ```
 
 **Step 4: Run tests to confirm pass**
@@ -127,6 +134,7 @@ Expected: 状态映射未实现或 stage label 不一致。
 ```text
 监听 stage_start/stage_complete/human_required/pipeline_done/pipeline_failed。
 标签只使用新 stage id；同步失败记录 warning，不阻塞 pipeline。
+所有状态写回统一提交 outbound queue；对账任务负责补偿修复漏写或乱序。
 ```
 
 **Step 4: Run tests to confirm pass**
@@ -166,6 +174,7 @@ Expected: 生命周期编排缺失。
 **Step 3: Minimal implementation**
 ```text
 implement 阶段完成后创建 Draft PR；code_review/fixup 评论持续追加。
+PR 创建/评论/合并写入统一走 outbound queue，确保限流和幂等。
 收到 pull_request.closed(merged=true) 时将 pipeline 置 done 并跳过剩余阶段。
 ```
 
@@ -202,21 +211,28 @@ git commit -m "feat(github): add draft pr lifecycle orchestration"
 ### Entry Data
 - Issue `#201` 带标签 `type: feature`。
 - authorized user：`maintainer-a`。
+- 两类评论者样本：`author_association=CONTRIBUTOR` 与 `author_association=NONE`。
 - PR webhook fixtures：`pull_request.closed`, `pull_request_review.submitted`。
 
 ### Smoke Cases
 - `issues.opened` 触发 pipeline 创建并在 issue 回帖。
 - `/reject implement xxx` 触发 Pipeline action，错误 stage 给出失败提示。
 - pipeline 完成后 issue 标签从 `pipeline: active` 切换为 `pipeline: done`。
+- 对同一 delivery-id 回放不会产生重复 pipeline/评论/标签写入。
+- 人工 replay 一条失败 webhook 后，状态在一次 reconcile 周期内收敛。
 
 ## Wave Exit Gate
 - Execute mandatory gate sequence via `executing-wave-plans`.
 - Wave-specific acceptance:
   - [ ] Issue/Slash/Status/PR 四条主链路全部打通。
+  - [ ] Slash ACL 与 spec 权限矩阵一致（`author_association` 基线 + 白名单覆盖）。
   - [ ] 所有 stage 同步标签使用新 stage id（无旧规格阶段命名残留）。
   - [ ] 外部 merge 和本地 merge 两条路径都能收敛到一致状态。
+  - [ ] GitHub 写操作无直写路径，全部通过 outbound queue。
+  - [ ] Webhook replay + reconcile 在主链路中可验证且可恢复。
 - Wave-specific verification:
   - [ ] `go test ./internal/github -run 'TestPipelineTrigger_|TestParseSlashCommand_|TestStatusSyncer_|TestPRLifecycle_'` 通过。
+  - [ ] `go test ./internal/github -run 'TestOutboundQueue_|TestReconcileJob_|TestGitHubReplay'` 通过。
   - [ ] `go test ./internal/web ./internal/engine -run 'Webhook|Action|Reaction|Executor'` 通过。
 - Boundary-change verification (if triggered):
   - [ ] 若修改了 pipeline 状态流转，执行 `go test ./internal/core ./internal/engine -run 'Pipeline|Stage|Recovery'` 并确认 PASS。

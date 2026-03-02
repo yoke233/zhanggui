@@ -245,7 +245,10 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
     const targetProjectId = projectId;
 
     try {
-      const created = await apiClient.createChat(targetProjectId, { message });
+      const payload = targetSessionIdRef.current
+        ? { message, session_id: targetSessionIdRef.current }
+        : { message };
+      const created = await apiClient.createChat(targetProjectId, payload);
       if (chatRequestIdRef.current !== requestId) {
         return;
       }
@@ -302,6 +305,11 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
       }
     }
   };
+
+  const targetSessionIdRef = useRef<string | null>(sessionId);
+  useEffect(() => {
+    targetSessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   return (
     <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_320px]">

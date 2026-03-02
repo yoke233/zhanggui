@@ -281,4 +281,62 @@ describe("apiClient", () => {
       "https://github.com/acme/ai-workflow/issues/201",
     );
   });
+
+  it("createProjectCreateRequest/getProjectCreateRequest 命中 create-requests 路由", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ request_id: "req-1" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            request_id: "req-1",
+            status: "succeeded",
+            project_id: "proj-9",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const accepted = await client.createProjectCreateRequest({
+      name: "demo",
+      source_type: "github_clone",
+      owner: "acme",
+      repo: "demo",
+      ref: "main",
+    });
+    const status = await client.getProjectCreateRequest("req-1");
+
+    expect(accepted.request_id).toBe("req-1");
+    expect(status.status).toBe("succeeded");
+    expect(status.project_id).toBe("proj-9");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/create-requests",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/create-requests/req-1",
+    );
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const parsedBody = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+    expect(parsedBody).toEqual({
+      name: "demo",
+      source_type: "github_clone",
+      owner: "acme",
+      repo: "demo",
+      ref: "main",
+    });
+  });
 });

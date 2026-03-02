@@ -302,12 +302,17 @@ agents:
 
 # Spec 插件配置（仅 Secretary Layer 使用，Pipeline 不读取）
 spec:
-  provider: openspec                 # openspec | none | custom
+  provider: openspec                 # openspec | mcp | none | custom
   enabled: true
   on_failure: warn                   # warn | fail
   openspec:
     binary: openspec
     profile: core
+  # mcp:                             # provider=mcp 时启用（P4 预留）
+  #   endpoint: http://127.0.0.1:8081/spec
+  #   api_key: ${MCP_API_KEY}
+  #   timeout: 15s
+  #   context_limit: 20
 
 # 默认 Pipeline 行为
 pipeline:
@@ -361,6 +366,26 @@ github:
   installation_id: 0               # GitHub App 安装 ID
   webhook_secret: ""
   # Webhook 复用 server.port，路由 POST /webhook
+  rate_limit:                      # GitHub 写操作限流（P3 新增）
+    requests_per_second: 1         # 每秒最大写请求数（5000/h ≈ 1.39/s，留余量）
+    burst: 5                       # 突发容量
+    retry_on_limit: true           # 收到 429/403 自动退避重试
+    max_retries: 3                 # 限流重试上限
+
+# Token 预算控制（P4 预留，当前不生效）
+# budget:
+#   monthly_token_limit: 0         # 0 = 不限制；正数 = 月度 Token 上限
+#   warn_threshold: 0.8            # 消耗达 80% 时告警
+#   action_on_exceed: warn         # warn = 仅告警 / pause = 暂停自动任务
+
+# 数据库备份（P4 预留，当前不生效）
+# 归属 store 段，由 Store 插件负责执行
+# store:
+#   backup:
+#     enabled: false
+#     interval: 24h                # 备份间隔
+#     path: ~/.ai-workflow/backups/  # 备份目录
+#     max_copies: 7                # 保留最近 N 份
 
 # Web Server（同时承载 API + WebSocket + GitHub Webhook）
 server:
@@ -406,10 +431,14 @@ pipeline:
 
 # 覆盖 Spec 插件配置（仅影响 Secretary 上下文增强）
 spec:
-  provider: openspec
+  provider: openspec                 # openspec | mcp | none | custom
   enabled: true
   openspec:
     profile: app-a
+  # mcp:
+  #   endpoint: http://127.0.0.1:8081/spec
+  #   timeout: 10s
+  #   context_limit: 10
 
 # 自定义模板
 custom_templates:

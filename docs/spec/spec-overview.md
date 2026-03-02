@@ -92,7 +92,7 @@
 | Agent | AI 编码工具封装 | claude-code, codex | aider, opencode |
 | Runtime | Agent 执行环境 | process（直接子进程） | tmux, docker, k8s |
 | Workspace | 代码隔离方式 | worktree | clone |
-| Spec | 项目规格上下文（供 Secretary Agent 使用） | openspec | 自定义 spec 源（Notion, Confluence 等） |
+| Spec | 项目规格上下文（供 Secretary Agent 使用） | openspec | mcp（P4）, 自定义 spec 源（Notion, Confluence 等） |
 | SCM | 代码托管操作 | local-git（本地分支/commit/push） | github（PR/Issue 同步） |
 | Notifier | 人工通知渠道 | desktop | slack, webhook |
 | Store | 状态持久化 | sqlite | postgres（远程） |
@@ -185,6 +185,7 @@ ai-workflow/
 │   │   ├── agent-claude/       # Agent 插件：Claude Code
 │   │   ├── agent-codex/        # Agent 插件：Codex CLI
 │   │   ├── spec-openspec/      # Spec 插件：OpenSpec
+│   │   ├── spec-mcp/           # Spec 插件：MCP（P4）
 │   │   ├── runtime-process/    # Runtime 插件：直接子进程
 │   │   ├── runtime-tmux/       # Runtime 插件：tmux 会话
 │   │   ├── workspace-worktree/ # Workspace 插件：git worktree
@@ -193,6 +194,7 @@ ai-workflow/
 │   │   ├── review-local/       # ReviewGate 插件：本地人工审批
 │   │   ├── tracker-local/      # Tracker 插件：本地（空实现）
 │   │   ├── tracker-github/     # Tracker 插件：GitHub Issue
+│   │   ├── tracker-linear/     # Tracker 插件：Linear（P4）
 │   │   ├── notifier-desktop/   # Notifier 插件：桌面通知
 │   │   ├── notifier-slack/     # Notifier 插件：Slack
 │   │   ├── notifier-webhook/   # Notifier 插件：通用 Webhook
@@ -309,11 +311,70 @@ ai-workflow/
 |---|---|---|
 | P0 ✅ | Agent Driver + Pipeline Engine + CLI/TUI | 本地单任务自动化工具 |
 | P1 ✅ | 多项目调度 + 配置驱动工厂 + 崩溃恢复 | Scheduler + Registry + 三级配置 + Reactions V1 |
-| P2-Foundation | 插件接口 + API 基础设施 | ReviewGate/Tracker/SCM/Notifier 接口 + local 默认实现 + REST/WS |
-| P2a | Secretary Agent + TaskPlan + DAG Scheduler | 对话 → 任务拆解 → 依赖并行执行（纯后端） |
-| P2b | Multi-Agent Review Panel | AI 强门禁审核（3 Reviewer + Aggregator，max_rounds=2） |
-| P2c | Workbench UI (Web) | Chat + Plan + Board + Pipeline 四视图，Web 为主界面 |
-| P3 | GitHub 集成（**可选增强**） | github-issue Tracker + github-pr ReviewGate + Webhook |
+| P2-Foundation ✅ | 插件接口 + API 基础设施 | ReviewGate/Tracker/SCM/Notifier 接口 + local 默认实现 + REST/WS |
+| P2a ✅ | Secretary Agent + TaskPlan + DAG Scheduler | 对话 → 任务拆解 → 依赖并行执行（纯后端） |
+| P2b ✅ | Multi-Agent Review Panel | AI 强门禁审核（3 Reviewer + Aggregator，max_rounds=2） |
+| P2c ✅ | Workbench UI (Web) | Chat + Plan + Board + Pipeline 四视图，Web 为主界面 |
+| P3 🔧 | GitHub 集成（**可选增强**） | github-issue Tracker + github-pr ReviewGate + Webhook |
 | P4 | 高级定制 + MCP 扩展 + 通知 | 自定义 Template + Slack/Webhook 通知 |
 
 > **关键变化**：GitHub 从 P2 推迟到 P3，变为可选增强而非必需。P2 专注于让 Secretary Layer（任务拆解 + 审核 + DAG 调度）+ Workbench UI 在纯本地跑通。详见 [spec-secretary-layer.md](spec-secretary-layer.md)。
+>
+> **当前进度**：P3 Wave1（GitHub 基础设施）已完成——包括认证客户端、GitHub Service 操作层、Webhook 端点与签名验证、多项目路由、配置与工厂选择逻辑。Wave2（核心业务：tracker-github、scm-github、Issue 触发、斜杠命令）进行中。review-github-pr 为可选增强，不阻塞 P3 Done。
+
+## 架构边界与演进方向
+
+### 当前定位
+
+本系统是**单用户、本地优先、单进程**的智能任务编排工具，不是多团队分布式平台。这是刻意的设计选择：
+
+- 核心功能完全在本地 SQLite + Git 上运行，不依赖外部服务
+- 单进程内 goroutine 并发，不引入分布式协调（etcd / Saga / 消息队列）
+- GitHub 是可选镜像，不是 source of truth
+- 面向个人开发者或小团队的单实例部署
+
+### 已覆盖的健壮性设计
+
+以下常见系统风险在当前 spec 中已有对应设计：
+
+| 风险 | 覆盖位置 |
+|------|---------|
+| 任务拆解粒度不一 | Secretary Agent Prompt 强制 JSON schema + 审核委员会三维校验（完整性/依赖性/可行性） |
+| 依赖循环 | DAG.Validate() Kahn 算法检测环 + 自依赖 + 孤立引用（[spec-secretary-layer.md](spec-secretary-layer.md) §VI） |
+| 执行器崩溃 | Pipeline 崩溃恢复（Checkpoint 恢复）+ Activity Detection 30s 轮询（[spec-agent-drivers.md](spec-agent-drivers.md) §VII） |
+| 人工逃生舱 | 8 种人工操作 + FailPolicy 三策略 + waiting_human 两种原因（[spec-pipeline-engine.md](spec-pipeline-engine.md) §IV） |
+| 权限与安全 | GitHub App vs PAT 双模认证 + per-repo webhook secret + author_association 权限矩阵（[spec-github-integration.md](spec-github-integration.md) §VII） |
+| 数据一致性 | "GitHub 是镜像不是 source of truth" + 离线降级 + 恢复后最终状态同步（[spec-github-integration.md](spec-github-integration.md) §IX） |
+| 审核版本追溯 | review_records 每轮审核快照 + human_actions 审计日志（[spec-api-config.md](spec-api-config.md) §IV） |
+| 多语言支持 | AllowedTools 按阶段+语言栈配置 + 项目级 stage_tools 覆盖（[spec-agent-drivers.md](spec-agent-drivers.md) §III） |
+| 外部系统集成 | 10 插件槽位（Notifier/Tracker/SCM 各有多种实现）（本文档"Plugin 槽位说明"） |
+
+### P3 补强项
+
+以下在 P3 实现中一并落地：
+
+- **GitHub 写操作限流器**：所有 GitHub API 写操作经过令牌桶限流（`golang.org/x/time/rate`），确保不超配额。详见 [spec-github-integration.md](spec-github-integration.md) §VII。
+- **GitHub 链路 Trace（入口级）**：P3 覆盖 webhook / slash command / pipeline 入口 trace 贯通，目标是排障与回放。
+
+### P4 规划项
+
+以下功能纳入 P4 阶段考虑：
+
+| 功能 | 说明 |
+|------|------|
+| **优先级调度** | TaskItem 增加 `priority` 字段（P0/P1/P2），DAG Scheduler 按优先级排序 ready 队列，支持优先级继承（高优任务的阻塞依赖自动提升） |
+| **Token 预算控制** | 全局和项目级月度 Token 上限，超限暂停自动任务并通知。配置项：`budget.monthly_token_limit` |
+| **统一 Trace ID** | TaskPlan 级生成 trace_id，传递到 TaskItem → Pipeline → Checkpoint → 日志，便于端到端追踪（该项补齐 P3 入口级 trace 未覆盖的 Secretary→DAG→Review 路径） |
+| **数据库备份** | 支持定时自动备份 SQLite 数据库。配置项：`store.backup.interval`、`store.backup.path`（见 [spec-api-config.md](spec-api-config.md) §III） |
+
+### 不在路线图中的设计
+
+以下"多团队分布式"方案在当前架构下不适用，**刻意不引入**以避免过度工程：
+
+- 分布式调度器（etcd / PostgreSQL 集群）— 单进程 + 崩溃恢复已满足可靠性
+- 事件溯源 / Saga 模式 — 本地 SQLite 事务 + "GitHub 是镜像"设计已避免一致性问题
+- 跨团队依赖协调 — 所有依赖在单个 DAG 内解析，不存在跨组问题
+- mTLS 服务间认证 — 单进程，无服务间通信
+- 角色化权限与数据隔离 — 单用户工具，无跨团队数据泄露风险
+
+> **演进原则**：如果未来需要扩展为团队级平台，优先通过**多实例部署 + 共享 Git 仓库**的方式横向扩展，而非将单进程改造为分布式系统。每个团队运行自己的 Orchestrator 实例，通过 Git 和 GitHub 作为天然的协调层。

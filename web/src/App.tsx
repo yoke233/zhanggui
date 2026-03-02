@@ -3,6 +3,7 @@ import ChatView from "./views/ChatView";
 import PlanView from "./views/PlanView";
 import BoardView from "./views/BoardView";
 import PipelineView from "./views/PipelineView";
+import ProjectAdminPanel from "./components/ProjectAdminPanel";
 import { createApiClient, type ApiClient } from "./lib/apiClient";
 import { createWsClient, type WsClient } from "./lib/wsClient";
 import type { WsEnvelope } from "./types/ws";
@@ -113,14 +114,21 @@ const App = () => {
     selectedProjectIdRef.current = selectedProjectId;
   }, [selectedProjectId]);
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (preferredProjectId?: string | null) => {
     setProjectsLoading(true);
     setProjectsError(null);
 
     try {
-      const nextProjects = await apiClient.listProjects();
+      const listedProjects = await apiClient.listProjects();
+      const nextProjects = Array.isArray(listedProjects) ? listedProjects : [];
       setProjects(nextProjects);
       setSelectedProjectId((current) => {
+        if (
+          preferredProjectId &&
+          nextProjects.some((project) => project.id === preferredProjectId)
+        ) {
+          return preferredProjectId;
+        }
         if (current && nextProjects.some((project) => project.id === current)) {
           return current;
         }
@@ -231,6 +239,15 @@ const App = () => {
               加载项目失败：{projectsError}
             </p>
           ) : null}
+
+          <ProjectAdminPanel
+            apiClient={apiClient}
+            wsClient={wsClient}
+            wsStatus={wsStatus}
+            onProjectCreated={async (projectId) => {
+              await loadProjects(projectId);
+            }}
+          />
         </header>
 
         <nav className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
