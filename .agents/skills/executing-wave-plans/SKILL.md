@@ -17,10 +17,11 @@ Execute plan work one wave at a time with hard gates between waves. This skill o
 - Default severity policy: High/Medium findings must be fixed or explicitly waived
 - Wave transition rule: only `Go` or satisfied `Conditional Go` can enter next wave
 - Evidence minimum for each wave (commit, review notes, fix mapping, verification output, verdict)
+- Gate scope policy: wave gate only evaluates current-wave development closure
 - Stop conditions and escalation behavior when blocked
 - Default TDD development discipline
 - Default in-wave parallel execution strategy
-- Workspace lifecycle and cross-wave convergence policy
+- Workspace lifecycle and wave-local gate policy
 
 ## What Must Stay In Plan
 - Wave map, task IDs, and dependency DAG
@@ -32,8 +33,8 @@ Execute plan work one wave at a time with hard gates between waves. This skill o
 - Default: create one base branch/worktree for the whole plan before Wave 1.
 - Default: reuse that same base branch/worktree for Wave 2..N.
 - Exception: per-wave base worktrees (for example `wave1`, `wave2`) are allowed when needed for coordination or isolation.
-- Mandatory convergence: each wave must be merged/rebased/cherry-picked back into one shared plan integration branch before that wave exit gate is passed.
-- Next wave must start from the updated plan integration branch state.
+- Gate-local rule: passing a wave gate only requires wave-internal evidence and verification; merge/rebase/cherry-pick to any shared integration branch is optional at gate time.
+- Next wave may continue from the accepted wave branch/worktree state. Convergence timing is team-defined.
 - Optional in-wave parallel lanes may use temporary lane branches/worktrees only inside the current wave.
 - Merge lane work back to the current working base (plan base or wave base) before the wave exit gate, then close lane worktrees.
 
@@ -77,7 +78,7 @@ Cross-wave parallelism is forbidden.
 1. Read the plan and identify all waves in order.
 2. Set workspace model upfront:
    - default model: create or verify one base plan branch/worktree via `superpowers:using-git-worktrees` (run once per plan)
-   - exception model: if using per-wave base worktrees, define the shared plan integration branch and merge-back method before coding
+   - exception model: if using per-wave base worktrees, define branch naming and how accepted wave state will be carried forward (merge/rebase/cherry-pick can be deferred)
 3. Confirm branch/worktree safety before implementation.
 4. Raise plan ambiguity before writing code.
 
@@ -88,13 +89,14 @@ Cross-wave parallelism is forbidden.
 4. Do not start tasks from later waves, even if they look unblocked.
 5. Keep plan continuity:
    - default model: stay on the same base plan worktree across all waves
-   - exception model: if on per-wave base worktrees, merge back into the shared integration branch before wave verdict and start next wave from that merged state
+   - exception model: if on per-wave base worktrees, start next wave from the accepted branch/worktree state; shared-branch convergence can happen later by team policy
 
 ### Step 3: Run Wave Exit Gate (Mandatory)
-1. **Code committed:** at least one traceable commit/PR linked to wave scope
+Gate decision is based only on wave-internal closure.
+1. **Development completed:** wave task scope is implemented in current branch/worktree with traceable commits
 2. **Review completed:** explicit verdict and findings list
 3. **Findings fixed:** High/Medium cleared or documented waiver approved
-4. **Post-fix verification passed:** run required commands and record outputs
+4. **Local verification passed:** run required local commands and record outputs
 5. **Wave verdict recorded:** `Go` / `Conditional Go` / `No-Go`
 
 ### Step 4: Decide Transition
@@ -114,12 +116,12 @@ Use this block for every wave:
 
 ```markdown
 ## Wave N Evidence
-- Commit/PR: [hash or link]
+- Commit: [hash]
 - Review: [verdict + findings summary]
 - Fixes: [finding -> commit mapping]
 - Verification:
-  - [command]
-  - [result summary]
+  - [local command]
+  - [local result summary]
 - Verdict: Go / Conditional Go / No-Go
 - Conditional Preconditions (if any): [...]
 ```
@@ -133,5 +135,5 @@ Stop immediately when:
 
 ## Integration
 **Required workflow skills:**
-- **superpowers:using-git-worktrees** - set up isolated workspace model before execution (default one plan-level worktree; exception per-wave worktrees with mandatory merge-back to shared integration branch)
+- **superpowers:using-git-worktrees** - set up isolated workspace model before execution (default one plan-level worktree; exception per-wave worktrees with deferred convergence allowed)
 - **superpowers:finishing-a-development-branch** - finish branch flow after final wave is accepted

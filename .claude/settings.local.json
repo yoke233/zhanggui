@@ -32,7 +32,8 @@
       "Bash(tree *)",
       "Bash(curl *)",
       "Bash(wget *)",
-      "Bash(do echo:*)"
+      "Bash(do echo:*)",
+      "Bash(xargs ls:*)"
     ]
   }
 }
