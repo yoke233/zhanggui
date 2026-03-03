@@ -52,12 +52,16 @@ func handleA2AJSONRPC(w http.ResponseWriter, r *http.Request) {
 		writeA2ARPCError(w, nil, a2aRPCInvalidRequest, "invalid request")
 		return
 	}
-	if strings.TrimSpace(req.JSONRPC) != "" && req.JSONRPC != a2aJSONRPCVersion {
+	if strings.TrimSpace(req.JSONRPC) != a2aJSONRPCVersion {
 		writeA2ARPCError(w, req.ID, a2aRPCInvalidRequest, "invalid request")
 		return
 	}
 
 	method := strings.TrimSpace(req.Method)
+	if method == "" {
+		writeA2ARPCError(w, req.ID, a2aRPCInvalidRequest, "invalid request")
+		return
+	}
 	switch method {
 	case a2aMethodMessageSend, a2aMethodMessageStream, a2aMethodTasksGet, a2aMethodTasksCancel:
 		// Wave 1 只做入口与错误模型接线，具体方法在后续 wave 落地。
@@ -68,12 +72,34 @@ func handleA2AJSONRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 func requestAbsoluteURL(r *http.Request, path string) string {
-	if r == nil || strings.TrimSpace(r.Host) == "" {
+	if r == nil {
 		return path
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+
+	host := strings.TrimSpace(firstForwardedValue(r.Header.Get("X-Forwarded-Host")))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
 	}
-	return scheme + "://" + r.Host + path
+	if host == "" {
+		return path
+	}
+
+	scheme := strings.ToLower(strings.TrimSpace(firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))))
+	if scheme != "http" && scheme != "https" {
+		scheme = "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+	}
+	return scheme + "://" + host + path
+}
+
+func firstForwardedValue(raw string) string {
+	for _, part := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

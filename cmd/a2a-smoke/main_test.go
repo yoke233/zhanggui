@@ -231,6 +231,16 @@ func TestTokenHeader_InjectsBearerForCardAndRPC(t *testing.T) {
 	}
 }
 
+func TestBearerAuthHeader_IsIdempotent(t *testing.T) {
+	got, ok := bearerAuthHeader("Bearer already-prefixed")
+	if !ok {
+		t.Fatal("expected auth header to be present")
+	}
+	if got != "Bearer already-prefixed" {
+		t.Fatalf("expected unchanged bearer header, got %q", got)
+	}
+}
+
 func decodeRPCID(t *testing.T, r *http.Request) any {
 	t.Helper()
 

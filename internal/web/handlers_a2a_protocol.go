@@ -30,7 +30,7 @@ type a2aRPCError struct {
 
 type a2aRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
 	Error   *a2aRPCError    `json:"error,omitempty"`
 }

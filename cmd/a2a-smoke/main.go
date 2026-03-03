@@ -321,5 +321,8 @@ func bearerAuthHeader(token string) (string, bool) {
 	if trimmed == "" {
 		return "", false
 	}
+	if len(trimmed) > len("bearer ") && strings.EqualFold(trimmed[:len("bearer ")], "bearer ") {
+		return trimmed, true
+	}
 	return "Bearer " + trimmed, true
 }
