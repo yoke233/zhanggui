@@ -322,6 +322,30 @@ func (m *Manager) ApplyPlanAction(ctx context.Context, planID string, action Pla
 	}
 }
 
+// CancelPlan cancels an in-flight plan for A2A bridge usage.
+// It reuses existing abandon behavior and keeps already-abandoned plans unchanged.
+func (m *Manager) CancelPlan(ctx context.Context, planID string) (*core.TaskPlan, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	plan, err := m.GetPlan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	switch plan.Status {
+	case core.PlanAbandoned:
+		return plan, nil
+	case core.PlanDone, core.PlanFailed:
+		return nil, fmt.Errorf("plan status %s does not support cancel", plan.Status)
+	default:
+		return m.applyAbandon(ctx, plan)
+	}
+}
+
 func (m *Manager) GetPlan(_ context.Context, planID string) (*core.TaskPlan, error) {
 	trimmedID := strings.TrimSpace(planID)
 	if trimmedID == "" {
