@@ -12,6 +12,15 @@ const mocks = vi.hoisted(() => {
   const listProjects = vi.fn();
   const createProjectCreateRequest = vi.fn();
   const getProjectCreateRequest = vi.fn();
+  const chatViewProps: Array<Record<string, unknown>> = [];
+  const a2aViewProps: Array<Record<string, unknown>> = [];
+
+  const a2aClient = {
+    sendMessage: vi.fn(),
+    getTask: vi.fn(),
+    cancelTask: vi.fn(),
+    streamMessage: vi.fn(),
+  };
 
   const anyHandlers = new Set<WsAnyHandler>();
   const statusHandlers = new Set<WsStatusHandler>();
@@ -86,12 +95,17 @@ const mocks = vi.hoisted(() => {
   const resetState = (): void => {
     anyHandlers.clear();
     statusHandlers.clear();
+    chatViewProps.length = 0;
+    a2aViewProps.length = 0;
     wsStatus = "open";
   };
 
   return {
     apiClient,
     wsClient,
+    a2aClient,
+    chatViewProps,
+    a2aViewProps,
     listProjects,
     createProjectCreateRequest,
     getProjectCreateRequest,
@@ -113,8 +127,24 @@ vi.mock("./lib/wsClient", () => {
   };
 });
 
+vi.mock("./lib/a2aClient", () => {
+  return {
+    createA2AClient: vi.fn(() => mocks.a2aClient),
+  };
+});
+
 vi.mock("./views/ChatView", () => ({
-  default: () => <div>Chat View Mock</div>,
+  default: (props: Record<string, unknown>) => {
+    mocks.chatViewProps.push(props);
+    return <div>Chat View Mock</div>;
+  },
+}));
+
+vi.mock("./views/A2AChatView", () => ({
+  default: (props: Record<string, unknown>) => {
+    mocks.a2aViewProps.push(props);
+    return <div>A2A Chat View Mock</div>;
+  },
 }));
 
 vi.mock("./views/PlanView", () => ({
@@ -315,4 +345,33 @@ describe("App", () => {
     expect((screen.getByLabelText("当前项目") as HTMLSelectElement).value).toBe("");
     expect(screen.getByText("暂无可用项目。请先在后端创建项目，或点击“刷新项目”重试。")).toBeTruthy();
   });
+  it("默认关闭 A2A 时走 legacy ChatView", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("Chat View Mock")).toBeTruthy();
+    expect(screen.queryByText("A2A Chat View Mock")).toBeNull();
+    expect(mocks.chatViewProps.length).toBeGreaterThan(0);
+    expect(mocks.a2aViewProps.length).toBe(0);
+  });
+
+  it("开启 A2A 时切换到 A2AChatView 入口", async () => {
+    render(<App a2aEnabledOverride />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("A2A Chat View Mock")).toBeTruthy();
+    expect(screen.queryByText("Chat View Mock")).toBeNull();
+    expect(mocks.a2aViewProps.length).toBeGreaterThan(0);
+  });
+
 });
+
+
+
+

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChatView from "./views/ChatView";
+import A2AChatView from "./views/A2AChatView";
 import PlanView from "./views/PlanView";
 import BoardView from "./views/BoardView";
 import PipelineView from "./views/PipelineView";
 import ProjectAdminPanel from "./components/ProjectAdminPanel";
 import { createApiClient, type ApiClient } from "./lib/apiClient";
+import { createA2AClient, type A2AClient } from "./lib/a2aClient";
 import { createWsClient, type WsClient } from "./lib/wsClient";
 import type { WsEnvelope } from "./types/ws";
 import type { Project } from "./types/workflow";
@@ -44,15 +46,21 @@ const getErrorMessage = (error: unknown): string => {
 
 interface ViewProps {
   apiClient: ApiClient;
+  a2aClient: A2AClient;
   wsClient: WsClient;
   projectId: string;
   refreshToken: number;
+  a2aEnabled: boolean;
 }
 
-const renderView = ({ apiClient, wsClient, projectId, refreshToken }: ViewProps, view: AppView) => {
+const renderView = ({ apiClient, a2aClient, wsClient, projectId, refreshToken, a2aEnabled }: ViewProps, view: AppView) => {
   switch (view) {
     case "chat":
-      return <ChatView apiClient={apiClient} wsClient={wsClient} projectId={projectId} />;
+      return a2aEnabled ? (
+        <A2AChatView a2aClient={a2aClient} projectId={projectId} />
+      ) : (
+        <ChatView apiClient={apiClient} wsClient={wsClient} projectId={projectId} />
+      );
     case "plan":
       return (
         <PlanView
@@ -83,7 +91,12 @@ const renderView = ({ apiClient, wsClient, projectId, refreshToken }: ViewProps,
   }
 };
 
-const App = () => {
+interface AppProps {
+  a2aEnabledOverride?: boolean;
+}
+
+const App = ({ a2aEnabledOverride }: AppProps = {}) => {
+  const a2aEnabled = a2aEnabledOverride ?? (import.meta.env.VITE_A2A_ENABLED === "true");
   const apiClient = useMemo(
     () =>
       createApiClient({
@@ -95,6 +108,14 @@ const App = () => {
   const wsClient = useMemo(
     () =>
       createWsClient({
+        baseUrl: API_BASE_URL,
+        getToken: () => API_TOKEN || null,
+      }),
+    [],
+  );
+  const a2aClient = useMemo(
+    () =>
+      createA2AClient({
         baseUrl: API_BASE_URL,
         getToken: () => API_TOKEN || null,
       }),
@@ -279,9 +300,11 @@ const App = () => {
           renderView(
             {
               apiClient,
+              a2aClient,
               wsClient,
               projectId: selectedProjectId,
               refreshToken,
+              a2aEnabled,
             },
             activeView,
           )
@@ -292,3 +315,7 @@ const App = () => {
 };
 
 export default App;
+
+
+
+
