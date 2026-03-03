@@ -303,6 +303,28 @@ abandoned (closed)                        superseded (closed)
   上游 failed + fail_policy=block → 本 Issue 标记 blocked (保持 queued)
 ```
 
+### 人工审核动作约束（Plan/Issue 闭环）
+
+为保证前后端状态机一致，UI 的“批准/驳回”入口由 Issue 与 Pipeline 两侧状态共同决定：
+
+- `approve` 可在以下状态触发：
+  - Issue `status=reviewing`（审核阶段）
+  - Pipeline `status=waiting_human` 且 reason = `final_approval | feedback_required`（执行阶段）
+- `reject` 可在以下状态触发：
+  - Issue `status=reviewing`（审核阶段）
+  - Pipeline `status=waiting_human` 且 reason = `final_approval | feedback_required`（执行阶段）
+- 在 Issue 审核阶段执行 `reject` 时，必须包含结构化反馈
+  （category + detail），执行后回到 `draft`
+
+`approve` 的执行语义：
+
+1. 先将 Issue 置为 `queued`（state 仍为 `open`）
+2. 再调用调度器尝试进入 Pipeline
+3. 如果调度器启动失败，Issue 必须回写为 `failed`，并在 `issue_changes.reason`
+   记录 `approve dispatch failed: ...`（含可诊断错误）
+
+该规则确保不会出现“前端显示 queued，但实际未进入 pipeline 且无原因”的静默卡死。
+
 ## 三、Issue 审核（两阶段）
 
 ### 概述
@@ -687,6 +709,28 @@ type DAG struct {
        ├── skip(issueID): 标记 skipped → 解除下游阻塞
        └── abort(issueID): 终止 Pipeline, Issue → abandoned
 ```
+
+### Issue Timeline 聚合视图（Workbench）
+
+Issue 详情页通过统一 Timeline 聚合展示全链路留痕，数据来源：
+
+- `review_records`
+- `issue_changes`
+- `human_actions`（通过 `issue.pipeline_id` 关联）
+- `checkpoints`
+- `logs`
+- `audit_log`（可选，kind=`audit`）
+
+接口：
+
+- `GET /api/v1/projects/:pid/issues/:id/timeline`
+- `GET /api/v1/projects/:pid/plans/:id/timeline`（兼容别名）
+
+分页与排序：
+
+- 默认 `limit=50`
+- 服务端按 `created_at ASC` 返回
+- 前端可按产品交互需求倒序渲染
 
 ### DAG 校验
 

@@ -247,11 +247,11 @@ ai-workflow/
 │   │   ├── views/
 │   │   │   ├── ChatView.tsx    # 对话视图
 │   │   │   ├── IssuesView.tsx  # Issue 列表 + DAG 可视化
-│   │   │   ├── BoardView.tsx   # 看板视图
+│   │   │   ├── BoardView.tsx   # Issue 列表 + Timeline（GitHub 风格）
 │   │   │   └── PipelineView.tsx# Pipeline 详情
 │   │   ├── components/
 │   │   │   ├── DAGGraph.tsx    # React Flow DAG 组件
-│   │   │   ├── IssueCard.tsx   # Issue 卡片
+│   │   │   ├── IssueCard.tsx   # Issue 行项/卡片（兼容组件）
 │   │   │   ├── ReviewPanel.tsx # 审核结果面板
 │   │   │   └── ChatMessage.tsx # 聊天消息气泡
 │   │   ├── stores/
@@ -352,7 +352,7 @@ ai-workflow/
 | P2-Foundation | 插件接口 + API 基础设施 | ReviewGate/Tracker/SCM/Notifier 接口 + local 默认实现 + REST/WS |
 | P2a | Secretary Agent + Issue 管理 + DAG Scheduler | 对话 → Issue 创建 → 依赖并行执行（纯后端） |
 | P2b | Two-Phase AI Review | AI 审核（Per-Issue Review + Dependency Analysis，auto-approve） |
-| P2c | Workbench UI (Web) | Chat + Issues + Board + Pipeline 四视图，Web 为主界面 |
+| P2c | Workbench UI (Web) | Chat + Issues + Board（Issue 列表 + Timeline）+ Pipeline 四视图，Web 为主界面 |
 | P3 | GitHub 集成（**可选增强**） | tracker-github（Issue 同步） + scm-github（PR） + Webhook |
 | P4 | 高级定制 + MCP 扩展 + 通知 | 自定义 Template + Slack/Webhook 通知 + 优先级调度 |
 

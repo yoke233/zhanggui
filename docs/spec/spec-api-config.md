@@ -89,7 +89,17 @@ POST   /api/v1/projects/:pid/pipelines/:id/action
 
 GET    /api/v1/projects/:pid/pipelines/:id/logs
   Query: ?stage=implement&limit=100&offset=0
-  → 200: { items: [{ timestamp, type, content }], total, offset }
+  → 200: {
+    items: [{
+      id, pipeline_id, stage,
+      type,              // stage_start | agent_output | stage_complete
+                         // | stage_failed | human_required | action_applied
+      agent,             // 可能为空（系统事件）
+      content,
+      timestamp
+    }],
+    total, offset
+  }
 
 GET    /api/v1/projects/:pid/pipelines/:id/checkpoints
   → 200: [{ stage, status, started_at, finished_at, artifacts }]
@@ -180,6 +190,8 @@ GET    /api/v1/projects/:pid/files/content
 
 ### Issue 管理（P2a 新增）
 
+> 兼容性说明：以下 `/issues` 路径在迁移期支持 `/plans` 等价别名。
+
 ```
 POST   /api/v1/projects/:pid/issues
   Body: {
@@ -207,11 +219,19 @@ PATCH  /api/v1/projects/:pid/issues/:id
   → 200: { ... }
 
 POST   /api/v1/projects/:pid/issues/:id/action
-  Body: { action: "approve" | "retry" | "skip" | "abort" | "close" | "reopen" }
-  → 200: { state, status }
+  Body: {
+    action: "approve" | "reject" | "abandon",
+    feedback?: {
+      category: "missing_node" | "cycle" | "self_dependency"
+              | "bad_granularity" | "coverage_gap" | "other",
+      detail: "...",                  // reject 时必填，最少 20 字符
+      expected_direction?: "..."
+    }
+  }
+  → 200: { status }
 
 POST   /api/v1/projects/:pid/issues/batch-action
-  Body: { issue_ids: [...], action: "approve" | "abort" | "close" }
+  Body: { issue_ids: [...], action: "approve" | "abandon" }
   → 200: { results: [...] }
 
 GET    /api/v1/projects/:pid/issues/dag
@@ -230,6 +250,28 @@ GET    /api/v1/projects/:pid/issues/:id/attachments
 
 GET    /api/v1/projects/:pid/issues/:id/changes
   → 200: [{ field, old_value, new_value, reason, changed_by, created_at }]
+
+GET    /api/v1/projects/:pid/issues/:id/timeline
+  Query: ?kinds=checkpoint,log,action,review,change,audit&limit=50&offset=0
+  → 200: {
+    items: [{
+      event_id,          // e.g. cp:456 / log:123 / review:789
+      kind,              // checkpoint | log | action | review | change | audit
+      created_at,
+      actor_type,        // human | agent | system
+      actor_name,
+      actor_avatar_seed, // 前端 identicon 种子
+      title,
+      body,
+      status,            // success | failed | running | info | warning
+      refs: { issue_id, pipeline_id, stage },
+      meta: {}
+    }],
+    total, offset
+  }
+
+GET    /api/v1/projects/:pid/plans/:id/timeline
+  → 兼容别名，与 /issues/:id/timeline 响应一致
 ```
 
 ### API 设计规则
@@ -239,6 +281,7 @@ GET    /api/v1/projects/:pid/issues/:id/changes
 - `issue_id` 是 Pipeline 的内部关联字段：仅由 DAG Scheduler 在自动创建 Pipeline 时设置
 - 分页用 limit + offset，默认 limit=20
 - 列表接口支持 state/status 过滤
+- Timeline 默认 `limit=50`，服务端按 `created_at ASC` 输出，前端按需倒序渲染
 
 ## 二、WebSocket
 
@@ -256,6 +299,7 @@ WS /api/v1/ws?token={auth_token}
 {
   "type": "stage_start" | "stage_complete" | "stage_failed"
        | "human_required" | "pipeline_done" | "pipeline_failed"
+       | "action_applied"
        | "agent_output" | "system_info"
        | "secretary_thinking"
        | "issue_created" | "issue_reviewing" | "issue_review_done"
@@ -619,6 +663,14 @@ CREATE TABLE logs (
 
 CREATE INDEX idx_logs_pipeline_stage ON logs(pipeline_id, stage);
 ```
+
+`logs.type` 约定值（P3.5）：
+- `stage_start`
+- `agent_output`
+- `stage_complete`
+- `stage_failed`
+- `human_required`
+- `action_applied`
 
 #### human_actions
 

@@ -263,6 +263,28 @@ Checkpoint {
 - **回退**：人工 reject 时回退到指定检查点，丢弃之后的产物
 - **审计**：完整记录每个阶段的执行详情
 
+### 执行日志持久化（Logs）
+
+除 Checkpoint 外，Executor 还会将阶段级关键事件写入 `logs` 表，供
+Workbench Timeline 与审计查询：
+
+- `stage_start`
+- `agent_output`
+- `stage_complete`
+- `stage_failed`
+- `human_required`
+- `action_applied`
+
+落库规则：
+- 每个 Stage 开始/完成/失败时，分别写一条对应日志
+- 进入 `waiting_human` 时写 `human_required`
+- Agent 流式输出按事件逐条写 `agent_output`（包含 stage/agent/content/timestamp）
+- 人工动作应用成功后写 `action_applied`
+
+一致性约束：
+- 日志写入失败按执行失败处理（fail fast），不能吞错后继续返回成功
+- `timestamp` 使用 RFC3339Nano（UTC）格式，便于跨端排序与追溯
+
 ### 崩溃恢复流程
 
 1. 进程启动时扫描 Store 中所有 `status = running | paused | waiting_human` 的 Pipeline
@@ -342,6 +364,7 @@ GitHub 评论命令  ─┘
 - 同一时刻只能有一个操作进入，后到的排队
 - 操作需要验证权限（GitHub 场景下只有 Issue assignee 或 repo admin 可以操作）
 - 每次操作都记录到审计日志
+- 每次操作应用成功后，必须追加 `action_applied` 执行日志用于 Timeline 聚合
 
 ## 五、超时和重试
 

@@ -162,7 +162,7 @@ Pipeline 已创建：`pipeline-20260228-abc123`
 | `/rerun` | 重跑当前阶段 | P4 |
 | `/switch <role>` | 切换角色并重跑 | P4 |
 | `/pause` / `/resume` | 暂停/恢复 Pipeline | P4 |
-| `/logs [stage]` | 查看某阶段日志摘要 | P4 |
+| `/logs [stage]` | 查看某阶段日志摘要（底层使用 Pipeline Logs API） | P4 |
 
 ### 命令解析规则
 
@@ -232,6 +232,11 @@ pipeline: failed        ← 失败后替换 active
 | Review 完成 | review 结果摘要（通过/问题列表） |
 | Pipeline 完成 | 完成摘要（耗时、阶段数、Token 消耗） |
 | Pipeline 失败 | 错误信息 + 建议的操作（重试/修改/中止） |
+
+说明：
+- `/status` 与 `/logs` 的内容来源于 Workbench HTTP API，而非临时内存状态
+- Pipeline 日志查询使用：`GET /api/v1/projects/{projectID}/pipelines/{id}/logs`
+- Issue 全链路聚合查询使用：`GET /api/v1/projects/{projectID}/issues/{id}/timeline`
 
 ### 评论格式
 
@@ -304,6 +309,22 @@ Closes #{issue_number}
 | 人工 approve merge | 将 Draft PR 转为 Ready + merge |
 | 人工 abort | 关闭 PR |
 | 用户在 GitHub 直接 merge PR | 收到 `pull_request.closed` + `merged=true` webhook，将关联 Pipeline 标记 `done`，跳过剩余 Stage（包括 cleanup），记录"用户直接合并" |
+
+### Pipeline 事件到 GitHub 可视化的映射（P3.5）
+
+Pipeline 运行中的关键事件会被镜像到 GitHub（标签或评论），并在本地日志留痕：
+
+| 事件 | GitHub 同步行为 | 本地留痕 |
+|---|---|---|
+| `stage_start` | 更新 `status: pipeline_active:{stage}` 标签 | `logs.type=stage_start` |
+| `human_required` | 追加评论，提示 `/approve`、`/reject`、`/abort` | `logs.type=human_required` |
+| `pipeline_done` | 更新为 `status: pipeline_done` | （可同时有 checkpoint/log） |
+| `pipeline_failed` | 更新为 `status: pipeline_failed` | `logs.type=stage_failed`/失败上下文 |
+| `action_applied` | 可选评论（实现侧按噪音控制） | `logs.type=action_applied` |
+
+注意：
+- GitHub 同步失败不阻塞 Pipeline 主流程（降级为 warning）
+- 审计与排障以本地 Store（checkpoints/actions/logs/issue_changes）为准
 
 ### PR 配置
 
