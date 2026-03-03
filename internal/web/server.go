@@ -39,6 +39,9 @@ type Config struct {
 	Addr                   string
 	AuthEnabled            bool
 	BearerToken            string
+	A2AEnabled             bool
+	A2AToken               string
+	A2AVersion             string
 	WebhookSecret          string
 	AllowedOrigins         []string
 	Frontend               fs.FS
@@ -98,6 +101,7 @@ func NewServer(cfg Config) *Server {
 
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
+	registerA2ARoutes(r, cfg)
 	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.PipelineExec, strings.TrimSpace(cfg.WebhookSecret), cfg.PipelineStageRoles)
 	if cfg.WebhookReplayer != nil {
 		webhookReplayer = cfg.WebhookReplayer
