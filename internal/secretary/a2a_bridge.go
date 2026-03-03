@@ -53,18 +53,17 @@ type A2ATaskSnapshot struct {
 	UpdatedAt time.Time
 }
 
-type A2APlanManager interface {
-	CreateDraft(ctx context.Context, input CreateDraftInput) (*core.TaskPlan, error)
-	GetPlan(ctx context.Context, planID string) (*core.TaskPlan, error)
-	CancelPlan(ctx context.Context, planID string) (*core.TaskPlan, error)
+type A2AIssueManager interface {
+	CreateIssues(ctx context.Context, input CreateIssuesInput) ([]*core.Issue, error)
+	ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
 type A2ABridge struct {
 	store   core.Store
-	manager A2APlanManager
+	manager A2AIssueManager
 }
 
-func NewA2ABridge(store core.Store, manager A2APlanManager) (*A2ABridge, error) {
+func NewA2ABridge(store core.Store, manager A2AIssueManager) (*A2ABridge, error) {
 	if store == nil {
 		return nil, errors.New("a2a bridge store is required")
 	}
@@ -98,33 +97,36 @@ func (b *A2ABridge) SendMessage(ctx context.Context, input A2ASendMessageInput) 
 		return nil, fmt.Errorf("%w: conversation is required", ErrA2AInvalidInput)
 	}
 
-	plan, err := b.manager.CreateDraft(ctx, CreateDraftInput{
-		ProjectID:  project.ID,
-		SessionID:  strings.TrimSpace(input.SessionID),
-		Name:       "a2a-message",
-		FailPolicy: core.FailBlock,
-		Request: Request{
-			Conversation: conversation,
-			ProjectName:  strings.TrimSpace(project.Name),
-			RepoPath:     strings.TrimSpace(project.RepoPath),
+	issues, err := b.manager.CreateIssues(ctx, CreateIssuesInput{
+		ProjectID: project.ID,
+		SessionID: strings.TrimSpace(input.SessionID),
+		Issues: []CreateIssueSpec{
+			{
+				Title:      "a2a-message",
+				Body:       conversation,
+				Template:   "standard",
+				Labels:     []string{"a2a"},
+				FailPolicy: core.FailBlock,
+			},
 		},
 	})
 	if err != nil {
-		// When agent decomposition is unavailable, keep A2A endpoint available by
-		// storing a minimal pending task snapshot that clients can query/cancel.
-		fallback, fallbackErr := b.createFallbackTask(project.ID, input.SessionID)
+		// 当解析失败时保底落地一个待人工处理的 issue，保证 A2A 接口可查询/可取消。
+		fallback, fallbackErr := b.createFallbackIssue(project.ID, input.SessionID)
 		if fallbackErr != nil {
 			return nil, err
 		}
-		return snapshotFromTaskPlan(fallback), nil
+		return snapshotFromIssue(fallback), nil
 	}
-	if plan == nil {
-		return nil, errors.New("create draft returned nil task plan")
+
+	issue := firstIssue(issues)
+	if issue == nil {
+		return nil, errors.New("create issues returned empty result")
 	}
-	if err := b.ensureProjectScope(plan, project.ID); err != nil {
+	if err := b.ensureProjectScope(issue, project.ID); err != nil {
 		return nil, err
 	}
-	return snapshotFromTaskPlan(plan), nil
+	return snapshotFromIssue(issue), nil
 }
 
 func (b *A2ABridge) GetTask(ctx context.Context, input A2AGetTaskInput) (*A2ATaskSnapshot, error) {
@@ -147,17 +149,17 @@ func (b *A2ABridge) GetTask(ctx context.Context, input A2AGetTaskInput) (*A2ATas
 		return nil, fmt.Errorf("%w: task id is required", ErrA2AInvalidInput)
 	}
 
-	plan, err := b.manager.GetPlan(ctx, taskID)
+	issue, err := b.store.GetIssue(taskID)
 	if err != nil {
 		if isNotFoundError(err) {
 			return nil, fmt.Errorf("%w: %s", ErrA2ATaskNotFound, taskID)
 		}
 		return nil, err
 	}
-	if err := b.ensureProjectScope(plan, project.ID); err != nil {
+	if err := b.ensureProjectScope(issue, project.ID); err != nil {
 		return nil, err
 	}
-	return snapshotFromTaskPlan(plan), nil
+	return snapshotFromIssue(issue), nil
 }
 
 func (b *A2ABridge) CancelTask(ctx context.Context, input A2ACancelTaskInput) (*A2ATaskSnapshot, error) {
@@ -180,25 +182,31 @@ func (b *A2ABridge) CancelTask(ctx context.Context, input A2ACancelTaskInput) (*
 		return nil, fmt.Errorf("%w: task id is required", ErrA2AInvalidInput)
 	}
 
-	plan, err := b.manager.GetPlan(ctx, taskID)
+	issue, err := b.store.GetIssue(taskID)
 	if err != nil {
 		if isNotFoundError(err) {
 			return nil, fmt.Errorf("%w: %s", ErrA2ATaskNotFound, taskID)
 		}
 		return nil, err
 	}
-	if err := b.ensureProjectScope(plan, project.ID); err != nil {
+	if err := b.ensureProjectScope(issue, project.ID); err != nil {
 		return nil, err
 	}
 
-	canceled, err := b.manager.CancelPlan(ctx, taskID)
+	canceled, err := b.manager.ApplyIssueAction(ctx, taskID, IssueActionAbandon, "a2a cancel")
 	if err != nil {
 		return nil, err
 	}
 	if canceled == nil {
-		return nil, errors.New("cancel plan returned nil task plan")
+		canceled, err = b.store.GetIssue(taskID)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return snapshotFromTaskPlan(canceled), nil
+	if err := b.ensureProjectScope(canceled, project.ID); err != nil {
+		return nil, err
+	}
+	return snapshotFromIssue(canceled), nil
 }
 
 func (b *A2ABridge) resolveProjectScope(projectID string) (*core.Project, error) {
@@ -225,41 +233,39 @@ func (b *A2ABridge) resolveProjectScope(projectID string) (*core.Project, error)
 	return nil, fmt.Errorf("%w: project id is required when multiple projects exist", ErrA2AInvalidInput)
 }
 
-func (b *A2ABridge) ensureProjectScope(plan *core.TaskPlan, projectID string) error {
-	if plan == nil {
-		return errors.New("task plan is nil")
+func (b *A2ABridge) ensureProjectScope(issue *core.Issue, projectID string) error {
+	if issue == nil {
+		return errors.New("issue is nil")
 	}
-	if strings.TrimSpace(plan.ProjectID) != strings.TrimSpace(projectID) {
+	if strings.TrimSpace(issue.ProjectID) != strings.TrimSpace(projectID) {
 		return fmt.Errorf(
 			"%w: task %q belongs to project %q, not %q",
 			ErrA2AProjectScope,
-			strings.TrimSpace(plan.ID),
-			strings.TrimSpace(plan.ProjectID),
+			strings.TrimSpace(issue.ID),
+			strings.TrimSpace(issue.ProjectID),
 			strings.TrimSpace(projectID),
 		)
 	}
 	return nil
 }
 
-func snapshotFromTaskPlan(plan *core.TaskPlan) *A2ATaskSnapshot {
+func snapshotFromIssue(issue *core.Issue) *A2ATaskSnapshot {
 	state := A2ATaskStateUnknown
 	errMsg := ""
-	if plan != nil {
-		switch plan.Status {
-		case core.PlanDraft:
+	if issue != nil {
+		switch issue.Status {
+		case core.IssueStatusDraft:
 			state = A2ATaskStateSubmitted
-		case core.PlanReviewing, core.PlanApproved, core.PlanExecuting, core.PlanPartial:
-			state = A2ATaskStateWorking
-		case core.PlanWaitingHuman:
+		case core.IssueStatusReviewing:
 			state = A2ATaskStateInputRequired
-			if plan.WaitReason == core.WaitParseFailed {
-				errMsg = string(core.WaitParseFailed)
-			}
-		case core.PlanDone:
+		case core.IssueStatusQueued, core.IssueStatusReady, core.IssueStatusExecuting:
+			state = A2ATaskStateWorking
+		case core.IssueStatusDone:
 			state = A2ATaskStateCompleted
-		case core.PlanFailed:
+		case core.IssueStatusFailed:
 			state = A2ATaskStateFailed
-		case core.PlanAbandoned:
+			errMsg = "issue_failed"
+		case core.IssueStatusSuperseded, core.IssueStatusAbandoned:
 			state = A2ATaskStateCanceled
 		default:
 			state = A2ATaskStateUnknown
@@ -270,13 +276,22 @@ func snapshotFromTaskPlan(plan *core.TaskPlan) *A2ATaskSnapshot {
 		State: state,
 		Error: errMsg,
 	}
-	if plan != nil {
-		snapshot.TaskID = strings.TrimSpace(plan.ID)
-		snapshot.ProjectID = strings.TrimSpace(plan.ProjectID)
-		snapshot.SessionID = strings.TrimSpace(plan.SessionID)
-		snapshot.UpdatedAt = plan.UpdatedAt
+	if issue != nil {
+		snapshot.TaskID = strings.TrimSpace(issue.ID)
+		snapshot.ProjectID = strings.TrimSpace(issue.ProjectID)
+		snapshot.SessionID = strings.TrimSpace(issue.SessionID)
+		snapshot.UpdatedAt = issue.UpdatedAt
 	}
 	return snapshot
+}
+
+func firstIssue(issues []*core.Issue) *core.Issue {
+	for i := range issues {
+		if issues[i] != nil {
+			return issues[i]
+		}
+	}
+	return nil
 }
 
 func isNotFoundError(err error) bool {
@@ -286,7 +301,7 @@ func isNotFoundError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
-func (b *A2ABridge) createFallbackTask(projectID string, sessionID string) (*core.TaskPlan, error) {
+func (b *A2ABridge) createFallbackIssue(projectID string, sessionID string) (*core.Issue, error) {
 	resolvedSessionID := ""
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	if trimmedSessionID != "" {
@@ -295,17 +310,19 @@ func (b *A2ABridge) createFallbackTask(projectID string, sessionID string) (*cor
 		}
 	}
 
-	plan := &core.TaskPlan{
-		ID:         core.NewTaskPlanID(),
+	fallback := &core.Issue{
+		ID:         core.NewIssueID(),
 		ProjectID:  strings.TrimSpace(projectID),
 		SessionID:  resolvedSessionID,
-		Name:       "a2a-message",
-		Status:     core.PlanWaitingHuman,
-		WaitReason: core.WaitFeedbackReq,
+		Title:      "a2a-message",
+		Body:       "a2a request fallback: requires manual review",
+		Template:   "standard",
+		State:      core.IssueStateOpen,
+		Status:     core.IssueStatusReviewing,
 		FailPolicy: core.FailBlock,
 	}
-	if err := b.store.SaveTaskPlan(plan); err != nil {
-		return nil, fmt.Errorf("create fallback a2a task: %w", err)
+	if err := b.store.CreateIssue(fallback); err != nil {
+		return nil, fmt.Errorf("create fallback a2a issue: %w", err)
 	}
-	return b.store.GetTaskPlan(plan.ID)
+	return b.store.GetIssue(fallback.ID)
 }

@@ -358,7 +358,17 @@ func (h *ACPHandler) resolvePermissionPolicy(req acpclient.PermissionRequest) st
 		return "cancelled"
 	}
 	if !isKnownPermissionAction(action) {
-		return "cancelled"
+		if len(req.Options) == 0 {
+			return "allow_once"
+		}
+		if hasPermissionOptionPrefix(req.Options, "allow") {
+			return "allow_once"
+		}
+		if hasPermissionOptionPrefix(req.Options, "reject") {
+			return "cancelled"
+		}
+		// 未知 kind 时仍优先放行一次，避免工具调用被误取消。
+		return "allow_once"
 	}
 
 	return "allow_once"
@@ -445,15 +455,20 @@ func matchPermissionPattern(action string, pattern string) bool {
 
 func selectPermissionOptionID(options []acpclient.PermissionOption, action string) string {
 	preferredKinds := []string{}
+	fallbackPrefix := ""
 	switch action {
 	case "allow_always":
 		preferredKinds = []string{"allow_always", "allow_once"}
+		fallbackPrefix = "allow"
 	case "allow_once":
 		preferredKinds = []string{"allow_once", "allow_always"}
+		fallbackPrefix = "allow"
 	case "reject_always":
 		preferredKinds = []string{"reject_always", "reject_once"}
+		fallbackPrefix = "reject"
 	case "reject_once":
 		preferredKinds = []string{"reject_once", "reject_always"}
+		fallbackPrefix = "reject"
 	default:
 		return ""
 	}
@@ -467,5 +482,39 @@ func selectPermissionOptionID(options []acpclient.PermissionOption, action strin
 			}
 		}
 	}
+
+	if fallbackPrefix != "" {
+		for i := range options {
+			kind := strings.ToLower(strings.TrimSpace(options[i].Kind))
+			optionID := strings.TrimSpace(options[i].OptionID)
+			if optionID == "" {
+				continue
+			}
+			if strings.HasPrefix(kind, fallbackPrefix) {
+				return optionID
+			}
+		}
+	}
+
+	for i := range options {
+		if optionID := strings.TrimSpace(options[i].OptionID); optionID != "" {
+			return optionID
+		}
+	}
+
 	return ""
+}
+
+func hasPermissionOptionPrefix(options []acpclient.PermissionOption, prefix string) bool {
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	if normalizedPrefix == "" {
+		return false
+	}
+	for i := range options {
+		kind := strings.ToLower(strings.TrimSpace(options[i].Kind))
+		if strings.HasPrefix(kind, normalizedPrefix) {
+			return true
+		}
+	}
+	return false
 }

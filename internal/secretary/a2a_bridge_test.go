@@ -5,30 +5,40 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 )
 
-func TestA2ABridge_SendMessageDelegatesToCreateDraft(t *testing.T) {
+func TestA2ABridge_SendMessageDelegatesToCreateIssues(t *testing.T) {
 	store := newA2ABridgeTestStore(t)
 	project := mustCreateA2ABridgeProject(t, store, "proj-a2a-send")
 
-	manager := &fakeA2ABridgeManager{
-		createDraftFn: func(_ context.Context, input CreateDraftInput) (*core.TaskPlan, error) {
+	manager := &fakeA2AIssueManager{
+		createIssuesFn: func(_ context.Context, input CreateIssuesInput) ([]*core.Issue, error) {
 			if input.ProjectID != project.ID {
-				t.Fatalf("create draft project_id = %q, want %q", input.ProjectID, project.ID)
+				t.Fatalf("create issues project_id = %q, want %q", input.ProjectID, project.ID)
 			}
-			if input.Request.Conversation != "A2A send request" {
-				t.Fatalf("create draft conversation = %q, want %q", input.Request.Conversation, "A2A send request")
+			if input.SessionID != "chat-a2a-send" {
+				t.Fatalf("create issues session_id = %q, want %q", input.SessionID, "chat-a2a-send")
 			}
-			return &core.TaskPlan{
-				ID:        "plan-a2a-send",
-				ProjectID: project.ID,
-				SessionID: "chat-a2a-send",
-				Status:    core.PlanDraft,
-				UpdatedAt: time.Now(),
+			if len(input.Issues) != 1 {
+				t.Fatalf("create issues count = %d, want 1", len(input.Issues))
+			}
+			spec := input.Issues[0]
+			if spec.Template != "standard" {
+				t.Fatalf("issue template = %q, want %q", spec.Template, "standard")
+			}
+			if !strings.Contains(spec.Body, "A2A send request") {
+				t.Fatalf("issue body should contain conversation, got %q", spec.Body)
+			}
+			return []*core.Issue{
+				{
+					ID:        "issue-a2a-send",
+					ProjectID: project.ID,
+					SessionID: "chat-a2a-send",
+					Status:    core.IssueStatusDraft,
+				},
 			}, nil
 		},
 	}
@@ -46,27 +56,25 @@ func TestA2ABridge_SendMessageDelegatesToCreateDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendMessage() error = %v", err)
 	}
-	if task.TaskID != "plan-a2a-send" {
-		t.Fatalf("task id = %q, want %q", task.TaskID, "plan-a2a-send")
+	if task.TaskID != "issue-a2a-send" {
+		t.Fatalf("task id = %q, want %q", task.TaskID, "issue-a2a-send")
 	}
 	if task.State != A2ATaskStateSubmitted {
 		t.Fatalf("task state = %q, want %q", task.State, A2ATaskStateSubmitted)
 	}
-	if manager.createDraftCalls != 1 {
-		t.Fatalf("create draft calls = %d, want 1", manager.createDraftCalls)
+	if manager.createIssuesCalls != 1 {
+		t.Fatalf("create issues calls = %d, want 1", manager.createIssuesCalls)
 	}
 }
 
-func TestA2ABridge_SendMessageFallbackWhenCreateDraftFails(t *testing.T) {
+func TestA2ABridge_SendMessageFallbackWhenCreateIssuesFails(t *testing.T) {
 	store := newA2ABridgeTestStore(t)
 	project := mustCreateA2ABridgeProject(t, store, "proj-a2a-send-fallback")
+	mustCreateA2ABridgeChatSession(t, store, project.ID, "chat-a2a-fallback")
 
-	manager := &fakeA2ABridgeManager{
-		createDraftFn: func(_ context.Context, _ CreateDraftInput) (*core.TaskPlan, error) {
-			return nil, errors.New("decompose unavailable")
-		},
-		getPlanFn: func(_ context.Context, planID string) (*core.TaskPlan, error) {
-			return store.GetTaskPlan(planID)
+	manager := &fakeA2AIssueManager{
+		createIssuesFn: func(_ context.Context, _ CreateIssuesInput) ([]*core.Issue, error) {
+			return nil, errors.New("issue generation unavailable")
 		},
 	}
 
@@ -100,35 +108,30 @@ func TestA2ABridge_SendMessageFallbackWhenCreateDraftFails(t *testing.T) {
 	if fetched.State != A2ATaskStateInputRequired {
 		t.Fatalf("fetched state = %q, want %q", fetched.State, A2ATaskStateInputRequired)
 	}
+	if fetched.SessionID != "chat-a2a-fallback" {
+		t.Fatalf("fetched session id = %q, want %q", fetched.SessionID, "chat-a2a-fallback")
+	}
 }
 
 func TestA2ABridge_GetTaskReturnsSnapshot(t *testing.T) {
 	store := newA2ABridgeTestStore(t)
 	project := mustCreateA2ABridgeProject(t, store, "proj-a2a-get")
+	mustCreateA2ABridgeIssue(t, store, &core.Issue{
+		ID:        "issue-a2a-get",
+		ProjectID: project.ID,
+		Title:     "a2a get",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	})
 
-	manager := &fakeA2ABridgeManager{
-		getPlanFn: func(_ context.Context, planID string) (*core.TaskPlan, error) {
-			if planID != "plan-a2a-get" {
-				t.Fatalf("get plan id = %q, want %q", planID, "plan-a2a-get")
-			}
-			return &core.TaskPlan{
-				ID:        "plan-a2a-get",
-				ProjectID: project.ID,
-				SessionID: "chat-a2a-get",
-				Status:    core.PlanExecuting,
-				UpdatedAt: time.Now(),
-			}, nil
-		},
-	}
-
-	bridge, err := NewA2ABridge(store, manager)
+	bridge, err := NewA2ABridge(store, &fakeA2AIssueManager{})
 	if err != nil {
 		t.Fatalf("NewA2ABridge() error = %v", err)
 	}
 
 	task, err := bridge.GetTask(context.Background(), A2AGetTaskInput{
 		ProjectID: project.ID,
-		TaskID:    "plan-a2a-get",
+		TaskID:    "issue-a2a-get",
 	})
 	if err != nil {
 		t.Fatalf("GetTask() error = %v", err)
@@ -136,33 +139,37 @@ func TestA2ABridge_GetTaskReturnsSnapshot(t *testing.T) {
 	if task.State != A2ATaskStateWorking {
 		t.Fatalf("task state = %q, want %q", task.State, A2ATaskStateWorking)
 	}
-	if manager.getPlanCalls != 1 {
-		t.Fatalf("get plan calls = %d, want 1", manager.getPlanCalls)
-	}
 }
 
-func TestA2ABridge_CancelTaskDelegatesToCancelPlan(t *testing.T) {
+func TestA2ABridge_CancelTaskDelegatesToApplyIssueAction(t *testing.T) {
 	store := newA2ABridgeTestStore(t)
 	project := mustCreateA2ABridgeProject(t, store, "proj-a2a-cancel")
+	mustCreateA2ABridgeIssue(t, store, &core.Issue{
+		ID:        "issue-a2a-cancel",
+		ProjectID: project.ID,
+		Title:     "a2a cancel",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	})
 
-	manager := &fakeA2ABridgeManager{
-		getPlanFn: func(_ context.Context, _ string) (*core.TaskPlan, error) {
-			return &core.TaskPlan{
-				ID:        "plan-a2a-cancel",
-				ProjectID: project.ID,
-				Status:    core.PlanExecuting,
-				UpdatedAt: time.Now(),
-			}, nil
-		},
-		cancelPlanFn: func(_ context.Context, planID string) (*core.TaskPlan, error) {
-			if planID != "plan-a2a-cancel" {
-				t.Fatalf("cancel plan id = %q, want %q", planID, "plan-a2a-cancel")
+	manager := &fakeA2AIssueManager{
+		applyActionFn: func(_ context.Context, issueID, action, feedback string) (*core.Issue, error) {
+			if issueID != "issue-a2a-cancel" {
+				t.Fatalf("apply action issue id = %q, want %q", issueID, "issue-a2a-cancel")
 			}
-			return &core.TaskPlan{
-				ID:        "plan-a2a-cancel",
+			if action != IssueActionAbandon {
+				t.Fatalf("apply action = %q, want %q", action, IssueActionAbandon)
+			}
+			if feedback != "a2a cancel" {
+				t.Fatalf("apply feedback = %q, want %q", feedback, "a2a cancel")
+			}
+			return &core.Issue{
+				ID:        issueID,
 				ProjectID: project.ID,
-				Status:    core.PlanAbandoned,
-				UpdatedAt: time.Now(),
+				Title:     "a2a cancel",
+				Template:  "standard",
+				Status:    core.IssueStatusAbandoned,
+				State:     core.IssueStateClosed,
 			}, nil
 		},
 	}
@@ -174,7 +181,7 @@ func TestA2ABridge_CancelTaskDelegatesToCancelPlan(t *testing.T) {
 
 	task, err := bridge.CancelTask(context.Background(), A2ACancelTaskInput{
 		ProjectID: project.ID,
-		TaskID:    "plan-a2a-cancel",
+		TaskID:    "issue-a2a-cancel",
 	})
 	if err != nil {
 		t.Fatalf("CancelTask() error = %v", err)
@@ -182,8 +189,8 @@ func TestA2ABridge_CancelTaskDelegatesToCancelPlan(t *testing.T) {
 	if task.State != A2ATaskStateCanceled {
 		t.Fatalf("task state = %q, want %q", task.State, A2ATaskStateCanceled)
 	}
-	if manager.cancelPlanCalls != 1 {
-		t.Fatalf("cancel plan calls = %d, want 1", manager.cancelPlanCalls)
+	if manager.applyActionCalls != 1 {
+		t.Fatalf("apply action calls = %d, want 1", manager.applyActionCalls)
 	}
 }
 
@@ -191,64 +198,57 @@ func TestA2ABridge_ProjectScopeMismatchFails(t *testing.T) {
 	store := newA2ABridgeTestStore(t)
 	mustCreateA2ABridgeProject(t, store, "proj-a2a-scope-a")
 	projectB := mustCreateA2ABridgeProject(t, store, "proj-a2a-scope-b")
+	mustCreateA2ABridgeIssue(t, store, &core.Issue{
+		ID:        "issue-a2a-scope",
+		ProjectID: "proj-a2a-scope-a",
+		Title:     "scope",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	})
 
-	manager := &fakeA2ABridgeManager{
-		getPlanFn: func(_ context.Context, _ string) (*core.TaskPlan, error) {
-			return &core.TaskPlan{
-				ID:        "plan-a2a-scope",
-				ProjectID: "proj-a2a-scope-a",
-				Status:    core.PlanExecuting,
-				UpdatedAt: time.Now(),
-			}, nil
-		},
-	}
-
-	bridge, err := NewA2ABridge(store, manager)
+	bridge, err := NewA2ABridge(store, &fakeA2AIssueManager{})
 	if err != nil {
 		t.Fatalf("NewA2ABridge() error = %v", err)
 	}
 
 	_, err = bridge.GetTask(context.Background(), A2AGetTaskInput{
 		ProjectID: projectB.ID,
-		TaskID:    "plan-a2a-scope",
+		TaskID:    "issue-a2a-scope",
 	})
 	if !errors.Is(err, ErrA2AProjectScope) {
 		t.Fatalf("GetTask() error = %v, want ErrA2AProjectScope", err)
 	}
 }
 
-type fakeA2ABridgeManager struct {
-	createDraftCalls int
-	getPlanCalls     int
-	cancelPlanCalls  int
+type fakeA2AIssueManager struct {
+	createIssuesCalls int
+	applyActionCalls  int
 
-	createDraftFn func(ctx context.Context, input CreateDraftInput) (*core.TaskPlan, error)
-	getPlanFn     func(ctx context.Context, planID string) (*core.TaskPlan, error)
-	cancelPlanFn  func(ctx context.Context, planID string) (*core.TaskPlan, error)
+	createIssuesFn func(ctx context.Context, input CreateIssuesInput) ([]*core.Issue, error)
+	applyActionFn  func(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
-func (f *fakeA2ABridgeManager) CreateDraft(ctx context.Context, input CreateDraftInput) (*core.TaskPlan, error) {
-	f.createDraftCalls++
-	if f.createDraftFn == nil {
-		return nil, errors.New("unexpected CreateDraft call")
+func (f *fakeA2AIssueManager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]*core.Issue, error) {
+	f.createIssuesCalls++
+	if f.createIssuesFn == nil {
+		return nil, errors.New("unexpected CreateIssues call")
 	}
-	return f.createDraftFn(ctx, input)
+	return f.createIssuesFn(ctx, input)
 }
 
-func (f *fakeA2ABridgeManager) GetPlan(ctx context.Context, planID string) (*core.TaskPlan, error) {
-	f.getPlanCalls++
-	if f.getPlanFn == nil {
-		return nil, errors.New("unexpected GetPlan call")
+func (f *fakeA2AIssueManager) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {
+	f.applyActionCalls++
+	if f.applyActionFn == nil {
+		return &core.Issue{
+			ID:        issueID,
+			ProjectID: "proj-default",
+			Title:     "fallback",
+			Template:  "standard",
+			Status:    core.IssueStatusAbandoned,
+			State:     core.IssueStateClosed,
+		}, nil
 	}
-	return f.getPlanFn(ctx, planID)
-}
-
-func (f *fakeA2ABridgeManager) CancelPlan(ctx context.Context, planID string) (*core.TaskPlan, error) {
-	f.cancelPlanCalls++
-	if f.cancelPlanFn == nil {
-		return nil, errors.New("unexpected CancelPlan call")
-	}
-	return f.cancelPlanFn(ctx, planID)
+	return f.applyActionFn(ctx, issueID, action, feedback)
 }
 
 func newA2ABridgeTestStore(t *testing.T) *storesqlite.SQLiteStore {
@@ -276,4 +276,22 @@ func mustCreateA2ABridgeProject(t *testing.T, store core.Store, id string) *core
 		t.Fatalf("create project %q: %v", id, err)
 	}
 	return project
+}
+
+func mustCreateA2ABridgeChatSession(t *testing.T, store core.Store, projectID string, sessionID string) {
+	t.Helper()
+
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        sessionID,
+		ProjectID: projectID,
+	}); err != nil {
+		t.Fatalf("create chat session %q: %v", sessionID, err)
+	}
+}
+
+func mustCreateA2ABridgeIssue(t *testing.T, store core.Store, issue *core.Issue) {
+	t.Helper()
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue %q: %v", issue.ID, err)
+	}
 }

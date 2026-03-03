@@ -237,7 +237,7 @@ func TestHandleRequestPermissionEmptyPatternDoesNotActAsWildcard(t *testing.T) {
 	}
 }
 
-func TestHandleRequestPermissionUnknownRequestActionCancels(t *testing.T) {
+func TestHandleRequestPermissionUnknownRequestActionFallsBackToAllowOnce(t *testing.T) {
 	handler := NewACPHandler(t.TempDir(), "chat-1", nil)
 
 	decision, err := handler.HandleRequestPermission(context.Background(), acpclient.PermissionRequest{
@@ -246,6 +246,44 @@ func TestHandleRequestPermissionUnknownRequestActionCancels(t *testing.T) {
 			{OptionID: "opt-allow-once", Kind: "allow_once", Name: "Allow once"},
 			{OptionID: "opt-allow-always", Kind: "allow_always", Name: "Allow always"},
 			{OptionID: "opt-reject-once", Kind: "reject_once", Name: "Reject once"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleRequestPermission() error = %v", err)
+	}
+	if decision.Outcome != "selected" {
+		t.Fatalf("permission outcome = %q, want %q", decision.Outcome, "selected")
+	}
+	if decision.OptionID != "opt-allow-once" {
+		t.Fatalf("permission option id = %q, want %q", decision.OptionID, "opt-allow-once")
+	}
+}
+
+func TestHandleRequestPermissionUnknownRequestActionWithoutOptionsAllows(t *testing.T) {
+	handler := NewACPHandler(t.TempDir(), "chat-1", nil)
+
+	decision, err := handler.HandleRequestPermission(context.Background(), acpclient.PermissionRequest{
+		Action: "tool/execute",
+	})
+	if err != nil {
+		t.Fatalf("HandleRequestPermission() error = %v", err)
+	}
+	if decision.Outcome != "allow" {
+		t.Fatalf("permission outcome = %q, want %q", decision.Outcome, "allow")
+	}
+	if decision.OptionID != "" {
+		t.Fatalf("permission option id = %q, want empty", decision.OptionID)
+	}
+}
+
+func TestHandleRequestPermissionUnknownRequestActionWithoutAllowOptionCancels(t *testing.T) {
+	handler := NewACPHandler(t.TempDir(), "chat-1", nil)
+
+	decision, err := handler.HandleRequestPermission(context.Background(), acpclient.PermissionRequest{
+		Action: "fs/delete_file",
+		Options: []acpclient.PermissionOption{
+			{OptionID: "opt-reject-once", Kind: "reject_once", Name: "Reject once"},
+			{OptionID: "opt-reject-always", Kind: "reject_always", Name: "Reject always"},
 		},
 	})
 	if err != nil {

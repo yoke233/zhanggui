@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/secretary"
 	webassets "github.com/yoke233/ai-workflow/web"
 )
 
@@ -67,6 +68,13 @@ type PipelineExecutor interface {
 	ApplyAction(ctx context.Context, action core.PipelineAction) error
 }
 
+// A2ABridge defines A2A task bridge methods.
+type A2ABridge interface {
+	SendMessage(ctx context.Context, input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error)
+	GetTask(ctx context.Context, input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error)
+	CancelTask(ctx context.Context, input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error)
+}
+
 // WebhookDeliveryReplayer replays failed webhook deliveries by delivery id.
 type WebhookDeliveryReplayer interface {
 	ReplayByDeliveryID(ctx context.Context, deliveryID string) (bool, error)
@@ -79,6 +87,10 @@ type Config struct {
 	BearerToken            string
 	WebhookSecret          string
 	AllowedOrigins         []string
+	A2AEnabled             bool
+	A2AToken               string
+	A2AVersion             string
+	A2ABridge              A2ABridge
 	Frontend               fs.FS
 	Store                  core.Store
 	IssueManager           IssueManager
@@ -138,6 +150,7 @@ func NewServer(cfg Config) *Server {
 
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
+	registerA2ARoutes(r, cfg)
 	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.PipelineExec, strings.TrimSpace(cfg.WebhookSecret), cfg.PipelineStageRoles)
 	if cfg.WebhookReplayer != nil {
 		webhookReplayer = cfg.WebhookReplayer

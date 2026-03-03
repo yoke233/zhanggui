@@ -16,6 +16,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
+	"github.com/yoke233/ai-workflow/internal/secretary"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -348,6 +349,109 @@ func TestCLI_ServerCommandStartsAndHealth(t *testing.T) {
 	t.Fatalf("health check did not return 200 within timeout")
 }
 
+func TestSecretaryIssueManagerAdapterCreateIssuesDelegatesToManager(t *testing.T) {
+	fakeManager := &fakeSecretaryIssueService{
+		createIssuesFn: func(_ context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+			if input.ProjectID != "proj-1" {
+				t.Fatalf("create issues project id = %q, want %q", input.ProjectID, "proj-1")
+			}
+			if input.SessionID != "chat-1" {
+				t.Fatalf("create issues session id = %q, want %q", input.SessionID, "chat-1")
+			}
+			if len(input.Issues) != 1 {
+				t.Fatalf("create issues size = %d, want 1", len(input.Issues))
+			}
+			spec := input.Issues[0]
+			if spec.Title != "my plan" {
+				t.Fatalf("issue title = %q, want %q", spec.Title, "my plan")
+			}
+			if spec.Template != "standard" {
+				t.Fatalf("issue template = %q, want %q", spec.Template, "standard")
+			}
+			if spec.FailPolicy != core.FailSkip {
+				t.Fatalf("issue fail policy = %q, want %q", spec.FailPolicy, core.FailSkip)
+			}
+			if len(spec.Labels) != 2 || spec.Labels[0] != "plan" || spec.Labels[1] != "from-files" {
+				t.Fatalf("issue labels = %#v, want [plan from-files]", spec.Labels)
+			}
+			if !strings.Contains(spec.Body, "## Conversation") || !strings.Contains(spec.Body, "## Source Files") {
+				t.Fatalf("issue body should include conversation and source files sections, got %q", spec.Body)
+			}
+			if !strings.Contains(spec.Body, "docs/spec/demo.md") || !strings.Contains(spec.Body, "hello spec") {
+				t.Fatalf("issue body should include file path and file content, got %q", spec.Body)
+			}
+			return []*core.Issue{
+				{
+					ID:        "issue-1",
+					ProjectID: input.ProjectID,
+					SessionID: input.SessionID,
+					Title:     spec.Title,
+					Template:  spec.Template,
+					Status:    core.IssueStatusDraft,
+					State:     core.IssueStateOpen,
+				},
+			}, nil
+		},
+	}
+
+	adapter := &secretaryIssueManagerAdapter{manager: fakeManager}
+	issues, err := adapter.CreateIssues(context.Background(), web.IssueCreateInput{
+		ProjectID:  "proj-1",
+		SessionID:  "chat-1",
+		Name:       "my plan",
+		FailPolicy: core.FailSkip,
+		Request: web.IssueCreateRequest{
+			Conversation: "请生成计划",
+		},
+		SourceFiles: []string{"docs/spec/demo.md"},
+		FileContents: map[string]string{
+			"docs/spec/demo.md": "hello spec",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssues() error = %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("CreateIssues() returned %d issues, want 1", len(issues))
+	}
+	if issues[0].ID != "issue-1" {
+		t.Fatalf("created issue id = %q, want %q", issues[0].ID, "issue-1")
+	}
+}
+
+func TestSecretaryIssueManagerAdapterCreateIssuesDefaultFailPolicy(t *testing.T) {
+	fakeManager := &fakeSecretaryIssueService{
+		createIssuesFn: func(_ context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+			if len(input.Issues) != 1 {
+				t.Fatalf("create issues size = %d, want 1", len(input.Issues))
+			}
+			spec := input.Issues[0]
+			if spec.FailPolicy != core.FailBlock {
+				t.Fatalf("default fail policy = %q, want %q", spec.FailPolicy, core.FailBlock)
+			}
+			if spec.Title != "Plan from chat session" {
+				t.Fatalf("default issue title = %q, want %q", spec.Title, "Plan from chat session")
+			}
+			return []*core.Issue{{ID: "issue-default"}}, nil
+		},
+	}
+
+	adapter := &secretaryIssueManagerAdapter{manager: fakeManager}
+	issues, err := adapter.CreateIssues(context.Background(), web.IssueCreateInput{
+		ProjectID: "proj-2",
+		SessionID: "chat-2",
+		Request: web.IssueCreateRequest{
+			Conversation: "hello",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateIssues() error = %v", err)
+	}
+	if len(issues) != 1 || issues[0].ID != "issue-default" {
+		t.Fatalf("CreateIssues() returned %#v, want issue-default", issues)
+	}
+}
+
 func reserveFreePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -420,4 +524,41 @@ func (m *testServerIssueManager) SubmitForReview(_ context.Context, issueID stri
 
 func (m *testServerIssueManager) ApplyIssueAction(_ context.Context, issueID string, _ web.IssueAction) (*core.Issue, error) {
 	return &core.Issue{ID: issueID}, nil
+}
+
+type fakeSecretaryIssueService struct {
+	startErr          error
+	stopErr           error
+	createIssuesFn    func(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error)
+	submitForReviewFn func(ctx context.Context, issueIDs []string) error
+	applyActionFn     func(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
+}
+
+func (s *fakeSecretaryIssueService) Start(_ context.Context) error {
+	return s.startErr
+}
+
+func (s *fakeSecretaryIssueService) Stop(_ context.Context) error {
+	return s.stopErr
+}
+
+func (s *fakeSecretaryIssueService) CreateIssues(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+	if s.createIssuesFn == nil {
+		return nil, errors.New("unexpected CreateIssues call")
+	}
+	return s.createIssuesFn(ctx, input)
+}
+
+func (s *fakeSecretaryIssueService) SubmitForReview(ctx context.Context, issueIDs []string) error {
+	if s.submitForReviewFn == nil {
+		return nil
+	}
+	return s.submitForReviewFn(ctx, issueIDs)
+}
+
+func (s *fakeSecretaryIssueService) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {
+	if s.applyActionFn == nil {
+		return &core.Issue{ID: issueID}, nil
+	}
+	return s.applyActionFn(ctx, issueID, action, feedback)
 }
