@@ -130,7 +130,7 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyRunAction(t *testing.T) {
 
 	bus := eventbus.New()
 	defer bus.Close()
-	executor := engine.NewExecutor(store, bus, map[string]core.AgentPlugin{}, nil, nil)
+	executor := engine.NewExecutor(store, bus, nil)
 	if err := executor.ApplyAction(context.Background(), core.RunAction{
 		RunID:   Run.ID,
 		Type:    core.ActionReject,

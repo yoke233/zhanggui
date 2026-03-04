@@ -11,13 +11,10 @@ import (
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	githubsvc "github.com/yoke233/ai-workflow/internal/github"
-	agentclaude "github.com/yoke233/ai-workflow/internal/plugins/agent-claude"
-	agentcodex "github.com/yoke233/ai-workflow/internal/plugins/agent-codex"
 	notifierdesktop "github.com/yoke233/ai-workflow/internal/plugins/notifier-desktop"
 	reviewaipanel "github.com/yoke233/ai-workflow/internal/plugins/review-ai-panel"
 	reviewgithubpr "github.com/yoke233/ai-workflow/internal/plugins/review-github-pr"
 	reviewlocal "github.com/yoke233/ai-workflow/internal/plugins/review-local"
-	runtimeprocess "github.com/yoke233/ai-workflow/internal/plugins/runtime-process"
 	scmgithub "github.com/yoke233/ai-workflow/internal/plugins/scm-github"
 	scmlocalgit "github.com/yoke233/ai-workflow/internal/plugins/scm-local-git"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
@@ -29,9 +26,7 @@ import (
 
 // BootstrapSet contains initialized plugins required by engine bootstrap.
 type BootstrapSet struct {
-	Agents       map[string]core.AgentPlugin
 	RoleResolver *acpclient.RoleResolver
-	Runtime      core.RuntimePlugin
 	Store        core.Store
 	ReviewGate   core.ReviewGate
 	Tracker      core.Tracker
@@ -41,16 +36,14 @@ type BootstrapSet struct {
 }
 
 const (
-	slotAgentDriver         core.PluginSlot = "agent"
-	slotRuntimeDriver       core.PluginSlot = "runtime"
-	defaultWorkspacePlugin                  = "worktree"
-	defaultReviewGatePlugin                 = "review-ai-panel"
-	localReviewGatePlugin                   = "review-local"
-	defaultTrackerPlugin                    = "tracker-local"
-	defaultSCMPlugin                        = "local-git"
-	defaultNotifierPlugin                   = "desktop"
-	githubTrackerPluginName                 = "tracker-github"
-	githubSCMPluginName                     = "scm-github"
+	defaultWorkspacePlugin  = "worktree"
+	defaultReviewGatePlugin = "review-ai-panel"
+	localReviewGatePlugin   = "review-local"
+	defaultTrackerPlugin    = "tracker-local"
+	defaultSCMPlugin        = "local-git"
+	defaultNotifierPlugin   = "desktop"
+	githubTrackerPluginName = "tracker-github"
+	githubSCMPluginName     = "scm-github"
 )
 
 type pluginNameOverrides struct {
@@ -131,62 +124,6 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	storePlugin, ok := storePluginRaw.(storeProvider)
 	if !ok {
 		return nil, fmt.Errorf("plugin is not a store provider: slot=%s name=%s", core.SlotStore, storeName)
-	}
-
-	runtimeName := strings.TrimSpace(effective.Runtime.Driver)
-	runtimeModule, ok := registry.Get(slotRuntimeDriver, runtimeName)
-	if !ok {
-		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", slotRuntimeDriver, runtimeName)
-	}
-	runtimeRaw, err := runtimeModule.Factory(nil)
-	if err != nil {
-		return nil, fmt.Errorf("build runtime plugin %q: %w", runtimeName, err)
-	}
-	runtimePlugin, ok := runtimeRaw.(core.RuntimePlugin)
-	if !ok {
-		return nil, fmt.Errorf("plugin is not a runtime plugin: slot=%s name=%s", slotRuntimeDriver, runtimeName)
-	}
-
-	agentConfigs := map[string]*config.AgentConfig{
-		"claude": effective.Agents.Claude,
-		"codex":  effective.Agents.Codex,
-	}
-	agents := make(map[string]core.AgentPlugin, len(agentConfigs))
-	for agentName, agentCfg := range agentConfigs {
-		if agentCfg == nil {
-			continue
-		}
-		moduleName := agentName
-		if agentCfg.Plugin != nil && strings.TrimSpace(*agentCfg.Plugin) != "" {
-			moduleName = strings.TrimSpace(*agentCfg.Plugin)
-		}
-
-		module, ok := registry.Get(slotAgentDriver, moduleName)
-		if !ok {
-			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", slotAgentDriver, moduleName)
-		}
-		raw, err := module.Factory(agentConfigToMap(agentCfg))
-		if err != nil {
-			return nil, fmt.Errorf("build agent plugin %q: %w", moduleName, err)
-		}
-		agentPlugin, ok := raw.(core.AgentPlugin)
-		if !ok {
-			return nil, fmt.Errorf("plugin is not an agent plugin: slot=%s name=%s", slotAgentDriver, moduleName)
-		}
-		agents[agentName] = agentPlugin
-	}
-	if len(agents) == 0 {
-		return nil, fmt.Errorf("no agent plugins configured")
-	}
-	for _, role := range effective.Roles {
-		roleName := strings.TrimSpace(role.Name)
-		agentName := strings.TrimSpace(role.Agent)
-		if agentName == "" {
-			continue
-		}
-		if _, ok := agents[agentName]; !ok {
-			return nil, fmt.Errorf("role %q resolves to agent %q but no executable agent plugin is configured", roleName, agentName)
-		}
 	}
 
 	reviewGateName := strings.TrimSpace(effective.TeamLeader.ReviewGatePlugin)
@@ -298,9 +235,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	}
 
 	return &BootstrapSet{
-		Agents:       agents,
 		RoleResolver: roleResolver,
-		Runtime:      runtimePlugin,
 		Store:        storePlugin.Store(),
 		ReviewGate:   reviewGatePlugin,
 		Tracker:      trackerPlugin,
@@ -313,31 +248,6 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 func newDefaultRegistry() (*core.Registry, error) {
 	registry := core.NewRegistry()
 	modules := []core.PluginModule{
-		{
-			Name: "claude",
-			Slot: slotAgentDriver,
-			Factory: func(cfg map[string]any) (core.Plugin, error) {
-				binary := stringFromMap(cfg, "binary", "claude")
-				return agentclaude.New(binary), nil
-			},
-		},
-		{
-			Name: "codex",
-			Slot: slotAgentDriver,
-			Factory: func(cfg map[string]any) (core.Plugin, error) {
-				binary := stringFromMap(cfg, "binary", "codex")
-				model := stringFromMap(cfg, "model", "gpt-5.3-codex")
-				reasoning := stringFromMap(cfg, "reasoning", "high")
-				return agentcodex.New(binary, model, reasoning), nil
-			},
-		},
-		{
-			Name: "process",
-			Slot: slotRuntimeDriver,
-			Factory: func(map[string]any) (core.Plugin, error) {
-				return runtimeprocess.New(), nil
-			},
-		},
 		{
 			Name: "sqlite",
 			Slot: core.SlotStore,
@@ -462,9 +372,6 @@ func withDefaults(cfg config.Config) config.Config {
 	if isRoleBindingsEmpty(cfg.RoleBinds) {
 		cfg.RoleBinds = def.RoleBinds
 	}
-	if cfg.Runtime.Driver == "" {
-		cfg.Runtime.Driver = def.Runtime.Driver
-	}
 	if cfg.Store.Driver == "" {
 		cfg.Store.Driver = def.Store.Driver
 	}
@@ -555,23 +462,6 @@ func toACPPermissionRules(in []config.PermissionRule) []acpclient.PermissionRule
 			Action:  in[i].Action,
 			Scope:   in[i].Scope,
 		}
-	}
-	return out
-}
-
-func agentConfigToMap(agent *config.AgentConfig) map[string]any {
-	out := map[string]any{}
-	if agent == nil {
-		return out
-	}
-	if agent.Binary != nil {
-		out["binary"] = *agent.Binary
-	}
-	if agent.Model != nil {
-		out["model"] = *agent.Model
-	}
-	if agent.Reasoning != nil {
-		out["reasoning"] = *agent.Reasoning
 	}
 	return out
 }

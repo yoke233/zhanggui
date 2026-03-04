@@ -24,9 +24,7 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime := &fakeRuntime{}
-	agent := &fakeAgent{name: "codex"}
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, nil)
 
 	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
@@ -38,9 +36,6 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 	}
 	if got.Status != core.StatusActionRequired {
 		t.Fatalf("expected waiting_review to remain unchanged, got %s", got.Status)
-	}
-	if runtime.calls != 0 {
-		t.Fatalf("expected no runtime execution for waiting_review, calls=%d", runtime.calls)
 	}
 }
 
@@ -75,9 +70,7 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{nil})
 
 	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
@@ -92,9 +85,6 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 	}
 	if got.Conclusion != core.ConclusionSuccess {
 		t.Fatalf("expected success conclusion after recovery, got %s", got.Conclusion)
-	}
-	if runtime.calls != 1 {
-		t.Fatalf("expected one rerun attempt after recovery, calls=%d", runtime.calls)
 	}
 	if _, err := os.Stat(workDir); err != nil {
 		t.Fatalf("expected recovery to keep worktree root, stat err=%v", err)
@@ -146,9 +136,7 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{nil})
 
 	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
@@ -163,8 +151,5 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 	}
 	if got.Conclusion != core.ConclusionSuccess {
 		t.Fatalf("expected success conclusion after resume-from-next recovery, got %s", got.Conclusion)
-	}
-	if runtime.calls != 1 {
-		t.Fatalf("expected only next stage to run after success checkpoint, calls=%d", runtime.calls)
 	}
 }

@@ -38,15 +38,6 @@ func TestFactoryBuildKnownPlugin(t *testing.T) {
 	if set.Store == nil {
 		t.Fatal("expected store to be initialized")
 	}
-	if set.Runtime == nil {
-		t.Fatal("expected runtime to be initialized")
-	}
-	if _, ok := set.Agents["claude"]; !ok {
-		t.Fatal("expected claude agent to be initialized")
-	}
-	if _, ok := set.Agents["codex"]; !ok {
-		t.Fatal("expected codex agent to be initialized")
-	}
 	if set.ReviewGate == nil {
 		t.Fatal("expected review gate to be initialized")
 	}
@@ -172,20 +163,6 @@ func TestFactoryBuildUnknownPlugin(t *testing.T) {
 	}
 }
 
-func TestFactoryBuildUnknownRuntimePlugin(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Store.Path = ":memory:"
-	cfg.Runtime.Driver = "unknown-runtime"
-
-	_, err := BuildFromConfig(cfg)
-	if err == nil {
-		t.Fatal("expected BuildFromConfig to fail for unknown runtime plugin")
-	}
-	if !strings.Contains(err.Error(), "unknown plugin") {
-		t.Fatalf("expected unknown plugin error, got %v", err)
-	}
-}
-
 func TestFactoryBuildReviewGateCanSwitchToLocal(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Store.Path = ":memory:"
@@ -202,76 +179,6 @@ func TestFactoryBuildReviewGateCanSwitchToLocal(t *testing.T) {
 	}
 	if set.ReviewGate.Name() != "local" {
 		t.Fatalf("expected review gate name local, got %q", set.ReviewGate.Name())
-	}
-}
-
-func TestFactoryBuildUnknownAgentPlugin(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Store.Path = ":memory:"
-	cfg.Agents.Codex.Plugin = stringPtr("unknown-agent")
-
-	_, err := BuildFromConfig(cfg)
-	if err == nil {
-		t.Fatal("expected BuildFromConfig to fail for unknown agent plugin")
-	}
-	if !strings.Contains(err.Error(), "unknown plugin") {
-		t.Fatalf("expected unknown plugin error, got %v", err)
-	}
-}
-
-func TestFactoryBuildRoleAgentMustBeExecutable(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Store.Path = ":memory:"
-	cfg.Agents.Profiles = []config.AgentProfileConfig{
-		{
-			Name:          "ghost",
-			LaunchCommand: "ghost-agent",
-			CapabilitiesMax: config.CapabilitiesConfig{
-				FSRead:   true,
-				FSWrite:  true,
-				Terminal: true,
-			},
-		},
-	}
-	cfg.Roles = []config.RoleConfig{
-		{
-			Name:  "worker",
-			Agent: "ghost",
-			Capabilities: config.CapabilitiesConfig{
-				FSRead:   true,
-				FSWrite:  true,
-				Terminal: true,
-			},
-		},
-	}
-	cfg.RoleBinds = config.RoleBindings{
-		TeamLeader: config.SingleRoleBinding{
-			Role: "worker",
-		},
-		Run: config.RunRoleBindings{
-			StageRoles: map[string]string{
-				"implement": "worker",
-			},
-		},
-		ReviewOrchestrator: config.ReviewRoleBindings{
-			Reviewers: map[string]string{
-				"completeness": "worker",
-				"dependency":   "worker",
-				"feasibility":  "worker",
-			},
-			Aggregator: "worker",
-		},
-		PlanParser: config.SingleRoleBinding{
-			Role: "worker",
-		},
-	}
-
-	_, err := BuildFromConfig(cfg)
-	if err == nil {
-		t.Fatal("expected BuildFromConfig to fail when role resolves to non-executable agent plugin")
-	}
-	if !strings.Contains(err.Error(), "no executable agent plugin is configured") {
-		t.Fatalf("expected executable agent plugin error, got %v", err)
 	}
 }
 
@@ -340,5 +247,3 @@ func TestFactory_GitHubEnabled_BuildFromConfigSelectsTrackerAndSCMPlugins(t *tes
 		t.Fatalf("expected scm %q, got %q", githubSCMPluginName, set.SCM.Name())
 	}
 }
-
-func stringPtr(v string) *string { return &v }

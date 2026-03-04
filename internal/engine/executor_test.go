@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -13,23 +12,6 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 )
-
-type singleStreamEventParser struct {
-	event   core.StreamEvent
-	emitted bool
-}
-
-func (p *singleStreamEventParser) Next() (*core.StreamEvent, error) {
-	if p.emitted {
-		return nil, io.EOF
-	}
-	p.emitted = true
-	evt := p.event
-	if evt.Timestamp.IsZero() {
-		evt.Timestamp = time.Now()
-	}
-	return &evt, nil
-}
 
 func TestNewRunID(t *testing.T) {
 	id := NewRunID()
@@ -158,11 +140,11 @@ func TestCreateRun_FillsStageRolesFromBindings(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, nil)
+	execEngine := newExecutor(store, nil)
 	execEngine.SetRunstageRoles(map[string]string{
 		"requirements": "worker",
 		"implement":    "worker",
-		"review":  "reviewer",
+		"review":       "reviewer",
 	})
 
 	p, err := execEngine.CreateRun(project.ID, "pipe-role", "desc", "quick")
@@ -233,20 +215,6 @@ func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{
-		name: "codex",
-		parserFn: func(io.Reader) core.StreamParser {
-			return &singleStreamEventParser{
-				event: core.StreamEvent{
-					Type:      "stdout",
-					Content:   "agent says hello",
-					Timestamp: time.Now(),
-				},
-			}
-		},
-	}
-
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:         core.StageImplement,
@@ -263,12 +231,11 @@ func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T
 
 	bus := eventbus.New()
 	sub := bus.Subscribe()
-	execEngine := newExecutorWithBus(store, bus, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutorWithBus(store, bus, []error{nil})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run should stop at human gate without error, got: %v", err)
 	}
 
-	// Drain bus events.
 	var events []core.Event
 	done := make(chan struct{})
 	go func() {
@@ -280,14 +247,12 @@ func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T
 	bus.Close()
 	<-done
 
-	// Expect at least stage_start, agent_output, stage_complete, human_required.
 	typeSet := map[core.EventType]bool{}
 	for _, evt := range events {
 		typeSet[evt.Type] = true
 	}
 	for _, want := range []core.EventType{
 		core.EventStageStart,
-		core.EventAgentOutput,
 		core.EventStageComplete,
 		core.EventHumanRequired,
 	} {
@@ -302,9 +267,6 @@ func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{errors.New("fatal-run")}}
-	agent := &fakeAgent{name: "codex"}
-
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:       core.StageImplement,
@@ -320,7 +282,7 @@ func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 
 	bus := eventbus.New()
 	sub := bus.Subscribe()
-	execEngine := newExecutorWithBus(store, bus, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutorWithBus(store, bus, []error{errors.New("fatal-run")})
 	if err := execEngine.Run(context.Background(), p.ID); err == nil {
 		t.Fatal("run should fail for abort policy")
 	}
@@ -346,7 +308,6 @@ func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 	if !typeSet[core.EventStageFailed] {
 		t.Errorf("missing stage_failed event")
 	}
-	// Verify stage_failed carries error info.
 	for _, evt := range events {
 		if evt.Type == core.EventStageFailed {
 			if !strings.Contains(evt.Error, "fatal-run") {

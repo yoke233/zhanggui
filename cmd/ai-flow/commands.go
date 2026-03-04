@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -266,15 +265,6 @@ var (
 		if bootstrapSet == nil {
 			return nil, errors.New("bootstrap set is required for issue manager")
 		}
-		agentPlugin, err := selectTeamLeaderAgentPlugin(bootstrapSet.Agents)
-		if err != nil {
-			return nil, err
-		}
-		agent, err := teamleader.NewAgent(agentPlugin, bootstrapSet.Runtime)
-		if err != nil {
-			return nil, err
-		}
-
 		reviewPanel, err := teamleader.NewDefaultReviewOrchestratorFromBindings(
 			bootstrapSet.Store,
 			teamleader.ReviewRoleBindingInput{
@@ -315,7 +305,7 @@ var (
 		}
 		manager, err := teamleader.NewManager(
 			bootstrapSet.Store,
-			agent,
+			nil,
 			reviewPanel,
 			&depSchedulerIssueAdapter{scheduler: depScheduler},
 			opts...,
@@ -354,7 +344,7 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 
 	bus := eventbus.New()
 	logger := slog.Default()
-	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
+	exec := engine.NewExecutor(bootstrapSet.Store, bus, logger)
 	exec.SetRoleResolver(bootstrapSet.RoleResolver)
 	exec.SetWorkspace(bootstrapSet.Workspace)
 	exec.SetRunstageRoles(cfg.RoleBinds.Run.StageRoles)
@@ -909,31 +899,6 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	return shutdownErr
-}
-
-func selectTeamLeaderAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
-	if len(agents) == 0 {
-		return nil, errors.New("no agent plugins configured for TeamLeader manager")
-	}
-	if agent, ok := agents["codex"]; ok && agent != nil {
-		return agent, nil
-	}
-	if agent, ok := agents["claude"]; ok && agent != nil {
-		return agent, nil
-	}
-
-	names := make([]string, 0, len(agents))
-	for name, plugin := range agents {
-		if plugin == nil {
-			continue
-		}
-		names = append(names, name)
-	}
-	if len(names) == 0 {
-		return nil, errors.New("no non-nil agent plugins configured for TeamLeader manager")
-	}
-	sort.Strings(names)
-	return agents[names[0]], nil
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

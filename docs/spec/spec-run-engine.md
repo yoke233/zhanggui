@@ -17,12 +17,11 @@ Run Engine 接收 `issue + workflow_profile`，驱动一次 `workflow_run`
 
 ## 执行路径
 
-Executor 支持两条 stage 执行路径：
+Executor 通过 ACP（Agent Communication Protocol）执行所有 stage：
 
-1. **ACP 协议（主路径）**：当 agent profile 配置了 `launch_command` 且 `ACPHandlerFactory` 可用时，
-   通过 ACP JSON-RPC over stdio 驱动 agent。支持跨 stage 会话复用。
-2. **CLI Agent Plugin（遗留 fallback）**：当 ACP 条件不满足时，退回到 `core.AgentPlugin` 接口
-   启动进程并解析 stdout 流。
+- agent profile 必须配有 `launch_command`，`ACPHandlerFactory` 必须可用。
+- 通过 ACP JSON-RPC over stdio 驱动 agent，支持跨 stage 会话复用。
+- CLI Agent Plugin 遗留路径已移除，`core.AgentPlugin` / `core.RuntimePlugin` 接口已删除。
 
 Stage 使用 role-based 解析：`stage.Role` → `RoleResolver.Resolve()` → `AgentProfile + RoleProfile`，
 不再直接指定 agent name。

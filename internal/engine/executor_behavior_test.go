@@ -3,95 +3,22 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
-	runtimeprocess "github.com/yoke233/ai-workflow/internal/plugins/runtime-process"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 	workspaceworktree "github.com/yoke233/ai-workflow/internal/plugins/workspace-worktree"
 )
-
-type fakeAgent struct {
-	name     string
-	buildFn  func(core.ExecOpts) ([]string, error)
-	parserFn func(io.Reader) core.StreamParser
-
-	mu      sync.Mutex
-	options []core.ExecOpts
-}
-
-func (a *fakeAgent) Name() string { return a.name }
-func (a *fakeAgent) Init(context.Context) error {
-	return nil
-}
-func (a *fakeAgent) Close() error { return nil }
-func (a *fakeAgent) BuildCommand(opts core.ExecOpts) ([]string, error) {
-	a.mu.Lock()
-	a.options = append(a.options, opts)
-	a.mu.Unlock()
-	if a.buildFn != nil {
-		return a.buildFn(opts)
-	}
-	return []string{"noop"}, nil
-}
-func (a *fakeAgent) NewStreamParser(r io.Reader) core.StreamParser {
-	if a.parserFn != nil {
-		return a.parserFn(r)
-	}
-	return &eofParser{}
-}
-
-func (a *fakeAgent) lastPrompt() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if len(a.options) == 0 {
-		return ""
-	}
-	return a.options[len(a.options)-1].Prompt
-}
-
-type fakeRuntime struct {
-	waitResults []error
-	calls       int
-	workDirs    []string
-}
-
-func (r *fakeRuntime) Name() string { return "fake-runtime" }
-func (r *fakeRuntime) Init(context.Context) error {
-	return nil
-}
-func (r *fakeRuntime) Close() error { return nil }
-func (r *fakeRuntime) Kill(string) error {
-	return nil
-}
-func (r *fakeRuntime) Create(_ context.Context, opts core.RuntimeOpts) (*core.Session, error) {
-	r.calls++
-	r.workDirs = append(r.workDirs, opts.WorkDir)
-	idx := r.calls - 1
-	waitErr := error(nil)
-	if idx < len(r.waitResults) {
-		waitErr = r.waitResults[idx]
-	}
-	return &core.Session{
-		ID:     "s",
-		Stdin:  nopWriteCloser{},
-		Stdout: strings.NewReader(""),
-		Stderr: strings.NewReader(""),
-		Wait: func() error {
-			return waitErr
-		},
-	}, nil
-}
 
 type fakeWorkspace struct {
 	setupErr   error
@@ -123,28 +50,6 @@ func (w *fakeWorkspace) Cleanup(_ context.Context, req core.WorkspaceCleanupRequ
 	return w.cleanupErr
 }
 
-type nopWriteCloser struct{}
-
-func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
-func (nopWriteCloser) Close() error                { return nil }
-
-type eofParser struct{}
-
-func (*eofParser) Next() (*core.StreamEvent, error) { return nil, io.EOF }
-
-type failOnceParser struct {
-	err  error
-	done bool
-}
-
-func (p *failOnceParser) Next() (*core.StreamEvent, error) {
-	if p.done {
-		return nil, io.EOF
-	}
-	p.done = true
-	return nil, p.err
-}
-
 func newTestStore(t *testing.T) *storesqlite.SQLiteStore {
 	t.Helper()
 	s, err := storesqlite.New(":memory:")
@@ -154,65 +59,57 @@ func newTestStore(t *testing.T) *storesqlite.SQLiteStore {
 	return s
 }
 
-func newExecutor(store core.Store, agents map[string]core.AgentPlugin, runtime core.RuntimePlugin) *Executor {
-	return newExecutorWithBus(store, eventbus.New(), agents, runtime)
+func newExecutor(store core.Store, stageResults []error) *Executor {
+	return newExecutorWithBus(store, eventbus.New(), stageResults)
 }
 
-func newExecutorWithBus(store core.Store, bus *eventbus.Bus, agents map[string]core.AgentPlugin, runtime core.RuntimePlugin) *Executor {
+func newExecutorWithBus(store core.Store, bus *eventbus.Bus, stageResults []error) *Executor {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	execEngine := NewExecutor(store, bus, agents, runtime, logger)
-	if defaultAgent := defaultTestAgentName(agents); defaultAgent != "" {
-		execEngine.SetRoleResolver(acpclient.NewRoleResolver(
-			[]acpclient.AgentProfile{
-				{
-					ID: defaultAgent,
-					CapabilitiesMax: acpclient.ClientCapabilities{
-						FSRead:   true,
-						FSWrite:  true,
-						Terminal: true,
-					},
+	e := NewExecutor(store, bus, logger)
+	e.SetRoleResolver(acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
 				},
 			},
-			[]acpclient.RoleProfile{
-				{
-					ID:      "worker",
-					AgentID: defaultAgent,
-					Capabilities: acpclient.ClientCapabilities{
-						FSRead:   true,
-						FSWrite:  true,
-						Terminal: true,
-					},
-				},
-				{
-					ID:      "reviewer",
-					AgentID: defaultAgent,
-					Capabilities: acpclient.ClientCapabilities{
-						FSRead:   true,
-						FSWrite:  true,
-						Terminal: true,
-					},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "worker",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
 				},
 			},
-		))
-	}
-	return execEngine
-}
-
-func defaultTestAgentName(agents map[string]core.AgentPlugin) string {
-	if plugin, ok := agents["codex"]; ok && plugin != nil {
-		return "codex"
-	}
-	if plugin, ok := agents["claude"]; ok && plugin != nil {
-		return "claude"
-	}
-	for rawName, plugin := range agents {
-		name := strings.TrimSpace(rawName)
-		if name == "" || plugin == nil {
-			continue
+			{
+				ID:      "reviewer",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	))
+	if stageResults != nil {
+		var callIdx int
+		e.testStageFunc = func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error {
+			idx := callIdx
+			callIdx++
+			if idx < len(stageResults) {
+				return stageResults[idx]
+			}
+			return nil
 		}
-		return name
 	}
-	return ""
+	return e
 }
 
 func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages []core.StageConfig) *core.Run {
@@ -291,14 +188,6 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
-	agent := &fakeAgent{
-		name: "codex",
-		buildFn: func(core.ExecOpts) ([]string, error) {
-			return []string{"git", "commit", "--allow-empty", "-m", "feat-from-agent"}, nil
-		},
-		parserFn: func(io.Reader) core.StreamParser { return &eofParser{} },
-	}
-
 	p := setupProjectAndRun(t, store, repo, []core.StageConfig{
 		{Name: core.StageSetup, OnFailure: core.OnFailureAbort},
 		{Name: core.StageImplement, Agent: "codex", PromptTemplate: "implement", OnFailure: core.OnFailureAbort},
@@ -306,7 +195,18 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
 	})
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtimeprocess.New())
+	execEngine := newExecutor(store, nil)
+	execEngine.testStageFunc = func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error {
+		run, _ := store.GetRun(runID)
+		if run != nil && run.WorktreePath != "" {
+			cmd := exec.Command("git", "-C", run.WorktreePath, "commit", "--allow-empty", "-m", "feat-from-agent")
+			cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("git commit: %s (%w)", out, err)
+			}
+		}
+		return nil
+	}
 	execEngine.SetWorkspace(workspaceworktree.New())
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run failed: %v", err)
@@ -350,7 +250,7 @@ func TestExecutor_Run_WorktreeStagesUseWorkspacePlugin(t *testing.T) {
 		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
 	})
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, &fakeRuntime{})
+	execEngine := newExecutor(store, nil)
 	execEngine.SetWorkspace(workspace)
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run failed: %v", err)
@@ -383,21 +283,13 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{
-		errors.New("boom-1"),
-		errors.New("boom-2"),
-		nil,
-	}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
-			Name:         core.StageImplement,
-			Agent:        "codex",
-			OnFailure:    core.OnFailureRetry,
-			MaxRetries:   2,
-			Timeout:      0,
-			RequireHuman: false,
+			Name:       core.StageImplement,
+			Agent:      "codex",
+			OnFailure:  core.OnFailureRetry,
+			MaxRetries: 2,
 		},
 	})
 	p.WorktreePath = workDir
@@ -405,7 +297,11 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{
+		errors.New("boom-1"),
+		errors.New("boom-2"),
+		nil,
+	})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("expected retry to eventually succeed, got err: %v", err)
 	}
@@ -420,9 +316,6 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 	if got.Conclusion != core.ConclusionSuccess {
 		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
 	}
-	if runtime.calls != 3 {
-		t.Fatalf("expected 3 attempts, got %d", runtime.calls)
-	}
 }
 
 func TestExecutor_Run_OnFailureSkip(t *testing.T) {
@@ -430,11 +323,6 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{
-		errors.New("first-stage-fail"),
-		nil,
-	}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureSkip, MaxRetries: 0},
@@ -445,7 +333,10 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{
+		errors.New("first-stage-fail"),
+		nil,
+	})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("skip should continue to next stage, got err: %v", err)
 	}
@@ -460,9 +351,6 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 	if got.Conclusion != core.ConclusionSuccess {
 		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
 	}
-	if runtime.calls != 2 {
-		t.Fatalf("expected two stage executions, got %d", runtime.calls)
-	}
 }
 
 func TestExecutor_Run_OnFailureHuman(t *testing.T) {
@@ -470,8 +358,6 @@ func TestExecutor_Run_OnFailureHuman(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{errors.New("need-human")}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureHuman, MaxRetries: 0},
@@ -481,7 +367,7 @@ func TestExecutor_Run_OnFailureHuman(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{errors.New("need-human")})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("human gate should pause Run, got err: %v", err)
 	}
@@ -500,8 +386,6 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{errors.New("fatal")}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
@@ -511,7 +395,7 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{errors.New("fatal")})
 	if err := execEngine.Run(context.Background(), p.ID); err == nil {
 		t.Fatal("abort should return error")
 	}
@@ -528,19 +412,11 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 	}
 }
 
-func TestExecutor_Run_ParserErrorShouldFailStage(t *testing.T) {
+func TestExecutor_Run_StageErrorShouldFailRun(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{
-		name: "codex",
-		parserFn: func(io.Reader) core.StreamParser {
-			return &failOnceParser{err: errors.New("bad-stream")}
-		},
-	}
-
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
@@ -549,13 +425,13 @@ func TestExecutor_Run_ParserErrorShouldFailStage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{errors.New("bad-stream")})
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
-		t.Fatal("expected parser error to fail stage")
+		t.Fatal("expected stage error to fail run")
 	}
 	if !strings.Contains(err.Error(), "bad-stream") {
-		t.Fatalf("expected parser error in run error, got: %v", err)
+		t.Fatalf("expected error in run error, got: %v", err)
 	}
 }
 
@@ -564,8 +440,6 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
@@ -582,29 +456,30 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	var capturedPrompt string
+	execEngine := newExecutor(store, nil)
+	execEngine.testStageFunc = func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error {
+		capturedPrompt = prompt
+		return nil
+	}
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	prompt := agent.lastPrompt()
-	if !strings.Contains(prompt, "这里是需求文本XYZ") {
-		t.Fatalf("prompt should contain requirements from Run description, got: %s", prompt)
+	if !strings.Contains(capturedPrompt, "这里是需求文本XYZ") {
+		t.Fatalf("prompt should contain requirements from Run description, got: %s", capturedPrompt)
 	}
-	if !strings.Contains(prompt, "请根据以下需求实现代码") {
-		t.Fatalf("prompt should come from implement template, got: %s", prompt)
+	if !strings.Contains(capturedPrompt, "请根据以下需求实现代码") {
+		t.Fatalf("prompt should come from implement template, got: %s", capturedPrompt)
 	}
 	for _, required := range []string{
 		".ai-workflow/issue_plan.md",
 		".ai-workflow/progress.md",
 		".ai-workflow/findings.md",
 	} {
-		if !strings.Contains(prompt, required) {
-			t.Fatalf("prompt should include execution documentation instruction %q, got: %s", required, prompt)
+		if !strings.Contains(capturedPrompt, required) {
+			t.Fatalf("prompt should include execution documentation instruction %q, got: %s", required, capturedPrompt)
 		}
-	}
-	if len(runtime.workDirs) == 0 || runtime.workDirs[0] != workDir {
-		t.Fatalf("runtime should execute in worktree dir %q, got %v", workDir, runtime.workDirs)
 	}
 }
 
@@ -613,8 +488,6 @@ func TestExecuteStageByRole(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
@@ -630,32 +503,7 @@ func TestExecuteStageByRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolver := acpclient.NewRoleResolver(
-		[]acpclient.AgentProfile{
-			{
-				ID: "codex",
-				CapabilitiesMax: acpclient.ClientCapabilities{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-		},
-		[]acpclient.RoleProfile{
-			{
-				ID:      "worker",
-				AgentID: "codex",
-				Capabilities: acpclient.ClientCapabilities{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-		},
-	)
-
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
-	execEngine.SetRoleResolver(resolver)
+	execEngine := newExecutor(store, []error{nil})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run by role failed: %v", err)
 	}
@@ -669,9 +517,6 @@ func TestExecuteStageByRole(t *testing.T) {
 	}
 	if got.Conclusion != core.ConclusionSuccess {
 		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
-	}
-	if runtime.calls != 1 {
-		t.Fatalf("expected one stage execution, got %d", runtime.calls)
 	}
 
 	checkpoints, err := store.GetCheckpoints(p.ID)
@@ -690,60 +535,23 @@ func TestExecuteStageByRole(t *testing.T) {
 func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
-
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
-		{
-			Name:       core.StageImplement,
-			Role:       "missing-role",
-			OnFailure:  core.OnFailureAbort,
-			MaxRetries: 0,
-		},
+		{Name: core.StageImplement, Role: "missing-role", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.WorktreePath = workDir
 	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
-	resolver := acpclient.NewRoleResolver(
-		[]acpclient.AgentProfile{
-			{
-				ID: "codex",
-				CapabilitiesMax: acpclient.ClientCapabilities{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-		},
-		[]acpclient.RoleProfile{
-			{
-				ID:      "worker",
-				AgentID: "codex",
-				Capabilities: acpclient.ClientCapabilities{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-		},
-	)
-
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
-	execEngine.SetRoleResolver(resolver)
-
+	execEngine := newExecutor(store, nil)
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
 		t.Fatal("expected missing role to fail Run run")
 	}
 	if !strings.Contains(err.Error(), "role not found") {
 		t.Fatalf("expected role resolution failure, got %v", err)
-	}
-	if runtime.calls != 0 {
-		t.Fatalf("expected runtime not to start session on missing role, got calls=%d", runtime.calls)
 	}
 }
 
@@ -752,8 +560,6 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	project := &core.Project{
 		ID:       "proj-empty-role",
@@ -813,7 +619,7 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 		},
 	)
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, nil)
 	execEngine.SetRoleResolver(resolver)
 
 	err := execEngine.Run(context.Background(), p.ID)
@@ -823,9 +629,6 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "stage role is required") {
 		t.Fatalf("expected missing stage role failure, got %v", err)
 	}
-	if runtime.calls != 0 {
-		t.Fatalf("expected runtime not to start session on empty role, got calls=%d", runtime.calls)
-	}
 }
 
 func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
@@ -833,8 +636,6 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	project := &core.Project{
 		ID:       "proj-no-fallback",
@@ -894,7 +695,7 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 		},
 	)
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, nil)
 	execEngine.SetRoleResolver(resolver)
 
 	err := execEngine.Run(context.Background(), p.ID)
@@ -921,8 +722,6 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
@@ -937,7 +736,7 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, nil)
 	execEngine.SetRoleResolver(nil)
 
 	err := execEngine.Run(context.Background(), p.ID)
@@ -947,9 +746,6 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "role resolver is not configured") {
 		t.Fatalf("expected missing resolver failure, got %v", err)
 	}
-	if runtime.calls != 0 {
-		t.Fatalf("expected runtime not to start session without resolver, got calls=%d", runtime.calls)
-	}
 }
 
 // --- ACP Session Pool Tests ---
@@ -957,7 +753,7 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 func TestACPPool_PutGetCleanup(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
-	e := newExecutor(store, map[string]core.AgentPlugin{"codex": &fakeAgent{name: "codex"}}, &fakeRuntime{})
+	e := newExecutor(store, nil)
 
 	entry := &acpSessionEntry{sessionID: "sid-1"}
 	e.acpPoolPut("run-1", core.StageImplement, entry)
@@ -988,7 +784,7 @@ func TestACPPool_PutGetCleanup(t *testing.T) {
 func TestACPPool_CleanupDoesNotAffectOtherRuns(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
-	e := newExecutor(store, map[string]core.AgentPlugin{"codex": &fakeAgent{name: "codex"}}, &fakeRuntime{})
+	e := newExecutor(store, nil)
 
 	entry1 := &acpSessionEntry{sessionID: "sid-1"}
 	entry2 := &acpSessionEntry{sessionID: "sid-2"}

@@ -203,9 +203,7 @@ func (e *Executor) applyAbort(p *core.Run, action core.RunAction, stage core.Sta
 }
 
 func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.StageID) error {
-	if err := e.killActiveSession(p.ID); err != nil {
-		return err
-	}
+	e.acpPoolCleanup(p.ID)
 	p.Status = core.StatusActionRequired
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()

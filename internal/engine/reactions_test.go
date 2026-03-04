@@ -72,11 +72,6 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	runtime := &fakeRuntime{waitResults: []error{
-		errors.New("boom-1"),
-		nil,
-	}}
-	agent := &fakeAgent{name: "codex"}
 
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
@@ -95,7 +90,7 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{errors.New("boom-1"), nil})
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
 		t.Fatal("expected retry budget exhaustion error")
@@ -110,8 +105,5 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 	}
 	if got.Conclusion != core.ConclusionFailure {
 		t.Fatalf("expected failure conclusion after retry budget exhaustion, got %s", got.Conclusion)
-	}
-	if runtime.calls != 1 {
-		t.Fatalf("expected only one attempt due global budget, got calls=%d", runtime.calls)
 	}
 }

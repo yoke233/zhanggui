@@ -62,10 +62,10 @@ role_bindings:
 
 ## ACP 执行协议
 
-Stage 执行优先走 ACP（Agent Communication Protocol）路径：
+Stage 执行通过 ACP（Agent Communication Protocol）路径：
 
-- 条件：agent profile 配有 `launch_command` 且 `ACPHandlerFactory` 可用。
-- 不满足时 fallback 到 CLI agent plugin（遗留路径）。
+- agent profile 必须配有 `launch_command`，`ACPHandlerFactory` 必须可用。
+- CLI agent plugin 遗留路径已移除，ACP 是唯一执行方式。
 
 ACP 流程：`LaunchConfig → Initialize → NewSession → Prompt → 事件流`。
 `stageEventBridge` 将 ACP session update 转换为 `EventAgentOutput` 发布到 EventBus。

@@ -139,9 +139,7 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime := &fakeRuntime{waitResults: []error{nil}}
-	agent := &fakeAgent{name: "codex"}
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine := newExecutor(store, []error{nil})
 
 	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("RecoverActiveRuns failed: %v", err)
@@ -153,9 +151,6 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 	}
 	if got.Status != core.StatusCompleted {
 		t.Fatalf("expected recovered Run status done, got %s", got.Status)
-	}
-	if runtime.calls != 1 {
-		t.Fatalf("expected one rerun of interrupted stage, got %d", runtime.calls)
 	}
 
 	checkpoints, err := store.GetCheckpoints(p.ID)

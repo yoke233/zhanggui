@@ -170,12 +170,6 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
-	if runtime := layer.Runtime; runtime != nil {
-		if runtime.Driver != nil {
-			cfg.Runtime.Driver = *runtime.Driver
-		}
-	}
-
 	if scheduler := layer.Scheduler; scheduler != nil {
 		if scheduler.MaxGlobalAgents != nil {
 			cfg.Scheduler.MaxGlobalAgents = *scheduler.MaxGlobalAgents

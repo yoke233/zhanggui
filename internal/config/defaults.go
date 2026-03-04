@@ -148,9 +148,6 @@ func Defaults() Config {
 				Role: "plan_parser",
 			},
 		},
-		Runtime: RuntimeConfig{
-			Driver: "process",
-		},
 		Run: RunConfig{
 			DefaultTemplate:   "standard",
 			GlobalTimeout:     2 * time.Hour,

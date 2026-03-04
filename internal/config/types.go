@@ -6,7 +6,6 @@ type Config struct {
 	Agents     AgentsConfig     `yaml:"agents"`
 	Roles      []RoleConfig     `yaml:"roles"`
 	RoleBinds  RoleBindings     `yaml:"role_bindings"`
-	Runtime    RuntimeConfig    `yaml:"runtime"`
 	Run        RunConfig        `yaml:"Run"`
 	Scheduler  SchedulerConfig  `yaml:"scheduler"`
 	TeamLeader TeamLeaderConfig `yaml:"team_leader"`
@@ -41,10 +40,6 @@ type RunConfig struct {
 	GlobalTimeout     time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate bool          `yaml:"auto_infer_template"`
 	MaxTotalRetries   int           `yaml:"max_total_retries"`
-}
-
-type RuntimeConfig struct {
-	Driver string `yaml:"driver"`
 }
 
 type SchedulerConfig struct {
@@ -123,7 +118,6 @@ type ConfigLayer struct {
 	Agents     *AgentsLayer       `yaml:"agents"`
 	Roles      *[]RoleConfig      `yaml:"roles"`
 	RoleBinds  *RoleBindingsLayer `yaml:"role_bindings"`
-	Runtime    *RuntimeLayer      `yaml:"runtime"`
 	Run        *RunLayer          `yaml:"Run"`
 	Scheduler  *SchedulerLayer    `yaml:"scheduler"`
 	TeamLeader *TeamLeaderLayer   `yaml:"team_leader"`
@@ -146,10 +140,6 @@ type RunLayer struct {
 	GlobalTimeout     *time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate *bool          `yaml:"auto_infer_template"`
 	MaxTotalRetries   *int           `yaml:"max_total_retries"`
-}
-
-type RuntimeLayer struct {
-	Driver *string `yaml:"driver"`
 }
 
 type SchedulerLayer struct {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -40,16 +39,14 @@ type acpSessionEntry struct {
 type Executor struct {
 	store             core.Store
 	bus               *eventbus.Bus
-	agents            map[string]core.AgentPlugin
 	roleResolver      *acpclient.RoleResolver
 	stageRoles        map[core.StageID]string
-	runtime           core.RuntimePlugin
 	workspace         core.WorkspacePlugin
 	acpHandlerFactory ACPHandlerFactory
 	logger            *slog.Logger
 
-	sessionMu     sync.Mutex
-	activeSession map[string]string
+	// testStageFunc is a test-only hook that bypasses real ACP execution.
+	testStageFunc func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error
 
 	// acpPool keeps ACP sessions alive across stages for the same run.
 	// Key: "runID:stageID" where stageID is the stage that created the session.
@@ -60,19 +57,13 @@ type Executor struct {
 func NewExecutor(
 	store core.Store,
 	bus *eventbus.Bus,
-	agents map[string]core.AgentPlugin,
-	runtime core.RuntimePlugin,
 	logger *slog.Logger,
 ) *Executor {
 	return &Executor{
 		store:   store,
 		bus:     bus,
-		agents:  agents,
-		runtime: runtime,
 		logger:  logger,
-
-		activeSession: make(map[string]string),
-		acpPool:       make(map[string]*acpSessionEntry),
+		acpPool: make(map[string]*acpSessionEntry),
 	}
 }
 
@@ -86,6 +77,11 @@ func (e *Executor) SetACPHandlerFactory(factory ACPHandlerFactory) {
 
 func (e *Executor) SetWorkspace(workspace core.WorkspacePlugin) {
 	e.workspace = workspace
+}
+
+// TestSetStageFunc sets a test-only hook that bypasses real ACP stage execution.
+func (e *Executor) TestSetStageFunc(fn func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error) {
+	e.testStageFunc = fn
 }
 
 func (e *Executor) SetRunstageRoles(stageRoles map[string]string) {
@@ -471,32 +467,6 @@ func latestCheckpointForStage(checkpoints []core.Checkpoint, stage core.StageID)
 	return nil
 }
 
-func (e *Executor) registerSession(RunID, sessionID string) {
-	e.sessionMu.Lock()
-	defer e.sessionMu.Unlock()
-	e.activeSession[RunID] = sessionID
-}
-
-func (e *Executor) unregisterSession(RunID, sessionID string) {
-	e.sessionMu.Lock()
-	defer e.sessionMu.Unlock()
-
-	existing := e.activeSession[RunID]
-	if existing == sessionID {
-		delete(e.activeSession, RunID)
-	}
-}
-
-func (e *Executor) killActiveSession(RunID string) error {
-	e.sessionMu.Lock()
-	sessionID := e.activeSession[RunID]
-	e.sessionMu.Unlock()
-
-	if sessionID == "" {
-		return nil
-	}
-	return e.runtime.Kill(sessionID)
-}
 
 func (e *Executor) isRunActionRequired(RunID string) (bool, error) {
 	p, err := e.store.GetRun(RunID)
@@ -597,88 +567,11 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("render prompt: %w", err)
 	}
 
-	// Prefer ACP protocol when launch command and handler factory are available.
-	if strings.TrimSpace(agentProfile.LaunchCommand) != "" && e.acpHandlerFactory != nil {
-		return e.runACPStage(ctx, agentName, agentProfile, roleProfile, p, stage, prompt)
+	if e.testStageFunc != nil {
+		return e.testStageFunc(ctx, p.ID, stage.Name, agentName, prompt)
 	}
 
-	// Fallback to CLI agent plugin path.
-	return e.runCLIStage(ctx, agentName, p, stage, prompt)
-}
-
-// runCLIStage executes a pipeline stage via CLI agent plugin (legacy path).
-func (e *Executor) runCLIStage(
-	ctx context.Context,
-	agentName string,
-	p *core.Run,
-	stage *core.StageConfig,
-	prompt string,
-) error {
-	agent, ok := e.agents[agentName]
-	if !ok {
-		return fmt.Errorf("agent plugin %q not found for stage %q", agentName, stage.Name)
-	}
-	opts := core.ExecOpts{
-		Prompt:   prompt,
-		WorkDir:  p.WorktreePath,
-		MaxTurns: 30,
-		Timeout:  stage.Timeout,
-	}
-	cmd, err := agent.BuildCommand(opts)
-	if err != nil {
-		return fmt.Errorf("build command: %w", err)
-	}
-
-	stageCtx := ctx
-	if stage.Timeout > 0 {
-		var cancel context.CancelFunc
-		stageCtx, cancel = context.WithTimeout(ctx, stage.Timeout)
-		defer cancel()
-	}
-
-	sess, err := e.runtime.Create(stageCtx, core.RuntimeOpts{
-		Command: cmd,
-		WorkDir: p.WorktreePath,
-	})
-	if err != nil {
-		return fmt.Errorf("create session: %w", err)
-	}
-	e.registerSession(p.ID, sess.ID)
-	defer e.unregisterSession(p.ID, sess.ID)
-
-	parser := agent.NewStreamParser(sess.Stdout)
-	gotDone := false
-	for {
-		evt, err := parser.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("parse stream: %w", err)
-		}
-		if evt.Type == "done" {
-			gotDone = true
-		}
-		e.bus.Publish(core.Event{
-			Type:  core.EventAgentOutput,
-			RunID: p.ID,
-			Stage: stage.Name,
-			Agent: agentName,
-			Data: map[string]string{
-				"content": evt.Content,
-				"type":    evt.Type,
-			},
-			Timestamp: evt.Timestamp,
-		})
-	}
-
-	if err := sess.Wait(); err != nil {
-		if gotDone {
-			return nil
-		}
-		return fmt.Errorf("wait session: %w", err)
-	}
-	return nil
+	return e.runACPStage(ctx, agentName, agentProfile, roleProfile, p, stage, prompt)
 }
 
 // acpPoolKey builds the session pool key for a given run and stage.

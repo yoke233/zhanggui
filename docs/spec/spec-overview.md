@@ -101,7 +101,7 @@
 1. `Web API`：提供项目、issue、workflow profile、run、事件查询接口。
 2. `Team Leader`：维护会话上下文，决定 issue 推进与 profile 选择。
 3. `Issue Service`：issue 生命周期与时间线写入。
-4. `Run Engine`：基于 profile 规则执行 run（ACP 协议为主路径，CLI fallback）。
+4. `Run Engine`：基于 profile 规则执行 run（ACP 协议为唯一执行路径）。
 5. `Event Bus + Event Store`：解耦触发与推进，持久化 run/review 事件。EventBus 订阅者将带 `run_id` 的事件写入 `run_events` 表。
 6. `Auto-Merge`：监听 `EventRunDone`，执行 test gate → PR 创建 → PR 合并。
 7. `A2A Bridge`：接收外部 agent 任务，自动创建 issue 并 approve。
