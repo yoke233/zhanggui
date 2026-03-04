@@ -151,7 +151,7 @@ func TestWebhook_UnsupportedEvent_Returns202(t *testing.T) {
 	}
 }
 
-func TestWebhook_IssueCommentSlashReject_AppliesPipelineAction(t *testing.T) {
+func TestWebhook_IssueCommentSlashReject_AppliesRunAction(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{
 		ID:          "proj-webhook-slash-reject",
@@ -165,13 +165,13 @@ func TestWebhook_IssueCommentSlashReject_AppliesPipelineAction(t *testing.T) {
 	}
 
 	now := time.Now()
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              "pipe-webhook-slash-reject",
 		ProjectID:       project.ID,
 		Name:            "slash reject",
 		Description:     "slash reject",
 		Template:        "standard",
-		Status:          core.StatusWaitingHuman,
+		Status:          core.StatusWaitingReview,
 		CurrentStage:    core.StageImplement,
 		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts:       map[string]string{},
@@ -180,13 +180,13 @@ func TestWebhook_IssueCommentSlashReject_AppliesPipelineAction(t *testing.T) {
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("seed pipeline: %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("seed Run: %v", err)
 	}
 
-	var gotAction core.PipelineAction
-	executor := &testPipelineExecutor{
-		applyActionFn: func(_ context.Context, action core.PipelineAction) error {
+	var gotAction core.RunAction
+	executor := &testRunExecutor{
+		applyActionFn: func(_ context.Context, action core.RunAction) error {
 			gotAction = action
 			return nil
 		},
@@ -194,7 +194,7 @@ func TestWebhook_IssueCommentSlashReject_AppliesPipelineAction(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:         store,
-		PipelineExec:  executor,
+		RunExec:       executor,
 		WebhookSecret: "webhook-secret",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -210,8 +210,8 @@ func TestWebhook_IssueCommentSlashReject_AppliesPipelineAction(t *testing.T) {
 		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
 	}
 
-	if gotAction.PipelineID != pipeline.ID {
-		t.Fatalf("expected pipeline id %q, got %q", pipeline.ID, gotAction.PipelineID)
+	if gotAction.RunID != Run.ID {
+		t.Fatalf("expected Run id %q, got %q", Run.ID, gotAction.RunID)
 	}
 	if gotAction.Type != core.ActionReject {
 		t.Fatalf("expected action reject, got %q", gotAction.Type)
@@ -238,13 +238,13 @@ func TestWebhook_IssueCommentSlashUnauthorized_NoAction(t *testing.T) {
 	}
 
 	now := time.Now()
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              "pipe-webhook-slash-unauthorized",
 		ProjectID:       project.ID,
 		Name:            "slash unauthorized",
 		Description:     "slash unauthorized",
 		Template:        "standard",
-		Status:          core.StatusWaitingHuman,
+		Status:          core.StatusWaitingReview,
 		CurrentStage:    core.StageCodeReview,
 		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
 		Artifacts:       map[string]string{},
@@ -253,13 +253,13 @@ func TestWebhook_IssueCommentSlashUnauthorized_NoAction(t *testing.T) {
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("seed pipeline: %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("seed Run: %v", err)
 	}
 
 	applied := false
-	executor := &testPipelineExecutor{
-		applyActionFn: func(_ context.Context, action core.PipelineAction) error {
+	executor := &testRunExecutor{
+		applyActionFn: func(_ context.Context, action core.RunAction) error {
 			applied = true
 			return nil
 		},
@@ -267,7 +267,7 @@ func TestWebhook_IssueCommentSlashUnauthorized_NoAction(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:         store,
-		PipelineExec:  executor,
+		RunExec:       executor,
 		WebhookSecret: "webhook-secret",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -288,7 +288,7 @@ func TestWebhook_IssueCommentSlashUnauthorized_NoAction(t *testing.T) {
 	}
 }
 
-func TestWebhook_IssueCommentSlashRun_CreatesPipeline(t *testing.T) {
+func TestWebhook_IssueCommentSlashRun_CreatesRun(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{
 		ID:          "proj-webhook-slash-run",
@@ -319,16 +319,16 @@ func TestWebhook_IssueCommentSlashRun_CreatesPipeline(t *testing.T) {
 		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
 	}
 
-	pipelines, err := store.ListPipelines(project.ID, core.PipelineFilter{Limit: 20})
+	Runs, err := store.ListRuns(project.ID, core.RunFilter{Limit: 20})
 	if err != nil {
-		t.Fatalf("ListPipelines() error = %v", err)
+		t.Fatalf("ListRuns() error = %v", err)
 	}
-	if len(pipelines) != 1 {
-		t.Fatalf("expected one pipeline created by /run, got %d", len(pipelines))
+	if len(Runs) != 1 {
+		t.Fatalf("expected one Run created by /run, got %d", len(Runs))
 	}
-	created, err := store.GetPipeline(pipelines[0].ID)
+	created, err := store.GetRun(Runs[0].ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if created.Template != "hotfix" {
 		t.Fatalf("expected template hotfix, got %q", created.Template)
@@ -352,7 +352,7 @@ func TestWebhook_IssueCommentSlashRun_CreatesPipeline(t *testing.T) {
 	}
 }
 
-func TestWebhook_PullRequestClosedMerged_MarksPipelineDone(t *testing.T) {
+func TestWebhook_PullRequestClosedMerged_MarksRunDone(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{
 		ID:          "proj-webhook-pr-closed-merged",
@@ -365,7 +365,7 @@ func TestWebhook_PullRequestClosedMerged_MarksPipelineDone(t *testing.T) {
 		t.Fatalf("seed project: %v", err)
 	}
 
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              "pipe-webhook-pr-closed-merged",
 		ProjectID:       project.ID,
 		Name:            "pr merged",
@@ -380,8 +380,8 @@ func TestWebhook_PullRequestClosedMerged_MarksPipelineDone(t *testing.T) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("seed pipeline: %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("seed Run: %v", err)
 	}
 
 	srv := NewServer(Config{
@@ -401,16 +401,16 @@ func TestWebhook_PullRequestClosedMerged_MarksPipelineDone(t *testing.T) {
 		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if updated.Status != core.StatusDone {
 		t.Fatalf("expected status done, got %s", updated.Status)
 	}
 }
 
-func TestWebhook_PullRequestClosedNotMerged_MarksPipelineFailed(t *testing.T) {
+func TestWebhook_PullRequestClosedNotMerged_MarksRunFailed(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{
 		ID:          "proj-webhook-pr-closed-failed",
@@ -423,7 +423,7 @@ func TestWebhook_PullRequestClosedNotMerged_MarksPipelineFailed(t *testing.T) {
 		t.Fatalf("seed project: %v", err)
 	}
 
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              "pipe-webhook-pr-closed-failed",
 		ProjectID:       project.ID,
 		Name:            "pr failed",
@@ -438,8 +438,8 @@ func TestWebhook_PullRequestClosedNotMerged_MarksPipelineFailed(t *testing.T) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("seed pipeline: %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("seed Run: %v", err)
 	}
 
 	srv := NewServer(Config{
@@ -459,9 +459,9 @@ func TestWebhook_PullRequestClosedNotMerged_MarksPipelineFailed(t *testing.T) {
 		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if updated.Status != core.StatusFailed {
 		t.Fatalf("expected status failed, got %s", updated.Status)

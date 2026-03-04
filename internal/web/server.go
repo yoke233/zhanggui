@@ -64,9 +64,9 @@ type IssueManager interface {
 	ApplyIssueAction(ctx context.Context, issueID string, action IssueAction) (*core.Issue, error)
 }
 
-// PipelineExecutor defines pipeline human-action entrypoints used by web handlers.
-type PipelineExecutor interface {
-	ApplyAction(ctx context.Context, action core.PipelineAction) error
+// RunExecutor defines Run human-action entrypoints used by web handlers.
+type RunExecutor interface {
+	ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
 // A2ABridge defines A2A task bridge methods.
@@ -97,8 +97,8 @@ type Config struct {
 	IssueManager           IssueManager
 	ChatAssistant          ChatAssistant
 	EventPublisher         chatEventPublisher
-	PipelineExec           PipelineExecutor
-	PipelineStageRoles     map[string]string
+	RunExec                RunExecutor
+	RunstageRoles          map[string]string
 	IssueParserRoleID      string
 	WebhookReplayer        WebhookDeliveryReplayer
 	Hub                    *Hub
@@ -150,7 +150,7 @@ func NewServer(cfg Config) *Server {
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
 	registerA2ARoutes(r, cfg)
-	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.PipelineExec, strings.TrimSpace(cfg.WebhookSecret), cfg.PipelineStageRoles)
+	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.RunExec, strings.TrimSpace(cfg.WebhookSecret), cfg.RunstageRoles)
 	if cfg.WebhookReplayer != nil {
 		webhookReplayer = cfg.WebhookReplayer
 	}
@@ -163,7 +163,6 @@ func NewServer(cfg Config) *Server {
 		r.Get("/stats", handleStats)
 		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
 		registerRepoRoutes(r, cfg.Store)
-		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec, cfg.PipelineStageRoles)
 		registerChatRoutes(r, cfg.Store, cfg.ChatAssistant, cfg.EventPublisher)
 		registerIssueRoutes(r, cfg.Store, issueManager, issueParserRoleID)
 		registerAdminOpsRoutes(r, cfg.Store, cfg.BearerToken, webhookReplayer)
@@ -173,7 +172,7 @@ func NewServer(cfg Config) *Server {
 		if cfg.AuthEnabled {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
 		}
-		registerV2Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.PipelineExec, cfg.PipelineStageRoles)
+		registerV2Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles)
 	})
 	if frontendFS != nil {
 		spa := newSPAFallbackHandler(frontendFS)

@@ -270,7 +270,7 @@ func TestWebhookDispatcher_PublishesEventGitHubWebhookReceived(t *testing.T) {
 	}
 }
 
-func TestWebhookDispatcher_CleansIssueMutexAfterCloseOrPipelineDone(t *testing.T) {
+func TestWebhookDispatcher_CleansIssueMutexAfterCloseOrRunDone(t *testing.T) {
 	t.Run("issue closed triggers delayed cleanup", func(t *testing.T) {
 		dispatcher := NewWebhookDispatcher(WebhookDispatcherOptions{
 			CleanupDelay: 20 * time.Millisecond,
@@ -298,13 +298,13 @@ func TestWebhookDispatcher_CleansIssueMutexAfterCloseOrPipelineDone(t *testing.T
 		})
 	})
 
-	t.Run("pipeline done triggers delayed cleanup", func(t *testing.T) {
+	t.Run("Run done triggers delayed cleanup", func(t *testing.T) {
 		bus := eventbus.New()
 		defer bus.Close()
 
 		dispatcher := NewWebhookDispatcher(WebhookDispatcherOptions{
-			PipelineEvents: bus,
-			CleanupDelay:   20 * time.Millisecond,
+			RunEvents:    bus,
+			CleanupDelay: 20 * time.Millisecond,
 			Handler: WebhookDispatchHandlerFunc(func(_ context.Context, _ WebhookDispatchRequest) error {
 				return nil
 			}),
@@ -320,7 +320,7 @@ func TestWebhookDispatcher_CleansIssueMutexAfterCloseOrPipelineDone(t *testing.T
 		}
 
 		bus.Publish(core.Event{
-			Type: core.EventPipelineDone,
+			Type: core.EventRunDone,
 			Data: map[string]string{
 				"github_owner": "acme",
 				"github_repo":  "demo",

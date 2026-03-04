@@ -72,9 +72,9 @@ type issueTimelineResponse struct {
 }
 
 type issueTimelineRefs struct {
-	IssueID    string `json:"issue_id"`
-	PipelineID string `json:"pipeline_id,omitempty"`
-	Stage      string `json:"stage,omitempty"`
+	IssueID string `json:"issue_id"`
+	RunID   string `json:"run_id,omitempty"`
+	Stage   string `json:"stage,omitempty"`
 }
 
 type issueTimelineItem struct {
@@ -99,10 +99,10 @@ type issueTimelineEvent struct {
 }
 
 type issueDAGNode struct {
-	ID         string           `json:"id"`
-	Title      string           `json:"title"`
-	Status     core.IssueStatus `json:"status"`
-	PipelineID string           `json:"pipeline_id"`
+	ID     string           `json:"id"`
+	Title  string           `json:"title"`
+	Status core.IssueStatus `json:"status"`
+	RunID  string           `json:"run_id"`
 }
 
 type issueDAGEdge struct {
@@ -543,10 +543,10 @@ func (h *issueHandlers) getIssueDAG(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		nodes = append(nodes, issueDAGNode{
-			ID:         item.ID,
-			Title:      item.Title,
-			Status:     item.Status,
-			PipelineID: item.PipelineID,
+			ID:     item.ID,
+			Title:  item.Title,
+			Status: item.Status,
+			RunID:  item.RunID,
 		})
 		stats.Total++
 		accumulateIssueStats(&stats, item.Status)
@@ -1057,7 +1057,7 @@ func parseIssueTimelineKinds(rawKinds []string) (map[string]struct{}, error) {
 func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[string]struct{}) ([]issueTimelineEvent, error) {
 	events := make([]issueTimelineEvent, 0)
 	seq := 0
-	pipelineID := strings.TrimSpace(issue.PipelineID)
+	RunID := strings.TrimSpace(issue.RunID)
 
 	appendEvent := func(item issueTimelineItem, at time.Time, hasTime bool) {
 		if item.Meta == nil {
@@ -1132,8 +1132,8 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 				Body:            body,
 				Status:          issueTimelineStatusFromReview(record.Verdict),
 				Refs: issueTimelineRefs{
-					IssueID:    issue.ID,
-					PipelineID: pipelineID,
+					IssueID: issue.ID,
+					RunID:   RunID,
 				},
 				Meta: meta,
 			}, parsedTime, hasTime)
@@ -1167,8 +1167,8 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 				Body:            body,
 				Status:          issueTimelineStatusFromChange(change.Field, change.NewValue),
 				Refs: issueTimelineRefs{
-					IssueID:    issue.ID,
-					PipelineID: pipelineID,
+					IssueID: issue.ID,
+					RunID:   RunID,
 				},
 				Meta: map[string]any{
 					"field":      change.Field,
@@ -1184,10 +1184,10 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 	includeAction := hasIssueTimelineKind(kinds, "action")
 	includeAudit := hasIssueTimelineKind(kinds, "audit")
 	if includeAction || includeAudit {
-		if pipelineID != "" {
-			actions, err := h.store.GetActions(pipelineID)
+		if RunID != "" {
+			actions, err := h.store.GetActions(RunID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load pipeline actions")
+				return nil, fmt.Errorf("failed to load Run actions")
 			}
 			for i := range actions {
 				action := actions[i]
@@ -1211,8 +1211,8 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 				actorName := normalizeTimelineActorName(action.UserID, defaultActor)
 				stage := strings.TrimSpace(action.Stage)
 				refs := issueTimelineRefs{
-					IssueID:    issue.ID,
-					PipelineID: pipelineID,
+					IssueID: issue.ID,
+					RunID:   RunID,
 				}
 				if stage != "" {
 					refs.Stage = stage
@@ -1239,12 +1239,12 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 		}
 	}
 
-	if pipelineID == "" {
+	if RunID == "" {
 		return events, nil
 	}
 
 	if _, include := kinds["checkpoint"]; include {
-		checkpoints, err := h.store.GetCheckpoints(pipelineID)
+		checkpoints, err := h.store.GetCheckpoints(RunID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load checkpoints")
 		}
@@ -1269,9 +1269,9 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 				Body:            body,
 				Status:          issueTimelineStatusFromCheckpoint(checkpoint.Status),
 				Refs: issueTimelineRefs{
-					IssueID:    issue.ID,
-					PipelineID: pipelineID,
-					Stage:      stage,
+					IssueID: issue.ID,
+					RunID:   RunID,
+					Stage:   stage,
 				},
 				Meta: map[string]any{
 					"status":      string(checkpoint.Status),
@@ -1284,9 +1284,9 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 	}
 
 	if _, include := kinds["log"]; include {
-		logs, err := listAllPipelineLogs(h.store, pipelineID)
+		logs, err := listAllRunLogs(h.store, RunID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load pipeline logs")
+			return nil, fmt.Errorf("failed to load Run logs")
 		}
 		for i := range logs {
 			logEntry := logs[i]
@@ -1305,9 +1305,9 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 				Body:            issueTimelineBodyWithFallback(logEntry.Content, "log 输出为空"),
 				Status:          issueTimelineStatusFromLog(logEntry.Type),
 				Refs: issueTimelineRefs{
-					IssueID:    issue.ID,
-					PipelineID: pipelineID,
-					Stage:      strings.TrimSpace(logEntry.Stage),
+					IssueID: issue.ID,
+					RunID:   RunID,
+					Stage:   strings.TrimSpace(logEntry.Stage),
 				},
 				Meta: map[string]any{
 					"type":    logEntry.Type,
@@ -1513,12 +1513,12 @@ func checkpointTimelineEventID(checkpoint core.Checkpoint, fallback int) string 
 	return fmt.Sprintf("checkpoint:%s:%d", stage, fallback)
 }
 
-func listAllPipelineLogs(store core.Store, pipelineID string) ([]core.LogEntry, error) {
+func listAllRunLogs(store core.Store, RunID string) ([]core.LogEntry, error) {
 	const pageSize = 200
 	offset := 0
 	out := make([]core.LogEntry, 0)
 	for {
-		items, total, err := store.GetLogs(pipelineID, "", pageSize, offset)
+		items, total, err := store.GetLogs(RunID, "", pageSize, offset)
 		if err != nil {
 			return nil, err
 		}

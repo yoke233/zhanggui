@@ -12,15 +12,15 @@ import (
 
 type noopExecutor struct{}
 
-func (noopExecutor) CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error) {
-	return &core.Pipeline{}, nil
+func (noopExecutor) CreateRun(projectID, name, description, template string) (*core.Run, error) {
+	return &core.Run{}, nil
 }
 
-func (noopExecutor) Run(ctx context.Context, pipelineID string) error {
+func (noopExecutor) Run(ctx context.Context, RunID string) error {
 	return nil
 }
 
-func (noopExecutor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
+func (noopExecutor) ApplyAction(ctx context.Context, action core.RunAction) error {
 	return nil
 }
 
@@ -46,31 +46,31 @@ func (noopStore) DeleteProject(id string) error {
 	return nil
 }
 
-func (noopStore) ListPipelines(projectID string, filter core.PipelineFilter) ([]core.Pipeline, error) {
+func (noopStore) ListRuns(projectID string, filter core.RunFilter) ([]core.Run, error) {
 	return nil, nil
 }
 
-func (noopStore) GetPipeline(id string) (*core.Pipeline, error) {
+func (noopStore) GetRun(id string) (*core.Run, error) {
 	return nil, nil
 }
 
-func (noopStore) SavePipeline(p *core.Pipeline) error {
+func (noopStore) SaveRun(p *core.Run) error {
 	return nil
 }
 
-func (noopStore) GetActivePipelines() ([]core.Pipeline, error) {
+func (noopStore) GetActiveRuns() ([]core.Run, error) {
 	return nil, nil
 }
 
-func (noopStore) ListRunnablePipelines(limit int) ([]core.Pipeline, error) {
+func (noopStore) ListRunnableRuns(limit int) ([]core.Run, error) {
 	return nil, nil
 }
 
-func (noopStore) CountRunningPipelinesByProject(projectID string) (int, error) {
+func (noopStore) CountRunningRunsByProject(projectID string) (int, error) {
 	return 0, nil
 }
 
-func (noopStore) TryMarkPipelineRunning(id string, from ...core.PipelineStatus) (bool, error) {
+func (noopStore) TryMarkRunRunning(id string, from ...core.RunStatus) (bool, error) {
 	return false, nil
 }
 
@@ -78,15 +78,15 @@ func (noopStore) SaveCheckpoint(cp *core.Checkpoint) error {
 	return nil
 }
 
-func (noopStore) GetCheckpoints(pipelineID string) ([]core.Checkpoint, error) {
+func (noopStore) GetCheckpoints(RunID string) ([]core.Checkpoint, error) {
 	return nil, nil
 }
 
-func (noopStore) GetLastSuccessCheckpoint(pipelineID string) (*core.Checkpoint, error) {
+func (noopStore) GetLastSuccessCheckpoint(RunID string) (*core.Checkpoint, error) {
 	return nil, nil
 }
 
-func (noopStore) InvalidateCheckpointsFromStage(pipelineID string, stage core.StageID) error {
+func (noopStore) InvalidateCheckpointsFromStage(RunID string, stage core.StageID) error {
 	return nil
 }
 
@@ -94,7 +94,7 @@ func (noopStore) AppendLog(entry core.LogEntry) error {
 	return nil
 }
 
-func (noopStore) GetLogs(pipelineID string, stage string, limit int, offset int) ([]core.LogEntry, int, error) {
+func (noopStore) GetLogs(RunID string, stage string, limit int, offset int) ([]core.LogEntry, int, error) {
 	return nil, 0, nil
 }
 
@@ -102,7 +102,7 @@ func (noopStore) RecordAction(action core.HumanAction) error {
 	return nil
 }
 
-func (noopStore) GetActions(pipelineID string) ([]core.HumanAction, error) {
+func (noopStore) GetActions(RunID string) ([]core.HumanAction, error) {
 	return nil, nil
 }
 
@@ -142,7 +142,7 @@ func (noopStore) GetActiveIssues(projectID string) ([]core.Issue, error) {
 	return nil, nil
 }
 
-func (noopStore) GetIssueByPipeline(pipelineID string) (*core.Issue, error) {
+func (noopStore) GetIssueByRun(RunID string) (*core.Issue, error) {
 	return nil, nil
 }
 
@@ -194,12 +194,12 @@ func (s *createFailStore) CreateProject(p *core.Project) error {
 }
 
 func TestSplitArgsQuoted(t *testing.T) {
-	args, err := splitArgs(`pipeline create demo auth "实现 登录 与 注册" quick`)
+	args, err := splitArgs(`Run create demo auth "实现 登录 与 注册" quick`)
 	if err != nil {
 		t.Fatalf("split args failed: %v", err)
 	}
 
-	want := []string{"pipeline", "create", "demo", "auth", "实现 登录 与 注册", "quick"}
+	want := []string{"Run", "create", "demo", "auth", "实现 登录 与 注册", "quick"}
 	if len(args) != len(want) {
 		t.Fatalf("unexpected args length: got=%d want=%d (%v)", len(args), len(want), args)
 	}
@@ -211,7 +211,7 @@ func TestSplitArgsQuoted(t *testing.T) {
 }
 
 func TestSplitArgsUnclosedQuote(t *testing.T) {
-	_, err := splitArgs(`pipeline create demo auth "bad`)
+	_, err := splitArgs(`Run create demo auth "bad`)
 	if err == nil {
 		t.Fatal("expected unclosed quote error, got nil")
 	}
@@ -222,8 +222,8 @@ func TestRunCommandHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("help command failed: %v", err)
 	}
-	if !strings.Contains(out, "/pipeline start <pipeline-id>") {
-		t.Fatalf("help output missing pipeline start command: %s", out)
+	if !strings.Contains(out, "/Run start <Run-id>") {
+		t.Fatalf("help output missing Run start command: %s", out)
 	}
 }
 
@@ -400,21 +400,21 @@ func TestTUI_AutoCreateProjectErrorSurfaced(t *testing.T) {
 
 type actionSpyExecutor struct {
 	noopExecutor
-	lastAction core.PipelineAction
+	lastAction core.RunAction
 }
 
-func (s *actionSpyExecutor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
+func (s *actionSpyExecutor) ApplyAction(ctx context.Context, action core.RunAction) error {
 	s.lastAction = action
 	return nil
 }
 
-func TestTUI_ProjectSwitchChangesPipelineContext(t *testing.T) {
+func TestTUI_ProjectSwitchChangesRunContext(t *testing.T) {
 	m := NewModel(noopExecutor{}, noopStore{}, nil, nil)
 	m.projects = []core.Project{
 		{ID: "a", RepoPath: "D:/repo/a"},
 		{ID: "b", RepoPath: "D:/repo/b"},
 	}
-	m.pipelines = []core.Pipeline{
+	m.Runs = []core.Run{
 		{ID: "pipe-a", ProjectID: "a", Name: "A", Status: core.StatusCreated},
 		{ID: "pipe-b", ProjectID: "b", Name: "B", Status: core.StatusCreated},
 	}
@@ -422,29 +422,29 @@ func TestTUI_ProjectSwitchChangesPipelineContext(t *testing.T) {
 
 	viewA := m.View()
 	if !strings.Contains(viewA, "pipe-a") {
-		t.Fatalf("expected project a pipeline visible, got: %s", viewA)
+		t.Fatalf("expected project a Run visible, got: %s", viewA)
 	}
 	if strings.Contains(viewA, "pipe-b") {
-		t.Fatalf("expected project b pipeline hidden before switch, got: %s", viewA)
+		t.Fatalf("expected project b Run hidden before switch, got: %s", viewA)
 	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	after := updated.(Model).View()
 	if !strings.Contains(after, "pipe-b") {
-		t.Fatalf("expected project b pipeline visible after switch, got: %s", after)
+		t.Fatalf("expected project b Run visible after switch, got: %s", after)
 	}
 }
 
 func TestTUI_ActionApproveCommand(t *testing.T) {
 	spy := &actionSpyExecutor{}
-	out, err := runCommand(context.Background(), noopStore{}, spy, "pipeline action p-1 approve --message 已通过")
+	out, err := runCommand(context.Background(), noopStore{}, spy, "Run action p-1 approve --message 已通过")
 	if err != nil {
 		t.Fatalf("action command failed: %v", err)
 	}
 	if !strings.Contains(out, "Action applied") {
 		t.Fatalf("expected action output, got: %s", out)
 	}
-	if spy.lastAction.PipelineID != "p-1" || spy.lastAction.Type != core.ActionApprove {
+	if spy.lastAction.RunID != "p-1" || spy.lastAction.Type != core.ActionApprove {
 		t.Fatalf("unexpected action parsed: %+v", spy.lastAction)
 	}
 }

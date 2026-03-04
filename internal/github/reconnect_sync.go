@@ -13,21 +13,21 @@ type reconnectEventPublisher interface {
 	Publish(evt core.Event)
 }
 
-type pipelineEventSyncer interface {
-	SyncPipelineEvent(ctx context.Context, evt core.Event) error
+type RunEventSyncer interface {
+	SyncRunEvent(ctx context.Context, evt core.Event) error
 }
 
 // ReconnectSync handles recovery from degraded GitHub connectivity.
 type ReconnectSync struct {
 	publisher reconnectEventPublisher
-	syncer    pipelineEventSyncer
+	syncer    RunEventSyncer
 	now       func() time.Time
 
 	mu       sync.RWMutex
 	degraded bool
 }
 
-func NewReconnectSync(publisher reconnectEventPublisher, syncer pipelineEventSyncer) *ReconnectSync {
+func NewReconnectSync(publisher reconnectEventPublisher, syncer RunEventSyncer) *ReconnectSync {
 	return &ReconnectSync{
 		publisher: publisher,
 		syncer:    syncer,
@@ -76,17 +76,17 @@ func (r *ReconnectSync) OnRecovered(ctx context.Context, events []core.Event) er
 		})
 	}
 
-	return r.ReplayLatestPipelineStateOnly(ctx, events)
+	return r.ReplayLatestRunstateOnly(ctx, events)
 }
 
-func (r *ReconnectSync) ReplayLatestPipelineStateOnly(ctx context.Context, events []core.Event) error {
+func (r *ReconnectSync) ReplayLatestRunstateOnly(ctx context.Context, events []core.Event) error {
 	if r == nil || r.syncer == nil || len(events) == 0 {
 		return nil
 	}
 
 	latestByIssue := make(map[int]core.Event)
 	for _, evt := range events {
-		if !isReplayablePipelineStateEvent(evt.Type) {
+		if !isReplayableRunstateEvent(evt.Type) {
 			continue
 		}
 		issueNumber := parseIssueNumberFromEventData(evt.Data)
@@ -107,20 +107,20 @@ func (r *ReconnectSync) ReplayLatestPipelineStateOnly(ctx context.Context, event
 	sort.Ints(issues)
 
 	for _, issueNumber := range issues {
-		if err := r.syncer.SyncPipelineEvent(ctx, latestByIssue[issueNumber]); err != nil {
+		if err := r.syncer.SyncRunEvent(ctx, latestByIssue[issueNumber]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func isReplayablePipelineStateEvent(eventType core.EventType) bool {
+func isReplayableRunstateEvent(eventType core.EventType) bool {
 	switch eventType {
 	case core.EventStageStart,
 		core.EventStageComplete,
 		core.EventHumanRequired,
-		core.EventPipelineDone,
-		core.EventPipelineFailed:
+		core.EventRunDone,
+		core.EventRunFailed:
 		return true
 	default:
 		return false

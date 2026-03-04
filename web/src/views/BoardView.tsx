@@ -16,7 +16,7 @@ export interface BoardTask {
   title: string;
   status: BoardStatus;
   raw_status: string;
-  pipeline_id: string;
+  run_id: string;
   github_issue_number?: number;
   github_issue_url?: string;
   created_at?: string;
@@ -116,7 +116,7 @@ export const toBoardStatus = (status: string): BoardStatus => {
       return "done";
     case "skipped":
       return "done";
-    case "waiting_human":
+    case "waiting_review":
     case "failed":
     case "abandoned":
     case "blocked_by_failure":
@@ -178,8 +178,8 @@ const formatRelativeTimestamp = (value?: string): string => {
 };
 
 const getExecutor = (task: BoardTask): string => {
-  if (task.pipeline_id.trim().length > 0) {
-    return `run/${task.pipeline_id}`;
+  if (task.run_id.trim().length > 0) {
+    return `run/${task.run_id}`;
   }
   return "team leader";
 };
@@ -483,7 +483,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
               title: issue.title || issue.id,
               status: toBoardStatus(String(issue.status ?? "")),
               raw_status: String(issue.status ?? ""),
-              pipeline_id: issue.pipeline_id ?? "",
+              run_id: issue.run_id ?? "",
               github_issue_number: issue.github?.issue_number,
               github_issue_url: issue.github?.issue_url,
               created_at: issue.created_at,
@@ -666,7 +666,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     if (action === "approve") {
       return (
         rawStatus === "reviewing" ||
-        rawStatus === "waiting_human" ||
+        rawStatus === "waiting_review" ||
         task.status === "ready" ||
         task.status === "running"
       );
@@ -685,7 +685,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
       case "pending":
         return "建议先执行 Submit review，让 issue 进入审核链路。";
       case "ready":
-        return "建议执行 Approve，推进到 pipeline 执行阶段。";
+        return "建议执行 Approve，推进到 Run 执行阶段。";
       case "running":
         return "建议观察 timeline 输出；若方向错误可使用 Abandon。";
       case "done":

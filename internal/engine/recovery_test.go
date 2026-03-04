@@ -15,12 +15,12 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort},
 	})
-	p.Status = core.StatusWaitingHuman
+	p.Status = core.StatusWaitingReview
 	p.CurrentStage = core.StageImplement
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -28,19 +28,19 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 	agent := &fakeAgent{name: "codex"}
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 
-	if err := execEngine.RecoverActivePipelines(context.Background()); err != nil {
+	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusWaitingHuman {
-		t.Fatalf("expected waiting_human to remain unchanged, got %s", got.Status)
+	if got.Status != core.StatusWaitingReview {
+		t.Fatalf("expected waiting_review to remain unchanged, got %s", got.Status)
 	}
 	if runtime.calls != 0 {
-		t.Fatalf("expected no runtime execution for waiting_human, calls=%d", runtime.calls)
+		t.Fatalf("expected no runtime execution for waiting_review, calls=%d", runtime.calls)
 	}
 }
 
@@ -54,18 +54,18 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.Status = core.StatusRunning
 	p.CurrentStage = core.StageImplement
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: p.ID,
+		RunID:      p.ID,
 		StageName:  core.StageImplement,
 		Status:     core.CheckpointInProgress,
 		StartedAt:  time.Now().Add(-1 * time.Minute),
@@ -79,16 +79,16 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 	agent := &fakeAgent{name: "codex"}
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 
-	if err := execEngine.RecoverActivePipelines(context.Background()); err != nil {
+	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != core.StatusDone {
-		t.Fatalf("expected recovered pipeline to finish done, got %s", got.Status)
+		t.Fatalf("expected recovered Run to finish done, got %s", got.Status)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected one rerun attempt after recovery, calls=%d", runtime.calls)
@@ -121,19 +121,19 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 		{Name: core.StageFixup, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.Status = core.StatusRunning
 	p.CurrentStage = core.StageImplement
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: p.ID,
+		RunID:      p.ID,
 		StageName:  core.StageImplement,
 		Status:     core.CheckpointSuccess,
 		StartedAt:  time.Now().Add(-2 * time.Minute),
@@ -147,11 +147,11 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 	agent := &fakeAgent{name: "codex"}
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 
-	if err := execEngine.RecoverActivePipelines(context.Background()); err != nil {
+	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
 		t.Fatalf("recovery failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

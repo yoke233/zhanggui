@@ -18,7 +18,7 @@ Write-Host "GOMAXPROCS=$env:GOMAXPROCS, GOTEST_TIMEOUT=$env:GOTEST_TIMEOUT"
 
 if (-not $SkipTerminologyGate) {
     Invoke-Step -Name "Terminology gate (README + docs/spec)" -Command {
-        $legacyPattern = '\\b(plan|plans|task|tasks|pipeline|pipelines|dag|secretary)\\b'
+        $legacyPattern = '\\b(plan|plans|task|tasks|Run|Runs|dag|secretary)\\b'
         $hits = & rg -n --ignore-case $legacyPattern README.md docs/spec
 
         if ($LASTEXITCODE -eq 0) {

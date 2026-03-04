@@ -52,8 +52,8 @@ func validateConfig(cfg *Config) error {
 	if err := validateRoleRef("role_bindings.plan_parser.role", cfg.RoleBinds.PlanParser.Role, roles); err != nil {
 		return err
 	}
-	for stage, roleName := range cfg.RoleBinds.Pipeline.StageRoles {
-		if err := validateRoleRef("role_bindings.pipeline.stage_roles."+stage, roleName, roles); err != nil {
+	for stage, roleName := range cfg.RoleBinds.Run.StageRoles {
+		if err := validateRoleRef("role_bindings.Run.stage_roles."+stage, roleName, roles); err != nil {
 			return err
 		}
 	}
@@ -82,7 +82,7 @@ func hasRoleDrivenData(cfg *Config) bool {
 	if strings.TrimSpace(cfg.RoleBinds.ReviewOrchestrator.Aggregator) != "" {
 		return true
 	}
-	return len(cfg.RoleBinds.Pipeline.StageRoles) > 0 || len(cfg.RoleBinds.ReviewOrchestrator.Reviewers) > 0
+	return len(cfg.RoleBinds.Run.StageRoles) > 0 || len(cfg.RoleBinds.ReviewOrchestrator.Reviewers) > 0
 }
 
 func indexAgents(agents []AgentProfileConfig) (map[string]AgentProfileConfig, error) {

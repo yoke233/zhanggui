@@ -7,12 +7,12 @@ import (
 )
 
 func TestResilientClient_NetworkError_DegradesToNoop(t *testing.T) {
-	base := &fakePipelineIssueSyncClientWithError{
+	base := &fakeRunIssueSyncClientWithError{
 		updateErr: &net.OpError{Op: "dial", Err: &net.DNSError{IsTimeout: true}},
 	}
 	client := NewResilientClient(base)
 
-	err := client.UpdateIssueLabels(context.Background(), 42, []string{"status: pipeline_active:implement"})
+	err := client.UpdateIssueLabels(context.Background(), 42, []string{"status: run_active:implement"})
 	if err != nil {
 		t.Fatalf("expected network error degraded to no-op, got %v", err)
 	}
@@ -21,15 +21,15 @@ func TestResilientClient_NetworkError_DegradesToNoop(t *testing.T) {
 	}
 }
 
-type fakePipelineIssueSyncClientWithError struct {
+type fakeRunIssueSyncClientWithError struct {
 	updateErr  error
 	commentErr error
 }
 
-func (f *fakePipelineIssueSyncClientWithError) UpdateIssueLabels(context.Context, int, []string) error {
+func (f *fakeRunIssueSyncClientWithError) UpdateIssueLabels(context.Context, int, []string) error {
 	return f.updateErr
 }
 
-func (f *fakePipelineIssueSyncClientWithError) AddIssueComment(context.Context, int, string) error {
+func (f *fakeRunIssueSyncClientWithError) AddIssueComment(context.Context, int, string) error {
 	return f.commentErr
 }

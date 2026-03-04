@@ -111,11 +111,11 @@ func TestStatsEndpointSchema(t *testing.T) {
 	}
 
 	var payload struct {
-		TotalPipelines  int     `json:"total_pipelines"`
-		ActivePipelines int     `json:"active_pipelines"`
-		SuccessRate     float64 `json:"success_rate"`
-		AvgDuration     string  `json:"avg_duration"`
-		TokensUsed      struct {
+		TotalRuns   int     `json:"total_Runs"`
+		ActiveRuns  int     `json:"active_Runs"`
+		SuccessRate float64 `json:"success_rate"`
+		AvgDuration string  `json:"avg_duration"`
+		TokensUsed  struct {
 			Claude int `json:"claude"`
 			Codex  int `json:"codex"`
 		} `json:"tokens_used"`

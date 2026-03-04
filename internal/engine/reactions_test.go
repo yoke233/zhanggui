@@ -23,7 +23,7 @@ func TestReactions_FirstMatchWins(t *testing.T) {
 			Match: func(ReactionContext) bool {
 				return true
 			},
-			Action: ReactionAbortPipeline,
+			Action: ReactionAbortRun,
 		},
 	}
 
@@ -45,7 +45,7 @@ func TestReactions_CompileOnFailureSugar(t *testing.T) {
 		{name: "retry", failure: core.OnFailureRetry, expected: ReactionRetry},
 		{name: "human", failure: core.OnFailureHuman, expected: ReactionEscalateHuman},
 		{name: "skip", failure: core.OnFailureSkip, expected: ReactionSkipStage},
-		{name: "abort", failure: core.OnFailureAbort, expected: ReactionAbortPipeline},
+		{name: "abort", failure: core.OnFailureAbort, expected: ReactionAbortRun},
 	}
 
 	for _, tc := range cases {
@@ -78,7 +78,7 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 	}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:       core.StageImplement,
 			Agent:      "codex",
@@ -91,7 +91,7 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 	p.MaxTotalRetries = 1
 	p.CreatedAt = time.Now()
 	p.UpdatedAt = time.Now()
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 		t.Fatal("expected retry budget exhaustion error")
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

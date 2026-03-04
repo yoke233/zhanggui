@@ -2,7 +2,7 @@ package core
 
 import "context"
 
-// SCM defines source-control operations used by pipeline/task automation.
+// SCM defines source-control operations used by Run/task automation.
 type SCM interface {
 	Plugin
 	CreateBranch(ctx context.Context, branch string) error

@@ -9,10 +9,10 @@ import (
 )
 
 func TestStatusSyncer_StageStart_UpdatesStatusLabelByStageID(t *testing.T) {
-	client := &fakePipelineIssueSyncClient{}
-	syncer := NewPipelineStatusSyncer(client)
+	client := &fakeRunIssueSyncClient{}
+	syncer := NewRunStatusSyncer(client)
 
-	err := syncer.SyncPipelineEvent(context.Background(), core.Event{
+	err := syncer.SyncRunEvent(context.Background(), core.Event{
 		Type:  core.EventStageStart,
 		Stage: core.StageImplement,
 		Data: map[string]string{
@@ -20,7 +20,7 @@ func TestStatusSyncer_StageStart_UpdatesStatusLabelByStageID(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("SyncPipelineEvent() error = %v", err)
+		t.Fatalf("SyncRunEvent() error = %v", err)
 	}
 
 	if len(client.updatedLabels) != 1 {
@@ -30,16 +30,16 @@ func TestStatusSyncer_StageStart_UpdatesStatusLabelByStageID(t *testing.T) {
 	if got.issueNumber != 42 {
 		t.Fatalf("expected issue #42, got #%d", got.issueNumber)
 	}
-	if len(got.labels) != 1 || got.labels[0] != "status: pipeline_active:implement" {
+	if len(got.labels) != 1 || got.labels[0] != "status: run_active:implement" {
 		t.Fatalf("expected stage status label by stage id, got %#v", got.labels)
 	}
 }
 
 func TestStatusSyncer_HumanRequired_PostsActionComment(t *testing.T) {
-	client := &fakePipelineIssueSyncClient{}
-	syncer := NewPipelineStatusSyncer(client)
+	client := &fakeRunIssueSyncClient{}
+	syncer := NewRunStatusSyncer(client)
 
-	err := syncer.SyncPipelineEvent(context.Background(), core.Event{
+	err := syncer.SyncRunEvent(context.Background(), core.Event{
 		Type:  core.EventHumanRequired,
 		Stage: core.StageCodeReview,
 		Data: map[string]string{
@@ -47,7 +47,7 @@ func TestStatusSyncer_HumanRequired_PostsActionComment(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("SyncPipelineEvent() error = %v", err)
+		t.Fatalf("SyncRunEvent() error = %v", err)
 	}
 
 	if len(client.comments) != 1 {
@@ -62,11 +62,11 @@ func TestStatusSyncer_HumanRequired_PostsActionComment(t *testing.T) {
 	}
 }
 
-func TestStatusSyncer_Done_ReplacesPipelineActiveWithDone(t *testing.T) {
-	client := &fakePipelineIssueSyncClient{}
-	syncer := NewPipelineStatusSyncer(client)
+func TestStatusSyncer_Done_ReplacesRunActiveWithDone(t *testing.T) {
+	client := &fakeRunIssueSyncClient{}
+	syncer := NewRunStatusSyncer(client)
 
-	if err := syncer.SyncPipelineEvent(context.Background(), core.Event{
+	if err := syncer.SyncRunEvent(context.Background(), core.Event{
 		Type:  core.EventStageStart,
 		Stage: core.StageImplement,
 		Data: map[string]string{
@@ -75,35 +75,35 @@ func TestStatusSyncer_Done_ReplacesPipelineActiveWithDone(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("stage start sync error = %v", err)
 	}
-	if err := syncer.SyncPipelineEvent(context.Background(), core.Event{
-		Type: core.EventPipelineDone,
+	if err := syncer.SyncRunEvent(context.Background(), core.Event{
+		Type: core.EventRunDone,
 		Data: map[string]string{
 			"issue_number": "66",
 		},
 	}); err != nil {
-		t.Fatalf("pipeline done sync error = %v", err)
+		t.Fatalf("Run done sync error = %v", err)
 	}
 
 	if len(client.updatedLabels) != 2 {
 		t.Fatalf("expected two status updates, got %d", len(client.updatedLabels))
 	}
 	latest := client.updatedLabels[1]
-	if len(latest.labels) != 1 || latest.labels[0] != "status: pipeline_done" {
+	if len(latest.labels) != 1 || latest.labels[0] != "status: run_done" {
 		t.Fatalf("expected done status label, got %#v", latest.labels)
 	}
 }
 
 func TestStatusSyncer_NoIssueNumber_SkipSilently(t *testing.T) {
-	client := &fakePipelineIssueSyncClient{}
-	syncer := NewPipelineStatusSyncer(client)
+	client := &fakeRunIssueSyncClient{}
+	syncer := NewRunStatusSyncer(client)
 
-	err := syncer.SyncPipelineEvent(context.Background(), core.Event{
+	err := syncer.SyncRunEvent(context.Background(), core.Event{
 		Type:  core.EventStageStart,
 		Stage: core.StageImplement,
 		Data:  map[string]string{},
 	})
 	if err != nil {
-		t.Fatalf("SyncPipelineEvent() error = %v", err)
+		t.Fatalf("SyncRunEvent() error = %v", err)
 	}
 
 	if len(client.updatedLabels) != 0 {
@@ -114,7 +114,7 @@ func TestStatusSyncer_NoIssueNumber_SkipSilently(t *testing.T) {
 	}
 }
 
-type fakePipelineIssueSyncClient struct {
+type fakeRunIssueSyncClient struct {
 	updatedLabels []issueLabelUpdate
 	comments      []issueComment
 }
@@ -129,7 +129,7 @@ type issueComment struct {
 	body        string
 }
 
-func (f *fakePipelineIssueSyncClient) UpdateIssueLabels(_ context.Context, issueNumber int, labels []string) error {
+func (f *fakeRunIssueSyncClient) UpdateIssueLabels(_ context.Context, issueNumber int, labels []string) error {
 	f.updatedLabels = append(f.updatedLabels, issueLabelUpdate{
 		issueNumber: issueNumber,
 		labels:      append([]string(nil), labels...),
@@ -137,7 +137,7 @@ func (f *fakePipelineIssueSyncClient) UpdateIssueLabels(_ context.Context, issue
 	return nil
 }
 
-func (f *fakePipelineIssueSyncClient) AddIssueComment(_ context.Context, issueNumber int, body string) error {
+func (f *fakeRunIssueSyncClient) AddIssueComment(_ context.Context, issueNumber int, body string) error {
 	f.comments = append(f.comments, issueComment{
 		issueNumber: issueNumber,
 		body:        body,

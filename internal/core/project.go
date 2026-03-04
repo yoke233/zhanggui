@@ -2,7 +2,7 @@ package core
 
 import "time"
 
-// Project represents a managed codebase that pipelines operate on.
+// Project represents a managed codebase that Runs operate on.
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`

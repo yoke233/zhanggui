@@ -33,21 +33,21 @@ type adminIssueOperationRequest struct {
 
 type adminReplayRequest struct {
 	DeliveryID string `json:"delivery_id"`
-	PipelineID string `json:"pipeline_id"`
+	RunID      string `json:"run_id"`
 	TraceID    string `json:"trace_id"`
 }
 
 type adminAuditLogItem struct {
-	ID         int64  `json:"id"`
-	ProjectID  string `json:"project_id,omitempty"`
-	IssueID    string `json:"issue_id,omitempty"`
-	PipelineID string `json:"pipeline_id"`
-	Stage      string `json:"stage,omitempty"`
-	Action     string `json:"action"`
-	Message    string `json:"message"`
-	Source     string `json:"source"`
-	UserID     string `json:"user_id"`
-	CreatedAt  string `json:"created_at"`
+	ID        int64  `json:"id"`
+	ProjectID string `json:"project_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty"`
+	RunID     string `json:"run_id"`
+	Stage     string `json:"stage,omitempty"`
+	Action    string `json:"action"`
+	Message   string `json:"message"`
+	Source    string `json:"source"`
+	UserID    string `json:"user_id"`
+	CreatedAt string `json:"created_at"`
 }
 
 type adminAuditLogResponse struct {
@@ -56,7 +56,7 @@ type adminAuditLogResponse struct {
 	Offset int                 `json:"offset"`
 }
 
-type auditPipelineMeta struct {
+type auditRunMeta struct {
 	ProjectID string
 	IssueID   string
 }
@@ -132,11 +132,11 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 		auditMessage += " reason=" + reason
 	}
 	if err := h.store.RecordAction(core.HumanAction{
-		PipelineID: issue.PipelineID,
-		Action:     action,
-		Message:    auditMessage,
-		Source:     "admin",
-		UserID:     "admin",
+		RunID:   issue.RunID,
+		Action:  action,
+		Message: auditMessage,
+		Source:  "admin",
+		UserID:  "admin",
 	}); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to record admin audit", "AUDIT_RECORD_FAILED")
 		return
@@ -185,13 +185,13 @@ func (h *adminOpsHandlers) handleReplayDelivery(w http.ResponseWriter, r *http.R
 	}
 
 	traceID := resolveAdminTraceID(req.TraceID, r)
-	if pipelineID := strings.TrimSpace(req.PipelineID); pipelineID != "" {
+	if RunID := strings.TrimSpace(req.RunID); RunID != "" {
 		if err := h.store.RecordAction(core.HumanAction{
-			PipelineID: pipelineID,
-			Action:     "replay_delivery",
-			Message:    "trace_id=" + traceID + " delivery_id=" + deliveryID,
-			Source:     "admin",
-			UserID:     "admin",
+			RunID:   RunID,
+			Action:  "replay_delivery",
+			Message: "trace_id=" + traceID + " delivery_id=" + deliveryID,
+			Source:  "admin",
+			UserID:  "admin",
 		}); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "failed to record admin audit", "AUDIT_RECORD_FAILED")
 			return
@@ -285,53 +285,53 @@ func (h *adminOpsHandlers) collectAdminAuditItems(projectID string) ([]adminAudi
 		return nil, err
 	}
 
-	metas := make(map[string]auditPipelineMeta)
-	pipelineSet := make(map[string]struct{})
+	metas := make(map[string]auditRunMeta)
+	Runset := make(map[string]struct{})
 	for i := range projects {
 		issues, err := listAllIssuesForProject(h.store, projects[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		for j := range issues {
-			pipelineID := strings.TrimSpace(issues[j].PipelineID)
-			if pipelineID == "" {
+			RunID := strings.TrimSpace(issues[j].RunID)
+			if RunID == "" {
 				continue
 			}
-			if _, exists := metas[pipelineID]; !exists {
-				metas[pipelineID] = auditPipelineMeta{
+			if _, exists := metas[RunID]; !exists {
+				metas[RunID] = auditRunMeta{
 					ProjectID: projects[i].ID,
 					IssueID:   issues[j].ID,
 				}
 			}
-			pipelineSet[pipelineID] = struct{}{}
+			Runset[RunID] = struct{}{}
 		}
 	}
 
-	pipelineIDs := make([]string, 0, len(pipelineSet))
-	for pipelineID := range pipelineSet {
-		pipelineIDs = append(pipelineIDs, pipelineID)
+	RunIDs := make([]string, 0, len(Runset))
+	for RunID := range Runset {
+		RunIDs = append(RunIDs, RunID)
 	}
-	sort.Strings(pipelineIDs)
+	sort.Strings(RunIDs)
 
 	items := make([]adminAuditLogItem, 0)
-	for i := range pipelineIDs {
-		actions, err := h.store.GetActions(pipelineIDs[i])
+	for i := range RunIDs {
+		actions, err := h.store.GetActions(RunIDs[i])
 		if err != nil {
 			return nil, err
 		}
-		meta := metas[pipelineIDs[i]]
+		meta := metas[RunIDs[i]]
 		for j := range actions {
 			items = append(items, adminAuditLogItem{
-				ID:         actions[j].ID,
-				ProjectID:  meta.ProjectID,
-				IssueID:    meta.IssueID,
-				PipelineID: actions[j].PipelineID,
-				Stage:      actions[j].Stage,
-				Action:     actions[j].Action,
-				Message:    actions[j].Message,
-				Source:     actions[j].Source,
-				UserID:     actions[j].UserID,
-				CreatedAt:  actions[j].CreatedAt,
+				ID:        actions[j].ID,
+				ProjectID: meta.ProjectID,
+				IssueID:   meta.IssueID,
+				RunID:     actions[j].RunID,
+				Stage:     actions[j].Stage,
+				Action:    actions[j].Action,
+				Message:   actions[j].Message,
+				Source:    actions[j].Source,
+				UserID:    actions[j].UserID,
+				CreatedAt: actions[j].CreatedAt,
 			})
 		}
 	}
@@ -347,7 +347,7 @@ func (h *adminOpsHandlers) collectAdminAuditItems(projectID string) ([]adminAudi
 		case items[i].ID != items[j].ID:
 			return items[i].ID > items[j].ID
 		default:
-			return items[i].PipelineID < items[j].PipelineID
+			return items[i].RunID < items[j].RunID
 		}
 	})
 

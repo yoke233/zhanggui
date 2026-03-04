@@ -12,7 +12,7 @@ const (
 	ReactionRetry         ReactionAction = "retry"
 	ReactionEscalateHuman ReactionAction = "escalate_human"
 	ReactionSkipStage     ReactionAction = "skip_stage"
-	ReactionAbortPipeline ReactionAction = "abort_pipeline"
+	ReactionAbortRun      ReactionAction = "abort_Run"
 )
 
 type ReactionContext struct {
@@ -42,7 +42,7 @@ func EvaluateReactionRules(ctx ReactionContext, rules []ReactionRule) (ReactionA
 }
 
 func CompileOnFailureReactions(stage core.StageConfig) []ReactionRule {
-	action := ReactionAbortPipeline
+	action := ReactionAbortRun
 	switch stage.OnFailure {
 	case core.OnFailureRetry:
 		action = ReactionRetry
@@ -51,7 +51,7 @@ func CompileOnFailureReactions(stage core.StageConfig) []ReactionRule {
 	case core.OnFailureSkip:
 		action = ReactionSkipStage
 	case core.OnFailureAbort:
-		action = ReactionAbortPipeline
+		action = ReactionAbortRun
 	}
 
 	ruleName := fmt.Sprintf("on_failure_%s", stage.OnFailure)

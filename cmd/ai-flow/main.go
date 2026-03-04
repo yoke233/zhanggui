@@ -43,23 +43,23 @@ func runWithArgs(args []string) error {
 		default:
 			return fmt.Errorf("unknown project command: %s", args[1])
 		}
-	case "pipeline":
+	case "Run":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: ai-flow pipeline <create|start|status|list|action>")
+			return fmt.Errorf("usage: ai-flow Run <create|start|status|list|action>")
 		}
 		switch args[1] {
 		case "create":
-			return cmdPipelineCreate(args[2:])
+			return cmdRunCreate(args[2:])
 		case "start":
-			return cmdPipelineStart(args[2:])
+			return cmdRunstart(args[2:])
 		case "status":
-			return cmdPipelineStatus(args[2:])
+			return cmdRunStatus(args[2:])
 		case "list":
-			return cmdPipelineList(args[2:])
+			return cmdRunList(args[2:])
 		case "action":
-			return cmdPipelineAction(args[2:])
+			return cmdRunAction(args[2:])
 		default:
-			return fmt.Errorf("unknown pipeline command: %s", args[1])
+			return fmt.Errorf("unknown Run command: %s", args[1])
 		}
 	case "scheduler":
 		if len(args) < 2 {
@@ -110,11 +110,11 @@ Usage:
   ai-flow project add <id> <repo-path>
   ai-flow project list
   ai-flow project scan <root>
-  ai-flow pipeline create <project-id> <name> <description> [template]
-  ai-flow pipeline start <pipeline-id>
-  ai-flow pipeline status <pipeline-id>
-  ai-flow pipeline list [project-id]
-  ai-flow pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]
+  ai-flow Run create <project-id> <name> <description> [template]
+  ai-flow Run start <Run-id>
+  ai-flow Run status <Run-id>
+  ai-flow Run list [project-id]
+  ai-flow Run action <Run-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]
   ai-flow scheduler run
   ai-flow scheduler once
   ai-flow github replay --delivery-id <id>

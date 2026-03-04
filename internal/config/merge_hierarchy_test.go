@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-func TestMergeHierarchy_GlobalProjectPipeline(t *testing.T) {
+func TestMergeHierarchy_GlobalProjectRun(t *testing.T) {
 	global := &Config{
 		Agents: AgentsConfig{
 			Claude: &AgentConfig{
@@ -25,22 +25,22 @@ func TestMergeHierarchy_GlobalProjectPipeline(t *testing.T) {
 	override := map[string]any{
 		"agents": map[string]any{
 			"claude": map[string]any{
-				"binary":        "claude-pipeline",
+				"binary":        "claude-Run",
 				"default_tools": []any{},
 			},
 		},
 	}
 
-	merged, err := MergeForPipeline(global, project, override)
+	merged, err := MergeForRun(global, project, override)
 	if err != nil {
-		t.Fatalf("MergeForPipeline returned error: %v", err)
+		t.Fatalf("MergeForRun returned error: %v", err)
 	}
 
 	if merged.Agents.Claude == nil {
 		t.Fatal("expected merged agents.claude to be set")
 	}
-	if merged.Agents.Claude.Binary == nil || *merged.Agents.Claude.Binary != "claude-pipeline" {
-		t.Fatalf("expected pipeline override binary, got %v", merged.Agents.Claude.Binary)
+	if merged.Agents.Claude.Binary == nil || *merged.Agents.Claude.Binary != "claude-Run" {
+		t.Fatalf("expected Run override binary, got %v", merged.Agents.Claude.Binary)
 	}
 	if merged.Agents.Claude.MaxTurns == nil || *merged.Agents.Claude.MaxTurns != 50 {
 		t.Fatalf("expected project max_turns=50, got %v", merged.Agents.Claude.MaxTurns)
@@ -56,7 +56,7 @@ func TestMergeHierarchy_GlobalProjectPipeline(t *testing.T) {
 	}
 }
 
-func TestMergeForPipeline_DoesNotMutateGlobalWithEnvOverride(t *testing.T) {
+func TestMergeForRun_DoesNotMutateGlobalWithEnvOverride(t *testing.T) {
 	t.Setenv("AI_WORKFLOW_AGENTS_CLAUDE_BINARY", "claude-env")
 
 	global := &Config{
@@ -67,9 +67,9 @@ func TestMergeForPipeline_DoesNotMutateGlobalWithEnvOverride(t *testing.T) {
 		},
 	}
 
-	merged, err := MergeForPipeline(global, nil, nil)
+	merged, err := MergeForRun(global, nil, nil)
 	if err != nil {
-		t.Fatalf("MergeForPipeline returned error: %v", err)
+		t.Fatalf("MergeForRun returned error: %v", err)
 	}
 
 	if merged.Agents.Claude == nil || merged.Agents.Claude.Binary == nil {
@@ -147,9 +147,9 @@ func TestGitHubConfig_MergeHierarchy_Works(t *testing.T) {
 		},
 	}
 
-	merged, err := MergeForPipeline(global, project, override)
+	merged, err := MergeForRun(global, project, override)
 	if err != nil {
-		t.Fatalf("MergeForPipeline returned error: %v", err)
+		t.Fatalf("MergeForRun returned error: %v", err)
 	}
 
 	if !merged.GitHub.Enabled {
@@ -162,10 +162,10 @@ func TestGitHubConfig_MergeHierarchy_Works(t *testing.T) {
 		t.Fatalf("expected project layer owner, got %q", merged.GitHub.Owner)
 	}
 	if merged.GitHub.Repo != "override-repo" {
-		t.Fatalf("expected pipeline override repo, got %q", merged.GitHub.Repo)
+		t.Fatalf("expected Run override repo, got %q", merged.GitHub.Repo)
 	}
 	if merged.GitHub.WebhookSecret != "secret-override" {
-		t.Fatalf("expected pipeline override webhook_secret, got %q", merged.GitHub.WebhookSecret)
+		t.Fatalf("expected Run override webhook_secret, got %q", merged.GitHub.WebhookSecret)
 	}
 	if !merged.GitHub.WebhookEnabled {
 		t.Fatalf("expected project layer webhook_enabled=true")
@@ -177,19 +177,19 @@ func TestGitHubConfig_MergeHierarchy_Works(t *testing.T) {
 		t.Fatalf("expected project layer auto_trigger=true")
 	}
 	if len(merged.GitHub.LabelMapping) != 1 || merged.GitHub.LabelMapping["type:hotfix"] != "hotfix" {
-		t.Fatalf("expected pipeline override label_mapping, got %#v", merged.GitHub.LabelMapping)
+		t.Fatalf("expected Run override label_mapping, got %#v", merged.GitHub.LabelMapping)
 	}
 	if len(merged.GitHub.AuthorizedUsernames) != 1 || merged.GitHub.AuthorizedUsernames[0] != "carol" {
-		t.Fatalf("expected pipeline override authorized_usernames, got %#v", merged.GitHub.AuthorizedUsernames)
+		t.Fatalf("expected Run override authorized_usernames, got %#v", merged.GitHub.AuthorizedUsernames)
 	}
 	if !merged.GitHub.PR.AutoCreate {
 		t.Fatalf("expected project layer github.pr.auto_create=true")
 	}
 	if merged.GitHub.PR.Draft {
-		t.Fatalf("expected pipeline override github.pr.draft=false")
+		t.Fatalf("expected Run override github.pr.draft=false")
 	}
 	if !merged.GitHub.PR.AutoMerge {
-		t.Fatalf("expected pipeline override github.pr.auto_merge=true")
+		t.Fatalf("expected Run override github.pr.auto_merge=true")
 	}
 	if len(merged.GitHub.PR.Reviewers) != 1 || merged.GitHub.PR.Reviewers[0] != "reviewer-a" {
 		t.Fatalf("expected project layer github.pr.reviewers, got %#v", merged.GitHub.PR.Reviewers)

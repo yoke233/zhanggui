@@ -357,7 +357,7 @@ func (m *Manager) markApproveDispatchFailure(issue *core.Issue, dispatchErr erro
 	before := failed.Status
 	failed.Status = core.IssueStatusFailed
 	failed.State = core.IssueStateOpen
-	failed.PipelineID = ""
+	failed.RunID = ""
 	failed.ClosedAt = nil
 
 	if err := m.store.SaveIssue(failed); err != nil {

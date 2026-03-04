@@ -7,11 +7,11 @@ import (
 )
 
 type statsResponse struct {
-	TotalPipelines  int         `json:"total_pipelines"`
-	ActivePipelines int         `json:"active_pipelines"`
-	SuccessRate     float64     `json:"success_rate"`
-	AvgDuration     string      `json:"avg_duration"`
-	TokensUsed      tokensUsage `json:"tokens_used"`
+	TotalRuns   int         `json:"total_Runs"`
+	ActiveRuns  int         `json:"active_Runs"`
+	SuccessRate float64     `json:"success_rate"`
+	AvgDuration string      `json:"avg_duration"`
+	TokensUsed  tokensUsage `json:"tokens_used"`
 }
 
 type tokensUsage struct {
@@ -25,10 +25,10 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func handleStats(w http.ResponseWriter, _ *http.Request) {
 	resp := statsResponse{
-		TotalPipelines:  0,
-		ActivePipelines: 0,
-		SuccessRate:     0,
-		AvgDuration:     "0s",
+		TotalRuns:   0,
+		ActiveRuns:  0,
+		SuccessRate: 0,
+		AvgDuration: "0s",
 		TokensUsed: tokensUsage{
 			Claude: 0,
 			Codex:  0,

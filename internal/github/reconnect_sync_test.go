@@ -11,7 +11,7 @@ import (
 
 func TestReconnectSync_OnRecovered_PublishesGitHubReconnected(t *testing.T) {
 	publisher := &fakeReconnectPublisher{}
-	syncer := &fakePipelineEventSyncer{}
+	syncer := &fakeRunEventSyncer{}
 	reconnect := NewReconnectSync(publisher, syncer)
 
 	reconnect.MarkDegraded(errors.New("dial tcp timeout"))
@@ -27,9 +27,9 @@ func TestReconnectSync_OnRecovered_PublishesGitHubReconnected(t *testing.T) {
 	}
 }
 
-func TestReconnectSync_ReplaysLatestPipelineStateOnly(t *testing.T) {
+func TestReconnectSync_ReplaysLatestRunstateOnly(t *testing.T) {
 	publisher := &fakeReconnectPublisher{}
-	syncer := &fakePipelineEventSyncer{}
+	syncer := &fakeRunEventSyncer{}
 	reconnect := NewReconnectSync(publisher, syncer)
 
 	base := time.Now()
@@ -42,7 +42,7 @@ func TestReconnectSync_ReplaysLatestPipelineStateOnly(t *testing.T) {
 			},
 		},
 		{
-			Type:      core.EventPipelineDone,
+			Type:      core.EventRunDone,
 			Timestamp: base.Add(3 * time.Second),
 			Data: map[string]string{
 				"issue_number": "11",
@@ -64,15 +64,15 @@ func TestReconnectSync_ReplaysLatestPipelineStateOnly(t *testing.T) {
 		},
 	}
 
-	if err := reconnect.ReplayLatestPipelineStateOnly(context.Background(), events); err != nil {
-		t.Fatalf("ReplayLatestPipelineStateOnly() error = %v", err)
+	if err := reconnect.ReplayLatestRunstateOnly(context.Background(), events); err != nil {
+		t.Fatalf("ReplayLatestRunstateOnly() error = %v", err)
 	}
 
 	if len(syncer.events) != 2 {
 		t.Fatalf("expected latest events replayed per issue only, got %d", len(syncer.events))
 	}
-	if syncer.events[0].Type != core.EventPipelineDone {
-		t.Fatalf("expected issue 11 latest event pipeline_done, got %q", syncer.events[0].Type)
+	if syncer.events[0].Type != core.EventRunDone {
+		t.Fatalf("expected issue 11 latest event run_done, got %q", syncer.events[0].Type)
 	}
 	if syncer.events[1].Type != core.EventHumanRequired {
 		t.Fatalf("expected issue 22 latest event human_required, got %q", syncer.events[1].Type)
@@ -87,11 +87,11 @@ func (f *fakeReconnectPublisher) Publish(evt core.Event) {
 	f.events = append(f.events, evt)
 }
 
-type fakePipelineEventSyncer struct {
+type fakeRunEventSyncer struct {
 	events []core.Event
 }
 
-func (f *fakePipelineEventSyncer) SyncPipelineEvent(_ context.Context, evt core.Event) error {
+func (f *fakeRunEventSyncer) SyncRunEvent(_ context.Context, evt core.Event) error {
 	f.events = append(f.events, evt)
 	return nil
 }

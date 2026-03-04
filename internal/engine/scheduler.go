@@ -121,25 +121,25 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *Scheduler) Enqueue(pipelineID string) error {
-	p, err := s.store.GetPipeline(pipelineID)
+func (s *Scheduler) Enqueue(RunID string) error {
+	p, err := s.store.GetRun(RunID)
 	if err != nil {
 		return err
 	}
 
 	switch p.Status {
-	case core.StatusDone, core.StatusFailed, core.StatusAborted:
-		return fmt.Errorf("pipeline %s status %s cannot be enqueued", p.ID, p.Status)
+	case core.StatusDone, core.StatusFailed, core.StatusTimeout:
+		return fmt.Errorf("Run %s status %s cannot be enqueued", p.ID, p.Status)
 	}
 
 	p.Status = core.StatusCreated
 	p.QueuedAt = time.Now()
 	p.UpdatedAt = time.Now()
-	return s.store.SavePipeline(p)
+	return s.store.SaveRun(p)
 }
 
 func (s *Scheduler) RunOnce(ctx context.Context) error {
-	active, err := s.store.GetActivePipelines()
+	active, err := s.store.GetActiveRuns()
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	if limit < slots {
 		limit = slots
 	}
-	runnable, err := s.store.ListRunnablePipelines(limit)
+	runnable, err := s.store.ListRunnableRuns(limit)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 		}
 
 		if s.maxPerProject > 0 {
-			runningByProject, err := s.store.CountRunningPipelinesByProject(p.ProjectID)
+			runningByProject, err := s.store.CountRunningRunsByProject(p.ProjectID)
 			if err != nil {
 				return err
 			}
@@ -191,7 +191,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 			}
 		}
 
-		ok, err := s.store.TryMarkPipelineRunning(p.ID, core.StatusCreated)
+		ok, err := s.store.TryMarkRunRunning(p.ID, core.StatusCreated)
 		if err != nil {
 			return err
 		}
@@ -205,10 +205,10 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 		slots--
 
 		s.runWG.Add(1)
-		go func(pipelineID string) {
+		go func(RunID string) {
 			defer s.runWG.Done()
-			if runErr := s.run(ctx, pipelineID); runErr != nil {
-				s.logger.Error("pipeline execution failed", "pipeline_id", pipelineID, "error", runErr)
+			if runErr := s.run(ctx, RunID); runErr != nil {
+				s.logger.Error("Run execution failed", "run_id", RunID, "error", runErr)
 			}
 		}(p.ID)
 	}
@@ -216,8 +216,8 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	return nil
 }
 
-// FindPipelineByIssueNumber returns an existing pipeline bound to issue_number in pipeline config/artifacts.
-func FindPipelineByIssueNumber(store core.Store, projectID string, issueNumber int) (*core.Pipeline, error) {
+// FindRunByIssueNumber returns an existing Run bound to issue_number in Run config/artifacts.
+func FindRunByIssueNumber(store core.Store, projectID string, issueNumber int) (*core.Run, error) {
 	if store == nil {
 		return nil, fmt.Errorf("store is required")
 	}
@@ -225,18 +225,18 @@ func FindPipelineByIssueNumber(store core.Store, projectID string, issueNumber i
 		return nil, nil
 	}
 
-	pipelines, err := store.ListPipelines(projectID, core.PipelineFilter{Limit: 500})
+	Runs, err := store.ListRuns(projectID, core.RunFilter{Limit: 500})
 	if err != nil {
 		return nil, err
 	}
-	for i := range pipelines {
-		summary := pipelines[i]
-		pipeline, err := store.GetPipeline(summary.ID)
+	for i := range Runs {
+		summary := Runs[i]
+		Run, err := store.GetRun(summary.ID)
 		if err != nil {
 			return nil, err
 		}
-		if issueNumberFromConfigMap(pipeline.Config) == issueNumber || issueNumberFromArtifacts(pipeline.Artifacts) == issueNumber {
-			return pipeline, nil
+		if issueNumberFromConfigMap(Run.Config) == issueNumber || issueNumberFromArtifacts(Run.Artifacts) == issueNumber {
+			return Run, nil
 		}
 	}
 	return nil, nil

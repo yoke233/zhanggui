@@ -7,7 +7,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestSchedulerListRunnablePipelinesFIFO(t *testing.T) {
+func TestSchedulerListRunnableRunsFIFO(t *testing.T) {
 	s, err := New(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -20,9 +20,9 @@ func TestSchedulerListRunnablePipelinesFIFO(t *testing.T) {
 	}
 
 	base := time.Now().Add(-1 * time.Hour)
-	pipelines := []*core.Pipeline{
+	runs := []*core.Run{
 		{
-			ID:        "pipe-1",
+			ID:        "run-1",
 			ProjectID: project.ID,
 			Name:      "one",
 			Template:  "quick",
@@ -31,7 +31,7 @@ func TestSchedulerListRunnablePipelinesFIFO(t *testing.T) {
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
 		{
-			ID:        "pipe-2",
+			ID:        "run-2",
 			ProjectID: project.ID,
 			Name:      "two",
 			Template:  "quick",
@@ -40,7 +40,7 @@ func TestSchedulerListRunnablePipelinesFIFO(t *testing.T) {
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
 		{
-			ID:        "pipe-3",
+			ID:        "run-3",
 			ProjectID: project.ID,
 			Name:      "three",
 			Template:  "quick",
@@ -49,23 +49,23 @@ func TestSchedulerListRunnablePipelinesFIFO(t *testing.T) {
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
 	}
-	for _, p := range pipelines {
+	for _, p := range runs {
 		p.CreatedAt = time.Now()
 		p.UpdatedAt = time.Now()
-		if err := s.SavePipeline(p); err != nil {
+		if err := s.SaveRun(p); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	got, err := s.ListRunnablePipelines(10)
+	got, err := s.ListRunnableRuns(10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected 2 runnable pipelines, got %d", len(got))
+		t.Fatalf("expected 2 runnable runs, got %d", len(got))
 	}
-	if got[0].ID != "pipe-1" || got[1].ID != "pipe-2" {
-		t.Fatalf("expected FIFO order [pipe-1, pipe-2], got [%s, %s]", got[0].ID, got[1].ID)
+	if got[0].ID != "run-1" || got[1].ID != "run-2" {
+		t.Fatalf("expected FIFO order [run-1, run-2], got [%s, %s]", got[0].ID, got[1].ID)
 	}
 }
 
@@ -85,9 +85,9 @@ func TestSchedulerCountRunningByProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	savePipeline := func(id, projectID string, status core.PipelineStatus) {
+	saveRun := func(id, projectID string, status core.RunStatus) {
 		t.Helper()
-		p := &core.Pipeline{
+		p := &core.Run{
 			ID:        id,
 			ProjectID: projectID,
 			Name:      id,
@@ -97,17 +97,17 @@ func TestSchedulerCountRunningByProject(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		if err := s.SavePipeline(p); err != nil {
+		if err := s.SaveRun(p); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	savePipeline("a-running-1", projectA.ID, core.StatusRunning)
-	savePipeline("a-running-2", projectA.ID, core.StatusRunning)
-	savePipeline("a-created", projectA.ID, core.StatusCreated)
-	savePipeline("b-running-1", projectB.ID, core.StatusRunning)
+	saveRun("a-running-1", projectA.ID, core.StatusRunning)
+	saveRun("a-running-2", projectA.ID, core.StatusRunning)
+	saveRun("a-created", projectA.ID, core.StatusCreated)
+	saveRun("b-running-1", projectB.ID, core.StatusRunning)
 
-	countA, err := s.CountRunningPipelinesByProject(projectA.ID)
+	countA, err := s.CountRunningRunsByProject(projectA.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestSchedulerCountRunningByProject(t *testing.T) {
 		t.Fatalf("expected project A running count=2, got %d", countA)
 	}
 
-	countB, err := s.CountRunningPipelinesByProject(projectB.ID)
+	countB, err := s.CountRunningRunsByProject(projectB.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,8 +136,8 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &core.Pipeline{
-		ID:        "pipe-1",
+	p := &core.Run{
+		ID:        "run-1",
 		ProjectID: project.ID,
 		Name:      "one",
 		Template:  "quick",
@@ -146,11 +146,11 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err := s.SavePipeline(p); err != nil {
+	if err := s.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
-	ok, err := s.TryMarkPipelineRunning(p.ID, core.StatusCreated)
+	ok, err := s.TryMarkRunRunning(p.ID, core.StatusCreated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		t.Fatal("expected first CAS mark to succeed")
 	}
 
-	ok, err = s.TryMarkPipelineRunning(p.ID, core.StatusCreated)
+	ok, err = s.TryMarkRunRunning(p.ID, core.StatusCreated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		t.Fatal("expected second CAS mark to fail when status already running")
 	}
 
-	got, err := s.GetPipeline(p.ID)
+	got, err := s.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

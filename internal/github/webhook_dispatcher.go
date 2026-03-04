@@ -50,21 +50,21 @@ type webhookEventPublisher interface {
 	Publish(evt core.Event)
 }
 
-type webhookPipelineEvents interface {
+type webhookRunEvents interface {
 	Subscribe() chan core.Event
 	Unsubscribe(ch chan core.Event)
 }
 
 // WebhookDispatcherOptions controls dispatcher behavior.
 type WebhookDispatcherOptions struct {
-	Handler        WebhookDispatchHandler
-	Publisher      webhookEventPublisher
-	PipelineEvents webhookPipelineEvents
-	DLQStore       DLQStore
-	CleanupDelay   time.Duration
-	DeliveryTTL    time.Duration
-	Now            func() time.Time
-	AfterFunc      func(time.Duration, func())
+	Handler      WebhookDispatchHandler
+	Publisher    webhookEventPublisher
+	RunEvents    webhookRunEvents
+	DLQStore     DLQStore
+	CleanupDelay time.Duration
+	DeliveryTTL  time.Duration
+	Now          func() time.Time
+	AfterFunc    func(time.Duration, func())
 }
 
 type issueLockState struct {
@@ -87,10 +87,10 @@ type WebhookDispatcher struct {
 	issueLocks     map[string]*issueLockState
 	seenDeliveries map[string]time.Time
 
-	pipelineEvents webhookPipelineEvents
-	pipelineSub    chan core.Event
-	done           chan struct{}
-	closeOnce      sync.Once
+	RunEvents webhookRunEvents
+	Runsub    chan core.Event
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func NewWebhookDispatcher(opts WebhookDispatcherOptions) *WebhookDispatcher {
@@ -133,18 +133,18 @@ func NewWebhookDispatcher(opts WebhookDispatcherOptions) *WebhookDispatcher {
 		afterFunc:      afterFn,
 		issueLocks:     make(map[string]*issueLockState),
 		seenDeliveries: make(map[string]time.Time),
-		pipelineEvents: opts.PipelineEvents,
+		RunEvents:      opts.RunEvents,
 		done:           make(chan struct{}),
 	}
 
-	if d.pipelineEvents != nil {
-		d.pipelineSub = d.pipelineEvents.Subscribe()
-		go d.watchPipelineEvents()
+	if d.RunEvents != nil {
+		d.Runsub = d.RunEvents.Subscribe()
+		go d.watchRunEvents()
 	}
 	return d
 }
 
-// Close unsubscribes dispatcher from pipeline events.
+// Close unsubscribes dispatcher from Run events.
 func (d *WebhookDispatcher) Close() {
 	if d == nil {
 		return
@@ -152,8 +152,8 @@ func (d *WebhookDispatcher) Close() {
 
 	d.closeOnce.Do(func() {
 		close(d.done)
-		if d.pipelineEvents != nil && d.pipelineSub != nil {
-			d.pipelineEvents.Unsubscribe(d.pipelineSub)
+		if d.RunEvents != nil && d.Runsub != nil {
+			d.RunEvents.Unsubscribe(d.Runsub)
 		}
 	})
 }
@@ -245,20 +245,20 @@ func (d *WebhookDispatcher) dispatch(ctx context.Context, req WebhookDispatchReq
 	return result, nil
 }
 
-func (d *WebhookDispatcher) watchPipelineEvents() {
+func (d *WebhookDispatcher) watchRunEvents() {
 	for {
 		select {
 		case <-d.done:
 			return
-		case evt, ok := <-d.pipelineSub:
+		case evt, ok := <-d.Runsub:
 			if !ok {
 				return
 			}
-			if evt.Type != core.EventPipelineDone {
+			if evt.Type != core.EventRunDone {
 				continue
 			}
 
-			issueKey, ok := issueKeyFromPipelineDone(evt)
+			issueKey, ok := issueKeyFromRunDone(evt)
 			if !ok {
 				continue
 			}
@@ -457,7 +457,7 @@ func shouldScheduleCleanup(req WebhookDispatchRequest, issue webhookIssueContext
 	return action == "" && issue.state == "closed"
 }
 
-func issueKeyFromPipelineDone(evt core.Event) (string, bool) {
+func issueKeyFromRunDone(evt core.Event) (string, bool) {
 	if evt.Data == nil {
 		return "", false
 	}

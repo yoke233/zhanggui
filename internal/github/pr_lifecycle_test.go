@@ -14,7 +14,7 @@ func TestPRLifecycle_ImplementComplete_CreatesDraftPR(t *testing.T) {
 	defer store.Close()
 
 	projectID := seedPRLifecycleProject(t, store)
-	pipeline := seedPRLifecyclePipeline(t, store, projectID, "pipe-pr-create", map[string]any{
+	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-create", map[string]any{
 		"base_branch": "main",
 	})
 
@@ -23,7 +23,7 @@ func TestPRLifecycle_ImplementComplete_CreatesDraftPR(t *testing.T) {
 	}
 	lifecycle := NewPRLifecycle(store, scm)
 
-	prURL, err := lifecycle.OnImplementComplete(context.Background(), pipeline.ID)
+	prURL, err := lifecycle.OnImplementComplete(context.Background(), Run.ID)
 	if err != nil {
 		t.Fatalf("OnImplementComplete() error = %v", err)
 	}
@@ -37,9 +37,9 @@ func TestPRLifecycle_ImplementComplete_CreatesDraftPR(t *testing.T) {
 		t.Fatalf("expected draft PR creation")
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if got := readIntConfigValue(updated.Config, "pr_number"); got != 321 {
 		t.Fatalf("expected pr_number=321, got %d", got)
@@ -51,14 +51,14 @@ func TestPRLifecycle_MergeApproved_ConvertReadyThenMerge(t *testing.T) {
 	defer store.Close()
 
 	projectID := seedPRLifecycleProject(t, store)
-	pipeline := seedPRLifecyclePipeline(t, store, projectID, "pipe-pr-merge", map[string]any{
+	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-merge", map[string]any{
 		"pr_number": 910,
 	})
 
 	scm := &fakePRLifecycleSCM{}
 	lifecycle := NewPRLifecycle(store, scm)
 
-	if err := lifecycle.OnMergeApproved(context.Background(), pipeline.ID); err != nil {
+	if err := lifecycle.OnMergeApproved(context.Background(), Run.ID); err != nil {
 		t.Fatalf("OnMergeApproved() error = %v", err)
 	}
 
@@ -73,17 +73,17 @@ func TestPRLifecycle_MergeApproved_ConvertReadyThenMerge(t *testing.T) {
 	}
 }
 
-func TestPRLifecycle_PullRequestClosedMerged_PipelineDone(t *testing.T) {
+func TestPRLifecycle_PullRequestClosedMerged_RunDone(t *testing.T) {
 	store := newPRLifecycleTestStore(t)
 	defer store.Close()
 
 	projectID := seedPRLifecycleProject(t, store)
-	pipeline := seedPRLifecyclePipeline(t, store, projectID, "pipe-pr-closed-merged", map[string]any{
+	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-closed-merged", map[string]any{
 		"pr_number": 501,
 	})
-	pipeline.Status = core.StatusRunning
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	Run.Status = core.StatusRunning
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
 
 	lifecycle := NewPRLifecycle(store, &fakePRLifecycleSCM{})
@@ -91,29 +91,29 @@ func TestPRLifecycle_PullRequestClosedMerged_PipelineDone(t *testing.T) {
 		t.Fatalf("OnPullRequestClosed() error = %v", err)
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if updated.Status != core.StatusDone {
-		t.Fatalf("expected pipeline done, got %s", updated.Status)
+		t.Fatalf("expected Run done, got %s", updated.Status)
 	}
 	if updated.FinishedAt.IsZero() {
 		t.Fatal("expected finished_at to be set")
 	}
 }
 
-func TestPRLifecycle_PullRequestClosedNotMerged_PipelineFailed(t *testing.T) {
+func TestPRLifecycle_PullRequestClosedNotMerged_RunFailed(t *testing.T) {
 	store := newPRLifecycleTestStore(t)
 	defer store.Close()
 
 	projectID := seedPRLifecycleProject(t, store)
-	pipeline := seedPRLifecyclePipeline(t, store, projectID, "pipe-pr-closed-unmerged", map[string]any{
+	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-closed-unmerged", map[string]any{
 		"pr_number": 777,
 	})
-	pipeline.Status = core.StatusRunning
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	Run.Status = core.StatusRunning
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
 
 	lifecycle := NewPRLifecycle(store, &fakePRLifecycleSCM{})
@@ -121,12 +121,12 @@ func TestPRLifecycle_PullRequestClosedNotMerged_PipelineFailed(t *testing.T) {
 		t.Fatalf("OnPullRequestClosed() error = %v", err)
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if updated.Status != core.StatusFailed {
-		t.Fatalf("expected pipeline failed, got %s", updated.Status)
+		t.Fatalf("expected Run failed, got %s", updated.Status)
 	}
 	if updated.ErrorMessage == "" {
 		t.Fatal("expected failure message to be recorded")
@@ -155,22 +155,22 @@ func seedPRLifecycleProject(t *testing.T, store core.Store) string {
 	return project.ID
 }
 
-func seedPRLifecyclePipeline(
+func seedPRLifecycleRun(
 	t *testing.T,
 	store core.Store,
 	projectID string,
 	id string,
 	config map[string]any,
-) *core.Pipeline {
+) *core.Run {
 	t.Helper()
 	if config == nil {
 		config = map[string]any{}
 	}
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              id,
 		ProjectID:       projectID,
 		Name:            id,
-		Description:     "pipeline for pr lifecycle",
+		Description:     "Run for pr lifecycle",
 		Template:        "standard",
 		Status:          core.StatusRunning,
 		CurrentStage:    core.StageImplement,
@@ -182,10 +182,10 @@ func seedPRLifecyclePipeline(
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
-	return pipeline
+	return Run
 }
 
 func readIntConfigValue(config map[string]any, key string) int {

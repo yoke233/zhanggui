@@ -8,20 +8,20 @@ import (
 
 func TestValidateTransition(t *testing.T) {
 	valid := []struct {
-		from PipelineStatus
-		to   PipelineStatus
+		from RunStatus
+		to   RunStatus
 	}{
 		{StatusCreated, StatusRunning},
-		{StatusCreated, StatusAborted},
-		{StatusRunning, StatusWaitingHuman},
-		{StatusRunning, StatusPaused},
+		{StatusRunning, StatusWaitingReview},
 		{StatusRunning, StatusFailed},
 		{StatusRunning, StatusDone},
-		{StatusPaused, StatusRunning},
-		{StatusPaused, StatusAborted},
-		{StatusWaitingHuman, StatusRunning},
-		{StatusWaitingHuman, StatusAborted},
+		{StatusRunning, StatusTimeout},
+		{StatusWaitingReview, StatusRunning},
+		{StatusWaitingReview, StatusDone},
+		{StatusWaitingReview, StatusFailed},
+		{StatusWaitingReview, StatusTimeout},
 		{StatusFailed, StatusRunning},
+		{StatusTimeout, StatusRunning},
 	}
 	for _, tt := range valid {
 		if err := ValidateTransition(tt.from, tt.to); err != nil {
@@ -30,13 +30,13 @@ func TestValidateTransition(t *testing.T) {
 	}
 
 	invalid := []struct {
-		from PipelineStatus
-		to   PipelineStatus
+		from RunStatus
+		to   RunStatus
 	}{
 		{StatusCreated, StatusDone},
 		{StatusDone, StatusRunning},
-		{StatusAborted, StatusRunning},
 		{StatusFailed, StatusDone},
+		{StatusTimeout, StatusDone},
 	}
 	for _, tt := range invalid {
 		if err := ValidateTransition(tt.from, tt.to); err == nil {

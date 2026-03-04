@@ -175,7 +175,7 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:        "20260301-123456abcdef",
 		ProjectID: project.ID,
 		Name:      "task-runner",
@@ -183,7 +183,7 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 		Status:    core.StatusCreated,
 		Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 	}
-	if err := s.SavePipeline(pipeline); err != nil {
+	if err := s.SaveRun(Run); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,18 +213,18 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 	}
 
 	issue.Status = core.IssueStatusExecuting
-	issue.PipelineID = pipeline.ID
+	issue.RunID = Run.ID
 	issue.ExternalID = "ISSUE-101"
 	if err := s.SaveIssue(issue); err != nil {
 		t.Fatal(err)
 	}
 
-	byPipeline, err := s.GetIssueByPipeline(pipeline.ID)
+	byRun, err := s.GetIssueByRun(Run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if byPipeline == nil || byPipeline.ID != issue.ID {
-		t.Fatalf("expected issue %s by pipeline, got %#v", issue.ID, byPipeline)
+	if byRun == nil || byRun.ID != issue.ID {
+		t.Fatalf("expected issue %s by Run, got %#v", issue.ID, byRun)
 	}
 
 	list, total, err := s.ListIssues(project.ID, core.IssueFilter{
@@ -262,7 +262,7 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 		Field:     "status",
 		OldValue:  "draft",
 		NewValue:  "executing",
-		Reason:    "pipeline started",
+		Reason:    "Run started",
 		ChangedBy: "scheduler",
 	}); err != nil {
 		t.Fatal(err)

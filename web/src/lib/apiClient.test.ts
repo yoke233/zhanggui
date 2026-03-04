@@ -80,6 +80,27 @@ describe("apiClient", () => {
     );
   });
 
+  it("/api/* 路由会保留 baseUrl 的子路径前缀", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], total: 0, offset: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/console/api/v1",
+    });
+
+    await client.listRuns("proj-1", { limit: 1, offset: 2 });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/console/api/v2/runs?project_id=proj-1&limit=1&offset=2",
+    );
+  });
+
   it("workflow profile API 会走 v2 路由", async () => {
     const fetchMock = vi
       .fn()
@@ -222,14 +243,14 @@ describe("apiClient", () => {
     );
   });
 
-  it("pipeline logs 接口会命中正确路由并透传 stage/limit/offset", async () => {
+  it("Run logs 接口会命中正确路由并透传 stage/limit/offset", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           items: [
             {
               id: 2,
-              pipeline_id: "pipe-1",
+              run_id: "pipe-1",
               stage: "implement",
               type: "stdout",
               agent: "codex",
@@ -252,14 +273,14 @@ describe("apiClient", () => {
       baseUrl: "http://localhost:8080/api/v1",
     });
 
-    const logs = await client.getPipelineLogs("proj-1", "pipe-1", {
+    const logs = await client.getRunLogs("proj-1", "pipe-1", {
       stage: "implement",
       limit: 1,
       offset: 1,
     });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/logs?stage=implement&limit=1&offset=1",
+      "http://localhost:8080/api/v1/projects/proj-1/Runs/pipe-1/logs?stage=implement&limit=1&offset=1",
     );
     const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(requestInit.method).toBe("GET");
@@ -285,7 +306,7 @@ describe("apiClient", () => {
               status: "info",
               refs: {
                 issue_id: "issue-1",
-                pipeline_id: "pipe-1",
+                run_id: "pipe-1",
               },
               meta: { field: "status" },
             },
@@ -301,7 +322,7 @@ describe("apiClient", () => {
               status: "warning",
               refs: {
                 issue_id: "issue-1",
-                pipeline_id: "pipe-1",
+                run_id: "pipe-1",
               },
               meta: { verdict: "changes_requested", score: 70 },
             },
@@ -357,7 +378,7 @@ describe("apiClient", () => {
           auto_merge: false,
           state: "open",
           status: "draft",
-          pipeline_id: "",
+          run_id: "",
           version: 1,
           superseded_by: "",
           external_id: "",
@@ -426,7 +447,7 @@ describe("apiClient", () => {
             auto_merge: false,
             state: "open",
             status: "draft",
-            pipeline_id: "",
+            run_id: "",
             version: 1,
             superseded_by: "",
             external_id: "",

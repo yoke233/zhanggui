@@ -15,8 +15,8 @@ const (
 var supportedMCPQueryTools = map[string]struct{}{
 	"query_issues":        {},
 	"query_issue_detail":  {},
-	"query_pipelines":     {},
-	"query_pipeline_logs": {},
+	"query_Runs":          {},
+	"query_Run_logs":      {},
 	"query_project_stats": {},
 }
 

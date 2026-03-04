@@ -23,7 +23,7 @@ import (
 type webhookHandlers struct {
 	store       core.Store
 	secret      string
-	executor    PipelineExecutor
+	executor    RunExecutor
 	stageRoles  map[core.StageID]string
 	dispatcher  *ghwebhook.WebhookDispatcher
 	prLifecycle *ghwebhook.PRLifecycle
@@ -58,7 +58,7 @@ type githubWebhookEnvelope struct {
 	} `json:"sender"`
 }
 
-func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExecutor, secret string, stageRoleBindings map[string]string) WebhookDeliveryReplayer {
+func registerWebhookRoutes(r chi.Router, store core.Store, executor RunExecutor, secret string, stageRoleBindings map[string]string) WebhookDeliveryReplayer {
 	var publisher interface{ Publish(evt core.Event) }
 	if bus := eventbus.Default(); bus != nil {
 		publisher = bus
@@ -112,7 +112,7 @@ func (h *webhookHandlers) handleIssuesEvent(
 		return errors.New("store is required")
 	}
 
-	trigger := ghwebhook.NewPipelineTrigger(h.store, h.createPipelineForTrigger)
+	trigger := ghwebhook.NewRunTrigger(h.store, h.createRunForTrigger)
 	_, err := trigger.TriggerFromIssue(ctx, ghwebhook.IssueTriggerInput{
 		ProjectID:            req.ProjectID,
 		IssueNumber:          envelope.Issue.Number,
@@ -151,7 +151,7 @@ func (h *webhookHandlers) handleIssueCommentEvent(
 
 	switch command.Type {
 	case ghwebhook.SlashCommandRun:
-		trigger := ghwebhook.NewPipelineTrigger(h.store, h.createPipelineForTrigger)
+		trigger := ghwebhook.NewRunTrigger(h.store, h.createRunForTrigger)
 		_, err := trigger.TriggerFromCommand(ctx, ghwebhook.CommandTriggerInput{
 			ProjectID:       req.ProjectID,
 			IssueNumber:     envelope.Issue.Number,
@@ -163,17 +163,17 @@ func (h *webhookHandlers) handleIssueCommentEvent(
 		})
 		return err
 	case ghwebhook.SlashCommandApprove:
-		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+		return h.applySlashRunAction(ctx, req.ProjectID, envelope.Issue.Number, core.RunAction{
 			Type: core.ActionApprove,
 		})
 	case ghwebhook.SlashCommandReject:
-		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+		return h.applySlashRunAction(ctx, req.ProjectID, envelope.Issue.Number, core.RunAction{
 			Type:    core.ActionReject,
 			Stage:   command.Stage,
 			Message: command.Reason,
 		})
 	case ghwebhook.SlashCommandAbort:
-		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+		return h.applySlashRunAction(ctx, req.ProjectID, envelope.Issue.Number, core.RunAction{
 			Type:    core.ActionAbort,
 			Message: command.Reason,
 		})
@@ -198,48 +198,48 @@ func (h *webhookHandlers) handlePullRequestEvent(
 	return h.prLifecycle.OnPullRequestClosed(ctx, req.ProjectID, envelope.PullRequest.Number, envelope.PullRequest.Merged)
 }
 
-func (h *webhookHandlers) applySlashPipelineAction(
+func (h *webhookHandlers) applySlashRunAction(
 	ctx context.Context,
 	projectID string,
 	issueNumber int,
-	action core.PipelineAction,
+	action core.RunAction,
 ) error {
 	if h.executor == nil || h.store == nil {
 		return nil
 	}
 
-	pipeline, err := engine.FindPipelineByIssueNumber(h.store, projectID, issueNumber)
+	Run, err := engine.FindRunByIssueNumber(h.store, projectID, issueNumber)
 	if err != nil {
 		return err
 	}
-	if pipeline == nil {
+	if Run == nil {
 		return nil
 	}
 
-	action.PipelineID = pipeline.ID
+	action.RunID = Run.ID
 	if action.Stage == "" {
-		action.Stage = pipeline.CurrentStage
+		action.Stage = Run.CurrentStage
 	}
 	return h.executor.ApplyAction(ctx, action)
 }
 
-func (h *webhookHandlers) createPipelineForTrigger(
+func (h *webhookHandlers) createRunForTrigger(
 	projectID,
 	name,
 	description,
 	template string,
-) (*core.Pipeline, error) {
+) (*core.Run, error) {
 	if h == nil || h.store == nil {
 		return nil, errors.New("store is required")
 	}
-	stages, err := buildPipelineStages(template, h.stageRoles)
+	stages, err := buildRunstages(template, h.stageRoles)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
-	pipeline := &core.Pipeline{
-		ID:              engine.NewPipelineID(),
+	Run := &core.Run{
+		ID:              engine.NewRunID(),
 		ProjectID:       strings.TrimSpace(projectID),
 		Name:            strings.TrimSpace(name),
 		Description:     strings.TrimSpace(description),
@@ -252,10 +252,10 @@ func (h *webhookHandlers) createPipelineForTrigger(
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := h.store.SavePipeline(pipeline); err != nil {
+	if err := h.store.SaveRun(Run); err != nil {
 		return nil, err
 	}
-	return pipeline, nil
+	return Run, nil
 }
 
 func (h *webhookHandlers) handleWebhook(w http.ResponseWriter, r *http.Request) {

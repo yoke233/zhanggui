@@ -40,20 +40,20 @@ func (t HumanActionType) Validate() error {
 	return nil
 }
 
-// PipelineAction is the normalized action payload accepted by engine/scheduler.
-type PipelineAction struct {
-	PipelineID string          `json:"pipeline_id"`
-	Type       HumanActionType `json:"type"`
-	Stage      StageID         `json:"stage"`
-	Message    string          `json:"message,omitempty"`
-	Role       string          `json:"role,omitempty"`
-	CreatedAt  time.Time       `json:"created_at,omitempty"`
+// RunAction is the normalized action payload accepted by engine/scheduler.
+type RunAction struct {
+	RunID     string          `json:"run_id"`
+	Type      HumanActionType `json:"type"`
+	Stage     StageID         `json:"stage"`
+	Message   string          `json:"message,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	CreatedAt time.Time       `json:"created_at,omitempty"`
 }
 
-// Validate checks whether a pipeline action contains minimal required fields.
-func (a PipelineAction) Validate() error {
-	if a.PipelineID == "" {
-		return fmt.Errorf("pipeline_id is required")
+// Validate checks whether a Run action contains minimal required fields.
+func (a RunAction) Validate() error {
+	if a.RunID == "" {
+		return fmt.Errorf("run_id is required")
 	}
 	return a.Type.Validate()
 }

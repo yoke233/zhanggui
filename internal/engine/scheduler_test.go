@@ -16,9 +16,9 @@ func TestScheduler_RespectGlobalLimit(t *testing.T) {
 	defer store.Close()
 
 	project := mustCreateProject(t, store, "proj-a")
-	pipelineIDs := []string{"p-a-1", "p-a-2", "p-a-3"}
-	for i, id := range pipelineIDs {
-		mustSaveCreatedPipeline(t, store, id, project.ID, time.Now().Add(time.Duration(i)*time.Second), "")
+	RunIDs := []string{"p-a-1", "p-a-2", "p-a-3"}
+	for i, id := range RunIDs {
+		mustSaveCreatedRun(t, store, id, project.ID, time.Now().Add(time.Duration(i)*time.Second), "")
 	}
 
 	var (
@@ -26,7 +26,7 @@ func TestScheduler_RespectGlobalLimit(t *testing.T) {
 		current     int
 		maxObserved int
 	)
-	runner := func(_ context.Context, pipelineID string) error {
+	runner := func(_ context.Context, RunID string) error {
 		mu.Lock()
 		current++
 		if current > maxObserved {
@@ -35,7 +35,7 @@ func TestScheduler_RespectGlobalLimit(t *testing.T) {
 		mu.Unlock()
 
 		time.Sleep(80 * time.Millisecond)
-		markPipelineDone(t, store, pipelineID)
+		markRunDone(t, store, RunID)
 
 		mu.Lock()
 		current--
@@ -49,7 +49,7 @@ func TestScheduler_RespectGlobalLimit(t *testing.T) {
 	}
 	defer stopScheduler(t, scheduler)
 
-	waitPipelinesDone(t, store, pipelineIDs, 5*time.Second)
+	waitRunsDone(t, store, RunIDs, 5*time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -65,19 +65,19 @@ func TestScheduler_RespectPerProjectLimit(t *testing.T) {
 	projectA := mustCreateProject(t, store, "proj-a")
 	projectB := mustCreateProject(t, store, "proj-b")
 
-	pipelineIDs := []string{"a-1", "a-2", "b-1", "b-2"}
-	mustSaveCreatedPipeline(t, store, "a-1", projectA.ID, time.Now().Add(1*time.Second), "")
-	mustSaveCreatedPipeline(t, store, "a-2", projectA.ID, time.Now().Add(2*time.Second), "")
-	mustSaveCreatedPipeline(t, store, "b-1", projectB.ID, time.Now().Add(3*time.Second), "")
-	mustSaveCreatedPipeline(t, store, "b-2", projectB.ID, time.Now().Add(4*time.Second), "")
+	RunIDs := []string{"a-1", "a-2", "b-1", "b-2"}
+	mustSaveCreatedRun(t, store, "a-1", projectA.ID, time.Now().Add(1*time.Second), "")
+	mustSaveCreatedRun(t, store, "a-2", projectA.ID, time.Now().Add(2*time.Second), "")
+	mustSaveCreatedRun(t, store, "b-1", projectB.ID, time.Now().Add(3*time.Second), "")
+	mustSaveCreatedRun(t, store, "b-2", projectB.ID, time.Now().Add(4*time.Second), "")
 
 	var (
 		mu                 sync.Mutex
 		perProjectRunning  = map[string]int{}
 		perProjectObserved = map[string]int{}
 	)
-	runner := func(_ context.Context, pipelineID string) error {
-		p, err := store.GetPipeline(pipelineID)
+	runner := func(_ context.Context, RunID string) error {
+		p, err := store.GetRun(RunID)
 		if err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ func TestScheduler_RespectPerProjectLimit(t *testing.T) {
 		mu.Unlock()
 
 		time.Sleep(80 * time.Millisecond)
-		markPipelineDone(t, store, pipelineID)
+		markRunDone(t, store, RunID)
 
 		mu.Lock()
 		perProjectRunning[projectID]--
@@ -105,7 +105,7 @@ func TestScheduler_RespectPerProjectLimit(t *testing.T) {
 	}
 	defer stopScheduler(t, scheduler)
 
-	waitPipelinesDone(t, store, pipelineIDs, 5*time.Second)
+	waitRunsDone(t, store, RunIDs, 5*time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -122,16 +122,16 @@ func TestScheduler_WorktreeExclusive(t *testing.T) {
 
 	project := mustCreateProject(t, store, "proj-a")
 	sharedWorktree := "C:/tmp/worktrees/shared"
-	pipelineIDs := []string{"w-1", "w-2"}
-	mustSaveCreatedPipeline(t, store, "w-1", project.ID, time.Now().Add(1*time.Second), sharedWorktree)
-	mustSaveCreatedPipeline(t, store, "w-2", project.ID, time.Now().Add(2*time.Second), sharedWorktree)
+	RunIDs := []string{"w-1", "w-2"}
+	mustSaveCreatedRun(t, store, "w-1", project.ID, time.Now().Add(1*time.Second), sharedWorktree)
+	mustSaveCreatedRun(t, store, "w-2", project.ID, time.Now().Add(2*time.Second), sharedWorktree)
 
 	var (
 		mu          sync.Mutex
 		running     int
 		maxObserved int
 	)
-	runner := func(_ context.Context, pipelineID string) error {
+	runner := func(_ context.Context, RunID string) error {
 		mu.Lock()
 		running++
 		if running > maxObserved {
@@ -140,7 +140,7 @@ func TestScheduler_WorktreeExclusive(t *testing.T) {
 		mu.Unlock()
 
 		time.Sleep(80 * time.Millisecond)
-		markPipelineDone(t, store, pipelineID)
+		markRunDone(t, store, RunID)
 
 		mu.Lock()
 		running--
@@ -154,7 +154,7 @@ func TestScheduler_WorktreeExclusive(t *testing.T) {
 	}
 	defer stopScheduler(t, scheduler)
 
-	waitPipelinesDone(t, store, pipelineIDs, 5*time.Second)
+	waitRunsDone(t, store, RunIDs, 5*time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -168,22 +168,22 @@ func TestScheduler_FIFO(t *testing.T) {
 	defer store.Close()
 
 	project := mustCreateProject(t, store, "proj-a")
-	pipelineIDs := []string{"f-1", "f-2", "f-3"}
-	mustSaveCreatedPipeline(t, store, "f-1", project.ID, time.Now().Add(1*time.Second), "")
-	mustSaveCreatedPipeline(t, store, "f-2", project.ID, time.Now().Add(2*time.Second), "")
-	mustSaveCreatedPipeline(t, store, "f-3", project.ID, time.Now().Add(3*time.Second), "")
+	RunIDs := []string{"f-1", "f-2", "f-3"}
+	mustSaveCreatedRun(t, store, "f-1", project.ID, time.Now().Add(1*time.Second), "")
+	mustSaveCreatedRun(t, store, "f-2", project.ID, time.Now().Add(2*time.Second), "")
+	mustSaveCreatedRun(t, store, "f-3", project.ID, time.Now().Add(3*time.Second), "")
 
 	var (
 		mu    sync.Mutex
 		order []string
 	)
-	runner := func(_ context.Context, pipelineID string) error {
+	runner := func(_ context.Context, RunID string) error {
 		mu.Lock()
-		order = append(order, pipelineID)
+		order = append(order, RunID)
 		mu.Unlock()
 
 		time.Sleep(40 * time.Millisecond)
-		markPipelineDone(t, store, pipelineID)
+		markRunDone(t, store, RunID)
 		return nil
 	}
 
@@ -193,7 +193,7 @@ func TestScheduler_FIFO(t *testing.T) {
 	}
 	defer stopScheduler(t, scheduler)
 
-	waitPipelinesDone(t, store, pipelineIDs, 5*time.Second)
+	waitRunsDone(t, store, RunIDs, 5*time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -218,7 +218,7 @@ func mustCreateProject(t *testing.T, store core.Store, id string) *core.Project 
 	return p
 }
 
-func mustSaveCreatedPipeline(
+func mustSaveCreatedRun(
 	t *testing.T,
 	store core.Store,
 	id string,
@@ -228,7 +228,7 @@ func mustSaveCreatedPipeline(
 ) {
 	t.Helper()
 
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:           id,
 		ProjectID:    projectID,
 		Name:         id,
@@ -240,34 +240,34 @@ func mustSaveCreatedPipeline(
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
-		t.Fatalf("save pipeline %s: %v", id, err)
+	if err := store.SaveRun(p); err != nil {
+		t.Fatalf("save Run %s: %v", id, err)
 	}
 }
 
-func markPipelineDone(t *testing.T, store core.Store, pipelineID string) {
+func markRunDone(t *testing.T, store core.Store, RunID string) {
 	t.Helper()
-	p, err := store.GetPipeline(pipelineID)
+	p, err := store.GetRun(RunID)
 	if err != nil {
-		t.Fatalf("get pipeline %s: %v", pipelineID, err)
+		t.Fatalf("get Run %s: %v", RunID, err)
 	}
 	p.Status = core.StatusDone
 	p.FinishedAt = time.Now()
 	p.UpdatedAt = time.Now()
-	if err := store.SavePipeline(p); err != nil {
-		t.Fatalf("save done pipeline %s: %v", pipelineID, err)
+	if err := store.SaveRun(p); err != nil {
+		t.Fatalf("save done Run %s: %v", RunID, err)
 	}
 }
 
-func waitPipelinesDone(t *testing.T, store core.Store, ids []string, timeout time.Duration) {
+func waitRunsDone(t *testing.T, store core.Store, ids []string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		allDone := true
 		for _, id := range ids {
-			p, err := store.GetPipeline(id)
+			p, err := store.GetRun(id)
 			if err != nil {
-				t.Fatalf("get pipeline %s: %v", id, err)
+				t.Fatalf("get Run %s: %v", id, err)
 			}
 			if p.Status != core.StatusDone {
 				allDone = false
@@ -278,7 +278,7 @@ func waitPipelinesDone(t *testing.T, store core.Store, ids []string, timeout tim
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timeout waiting pipelines to complete: %v", ids)
+			t.Fatalf("timeout waiting Runs to complete: %v", ids)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

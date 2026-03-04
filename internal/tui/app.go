@@ -17,21 +17,21 @@ import (
 	"github.com/yoke233/ai-workflow/internal/tui/views"
 )
 
-type pipelineExecutor interface {
-	CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error)
-	Run(ctx context.Context, pipelineID string) error
-	ApplyAction(ctx context.Context, action core.PipelineAction) error
+type RunExecutor interface {
+	CreateRun(projectID, name, description, template string) (*core.Run, error)
+	Run(ctx context.Context, RunID string) error
+	ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
 type Model struct {
 	store    core.Store
-	executor pipelineExecutor
+	executor RunExecutor
 	claude   core.AgentPlugin
 	runtime  core.RuntimePlugin
 	workDir  string
 
-	projects  []core.Project
-	pipelines []core.Pipeline
+	projects []core.Project
+	Runs     []core.Run
 
 	selectedProjectID string
 	projectCursor     int
@@ -48,8 +48,8 @@ type Model struct {
 }
 
 type snapshotMsg struct {
-	projects  []core.Project
-	pipelines []core.Pipeline
+	projects []core.Project
+	Runs     []core.Run
 }
 
 type commandResultMsg struct {
@@ -72,7 +72,7 @@ type chatDoneMsg struct {
 type tickMsg time.Time
 type errMsg error
 
-func NewModel(executor pipelineExecutor, store core.Store, claude core.AgentPlugin, runtime core.RuntimePlugin) Model {
+func NewModel(executor RunExecutor, store core.Store, claude core.AgentPlugin, runtime core.RuntimePlugin) Model {
 	wd, _ := os.Getwd()
 	return Model{
 		store:    store,
@@ -91,7 +91,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case snapshotMsg:
 		m.projects = msg.projects
-		m.pipelines = msg.pipelines
+		m.Runs = msg.Runs
 		m.syncProjectSelection()
 		return m, nil
 
@@ -296,13 +296,13 @@ func (m Model) selectedProjectLabel() string {
 	return m.selectedProjectID
 }
 
-func (m Model) pipelinesForSelectedProject() []core.Pipeline {
+func (m Model) RunsForSelectedProject() []core.Run {
 	if m.selectedProjectID == "" {
-		return m.pipelines
+		return m.Runs
 	}
 
-	out := make([]core.Pipeline, 0, len(m.pipelines))
-	for _, p := range m.pipelines {
+	out := make([]core.Run, 0, len(m.Runs))
+	for _, p := range m.Runs {
 		if p.ProjectID == m.selectedProjectID {
 			out = append(out, p)
 		}
@@ -310,14 +310,14 @@ func (m Model) pipelinesForSelectedProject() []core.Pipeline {
 	return out
 }
 
-func summarizeSchedulerState(pipelines []core.Pipeline) (running, queued, waitingHuman int) {
-	for _, p := range pipelines {
+func summarizeSchedulerState(Runs []core.Run) (running, queued, waitingHuman int) {
+	for _, p := range Runs {
 		switch p.Status {
 		case core.StatusRunning:
 			running++
 		case core.StatusCreated:
 			queued++
-		case core.StatusWaitingHuman:
+		case core.StatusWaitingReview:
 			waitingHuman++
 		}
 	}
@@ -326,12 +326,12 @@ func summarizeSchedulerState(pipelines []core.Pipeline) (running, queued, waitin
 
 func (m Model) View() string {
 	var b strings.Builder
-	b.WriteString(StyleTitle.Render("AI Workflow Orchestrator (Chat + Pipeline)") + "\n")
+	b.WriteString(StyleTitle.Render("AI Workflow Orchestrator (Chat + Run)") + "\n")
 	b.WriteString(StyleHelp.Render("直接输入文本会发送给 Claude。输入 /help 查看流水线命令。Tab/Shift+Tab 切换项目。") + "\n")
 
-	runningCount, queuedCount, waitingCount := summarizeSchedulerState(m.pipelines)
+	runningCount, queuedCount, waitingCount := summarizeSchedulerState(m.Runs)
 	b.WriteString(StyleHelp.Render(fmt.Sprintf(
-		"当前项目: %s | 调度状态 running=%d queued=%d waiting_human=%d",
+		"当前项目: %s | 调度状态 running=%d queued=%d waiting_review=%d",
 		m.selectedProjectLabel(), runningCount, queuedCount, waitingCount,
 	)) + "\n\n")
 
@@ -346,15 +346,15 @@ func (m Model) View() string {
 	b.WriteString("Projects\n")
 	b.WriteString(views.RenderProjectList(m.projects, m.projectCursor) + "\n")
 
-	b.WriteString("Pipelines\n")
-	pipelineView := views.RenderPipelineList(m.pipelinesForSelectedProject(), -1, statusRenderer)
-	b.WriteString(pipelineView + "\n")
+	b.WriteString("Runs\n")
+	RunView := views.RenderRunList(m.RunsForSelectedProject(), -1, statusRenderer)
+	b.WriteString(RunView + "\n")
 
 	b.WriteString("Output\n")
 	maxOutputLines := 12
 	if m.height > 0 {
-		pipelineLines := strings.Count(strings.TrimSuffix(pipelineView, "\n"), "\n") + 1
-		maxOutputLines = m.height - pipelineLines - 10
+		RunLines := strings.Count(strings.TrimSuffix(RunView, "\n"), "\n") + 1
+		maxOutputLines = m.height - RunLines - 10
 		if maxOutputLines < 4 {
 			maxOutputLines = 4
 		}
@@ -377,7 +377,7 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(StyleInput.Render("> "+m.input) + "\n")
-	b.WriteString(StyleHelp.Render("Enter 发送 | Esc 停止 Claude 当前输出 | /help 命令 | /pipeline action ... | clear 清屏 | q 退出 | 状态: " + state))
+	b.WriteString(StyleHelp.Render("Enter 发送 | Esc 停止 Claude 当前输出 | /help 命令 | /Run action ... | clear 清屏 | q 退出 | 状态: " + state))
 	return b.String()
 }
 
@@ -400,22 +400,22 @@ func loadSnapshotCmd(store core.Store) tea.Cmd {
 			return errMsg(err)
 		}
 
-		var pipelines []core.Pipeline
+		var Runs []core.Run
 		for _, proj := range projects {
-			items, err := store.ListPipelines(proj.ID, core.PipelineFilter{})
+			items, err := store.ListRuns(proj.ID, core.RunFilter{})
 			if err != nil {
 				return errMsg(err)
 			}
-			pipelines = append(pipelines, items...)
+			Runs = append(Runs, items...)
 		}
-		sort.Slice(pipelines, func(i, j int) bool {
-			return pipelines[i].CreatedAt.After(pipelines[j].CreatedAt)
+		sort.Slice(Runs, func(i, j int) bool {
+			return Runs[i].CreatedAt.After(Runs[j].CreatedAt)
 		})
-		return snapshotMsg{projects: projects, pipelines: pipelines}
+		return snapshotMsg{projects: projects, Runs: Runs}
 	}
 }
 
-func executeCommandCmd(store core.Store, executor pipelineExecutor, line string) tea.Cmd {
+func executeCommandCmd(store core.Store, executor RunExecutor, line string) tea.Cmd {
 	return func() tea.Msg {
 		out, err := runCommand(context.Background(), store, executor, line)
 		return commandResultMsg{output: out, err: err}
@@ -683,7 +683,7 @@ func projectIDFromPath(path string) string {
 	return out
 }
 
-func runCommand(ctx context.Context, store core.Store, executor pipelineExecutor, line string) (string, error) {
+func runCommand(ctx context.Context, store core.Store, executor RunExecutor, line string) (string, error) {
 	args, err := splitArgs(line)
 	if err != nil {
 		return "", err
@@ -699,8 +699,8 @@ func runCommand(ctx context.Context, store core.Store, executor pipelineExecutor
 		return "已刷新。", nil
 	case "project":
 		return runProjectCommand(store, args[1:])
-	case "pipeline":
-		return runPipelineCommand(ctx, store, executor, args[1:])
+	case "Run":
+		return runRunCommand(ctx, store, executor, args[1:])
 	default:
 		return "", fmt.Errorf("unknown command: %s", args[0])
 	}
@@ -749,59 +749,59 @@ func runProjectCommand(store core.Store, args []string) (string, error) {
 	}
 }
 
-func runPipelineCommand(ctx context.Context, store core.Store, executor pipelineExecutor, args []string) (string, error) {
+func runRunCommand(ctx context.Context, store core.Store, executor RunExecutor, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", fmt.Errorf("usage: pipeline <create|start|status|list|action>")
+		return "", fmt.Errorf("usage: Run <create|start|status|list|action>")
 	}
 
 	switch args[0] {
 	case "create":
 		if len(args) < 4 {
-			return "", fmt.Errorf("usage: pipeline create <project-id> <name> <description> [template]")
+			return "", fmt.Errorf("usage: Run create <project-id> <name> <description> [template]")
 		}
 		template := "standard"
 		if len(args) > 4 {
 			template = args[4]
 		}
-		p, err := executor.CreatePipeline(args[1], args[2], args[3], template)
+		p, err := executor.CreateRun(args[1], args[2], args[3], template)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Pipeline created: %s (template: %s, stages: %d)", p.ID, p.Template, len(p.Stages)), nil
+		return fmt.Sprintf("Run created: %s (template: %s, stages: %d)", p.ID, p.Template, len(p.Stages)), nil
 
 	case "start":
 		if len(args) < 2 {
-			return "", fmt.Errorf("usage: pipeline start <pipeline-id>")
+			return "", fmt.Errorf("usage: Run start <Run-id>")
 		}
 		if err := executor.Run(ctx, args[1]); err != nil {
 			return "", err
 		}
-		p, err := store.GetPipeline(args[1])
+		p, err := store.GetRun(args[1])
 		if err != nil {
-			return "Pipeline run finished.", nil
+			return "Run run finished.", nil
 		}
-		return "Pipeline run finished.\n" + formatPipelineStatus(p), nil
+		return "Run run finished.\n" + formatRunStatus(p), nil
 
 	case "status":
 		if len(args) < 2 {
-			return "", fmt.Errorf("usage: pipeline status <pipeline-id>")
+			return "", fmt.Errorf("usage: Run status <Run-id>")
 		}
-		p, err := store.GetPipeline(args[1])
+		p, err := store.GetRun(args[1])
 		if err != nil {
 			return "", err
 		}
-		return formatPipelineStatus(p), nil
+		return formatRunStatus(p), nil
 
 	case "list", "ls":
-		var items []core.Pipeline
+		var items []core.Run
 		if len(args) >= 2 {
-			found, err := store.ListPipelines(args[1], core.PipelineFilter{})
+			found, err := store.ListRuns(args[1], core.RunFilter{})
 			if err != nil {
 				return "", err
 			}
 			items = found
 		} else {
-			found, err := listAllPipelines(store)
+			found, err := listAllRuns(store)
 			if err != nil {
 				return "", err
 			}
@@ -809,11 +809,11 @@ func runPipelineCommand(ctx context.Context, store core.Store, executor pipeline
 		}
 
 		if len(items) == 0 {
-			return "No pipelines.", nil
+			return "No Runs.", nil
 		}
 
 		var b strings.Builder
-		b.WriteString("Pipelines:")
+		b.WriteString("Runs:")
 		for _, p := range items {
 			stage := string(p.CurrentStage)
 			if stage == "" {
@@ -825,16 +825,16 @@ func runPipelineCommand(ctx context.Context, store core.Store, executor pipeline
 
 	case "action":
 		if len(args) < 3 {
-			return "", fmt.Errorf("usage: pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
+			return "", fmt.Errorf("usage: Run action <Run-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
 		}
 		actionType, err := parseHumanActionType(args[2])
 		if err != nil {
 			return "", err
 		}
 
-		action := core.PipelineAction{
-			PipelineID: args[1],
-			Type:       actionType,
+		action := core.RunAction{
+			RunID: args[1],
+			Type:  actionType,
 		}
 		for i := 3; i < len(args); i++ {
 			switch args[i] {
@@ -866,10 +866,10 @@ func runPipelineCommand(ctx context.Context, store core.Store, executor pipeline
 		if err := executor.ApplyAction(ctx, action); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Action applied: %s %s", action.PipelineID, action.Type), nil
+		return fmt.Sprintf("Action applied: %s %s", action.RunID, action.Type), nil
 
 	default:
-		return "", fmt.Errorf("unknown pipeline command: %s", args[0])
+		return "", fmt.Errorf("unknown Run command: %s", args[0])
 	}
 }
 
@@ -891,15 +891,15 @@ func parseHumanActionType(raw string) (core.HumanActionType, error) {
 	}
 }
 
-func listAllPipelines(store core.Store) ([]core.Pipeline, error) {
+func listAllRuns(store core.Store) ([]core.Run, error) {
 	projects, err := store.ListProjects(core.ProjectFilter{})
 	if err != nil {
 		return nil, err
 	}
 
-	var out []core.Pipeline
+	var out []core.Run
 	for _, p := range projects {
-		items, err := store.ListPipelines(p.ID, core.PipelineFilter{})
+		items, err := store.ListRuns(p.ID, core.RunFilter{})
 		if err != nil {
 			return nil, err
 		}
@@ -956,9 +956,9 @@ func splitArgs(line string) ([]string, error) {
 	return args, nil
 }
 
-func formatPipelineStatus(p *core.Pipeline) string {
+func formatRunStatus(p *core.Run) string {
 	return fmt.Sprintf(
-		"Pipeline: %s\nStatus:   %s\nStage:    %s\nTemplate: %s",
+		"Run: %s\nStatus:   %s\nStage:    %s\nTemplate: %s",
 		p.ID, p.Status, p.CurrentStage, p.Template,
 	)
 }
@@ -977,16 +977,16 @@ func helpText() string {
 		"- /clear",
 		"- /project add <id> <repo-path>",
 		"- /project list",
-		"- /pipeline create <project-id> <name> <description> [template]",
-		"- /pipeline start <pipeline-id>",
-		"- /pipeline status <pipeline-id>",
-		"- /pipeline list [project-id]",
-		"- /pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]",
-		`Tip: 含空格参数请加引号，例如: /pipeline create demo p1 "实现登录与注册" quick`,
+		"- /Run create <project-id> <name> <description> [template]",
+		"- /Run start <Run-id>",
+		"- /Run status <Run-id>",
+		"- /Run list [project-id]",
+		"- /Run action <Run-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]",
+		`Tip: 含空格参数请加引号，例如: /Run create demo p1 "实现登录与注册" quick`,
 	}, "\n")
 }
 
-func Run(executor pipelineExecutor, store core.Store, claude core.AgentPlugin, runtime core.RuntimePlugin) error {
+func Run(executor RunExecutor, store core.Store, claude core.AgentPlugin, runtime core.RuntimePlugin) error {
 	p := tea.NewProgram(NewModel(executor, store, claude, runtime))
 	_, err := p.Run()
 	return err

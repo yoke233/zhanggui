@@ -13,29 +13,26 @@ import (
 
 const recoveryInterruptedCheckpointError = "recovered: previous in_progress checkpoint interrupted by crash"
 
-func (e *Executor) RecoverActivePipelines(ctx context.Context) error {
-	pipelines, err := e.store.GetActivePipelines()
+func (e *Executor) RecoverActiveRuns(ctx context.Context) error {
+	Runs, err := e.store.GetActiveRuns()
 	if err != nil {
 		return err
 	}
 
-	for i := range pipelines {
+	for i := range Runs {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		p := pipelines[i]
+		p := Runs[i]
 		switch p.Status {
-		case core.StatusWaitingHuman:
-			// Human-gated pipelines stay as-is after restart.
-			continue
-		case core.StatusPaused:
-			// Paused pipelines wait for explicit resume action.
+		case core.StatusWaitingReview:
+			// waiting_review runs wait for explicit resume action.
 			continue
 		case core.StatusRunning:
-			if err := e.recoverRunningPipeline(ctx, &p); err != nil {
+			if err := e.recoverRunningRun(ctx, &p); err != nil {
 				return err
 			}
 		}
@@ -43,7 +40,7 @@ func (e *Executor) RecoverActivePipelines(ctx context.Context) error {
 	return nil
 }
 
-func (e *Executor) recoverRunningPipeline(ctx context.Context, p *core.Pipeline) error {
+func (e *Executor) recoverRunningRun(ctx context.Context, p *core.Run) error {
 	checkpoints, err := e.store.GetCheckpoints(p.ID)
 	if err != nil {
 		return err
@@ -51,7 +48,7 @@ func (e *Executor) recoverRunningPipeline(ctx context.Context, p *core.Pipeline)
 
 	if cp := latestInProgressCheckpoint(checkpoints); cp != nil {
 		failed := &core.Checkpoint{
-			PipelineID: cp.PipelineID,
+			RunID:      cp.RunID,
 			StageName:  cp.StageName,
 			Status:     core.CheckpointFailed,
 			StartedAt:  cp.StartedAt,
@@ -70,7 +67,7 @@ func (e *Executor) recoverRunningPipeline(ctx context.Context, p *core.Pipeline)
 
 	p.Status = core.StatusRunning
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	return e.RunScheduled(ctx, p.ID)

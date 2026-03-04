@@ -37,8 +37,8 @@ const mocks = vi.hoisted(() => {
     createProject: vi.fn(),
     createProjectCreateRequest,
     getProjectCreateRequest,
-    listPipelines: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
-    createPipeline: vi.fn(),
+    listRuns: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
+    createRun: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
@@ -51,9 +51,9 @@ const mocks = vi.hoisted(() => {
       edges: [],
       stats: { total: 0, pending: 0, ready: 0, running: 0, done: 0, failed: 0 },
     }),
-    getPipeline: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
-    applyPipelineAction: vi.fn(),
+    getRun: vi.fn(),
+    getRunCheckpoints: vi.fn(),
+    applyRunAction: vi.fn(),
   };
 
   const wsClient = {

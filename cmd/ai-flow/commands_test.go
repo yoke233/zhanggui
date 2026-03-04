@@ -20,13 +20,13 @@ import (
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
-func TestCLI_PipelineActionCommand(t *testing.T) {
-	err := runWithArgs([]string{"pipeline", "action"})
+func TestCLI_RunActionCommand(t *testing.T) {
+	err := runWithArgs([]string{"Run", "action"})
 	if err == nil {
-		t.Fatal("expected usage error for missing pipeline action args")
+		t.Fatal("expected usage error for missing Run action args")
 	}
-	if !strings.Contains(err.Error(), "usage: ai-flow pipeline action") {
-		t.Fatalf("expected pipeline action usage error, got %v", err)
+	if !strings.Contains(err.Error(), "usage: ai-flow Run action") {
+		t.Fatalf("expected Run action usage error, got %v", err)
 	}
 }
 

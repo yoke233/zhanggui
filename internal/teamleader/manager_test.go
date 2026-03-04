@@ -508,8 +508,8 @@ func TestManager_ApplyIssueActionApproveStartIssueFailureMarksIssueFailed(t *tes
 	if persisted.ClosedAt != nil {
 		t.Fatal("persisted closed_at should be nil after approve dispatch failure")
 	}
-	if persisted.PipelineID != "" {
-		t.Fatalf("persisted pipeline_id = %q, want empty when dispatch fails", persisted.PipelineID)
+	if persisted.RunID != "" {
+		t.Fatalf("persisted run_id = %q, want empty when dispatch fails", persisted.RunID)
 	}
 
 	changes, err := store.GetIssueChanges(issue.ID)

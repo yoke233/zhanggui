@@ -2,7 +2,7 @@ package core
 
 import "time"
 
-// StageID uniquely identifies a pipeline stage.
+// StageID uniquely identifies a Run stage.
 type StageID string
 
 const (
@@ -42,7 +42,7 @@ const (
 	OnFailureHuman OnFailure = "human"
 )
 
-// StageConfig holds the declarative configuration for a single pipeline stage.
+// StageConfig holds the declarative configuration for a single Run stage.
 type StageConfig struct {
 	Name           StageID       `yaml:"name" json:"name"`
 	Agent          string        `yaml:"agent" json:"agent"`
@@ -67,7 +67,7 @@ const (
 
 // Checkpoint records the execution state of a completed (or in-flight) stage.
 type Checkpoint struct {
-	PipelineID string            `json:"pipeline_id"`
+	RunID      string            `json:"run_id"`
 	StageName  StageID           `json:"stage_name"`
 	Status     CheckpointStatus  `json:"status"`
 	Artifacts  map[string]string `json:"artifacts"`

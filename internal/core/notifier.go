@@ -9,10 +9,10 @@ type Notifier interface {
 }
 
 type Notification struct {
-	Level      string
-	Title      string
-	Body       string
-	PipelineID string
-	ProjectID  string
-	ActionURL  string
+	Level     string
+	Title     string
+	Body      string
+	RunID     string
+	ProjectID string
+	ActionURL string
 }

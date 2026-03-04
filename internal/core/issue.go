@@ -57,7 +57,7 @@ const (
 
 // Issue is the V2 requirement unit and single tracker-facing aggregate.
 //
-// NOTE: DependsOn/Blocks/PipelineID are retained as cutover fields during
+// NOTE: DependsOn/Blocks/RunID are retained as cutover fields during
 // transition away from task-plan runtime semantics.
 type Issue struct {
 	ID           string        `json:"id"`
@@ -75,7 +75,7 @@ type Issue struct {
 	AutoMerge    bool          `json:"auto_merge"`
 	State        IssueState    `json:"state"`
 	Status       IssueStatus   `json:"status"`
-	PipelineID   string        `json:"pipeline_id"`
+	RunID        string        `json:"run_id"`
 	Version      int           `json:"version"`
 	SupersededBy string        `json:"superseded_by"`
 	ExternalID   string        `json:"external_id"`

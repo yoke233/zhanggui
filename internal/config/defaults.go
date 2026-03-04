@@ -127,7 +127,7 @@ func Defaults() Config {
 			TeamLeader: SingleRoleBinding{
 				Role: "team_leader",
 			},
-			Pipeline: PipelineRoleBindings{
+			Run: RunRoleBindings{
 				StageRoles: map[string]string{
 					"requirements": "worker",
 					"implement":    "worker",
@@ -151,15 +151,15 @@ func Defaults() Config {
 		Runtime: RuntimeConfig{
 			Driver: "process",
 		},
-		Pipeline: PipelineConfig{
+		Run: RunConfig{
 			DefaultTemplate:   "standard",
 			GlobalTimeout:     2 * time.Hour,
 			AutoInferTemplate: true,
 			MaxTotalRetries:   5,
 		},
 		Scheduler: SchedulerConfig{
-			MaxGlobalAgents:     3,
-			MaxProjectPipelines: 2,
+			MaxGlobalAgents: 3,
+			MaxProjectRuns:  2,
 		},
 		TeamLeader: TeamLeaderConfig{
 			ReviewGatePlugin: "review-ai-panel",

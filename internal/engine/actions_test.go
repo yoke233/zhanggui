@@ -16,7 +16,7 @@ func TestActionApprove_ContinueNextStage(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{nil, nil}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:         core.StageImplement,
 			Agent:        "codex",
@@ -32,7 +32,7 @@ func TestActionApprove_ContinueNextStage(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,25 +41,25 @@ func TestActionApprove_ContinueNextStage(t *testing.T) {
 		t.Fatalf("initial run failed: %v", err)
 	}
 
-	waiting, err := store.GetPipeline(p.ID)
+	waiting, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if waiting.Status != core.StatusWaitingHuman {
-		t.Fatalf("expected waiting_human after first stage, got %s", waiting.Status)
+	if waiting.Status != core.StatusWaitingReview {
+		t.Fatalf("expected waiting_review after first stage, got %s", waiting.Status)
 	}
 
-	err = execEngine.ApplyAction(context.Background(), core.PipelineAction{
-		PipelineID: p.ID,
-		Type:       core.ActionApprove,
-		Stage:      waiting.CurrentStage,
-		Message:    "继续执行",
+	err = execEngine.ApplyAction(context.Background(), core.RunAction{
+		RunID:   p.ID,
+		Type:    core.ActionApprove,
+		Stage:   waiting.CurrentStage,
+		Message: "继续执行",
 	})
 	if err != nil {
 		t.Fatalf("approve action failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,12 +80,12 @@ func TestActionReject_InvalidateFollowingCheckpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:           "pipe-reject",
 		ProjectID:    project.ID,
 		Name:         "pipe",
 		Template:     "quick",
-		Status:       core.StatusWaitingHuman,
+		Status:       core.StatusWaitingReview,
 		CurrentStage: core.StageFixup,
 		Stages: []core.StageConfig{
 			{Name: core.StageImplement, Agent: "codex", Role: "worker"},
@@ -97,15 +97,15 @@ func TestActionReject_InvalidateFollowingCheckpoints(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
 	now := time.Now()
 	checkpoints := []*core.Checkpoint{
-		{PipelineID: p.ID, StageName: core.StageImplement, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
-		{PipelineID: p.ID, StageName: core.StageFixup, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
-		{PipelineID: p.ID, StageName: core.StageCodeReview, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
+		{RunID: p.ID, StageName: core.StageImplement, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
+		{RunID: p.ID, StageName: core.StageFixup, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
+		{RunID: p.ID, StageName: core.StageCodeReview, Status: core.CheckpointSuccess, StartedAt: now, FinishedAt: now},
 	}
 	for _, cp := range checkpoints {
 		if err := store.SaveCheckpoint(cp); err != nil {
@@ -114,11 +114,11 @@ func TestActionReject_InvalidateFollowingCheckpoints(t *testing.T) {
 	}
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, &fakeRuntime{})
-	err := execEngine.ApplyAction(context.Background(), core.PipelineAction{
-		PipelineID: p.ID,
-		Type:       core.ActionReject,
-		Stage:      core.StageFixup,
-		Message:    "fixup 输出不符合预期",
+	err := execEngine.ApplyAction(context.Background(), core.RunAction{
+		RunID:   p.ID,
+		Type:    core.ActionReject,
+		Stage:   core.StageFixup,
+		Message: "fixup 输出不符合预期",
 	})
 	if err != nil {
 		t.Fatalf("reject action failed: %v", err)
@@ -173,7 +173,7 @@ func TestActionPauseResume_ReRunCurrentStage(t *testing.T) {
 	}
 
 	workDir := t.TempDir()
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:           "pipe-pause-resume",
 		ProjectID:    project.ID,
 		Name:         "pipe",
@@ -189,7 +189,7 @@ func TestActionPauseResume_ReRunCurrentStage(t *testing.T) {
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -197,33 +197,33 @@ func TestActionPauseResume_ReRunCurrentStage(t *testing.T) {
 	agent := &fakeAgent{name: "codex"}
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 
-	if err := execEngine.ApplyAction(context.Background(), core.PipelineAction{
-		PipelineID: p.ID,
-		Type:       core.ActionPause,
-		Stage:      core.StageImplement,
-		Message:    "暂停等待人工确认",
+	if err := execEngine.ApplyAction(context.Background(), core.RunAction{
+		RunID:   p.ID,
+		Type:    core.ActionPause,
+		Stage:   core.StageImplement,
+		Message: "暂停等待人工确认",
 	}); err != nil {
 		t.Fatalf("pause action failed: %v", err)
 	}
 
-	paused, err := store.GetPipeline(p.ID)
+	waiting_review, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paused.Status != core.StatusPaused {
-		t.Fatalf("expected paused status, got %s", paused.Status)
+	if waiting_review.Status != core.StatusWaitingReview {
+		t.Fatalf("expected waiting_review status, got %s", waiting_review.Status)
 	}
 
-	if err := execEngine.ApplyAction(context.Background(), core.PipelineAction{
-		PipelineID: p.ID,
-		Type:       core.ActionResume,
-		Stage:      core.StageImplement,
-		Message:    "继续",
+	if err := execEngine.ApplyAction(context.Background(), core.RunAction{
+		RunID:   p.ID,
+		Type:    core.ActionResume,
+		Stage:   core.StageImplement,
+		Message: "继续",
 	}); err != nil {
 		t.Fatalf("resume action failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

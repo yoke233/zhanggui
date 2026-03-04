@@ -2,7 +2,6 @@ import type {
   ApiIssue,
   ApiRun,
   ApiWorkflowProfile,
-  ApiPipeline,
   ApiStatsResponse,
   CancelChatResponse,
   CreateChatResponse,
@@ -11,14 +10,14 @@ import type {
   CreateIssueRequest,
   CreateIssueResponse,
   CreatePlanResponse,
-  CreatePipelineRequest,
+  CreateRunRequest,
   CreateProjectCreateRequest,
   CreateProjectCreateRequestResponse,
   CreateProjectRequest,
   GetProjectCreateRequestResponse,
-  GetPipelineLogsQuery,
-  GetPipelineLogsResponse,
-  GetPipelineCheckpointsResponse,
+  GetRunLogsQuery,
+  GetRunLogsResponse,
+  GetRunCheckpointsResponse,
   GetChatResponse,
   IssueActionRequest,
   IssueActionResponse,
@@ -34,10 +33,9 @@ import type {
   ListIssuesResponse,
   ListRunsResponse,
   ListWorkflowProfilesResponse,
-  ListPipelinesResponse,
   ListProjectsResponse,
-  PipelineActionRequest,
-  PipelineActionResponse,
+  RunActionRequest,
+  RunActionResponse,
   RepoDiffResponse,
   RepoStatusResponse,
   RepoTreeResponse,
@@ -121,7 +119,13 @@ const buildUrl = (
 
   if (path.startsWith("/api/")) {
     const base = new URL(baseUrl);
-    const absolute = new URL(path, `${base.protocol}//${base.host}`);
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const normalizedBasePath = base.pathname.replace(/\/+$/, "");
+    const apiPrefixIndex = normalizedBasePath.toLowerCase().indexOf("/api/");
+    const basePathPrefix =
+      apiPrefixIndex >= 0 ? normalizedBasePath.slice(0, apiPrefixIndex) : normalizedBasePath;
+    const resolvedPath = `${basePathPrefix}${normalizedPath}`.replace(/\/{2,}/g, "/");
+    const absolute = new URL(resolvedPath, `${base.protocol}//${base.host}`);
     if (query) {
       Object.entries(query).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -225,8 +229,8 @@ const normalizeIssueNumberFromExternalId = (externalId: string): number | undefi
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
-  const config = pipeline.config ?? {};
+const normalizeApiRun = (Run: ApiRun): ApiRun => {
+  const config = Run.config ?? {};
   const issueNumber =
     toSafeNumber(config.issue_number) ?? toSafeNumber(config.github_issue_number);
   const prNumber = toSafeNumber(config.pr_number) ?? toSafeNumber(config.github_pr_number);
@@ -246,7 +250,7 @@ const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
         : "disconnected";
 
   return {
-    ...pipeline,
+    ...Run,
     github: {
       connection_status: connectionStatus,
       issue_number: issueNumber,
@@ -323,7 +327,7 @@ const normalizeIssueTimelineEntry = (
     status: toSafeString(entry.status) ?? "info",
     refs: {
       issue_id: issueID,
-      pipeline_id: toSafeString(refs.pipeline_id),
+      run_id: toSafeString(refs.run_id),
       stage: toSafeString(refs.stage),
     },
     meta,
@@ -358,6 +362,7 @@ export interface ApiClient {
   getWorkflowProfile(profileType: string): Promise<ApiWorkflowProfile>;
   listRuns(projectId: string, pagination?: PaginationParams): Promise<ListRunsResponse>;
   getRun(runId: string): Promise<ApiRun>;
+  createRun(projectId: string, body: CreateRunRequest): Promise<ApiRun>;
   createIssue(projectId: string, body: CreateIssueRequest): Promise<CreateIssueResponse>;
   createIssueFromFiles(
     projectId: string,
@@ -372,8 +377,6 @@ export interface ApiClient {
   getIssueDag(projectId: string, issueId: string): Promise<IssueDagResponse>;
   listIssueReviews?(projectId: string, issueId: string): Promise<IssueReviewRecord[]>;
   listIssueChanges?(projectId: string, issueId: string): Promise<IssueChangeRecord[]>;
-  listPipelines(projectId: string, pagination?: PaginationParams): Promise<ListPipelinesResponse>;
-  createPipeline(projectId: string, body: CreatePipelineRequest): Promise<ApiPipeline>;
   listChats(projectId: string): Promise<ListChatsResponse>;
   listChatRunEvents(projectId: string, sessionId: string): Promise<ListChatRunEventsResponse>;
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
@@ -411,24 +414,23 @@ export interface ApiClient {
     query?: ListIssueTimelineQuery,
   ): Promise<ListIssueTimelineResponse>;
   listAdminAuditLog?(query?: AdminAuditLogQuery): Promise<ListAdminAuditLogResponse>;
-  getPipeline(projectId: string, pipelineId: string): Promise<ApiPipeline>;
-  getPipelineLogs(
+  getRunLogs(
     projectId: string,
-    pipelineId: string,
-    query?: GetPipelineLogsQuery,
-  ): Promise<GetPipelineLogsResponse>;
-  getPipelineCheckpoints(
+    runId: string,
+    query?: GetRunLogsQuery,
+  ): Promise<GetRunLogsResponse>;
+  getRunCheckpoints(
     projectId: string,
-    pipelineId: string,
-  ): Promise<GetPipelineCheckpointsResponse>;
+    runId: string,
+  ): Promise<GetRunCheckpointsResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
-  applyPipelineAction(
+  applyRunAction(
     projectId: string,
-    pipelineId: string,
-    body: PipelineActionRequest,
-  ): Promise<PipelineActionResponse>;
+    runId: string,
+    body: RunActionRequest,
+  ): Promise<RunActionResponse>;
 }
 
 export const createApiClient = (options: ApiClientOptions): ApiClient => {
@@ -583,22 +585,24 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       });
       if (Array.isArray(response)) {
         return {
-          items: response,
+          items: response.map(normalizeApiRun),
           total: response.length,
           offset: pagination?.offset ?? 0,
         };
       }
       const items = Array.isArray(response.items) ? response.items : [];
       return {
-        items,
+        items: items.map(normalizeApiRun),
         total: typeof response.total === "number" ? response.total : items.length,
         offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
       };
     },
-    getRun: (runId) =>
-      request<ApiRun>({
+    getRun: async (runId) => {
+      const response = await request<ApiRun>({
         path: `/api/v2/runs/${runId}`,
-      }),
+      });
+      return normalizeApiRun(response);
+    },
     createIssue: async (projectId, body) => {
       const response = await request<CreateIssueResponse, CreateIssueRequest>({
         path: `/projects/${projectId}/issues`,
@@ -638,23 +642,13 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<IssueChangeRecord[]>({
         path: `/projects/${projectId}/issues/${issueId}/changes`,
       }),
-    listPipelines: async (projectId, pagination) => {
-      const response = await request<ListPipelinesResponse>({
-        path: `/projects/${projectId}/pipelines`,
-        query: pagination,
-      });
-      return {
-        ...response,
-        items: response.items.map(normalizeApiPipeline),
-      };
-    },
-    createPipeline: async (projectId, body) => {
-      const response = await request<ApiPipeline, CreatePipelineRequest>({
-        path: `/projects/${projectId}/pipelines`,
+    createRun: async (projectId, body) => {
+      const response = await request<ApiRun, CreateRunRequest>({
+        path: `/projects/${projectId}/Runs`,
         method: "POST",
         body,
       });
-      return normalizeApiPipeline(response);
+      return normalizeApiRun(response);
     },
     listChats: (projectId) =>
       request<ListChatsResponse>({
@@ -781,24 +775,18 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           offset: query?.offset,
         },
       }),
-    getPipeline: async (projectId, pipelineId) => {
-      const response = await request<ApiPipeline>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}`,
-      });
-      return normalizeApiPipeline(response);
-    },
-    getPipelineLogs: (projectId, pipelineId, query) =>
-      request<GetPipelineLogsResponse>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/logs`,
+    getRunLogs: (projectId, runId, query) =>
+      request<GetRunLogsResponse>({
+        path: `/projects/${projectId}/Runs/${runId}/logs`,
         query: {
           stage: query?.stage?.trim() ? query.stage : undefined,
           limit: query?.limit,
           offset: query?.offset,
         },
       }),
-    getPipelineCheckpoints: (projectId, pipelineId) =>
-      request<GetPipelineCheckpointsResponse>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/checkpoints`,
+    getRunCheckpoints: (projectId, runId) =>
+      request<GetRunCheckpointsResponse>({
+        path: `/projects/${projectId}/Runs/${runId}/checkpoints`,
       }),
     getRepoTree: (projectId, dir) =>
       request<RepoTreeResponse>({
@@ -818,9 +806,9 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           file: filePath,
         },
       }),
-    applyPipelineAction: (projectId, pipelineId, body) =>
-      request<PipelineActionResponse, PipelineActionRequest>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/action`,
+    applyRunAction: (projectId, runId, body) =>
+      request<RunActionResponse, RunActionRequest>({
+        path: `/projects/${projectId}/Runs/${runId}/action`,
         method: "POST",
         body,
       }),

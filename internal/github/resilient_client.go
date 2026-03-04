@@ -10,13 +10,13 @@ import (
 
 // ResilientClient wraps issue sync writes and degrades network errors into no-op.
 type ResilientClient struct {
-	base pipelineIssueSyncClient
+	base RunIssueSyncClient
 
 	mu       sync.RWMutex
 	degraded bool
 }
 
-func NewResilientClient(base pipelineIssueSyncClient) *ResilientClient {
+func NewResilientClient(base RunIssueSyncClient) *ResilientClient {
 	return &ResilientClient{base: base}
 }
 

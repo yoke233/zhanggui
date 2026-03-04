@@ -285,21 +285,21 @@ var (
 		if teamLeaderCfg.ReviewOrchestrator.MaxRounds > 0 {
 			reviewPanel.MaxRounds = teamLeaderCfg.ReviewOrchestrator.MaxRounds
 		}
-		runTaskPipeline := func(ctx context.Context, pipelineID string) error {
-			ok, err := bootstrapSet.Store.TryMarkPipelineRunning(pipelineID, core.StatusCreated)
+		runTaskRun := func(ctx context.Context, RunID string) error {
+			ok, err := bootstrapSet.Store.TryMarkRunRunning(RunID, core.StatusCreated)
 			if err != nil {
 				return err
 			}
 			if !ok {
-				// Pipeline is already claimed by another scheduler loop.
+				// Run is already claimed by another scheduler loop.
 				return nil
 			}
-			return exec.RunScheduled(ctx, pipelineID)
+			return exec.RunScheduled(ctx, RunID)
 		}
 		depScheduler := teamleader.NewDepScheduler(
 			bootstrapSet.Store,
 			bus,
-			runTaskPipeline,
+			runTaskRun,
 			bootstrapSet.Tracker,
 			teamLeaderCfg.DAGScheduler.MaxConcurrentTasks,
 		)
@@ -352,11 +352,11 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
 	exec.SetRoleResolver(bootstrapSet.RoleResolver)
 	exec.SetWorkspace(bootstrapSet.Workspace)
-	exec.SetPipelineStageRoles(cfg.RoleBinds.Pipeline.StageRoles)
+	exec.SetRunstageRoles(cfg.RoleBinds.Run.StageRoles)
 
 	recoveryOnce.Do(func() {
 		go func() {
-			if recErr := exec.RecoverActivePipelines(context.Background()); recErr != nil {
+			if recErr := exec.RecoverActiveRuns(context.Background()); recErr != nil {
 				logger.Error("recovery failed", "error", recErr)
 			}
 		}()
@@ -422,9 +422,9 @@ func cmdProjectList() error {
 	return w.Flush()
 }
 
-func cmdPipelineCreate(args []string) error {
+func cmdRunCreate(args []string) error {
 	if len(args) < 3 {
-		return fmt.Errorf("usage: ai-flow pipeline create <project-id> <name> <description> [template]")
+		return fmt.Errorf("usage: ai-flow Run create <project-id> <name> <description> [template]")
 	}
 
 	exec, store, err := bootstrap()
@@ -438,17 +438,17 @@ func cmdPipelineCreate(args []string) error {
 		template = args[3]
 	}
 
-	p, err := exec.CreatePipeline(args[0], args[1], args[2], template)
+	p, err := exec.CreateRun(args[0], args[1], args[2], template)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline created: %s (template: %s, stages: %d)\n", p.ID, p.Template, len(p.Stages))
+	fmt.Printf("Run created: %s (template: %s, stages: %d)\n", p.ID, p.Template, len(p.Stages))
 	return nil
 }
 
-func cmdPipelineStart(args []string) error {
+func cmdRunstart(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: ai-flow pipeline start <pipeline-id>")
+		return fmt.Errorf("usage: ai-flow Run start <Run-id>")
 	}
 
 	exec, store, err := bootstrap()
@@ -464,13 +464,13 @@ func cmdPipelineStart(args []string) error {
 	if err := scheduler.Enqueue(args[0]); err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline enqueued: %s\n", args[0])
+	fmt.Printf("Run enqueued: %s\n", args[0])
 	return nil
 }
 
-func cmdPipelineStatus(args []string) error {
+func cmdRunStatus(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: ai-flow pipeline status <pipeline-id>")
+		return fmt.Errorf("usage: ai-flow Run status <Run-id>")
 	}
 
 	_, store, err := bootstrap()
@@ -479,11 +479,11 @@ func cmdPipelineStatus(args []string) error {
 	}
 	defer store.Close()
 
-	p, err := store.GetPipeline(args[0])
+	p, err := store.GetRun(args[0])
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline: %s\n", p.ID)
+	fmt.Printf("Run: %s\n", p.ID)
 	fmt.Printf("Status:   %s\n", p.Status)
 	fmt.Printf("Stage:    %s\n", p.CurrentStage)
 	fmt.Printf("Template: %s\n", p.Template)
@@ -595,7 +595,7 @@ func uniqueProjectID(base string, used map[string]struct{}) string {
 	}
 }
 
-func cmdPipelineList(args []string) error {
+func cmdRunList(args []string) error {
 	_, store, err := bootstrap()
 	if err != nil {
 		return err
@@ -603,14 +603,14 @@ func cmdPipelineList(args []string) error {
 	defer store.Close()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "PROJECT\tPIPELINE\tSTATUS\tSTAGE\tQUEUED")
+	_, _ = fmt.Fprintln(w, "PROJECT\tRun\tSTATUS\tSTAGE\tQUEUED")
 
 	if len(args) >= 1 && strings.TrimSpace(args[0]) != "" {
-		pipelines, err := store.ListPipelines(args[0], core.PipelineFilter{Limit: 200})
+		Runs, err := store.ListRuns(args[0], core.RunFilter{Limit: 200})
 		if err != nil {
 			return err
 		}
-		for _, p := range pipelines {
+		for _, p := range Runs {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				p.ProjectID, p.ID, p.Status, p.CurrentStage, formatTime(p.QueuedAt))
 		}
@@ -622,11 +622,11 @@ func cmdPipelineList(args []string) error {
 		return err
 	}
 	for _, project := range projects {
-		pipelines, err := store.ListPipelines(project.ID, core.PipelineFilter{Limit: 200})
+		Runs, err := store.ListRuns(project.ID, core.RunFilter{Limit: 200})
 		if err != nil {
 			return err
 		}
-		for _, p := range pipelines {
+		for _, p := range Runs {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				p.ProjectID, p.ID, p.Status, p.CurrentStage, formatTime(p.QueuedAt))
 		}
@@ -634,9 +634,9 @@ func cmdPipelineList(args []string) error {
 	return w.Flush()
 }
 
-func cmdPipelineAction(args []string) error {
+func cmdRunAction(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: ai-flow pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
+		return fmt.Errorf("usage: ai-flow Run action <Run-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
 	}
 
 	actionType, err := parseActionType(args[1])
@@ -644,9 +644,9 @@ func cmdPipelineAction(args []string) error {
 		return err
 	}
 
-	action := core.PipelineAction{
-		PipelineID: args[0],
-		Type:       actionType,
+	action := core.RunAction{
+		RunID: args[0],
+		Type:  actionType,
 	}
 
 	for i := 2; i < len(args); i++ {
@@ -686,7 +686,7 @@ func cmdPipelineAction(args []string) error {
 	if err := exec.ApplyAction(context.Background(), action); err != nil {
 		return err
 	}
-	fmt.Printf("Action applied: pipeline=%s action=%s\n", action.PipelineID, action.Type)
+	fmt.Printf("Action applied: Run=%s action=%s\n", action.RunID, action.Type)
 	return nil
 }
 
@@ -796,18 +796,18 @@ func runServer(ctx context.Context, args []string) error {
 	}()
 
 	apiServer := newAPIServer(web.Config{
-		Addr:               listenAddr,
-		AuthEnabled:        cfg.Server.AuthEnabled,
-		BearerToken:        cfg.Server.AuthToken,
-		WebhookSecret:      cfg.GitHub.WebhookSecret,
-		Store:              store,
-		IssueManager:       issueManager,
-		ChatAssistant:      chatAssistant,
-		EventPublisher:     bus,
-		PipelineExec:       exec,
-		PipelineStageRoles: cfg.RoleBinds.Pipeline.StageRoles,
-		IssueParserRoleID:  strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
-		Hub:                hub,
+		Addr:              listenAddr,
+		AuthEnabled:       cfg.Server.AuthEnabled,
+		BearerToken:       cfg.Server.AuthToken,
+		WebhookSecret:     cfg.GitHub.WebhookSecret,
+		Store:             store,
+		IssueManager:      issueManager,
+		ChatAssistant:     chatAssistant,
+		EventPublisher:    bus,
+		RunExec:           exec,
+		RunstageRoles:     cfg.RoleBinds.Run.StageRoles,
+		IssueParserRoleID: strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
+		Hub:               hub,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -1006,7 +1006,7 @@ func buildScheduler(exec *engine.Executor, store core.Store) (*engine.Scheduler,
 		exec,
 		slog.Default(),
 		cfg.Scheduler.MaxGlobalAgents,
-		cfg.Scheduler.MaxProjectPipelines,
+		cfg.Scheduler.MaxProjectRuns,
 	), nil
 }
 

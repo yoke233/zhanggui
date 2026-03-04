@@ -27,8 +27,8 @@ const createApiClientMock = (): ApiClient =>
     createProject: vi.fn(),
     createProjectCreateRequest: vi.fn(),
     getProjectCreateRequest: vi.fn(),
-    listPipelines: vi.fn(),
-    createPipeline: vi.fn(),
+    listRuns: vi.fn(),
+    createRun: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
@@ -37,9 +37,9 @@ const createApiClientMock = (): ApiClient =>
     applyTaskAction: vi.fn(),
     listPlans: vi.fn(),
     getPlanDag: vi.fn(),
-    getPipeline: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
-    applyPipelineAction: vi.fn(),
+    getRun: vi.fn(),
+    getRunCheckpoints: vi.fn(),
+    applyRunAction: vi.fn(),
   }) as unknown as ApiClient;
 
 const createWsHarness = (): WsHarness => {

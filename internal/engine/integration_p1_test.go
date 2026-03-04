@@ -17,12 +17,12 @@ func TestIntegrationP1_MultiProjectSchedulerLimits(t *testing.T) {
 	projectB := mustCreateProject(t, store, "proj-b")
 	projectC := mustCreateProject(t, store, "proj-c")
 
-	pipelineIDs := []string{"a-1", "a-2", "b-1", "b-2", "c-1"}
-	mustSaveCreatedPipeline(t, store, "a-1", projectA.ID, time.Now().Add(1*time.Second), "wt-shared")
-	mustSaveCreatedPipeline(t, store, "a-2", projectA.ID, time.Now().Add(2*time.Second), "wt-a2")
-	mustSaveCreatedPipeline(t, store, "b-1", projectB.ID, time.Now().Add(3*time.Second), "wt-shared")
-	mustSaveCreatedPipeline(t, store, "b-2", projectB.ID, time.Now().Add(4*time.Second), "wt-b2")
-	mustSaveCreatedPipeline(t, store, "c-1", projectC.ID, time.Now().Add(5*time.Second), "wt-c1")
+	RunIDs := []string{"a-1", "a-2", "b-1", "b-2", "c-1"}
+	mustSaveCreatedRun(t, store, "a-1", projectA.ID, time.Now().Add(1*time.Second), "wt-shared")
+	mustSaveCreatedRun(t, store, "a-2", projectA.ID, time.Now().Add(2*time.Second), "wt-a2")
+	mustSaveCreatedRun(t, store, "b-1", projectB.ID, time.Now().Add(3*time.Second), "wt-shared")
+	mustSaveCreatedRun(t, store, "b-2", projectB.ID, time.Now().Add(4*time.Second), "wt-b2")
+	mustSaveCreatedRun(t, store, "c-1", projectC.ID, time.Now().Add(5*time.Second), "wt-c1")
 
 	var (
 		mu                  sync.Mutex
@@ -33,9 +33,9 @@ func TestIntegrationP1_MultiProjectSchedulerLimits(t *testing.T) {
 		currentWorktree     = map[string]int{}
 		maxWorktreeObserved = map[string]int{}
 	)
-	errCh := make(chan error, len(pipelineIDs))
-	runner := func(_ context.Context, pipelineID string) error {
-		p, err := store.GetPipeline(pipelineID)
+	errCh := make(chan error, len(RunIDs))
+	runner := func(_ context.Context, RunID string) error {
+		p, err := store.GetRun(RunID)
 		if err != nil {
 			errCh <- err
 			return err
@@ -70,7 +70,7 @@ func TestIntegrationP1_MultiProjectSchedulerLimits(t *testing.T) {
 		}()
 
 		time.Sleep(70 * time.Millisecond)
-		if err := markPipelineDoneErr(store, pipelineID); err != nil {
+		if err := markRunDoneErr(store, RunID); err != nil {
 			errCh <- err
 			return err
 		}
@@ -83,7 +83,7 @@ func TestIntegrationP1_MultiProjectSchedulerLimits(t *testing.T) {
 	}
 	defer stopScheduler(t, scheduler)
 
-	waitPipelinesDoneOrError(t, store, pipelineIDs, errCh, 8*time.Second)
+	waitRunsDoneOrError(t, store, RunIDs, errCh, 8*time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -108,19 +108,19 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 	defer store.Close()
 
 	workDir := t.TempDir()
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 		{Name: core.StageFixup, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.Status = core.StatusRunning
 	p.CurrentStage = core.StageFixup
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: p.ID,
+		RunID:      p.ID,
 		StageName:  core.StageImplement,
 		Status:     core.CheckpointSuccess,
 		StartedAt:  time.Now().Add(-2 * time.Minute),
@@ -130,11 +130,11 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: p.ID,
-		StageName:  core.StageFixup,
-		Status:     core.CheckpointInProgress,
-		StartedAt:  time.Now().Add(-60 * time.Second),
-		AgentUsed:  "codex",
+		RunID:     p.ID,
+		StageName: core.StageFixup,
+		Status:    core.CheckpointInProgress,
+		StartedAt: time.Now().Add(-60 * time.Second),
+		AgentUsed: "codex",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -143,16 +143,16 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 	agent := &fakeAgent{name: "codex"}
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 
-	if err := execEngine.RecoverActivePipelines(context.Background()); err != nil {
-		t.Fatalf("RecoverActivePipelines failed: %v", err)
+	if err := execEngine.RecoverActiveRuns(context.Background()); err != nil {
+		t.Fatalf("RecoverActiveRuns failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != core.StatusDone {
-		t.Fatalf("expected recovered pipeline status done, got %s", got.Status)
+		t.Fatalf("expected recovered Run status done, got %s", got.Status)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected one rerun of interrupted stage, got %d", runtime.calls)
@@ -176,18 +176,18 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 	}
 }
 
-func markPipelineDoneErr(store core.Store, pipelineID string) error {
-	p, err := store.GetPipeline(pipelineID)
+func markRunDoneErr(store core.Store, RunID string) error {
+	p, err := store.GetRun(RunID)
 	if err != nil {
 		return err
 	}
 	p.Status = core.StatusDone
 	p.FinishedAt = time.Now()
 	p.UpdatedAt = time.Now()
-	return store.SavePipeline(p)
+	return store.SaveRun(p)
 }
 
-func waitPipelinesDoneOrError(t *testing.T, store core.Store, ids []string, errCh <-chan error, timeout time.Duration) {
+func waitRunsDoneOrError(t *testing.T, store core.Store, ids []string, errCh <-chan error, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
@@ -199,9 +199,9 @@ func waitPipelinesDoneOrError(t *testing.T, store core.Store, ids []string, errC
 
 		allDone := true
 		for _, id := range ids {
-			p, err := store.GetPipeline(id)
+			p, err := store.GetRun(id)
 			if err != nil {
-				t.Fatalf("get pipeline %s: %v", id, err)
+				t.Fatalf("get Run %s: %v", id, err)
 			}
 			if p.Status != core.StatusDone {
 				allDone = false
@@ -217,7 +217,7 @@ func waitPipelinesDoneOrError(t *testing.T, store core.Store, ids []string, errC
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timeout waiting pipelines to complete: %v", ids)
+			t.Fatalf("timeout waiting Runs to complete: %v", ids)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

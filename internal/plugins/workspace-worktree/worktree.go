@@ -36,19 +36,19 @@ func (p *WorktreePlugin) Setup(_ context.Context, req core.WorkspaceSetupRequest
 		return core.WorkspaceSetupResult{}, errors.New("workspace repo path is empty")
 	}
 
-	pipelineID := strings.TrimSpace(req.PipelineID)
-	if pipelineID == "" {
-		return core.WorkspaceSetupResult{}, errors.New("workspace pipeline id is empty")
+	RunID := strings.TrimSpace(req.RunID)
+	if RunID == "" {
+		return core.WorkspaceSetupResult{}, errors.New("workspace Run id is empty")
 	}
 
 	branchName := strings.TrimSpace(req.BranchName)
 	if branchName == "" {
-		branchName = "ai-flow/" + pipelineID
+		branchName = "ai-flow/" + RunID
 	}
 
 	worktreePath := strings.TrimSpace(req.WorktreePath)
 	if worktreePath == "" {
-		worktreePath = filepath.Join(repoPath, ".worktrees", pipelineID)
+		worktreePath = filepath.Join(repoPath, ".worktrees", RunID)
 	}
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return core.WorkspaceSetupResult{}, fmt.Errorf("ensure worktree parent dir: %w", err)

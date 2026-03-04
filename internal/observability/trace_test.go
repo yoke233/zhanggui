@@ -18,12 +18,12 @@ func TestTraceContext_FromWebhookDeliveryID(t *testing.T) {
 	}
 }
 
-func TestTraceContext_PropagatesToPipelineEvents(t *testing.T) {
+func TestTraceContext_PropagatesToRunEvents(t *testing.T) {
 	data := map[string]string{
 		"op": "stage_start",
 	}
-	out := EventDataWithTrace(data, "trace-pipeline-1")
-	if out["trace_id"] != "trace-pipeline-1" {
+	out := EventDataWithTrace(data, "trace-Run-1")
+	if out["trace_id"] != "trace-Run-1" {
 		t.Fatalf("expected trace_id propagated, got %q", out["trace_id"])
 	}
 	if out["op"] != "stage_start" {
@@ -35,7 +35,7 @@ func TestStructuredLog_ContainsTraceAndOperation(t *testing.T) {
 	fields := StructuredLogFields(StructuredLogInput{
 		TraceID:     "trace-log-1",
 		ProjectID:   "proj-1",
-		PipelineID:  "pipe-1",
+		RunID:       "pipe-1",
 		IssueNumber: 42,
 		Operation:   "dispatch_webhook",
 		Latency:     123 * time.Millisecond,

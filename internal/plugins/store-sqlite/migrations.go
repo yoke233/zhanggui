@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS pipelines (
+CREATE TABLE IF NOT EXISTS runs (
     id                TEXT PRIMARY KEY,
     project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name              TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS pipelines (
 
 CREATE TABLE IF NOT EXISTS checkpoints (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    pipeline_id    TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    run_id    TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     stage          TEXT NOT NULL,
     status         TEXT NOT NULL,
     agent_used     TEXT,
@@ -65,11 +65,11 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_checkpoints_pipeline ON checkpoints(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_checkpoints_run ON checkpoints(run_id);
 
 CREATE TABLE IF NOT EXISTS logs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     stage       TEXT NOT NULL,
     type        TEXT NOT NULL,
     agent       TEXT,
@@ -77,12 +77,12 @@ CREATE TABLE IF NOT EXISTS logs (
     timestamp   DATETIME NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_logs_pipeline_stage ON logs(pipeline_id, stage);
+CREATE INDEX IF NOT EXISTS idx_logs_run_stage ON logs(run_id, stage);
 CREATE INDEX IF NOT EXISTS idx_logs_id ON logs(id);
 
 CREATE TABLE IF NOT EXISTS human_actions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     stage       TEXT NOT NULL,
     action      TEXT NOT NULL,
     message     TEXT,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS human_actions (
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_human_actions_pipeline ON human_actions(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_human_actions_run ON human_actions(run_id);
 
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id          TEXT PRIMARY KEY,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS issues (
     auto_merge        INTEGER NOT NULL DEFAULT 1,
     state             TEXT NOT NULL DEFAULT 'open',
     status            TEXT NOT NULL DEFAULT 'draft',
-    pipeline_id       TEXT,
+    run_id       TEXT,
     version           INTEGER NOT NULL DEFAULT 1,
     superseded_by     TEXT NOT NULL DEFAULT '',
     external_id       TEXT,
@@ -178,14 +178,14 @@ CREATE TABLE IF NOT EXISTS review_records (
 `
 
 const schemaIndexes = `
-CREATE INDEX IF NOT EXISTS idx_pipelines_project ON pipelines(project_id);
-CREATE INDEX IF NOT EXISTS idx_pipelines_status ON pipelines(status);
-CREATE INDEX IF NOT EXISTS idx_pipelines_status_queued_at ON pipelines(status, queued_at, created_at);
-CREATE INDEX IF NOT EXISTS idx_pipelines_project_status ON pipelines(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_status_queued_at ON runs(status, queued_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_project_status ON runs(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
 CREATE INDEX IF NOT EXISTS idx_issues_project_status ON issues(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_issues_session ON issues(session_id);
-CREATE INDEX IF NOT EXISTS idx_issues_pipeline ON issues(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_issues_run ON issues(run_id);
 CREATE INDEX IF NOT EXISTS idx_issue_attachments_issue ON issue_attachments(issue_id);
 CREATE INDEX IF NOT EXISTS idx_issue_changes_issue ON issue_changes(issue_id);
 CREATE INDEX IF NOT EXISTS idx_review_records_issue ON review_records(issue_id);

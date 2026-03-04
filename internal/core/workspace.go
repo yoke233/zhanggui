@@ -2,10 +2,10 @@ package core
 
 import "context"
 
-// WorkspaceSetupRequest defines inputs for provisioning pipeline workspace.
+// WorkspaceSetupRequest defines inputs for provisioning Run workspace.
 type WorkspaceSetupRequest struct {
 	RepoPath     string `json:"repo_path"`
-	PipelineID   string `json:"pipeline_id"`
+	RunID        string `json:"run_id"`
 	BranchName   string `json:"branch_name"`
 	WorktreePath string `json:"worktree_path"`
 }
@@ -17,7 +17,7 @@ type WorkspaceSetupResult struct {
 	BaseBranch   string `json:"base_branch"`
 }
 
-// WorkspaceCleanupRequest defines inputs for cleaning up pipeline workspace.
+// WorkspaceCleanupRequest defines inputs for cleaning up Run workspace.
 type WorkspaceCleanupRequest struct {
 	RepoPath     string `json:"repo_path"`
 	WorktreePath string `json:"worktree_path"`

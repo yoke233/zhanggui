@@ -15,7 +15,7 @@ func TestMigration_V2Baseline_CreatesIssueRunSchema(t *testing.T) {
 
 	tables := []string{
 		"projects",
-		"pipelines",
+		"runs",
 		"checkpoints",
 		"logs",
 		"human_actions",
@@ -34,11 +34,11 @@ func TestMigration_V2Baseline_CreatesIssueRunSchema(t *testing.T) {
 	assertTableNotExists(t, db, "task_items")
 	assertTableNotExists(t, db, "migration_flags")
 
-	assertColumnExists(t, db, "pipelines", "issue_id")
-	assertColumnExists(t, db, "pipelines", "run_count")
-	assertColumnExists(t, db, "pipelines", "queued_at")
-	assertColumnExists(t, db, "pipelines", "last_heartbeat_at")
-	assertColumnNotExists(t, db, "pipelines", "task_item_id")
+	assertColumnExists(t, db, "runs", "issue_id")
+	assertColumnExists(t, db, "runs", "run_count")
+	assertColumnExists(t, db, "runs", "queued_at")
+	assertColumnExists(t, db, "runs", "last_heartbeat_at")
+	assertColumnNotExists(t, db, "runs", "task_item_id")
 
 	assertColumnExists(t, db, "issues", "auto_merge")
 	assertColumnExists(t, db, "review_records", "issue_id")
@@ -59,10 +59,10 @@ func TestMigration_V2Baseline_PersistsIssueIDLinks(t *testing.T) {
 		t.Fatalf("insert project: %v", err)
 	}
 	if _, err := db.Exec(`
-INSERT INTO pipelines (id, project_id, name, template, stages_json, issue_id)
+INSERT INTO runs (id, project_id, name, template, stages_json, issue_id)
 VALUES ('pipe-v2-1', 'proj-v2-1', 'pipe', 'standard', '[]', 'issue-v2-1')
 `); err != nil {
-		t.Fatalf("insert pipeline: %v", err)
+		t.Fatalf("insert Run: %v", err)
 	}
 	if _, err := db.Exec(`
 INSERT INTO review_records (issue_id, round, reviewer, verdict, summary, raw_output, issues, fixes)
@@ -71,12 +71,12 @@ VALUES ('issue-v2-1', 1, 'team-leader', 'approved', 'ok', '{}', '[]', '[]')
 		t.Fatalf("insert review_record: %v", err)
 	}
 
-	var pipelineIssueID string
-	if err := db.QueryRow(`SELECT COALESCE(issue_id, '') FROM pipelines WHERE id='pipe-v2-1'`).Scan(&pipelineIssueID); err != nil {
-		t.Fatalf("query pipelines.issue_id: %v", err)
+	var runIssueID string
+	if err := db.QueryRow(`SELECT COALESCE(issue_id, '') FROM runs WHERE id='pipe-v2-1'`).Scan(&runIssueID); err != nil {
+		t.Fatalf("query runs.issue_id: %v", err)
 	}
-	if pipelineIssueID != "issue-v2-1" {
-		t.Fatalf("expected pipelines.issue_id=issue-v2-1, got %q", pipelineIssueID)
+	if runIssueID != "issue-v2-1" {
+		t.Fatalf("expected runs.issue_id=issue-v2-1, got %q", runIssueID)
 	}
 
 	var reviewIssueID string
@@ -97,14 +97,14 @@ func TestMigration_V2Baseline_CreatesIndexes(t *testing.T) {
 	}
 
 	indexes := []string{
-		"idx_pipelines_project",
-		"idx_pipelines_status",
-		"idx_pipelines_status_queued_at",
-		"idx_pipelines_project_status",
+		"idx_runs_project",
+		"idx_runs_status",
+		"idx_runs_status_queued_at",
+		"idx_runs_project_status",
 		"idx_issues_project",
 		"idx_issues_project_status",
 		"idx_issues_session",
-		"idx_issues_pipeline",
+		"idx_issues_run",
 		"idx_issue_attachments_issue",
 		"idx_issue_changes_issue",
 		"idx_review_records_issue",

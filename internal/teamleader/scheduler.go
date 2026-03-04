@@ -22,7 +22,7 @@ type eventPublisher interface {
 	Publish(evt core.Event)
 }
 
-type pipelineRef struct {
+type RunRef struct {
 	sessionID string
 	issueID   string
 }
@@ -58,19 +58,19 @@ func newRunningSession(sessionID, projectID string, issues []*core.Issue) *runni
 	}
 }
 
-// DepScheduler schedules issues by profile queue and maps each issue to one pipeline.
+// DepScheduler schedules issues by profile queue and maps each issue to one Run.
 type DepScheduler struct {
 	store   core.Store
 	bus     eventSubscriber
 	pub     eventPublisher
 	tracker core.Tracker
 
-	runPipeline func(context.Context, string) error
-	sem         chan struct{}
+	runRun func(context.Context, string) error
+	sem    chan struct{}
 
 	mu            sync.Mutex
 	sessions      map[string]*runningSession
-	pipelineIndex map[string]pipelineRef
+	RunIndex      map[string]RunRef
 	lastSessionID string
 
 	loopCancel  context.CancelFunc
@@ -84,15 +84,15 @@ type DepScheduler struct {
 func NewDepScheduler(
 	store core.Store,
 	bus eventSubscriber,
-	runPipeline func(context.Context, string) error,
+	runRun func(context.Context, string) error,
 	tracker core.Tracker,
 	maxConcurrent int,
 ) *DepScheduler {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
 	}
-	if runPipeline == nil {
-		runPipeline = func(context.Context, string) error { return nil }
+	if runRun == nil {
+		runRun = func(context.Context, string) error { return nil }
 	}
 
 	var pub eventPublisher
@@ -101,14 +101,14 @@ func NewDepScheduler(
 	}
 
 	return &DepScheduler{
-		store:         store,
-		bus:           bus,
-		pub:           pub,
-		tracker:       tracker,
-		runPipeline:   runPipeline,
-		sem:           make(chan struct{}, maxConcurrent),
-		sessions:      make(map[string]*runningSession),
-		pipelineIndex: make(map[string]pipelineRef),
+		store:    store,
+		bus:      bus,
+		pub:      pub,
+		tracker:  tracker,
+		runRun:   runRun,
+		sem:      make(chan struct{}, maxConcurrent),
+		sessions: make(map[string]*runningSession),
+		RunIndex: make(map[string]RunRef),
 	}
 }
 
@@ -256,15 +256,15 @@ func (s *DepScheduler) scheduleSession(ctx context.Context, sessionID string, is
 
 		switch issue.Status {
 		case core.IssueStatusExecuting:
-			if strings.TrimSpace(issue.PipelineID) == "" {
+			if strings.TrimSpace(issue.RunID) == "" {
 				issue.Status = core.IssueStatusQueued
 			} else {
-				rs.Running[issueID] = issue.PipelineID
+				rs.Running[issueID] = issue.RunID
 			}
 		case core.IssueStatusReady, core.IssueStatusQueued:
 		default:
 			issue.Status = core.IssueStatusQueued
-			issue.PipelineID = ""
+			issue.RunID = ""
 		}
 
 		if err := s.saveIssue(issue); err != nil {
@@ -338,24 +338,24 @@ func (s *DepScheduler) recoverSession(ctx context.Context, sessionID string, iss
 		switch issue.Status {
 		case core.IssueStatusDone:
 		case core.IssueStatusExecuting:
-			if strings.TrimSpace(issue.PipelineID) == "" {
+			if strings.TrimSpace(issue.RunID) == "" {
 				issue.Status = core.IssueStatusQueued
 				if err := s.saveIssue(issue); err != nil {
 					return err
 				}
 				continue
 			}
-			pipeline, getErr := s.store.GetPipeline(issue.PipelineID)
+			Run, getErr := s.store.GetRun(issue.RunID)
 			if getErr != nil {
-				return fmt.Errorf("recover issue %s pipeline %s: %w", issueID, issue.PipelineID, getErr)
+				return fmt.Errorf("recover issue %s Run %s: %w", issueID, issue.RunID, getErr)
 			}
-			rs.Running[issueID] = issue.PipelineID
-			if evtType, terminal := pipelineRecoveryEvent(pipeline.Status); terminal {
+			rs.Running[issueID] = issue.RunID
+			if evtType, terminal := RunRecoveryEvent(Run.Status); terminal {
 				replayEvents = append(replayEvents, core.Event{
-					Type:       evtType,
-					PipelineID: issue.PipelineID,
-					Error:      pipeline.ErrorMessage,
-					Timestamp:  time.Now(),
+					Type:      evtType,
+					RunID:     issue.RunID,
+					Error:     Run.ErrorMessage,
+					Timestamp: time.Now(),
 				})
 			}
 		case core.IssueStatusReady, core.IssueStatusQueued:
@@ -364,7 +364,7 @@ func (s *DepScheduler) recoverSession(ctx context.Context, sessionID string, iss
 				continue
 			}
 			issue.Status = core.IssueStatusQueued
-			issue.PipelineID = ""
+			issue.RunID = ""
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
@@ -405,47 +405,47 @@ func (s *DepScheduler) registerSessionRuntime(sessionID string, rs *runningSessi
 			}
 			existing.IssueByID[issueID] = issue
 		}
-		for issueID, pipelineID := range rs.Running {
-			if strings.TrimSpace(pipelineID) == "" {
+		for issueID, RunID := range rs.Running {
+			if strings.TrimSpace(RunID) == "" {
 				continue
 			}
-			existing.Running[issueID] = pipelineID
+			existing.Running[issueID] = RunID
 		}
 		rs = existing
 	} else {
 		s.sessions[sessionID] = rs
 	}
 
-	for issueID, pipelineID := range rs.Running {
-		if strings.TrimSpace(pipelineID) == "" {
+	for issueID, RunID := range rs.Running {
+		if strings.TrimSpace(RunID) == "" {
 			continue
 		}
-		if _, exists := s.pipelineIndex[pipelineID]; exists {
+		if _, exists := s.RunIndex[RunID]; exists {
 			continue
 		}
-		s.pipelineIndex[pipelineID] = pipelineRef{sessionID: sessionID, issueID: issueID}
+		s.RunIndex[RunID] = RunRef{sessionID: sessionID, issueID: issueID}
 		if !s.tryAcquireSlot() {
-			delete(s.pipelineIndex, pipelineID)
+			delete(s.RunIndex, RunID)
 			return fmt.Errorf("recover session %s exceeds max concurrency %d", sessionID, cap(s.sem))
 		}
 	}
 	return nil
 }
 
-// OnEvent handles pipeline_done/pipeline_failed events and advances Issue state.
+// OnEvent handles run_done/run_failed events and advances Issue state.
 func (s *DepScheduler) OnEvent(ctx context.Context, evt core.Event) error {
 	if s == nil {
 		return nil
 	}
-	if evt.Type != core.EventPipelineDone && evt.Type != core.EventPipelineFailed {
+	if evt.Type != core.EventRunDone && evt.Type != core.EventRunFailed {
 		return nil
 	}
-	if strings.TrimSpace(evt.PipelineID) == "" {
+	if strings.TrimSpace(evt.RunID) == "" {
 		return nil
 	}
 
 	s.mu.Lock()
-	err := s.handlePipelineEventLocked(evt)
+	err := s.handleRunEventLocked(evt)
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -453,10 +453,10 @@ func (s *DepScheduler) OnEvent(ctx context.Context, evt core.Event) error {
 	return s.dispatchReadyAcrossSessions(ctx)
 }
 
-func (s *DepScheduler) handlePipelineEventLocked(evt core.Event) error {
-	ref, ok := s.pipelineIndex[evt.PipelineID]
+func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
+	ref, ok := s.RunIndex[evt.RunID]
 	if !ok {
-		issue, err := s.store.GetIssueByPipeline(evt.PipelineID)
+		issue, err := s.store.GetIssueByRun(evt.RunID)
 		if err != nil || issue == nil {
 			return err
 		}
@@ -468,32 +468,32 @@ func (s *DepScheduler) handlePipelineEventLocked(evt core.Event) error {
 		if _, exists := rs.IssueByID[issue.ID]; !exists {
 			return nil
 		}
-		ref = pipelineRef{sessionID: sessionID, issueID: issue.ID}
-		s.pipelineIndex[evt.PipelineID] = ref
+		ref = RunRef{sessionID: sessionID, issueID: issue.ID}
+		s.RunIndex[evt.RunID] = ref
 	}
 
 	rs := s.sessions[ref.sessionID]
 	if rs == nil {
-		delete(s.pipelineIndex, evt.PipelineID)
+		delete(s.RunIndex, evt.RunID)
 		return nil
 	}
 
 	issue := rs.IssueByID[ref.issueID]
 	if issue == nil {
-		delete(s.pipelineIndex, evt.PipelineID)
+		delete(s.RunIndex, evt.RunID)
 		delete(rs.Running, ref.issueID)
 		s.releaseSlot()
 		return nil
 	}
 
 	switch evt.Type {
-	case core.EventPipelineDone:
+	case core.EventRunDone:
 		issue.Status = core.IssueStatusDone
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
 		s.publishIssueEvent(core.EventIssueDone, issue, nil, "")
-	case core.EventPipelineFailed:
+	case core.EventRunFailed:
 		issue.Status = core.IssueStatusFailed
 		if err := s.saveIssue(issue); err != nil {
 			return err
@@ -520,7 +520,7 @@ func (s *DepScheduler) handlePipelineEventLocked(evt core.Event) error {
 		delete(rs.Running, ref.issueID)
 		s.releaseSlot()
 	}
-	delete(s.pipelineIndex, evt.PipelineID)
+	delete(s.RunIndex, evt.RunID)
 	return nil
 }
 
@@ -535,7 +535,7 @@ func (s *DepScheduler) applyBlockPolicyLocked(rs *runningSession, failedIssueID 
 			continue
 		}
 		issue.Status = core.IssueStatusFailed
-		issue.PipelineID = ""
+		issue.RunID = ""
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
@@ -627,7 +627,7 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 	}
 
 	profile := workflowProfileFromIssue(issue)
-	pipeline, err := buildPipelineFromIssue(issue, profile)
+	Run, err := buildRunFromIssue(issue, profile)
 	if err != nil {
 		s.releaseSlot()
 		s.mu.Unlock()
@@ -635,18 +635,18 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 	}
 
 	issue.Status = core.IssueStatusExecuting
-	issue.PipelineID = pipeline.ID
-	rs.Running[issueID] = pipeline.ID
-	s.pipelineIndex[pipeline.ID] = pipelineRef{sessionID: sessionID, issueID: issueID}
+	issue.RunID = Run.ID
+	rs.Running[issueID] = Run.ID
+	s.RunIndex[Run.ID] = RunRef{sessionID: sessionID, issueID: issueID}
 	s.lastSessionID = sessionID
 	s.mu.Unlock()
 
-	if err := s.store.SavePipeline(pipeline); err != nil {
-		s.rollbackDispatch(sessionID, issueID, pipeline.ID)
+	if err := s.store.SaveRun(Run); err != nil {
+		s.rollbackDispatch(sessionID, issueID, Run.ID)
 		return false, err
 	}
 	if err := s.saveIssue(issue); err != nil {
-		s.rollbackDispatch(sessionID, issueID, pipeline.ID)
+		s.rollbackDispatch(sessionID, issueID, Run.ID)
 		return false, err
 	}
 	s.publishIssueEvent(core.EventIssueExecuting, issue, map[string]string{
@@ -657,21 +657,21 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 	if ctx != nil {
 		runCtx = context.WithoutCancel(ctx)
 	}
-	go func(runCtx context.Context, pipelineID string) {
-		if runErr := s.runPipeline(runCtx, pipelineID); runErr != nil {
+	go func(runCtx context.Context, RunID string) {
+		if runErr := s.runRun(runCtx, RunID); runErr != nil {
 			_ = s.OnEvent(context.Background(), core.Event{
-				Type:       core.EventPipelineFailed,
-				PipelineID: pipelineID,
-				Error:      runErr.Error(),
-				Timestamp:  time.Now(),
+				Type:      core.EventRunFailed,
+				RunID:     RunID,
+				Error:     runErr.Error(),
+				Timestamp: time.Now(),
 			})
 		}
-	}(runCtx, pipeline.ID)
+	}(runCtx, Run.ID)
 
 	return true, nil
 }
 
-func (s *DepScheduler) rollbackDispatch(sessionID, issueID, pipelineID string) {
+func (s *DepScheduler) rollbackDispatch(sessionID, issueID, RunID string) {
 	var issue *core.Issue
 
 	s.mu.Lock()
@@ -679,14 +679,14 @@ func (s *DepScheduler) rollbackDispatch(sessionID, issueID, pipelineID string) {
 	if rs != nil {
 		if candidate := rs.IssueByID[issueID]; candidate != nil &&
 			candidate.Status == core.IssueStatusExecuting &&
-			candidate.PipelineID == pipelineID {
+			candidate.RunID == RunID {
 			candidate.Status = core.IssueStatusReady
-			candidate.PipelineID = ""
+			candidate.RunID = ""
 			issue = candidate
 		}
 		delete(rs.Running, issueID)
 	}
-	delete(s.pipelineIndex, pipelineID)
+	delete(s.RunIndex, RunID)
 	s.releaseSlot()
 	s.mu.Unlock()
 
@@ -838,13 +838,13 @@ func (s *DepScheduler) publishIssueEvent(eventType core.EventType, issue *core.I
 	}
 
 	s.publishEvent(core.Event{
-		Type:       eventType,
-		PipelineID: issue.PipelineID,
-		ProjectID:  issue.ProjectID,
-		IssueID:    issue.ID,
-		Data:       evtData,
-		Error:      eventErr,
-		Timestamp:  time.Now(),
+		Type:      eventType,
+		RunID:     issue.RunID,
+		ProjectID: issue.ProjectID,
+		IssueID:   issue.ID,
+		Data:      evtData,
+		Error:     eventErr,
+		Timestamp: time.Now(),
 	})
 }
 
@@ -864,12 +864,12 @@ func (s *DepScheduler) releaseSlot() {
 	}
 }
 
-func pipelineRecoveryEvent(status core.PipelineStatus) (core.EventType, bool) {
+func RunRecoveryEvent(status core.RunStatus) (core.EventType, bool) {
 	switch status {
 	case core.StatusDone:
-		return core.EventPipelineDone, true
-	case core.StatusFailed, core.StatusAborted:
-		return core.EventPipelineFailed, true
+		return core.EventRunDone, true
+	case core.StatusFailed, core.StatusTimeout:
+		return core.EventRunFailed, true
 	default:
 		return "", false
 	}
@@ -932,7 +932,7 @@ func (rs *runningSession) readyToDispatchIDs() []string {
 	return ordered
 }
 
-func buildPipelineFromIssue(issue *core.Issue, profile core.WorkflowProfileType) (*core.Pipeline, error) {
+func buildRunFromIssue(issue *core.Issue, profile core.WorkflowProfileType) (*core.Run, error) {
 	if issue == nil {
 		return nil, errors.New("issue cannot be nil")
 	}
@@ -952,8 +952,8 @@ func buildPipelineFromIssue(issue *core.Issue, profile core.WorkflowProfileType)
 	}
 
 	now := time.Now()
-	return &core.Pipeline{
-		ID:          engine.NewPipelineID(),
+	return &core.Run{
+		ID:          engine.NewRunID(),
 		ProjectID:   issue.ProjectID,
 		Name:        name,
 		Description: issue.Body,

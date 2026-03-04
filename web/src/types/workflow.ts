@@ -1,11 +1,10 @@
-export type PipelineStatus =
+export type RunStatus =
   | "created"
   | "running"
-  | "waiting_human"
-  | "paused"
+  | "waiting_review"
   | "done"
   | "failed"
-  | "aborted";
+  | "timeout";
 
 export type IssueState = "open" | "closed";
 export type FailurePolicy = "block" | "skip" | "human";
@@ -49,13 +48,13 @@ export interface Project {
   updated_at: string;
 }
 
-export interface Pipeline {
+export interface Run {
   id: string;
   project_id: string;
   name: string;
   description: string;
   template: string;
-  status: PipelineStatus;
+  status: RunStatus;
   current_stage: string;
   artifacts: Record<string, string>;
   config: Record<string, unknown>;
@@ -105,7 +104,7 @@ export interface Issue {
   auto_merge: boolean;
   state: IssueState;
   status: IssueStatus;
-  pipeline_id: string;
+  run_id: string;
   version: number;
   superseded_by: string;
   external_id: string;

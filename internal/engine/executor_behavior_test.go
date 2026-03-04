@@ -211,7 +211,7 @@ func defaultTestAgentName(agents map[string]core.AgentPlugin) string {
 	return ""
 }
 
-func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, stages []core.StageConfig) *core.Pipeline {
+func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages []core.StageConfig) *core.Run {
 	t.Helper()
 
 	normalizedStages := make([]core.StageConfig, len(stages))
@@ -235,7 +235,7 @@ func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, st
 		t.Fatal(err)
 	}
 
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:              "20260228-pipe",
 		ProjectID:       project.ID,
 		Name:            "pipe",
@@ -249,7 +249,7 @@ func setupProjectAndPipeline(t *testing.T, store core.Store, repoPath string, st
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -295,7 +295,7 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 		parserFn: func(io.Reader) core.StreamParser { return &eofParser{} },
 	}
 
-	p := setupProjectAndPipeline(t, store, repo, []core.StageConfig{
+	p := setupProjectAndRun(t, store, repo, []core.StageConfig{
 		{Name: core.StageWorktreeSetup, OnFailure: core.OnFailureAbort},
 		{Name: core.StageImplement, Agent: "codex", PromptTemplate: "implement", OnFailure: core.OnFailureAbort},
 		{Name: core.StageMerge, OnFailure: core.OnFailureAbort},
@@ -308,7 +308,7 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestExecutor_Run_WorktreeStagesUseWorkspacePlugin(t *testing.T) {
 		},
 	}
 
-	p := setupProjectAndPipeline(t, store, repoPath, []core.StageConfig{
+	p := setupProjectAndRun(t, store, repoPath, []core.StageConfig{
 		{Name: core.StageWorktreeSetup, OnFailure: core.OnFailureAbort},
 		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
 	})
@@ -359,18 +359,18 @@ func TestExecutor_Run_WorktreeStagesUseWorkspacePlugin(t *testing.T) {
 		t.Fatalf("expected cleanup called once, got %d", workspace.cleanupCalls)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.BranchName != workspace.setupResult.BranchName {
-		t.Fatalf("pipeline branch mismatch, got=%q want=%q", got.BranchName, workspace.setupResult.BranchName)
+		t.Fatalf("Run branch mismatch, got=%q want=%q", got.BranchName, workspace.setupResult.BranchName)
 	}
 	if got.WorktreePath != workspace.setupResult.WorktreePath {
-		t.Fatalf("pipeline worktree mismatch, got=%q want=%q", got.WorktreePath, workspace.setupResult.WorktreePath)
+		t.Fatalf("Run worktree mismatch, got=%q want=%q", got.WorktreePath, workspace.setupResult.WorktreePath)
 	}
 	if baseBranch, _ := got.Config["base_branch"].(string); baseBranch != workspace.setupResult.BaseBranch {
-		t.Fatalf("pipeline base branch mismatch, got=%q want=%q", baseBranch, workspace.setupResult.BaseBranch)
+		t.Fatalf("Run base branch mismatch, got=%q want=%q", baseBranch, workspace.setupResult.BaseBranch)
 	}
 }
 
@@ -386,7 +386,7 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 	}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:         core.StageImplement,
 			Agent:        "codex",
@@ -397,7 +397,7 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -406,7 +406,7 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 		t.Fatalf("expected retry to eventually succeed, got err: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,12 +429,12 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 	}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureSkip, MaxRetries: 0},
 		{Name: core.StageFixup, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -443,7 +443,7 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 		t.Fatalf("skip should continue to next stage, got err: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,25 +463,25 @@ func TestExecutor_Run_OnFailureHuman(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{errors.New("need-human")}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureHuman, MaxRetries: 0},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
-		t.Fatalf("human gate should pause pipeline, got err: %v", err)
+		t.Fatalf("human gate should pause Run, got err: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusWaitingHuman {
-		t.Fatalf("expected waiting_human, got %s", got.Status)
+	if got.Status != core.StatusWaitingReview {
+		t.Fatalf("expected waiting_review, got %s", got.Status)
 	}
 }
 
@@ -493,11 +493,11 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{errors.New("fatal")}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -506,7 +506,7 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 		t.Fatal("abort should return error")
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,11 +528,11 @@ func TestExecutor_Run_ParserErrorShouldFailStage(t *testing.T) {
 		},
 	}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -554,7 +554,7 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{nil}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:           core.StageImplement,
 			Agent:          "codex",
@@ -565,7 +565,7 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 	})
 	p.WorktreePath = workDir
 	p.Description = "这里是需求文本XYZ"
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -576,7 +576,7 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 
 	prompt := agent.lastPrompt()
 	if !strings.Contains(prompt, "这里是需求文本XYZ") {
-		t.Fatalf("prompt should contain requirements from pipeline description, got: %s", prompt)
+		t.Fatalf("prompt should contain requirements from Run description, got: %s", prompt)
 	}
 	if !strings.Contains(prompt, "请根据以下需求实现代码") {
 		t.Fatalf("prompt should come from implement template, got: %s", prompt)
@@ -603,7 +603,7 @@ func TestExecuteStageByRole(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{nil}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:           core.StageImplement,
 			Role:           "worker",
@@ -613,7 +613,7 @@ func TestExecuteStageByRole(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -647,7 +647,7 @@ func TestExecuteStageByRole(t *testing.T) {
 		t.Fatalf("run by role failed: %v", err)
 	}
 
-	got, err := store.GetPipeline(p.ID)
+	got, err := store.GetRun(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,7 +679,7 @@ func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{nil}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:       core.StageImplement,
 			Role:       "missing-role",
@@ -688,7 +688,7 @@ func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -721,7 +721,7 @@ func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
 
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
-		t.Fatal("expected missing role to fail pipeline run")
+		t.Fatal("expected missing role to fail Run run")
 	}
 	if !strings.Contains(err.Error(), "stage role not resolved") {
 		t.Fatalf("expected role resolution failure, got %v", err)
@@ -747,7 +747,7 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 	if err := store.CreateProject(project); err != nil {
 		t.Fatal(err)
 	}
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:           "pipe-empty-role",
 		ProjectID:    project.ID,
 		Name:         "pipe-empty-role",
@@ -769,7 +769,7 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -802,7 +802,7 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
-		t.Fatal("expected empty stage role to fail pipeline run")
+		t.Fatal("expected empty stage role to fail Run run")
 	}
 	if !strings.Contains(err.Error(), "stage role is required") {
 		t.Fatalf("expected missing stage role failure, got %v", err)
@@ -828,7 +828,7 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 	if err := store.CreateProject(project); err != nil {
 		t.Fatal(err)
 	}
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:           "pipe-no-fallback",
 		ProjectID:    project.ID,
 		Name:         "pipe-no-fallback",
@@ -850,7 +850,7 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -883,7 +883,7 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
-		t.Fatal("expected empty stage role to fail pipeline run")
+		t.Fatal("expected empty stage role to fail Run run")
 	}
 
 	checkpoints, cpErr := store.GetCheckpoints(p.ID)
@@ -908,7 +908,7 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{nil}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:       core.StageImplement,
 			Role:       "worker",
@@ -917,7 +917,7 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
+	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
 	}
 
@@ -926,7 +926,7 @@ func TestExecuteStageByRole_MissingResolverFails(t *testing.T) {
 
 	err := execEngine.Run(context.Background(), p.ID)
 	if err == nil {
-		t.Fatal("expected missing role resolver to fail pipeline run")
+		t.Fatal("expected missing role resolver to fail Run run")
 	}
 	if !strings.Contains(err.Error(), "role resolver is not configured") {
 		t.Fatalf("expected missing resolver failure, got %v", err)

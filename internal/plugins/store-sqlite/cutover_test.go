@@ -34,8 +34,8 @@ func TestCutover_V2Baseline_IdempotentApplyMigrations(t *testing.T) {
 		t.Fatalf("apply migrations second run: %v", err)
 	}
 
-	assertIndexExists(t, db, "idx_pipelines_status_queued_at")
-	assertIndexExists(t, db, "idx_issues_pipeline")
+	assertIndexExists(t, db, "idx_runs_status_queued_at")
+	assertIndexExists(t, db, "idx_issues_run")
 	assertIndexExists(t, db, "idx_review_records_issue")
 	assertTableNotExists(t, db, "migration_flags")
 }

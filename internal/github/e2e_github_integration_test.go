@@ -16,7 +16,7 @@ import (
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 )
 
-func TestE2E_GitHub_ScenarioA_IssueOpened_PipelineCreate_StatusSync(t *testing.T) {
+func TestE2E_GitHub_ScenarioA_IssueOpened_RunCreate_StatusSync(t *testing.T) {
 	store := newGitHubE2EStore(t)
 	defer store.Close()
 	projectID := seedGitHubE2EProject(t, store)
@@ -24,9 +24,9 @@ func TestE2E_GitHub_ScenarioA_IssueOpened_PipelineCreate_StatusSync(t *testing.T
 	payload := readGitHubFixture(t, "issues_opened.json")
 	issue := parseE2EIssuePayload(t, payload)
 
-	trigger := NewPipelineTrigger(store, func(projectID, name, description, template string) (*core.Pipeline, error) {
+	trigger := NewRunTrigger(store, func(projectID, name, description, template string) (*core.Run, error) {
 		now := time.Now()
-		return &core.Pipeline{
+		return &core.Run{
 			ID:              "pipe-e2e-a",
 			ProjectID:       projectID,
 			Name:            name,
@@ -42,7 +42,7 @@ func TestE2E_GitHub_ScenarioA_IssueOpened_PipelineCreate_StatusSync(t *testing.T
 		}, nil
 	})
 
-	pipeline, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
+	Run, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
 		ProjectID:   projectID,
 		IssueNumber: issue.Issue.Number,
 		IssueTitle:  issue.Issue.Title,
@@ -52,51 +52,51 @@ func TestE2E_GitHub_ScenarioA_IssueOpened_PipelineCreate_StatusSync(t *testing.T
 	if err != nil {
 		t.Fatalf("TriggerFromIssue() error = %v", err)
 	}
-	if pipeline == nil {
-		t.Fatal("expected pipeline created from issue")
+	if Run == nil {
+		t.Fatal("expected Run created from issue")
 	}
 
-	labelClient := &fakePipelineIssueSyncClient{}
-	syncer := NewPipelineStatusSyncer(labelClient)
-	if err := syncer.SyncPipelineEvent(context.Background(), core.Event{
-		Type: core.EventPipelineDone,
+	labelClient := &fakeRunIssueSyncClient{}
+	syncer := NewRunStatusSyncer(labelClient)
+	if err := syncer.SyncRunEvent(context.Background(), core.Event{
+		Type: core.EventRunDone,
 		Data: map[string]string{
 			"issue_number": "201",
 		},
 	}); err != nil {
-		t.Fatalf("SyncPipelineEvent() error = %v", err)
+		t.Fatalf("SyncRunEvent() error = %v", err)
 	}
 
 	if len(labelClient.updatedLabels) == 0 {
 		t.Fatal("expected status sync label update")
 	}
 	last := labelClient.updatedLabels[len(labelClient.updatedLabels)-1]
-	if len(last.labels) == 0 || last.labels[0] != "status: pipeline_done" {
+	if len(last.labels) == 0 || last.labels[0] != "status: run_done" {
 		t.Fatalf("expected done status label, got %#v", last.labels)
 	}
 }
 
-func TestE2E_GitHub_ScenarioB_SlashReject_ApplyPipelineAction(t *testing.T) {
+func TestE2E_GitHub_ScenarioB_SlashReject_ApplyRunAction(t *testing.T) {
 	store := newGitHubE2EStore(t)
 	defer store.Close()
 	projectID := seedGitHubE2EProject(t, store)
 
-	pipeline := seedGitHubE2EPipeline(t, store, projectID, "pipe-e2e-b", map[string]any{
+	Run := seedGitHubE2ERun(t, store, projectID, "pipe-e2e-b", map[string]any{
 		"issue_number": 201,
 	})
-	pipeline.Status = core.StatusWaitingHuman
-	pipeline.CurrentStage = core.StageImplement
-	pipeline.Stages = []core.StageConfig{
+	Run.Status = core.StatusWaitingReview
+	Run.CurrentStage = core.StageImplement
+	Run.Stages = []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex"},
 		{Name: core.StageCodeReview, Agent: "claude"},
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
 
 	now := time.Now()
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: pipeline.ID,
+		RunID:      Run.ID,
 		StageName:  core.StageImplement,
 		Status:     core.CheckpointSuccess,
 		StartedAt:  now,
@@ -105,7 +105,7 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyPipelineAction(t *testing.T) {
 		t.Fatalf("SaveCheckpoint(implement) error = %v", err)
 	}
 	if err := store.SaveCheckpoint(&core.Checkpoint{
-		PipelineID: pipeline.ID,
+		RunID:      Run.ID,
 		StageName:  core.StageCodeReview,
 		Status:     core.CheckpointSuccess,
 		StartedAt:  now,
@@ -131,39 +131,39 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyPipelineAction(t *testing.T) {
 	bus := eventbus.New()
 	defer bus.Close()
 	executor := engine.NewExecutor(store, bus, map[string]core.AgentPlugin{}, nil, nil)
-	if err := executor.ApplyAction(context.Background(), core.PipelineAction{
-		PipelineID: pipeline.ID,
-		Type:       core.ActionReject,
-		Stage:      command.Stage,
-		Message:    command.Reason,
+	if err := executor.ApplyAction(context.Background(), core.RunAction{
+		RunID:   Run.ID,
+		Type:    core.ActionReject,
+		Stage:   command.Stage,
+		Message: command.Reason,
 	}); err != nil {
 		t.Fatalf("ApplyAction(reject) error = %v", err)
 	}
 
-	after, err := store.GetPipeline(pipeline.ID)
+	after, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
-	if after.Status != core.StatusWaitingHuman {
-		t.Fatalf("expected waiting_human after slash reject, got %s", after.Status)
+	if after.Status != core.StatusWaitingReview {
+		t.Fatalf("expected waiting_review after slash reject, got %s", after.Status)
 	}
 	if after.ErrorMessage == "" {
 		t.Fatal("expected reject reason persisted")
 	}
 }
 
-func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedPipelineDone(t *testing.T) {
+func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedRunDone(t *testing.T) {
 	store := newGitHubE2EStore(t)
 	defer store.Close()
 	projectID := seedGitHubE2EProject(t, store)
 
-	pipeline := seedGitHubE2EPipeline(t, store, projectID, "pipe-e2e-c", map[string]any{
+	Run := seedGitHubE2ERun(t, store, projectID, "pipe-e2e-c", map[string]any{
 		"base_branch": "main",
 	})
-	pipeline.Status = core.StatusRunning
-	pipeline.BranchName = "ai-flow/pipe-e2e-c"
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	Run.Status = core.StatusRunning
+	Run.BranchName = "ai-flow/pipe-e2e-c"
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
 
 	scm := &fakePRLifecycleSCM{
@@ -171,16 +171,16 @@ func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedPipelineDone(t *te
 	}
 	lifecycle := NewPRLifecycle(store, scm)
 
-	if _, err := lifecycle.OnImplementComplete(context.Background(), pipeline.ID); err != nil {
+	if _, err := lifecycle.OnImplementComplete(context.Background(), Run.ID); err != nil {
 		t.Fatalf("OnImplementComplete() error = %v", err)
 	}
 	if err := lifecycle.OnPullRequestClosed(context.Background(), projectID, 301, true); err != nil {
 		t.Fatalf("OnPullRequestClosed() error = %v", err)
 	}
 
-	updated, err := store.GetPipeline(pipeline.ID)
+	updated, err := store.GetRun(Run.ID)
 	if err != nil {
-		t.Fatalf("GetPipeline() error = %v", err)
+		t.Fatalf("GetRun() error = %v", err)
 	}
 	if updated.Status != core.StatusDone {
 		t.Fatalf("expected done after merged webhook, got %s", updated.Status)
@@ -188,12 +188,12 @@ func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedPipelineDone(t *te
 }
 
 func TestE2E_GitHub_ScenarioD_OutageDegradeRecover(t *testing.T) {
-	base := &fakePipelineIssueSyncClientWithError{
+	base := &fakeRunIssueSyncClientWithError{
 		updateErr: &net.OpError{Op: "dial", Err: &net.DNSError{IsTimeout: true}},
 	}
 	resilient := NewResilientClient(base)
 
-	if err := resilient.UpdateIssueLabels(context.Background(), 301, []string{"status: pipeline_active:implement"}); err != nil {
+	if err := resilient.UpdateIssueLabels(context.Background(), 301, []string{"status: run_active:implement"}); err != nil {
 		t.Fatalf("UpdateIssueLabels() error = %v", err)
 	}
 	if !resilient.IsDegraded() {
@@ -201,7 +201,7 @@ func TestE2E_GitHub_ScenarioD_OutageDegradeRecover(t *testing.T) {
 	}
 
 	publisher := &fakeReconnectPublisher{}
-	syncer := &fakePipelineEventSyncer{}
+	syncer := &fakeRunEventSyncer{}
 	reconnect := NewReconnectSync(publisher, syncer)
 	reconnect.MarkDegraded(errors.New("dial tcp timeout"))
 
@@ -212,7 +212,7 @@ func TestE2E_GitHub_ScenarioD_OutageDegradeRecover(t *testing.T) {
 			Data:      map[string]string{"issue_number": "301"},
 		},
 		{
-			Type:      core.EventPipelineDone,
+			Type:      core.EventRunDone,
 			Timestamp: time.Now().Add(-1 * time.Minute),
 			Data:      map[string]string{"issue_number": "301"},
 		},
@@ -224,8 +224,8 @@ func TestE2E_GitHub_ScenarioD_OutageDegradeRecover(t *testing.T) {
 	if len(publisher.events) != 1 || publisher.events[0].Type != core.EventGitHubReconnected {
 		t.Fatalf("expected github_reconnected event, got %#v", publisher.events)
 	}
-	if len(syncer.events) != 1 || syncer.events[0].Type != core.EventPipelineDone {
-		t.Fatalf("expected latest pipeline state replay, got %#v", syncer.events)
+	if len(syncer.events) != 1 || syncer.events[0].Type != core.EventRunDone {
+		t.Fatalf("expected latest Run state replay, got %#v", syncer.events)
 	}
 }
 
@@ -312,16 +312,16 @@ func seedGitHubE2EProject(t *testing.T, store core.Store) string {
 	return project.ID
 }
 
-func seedGitHubE2EPipeline(t *testing.T, store core.Store, projectID, pipelineID string, config map[string]any) *core.Pipeline {
+func seedGitHubE2ERun(t *testing.T, store core.Store, projectID, RunID string, config map[string]any) *core.Run {
 	t.Helper()
 	if config == nil {
 		config = map[string]any{}
 	}
-	pipeline := &core.Pipeline{
-		ID:              pipelineID,
+	Run := &core.Run{
+		ID:              RunID,
 		ProjectID:       projectID,
-		Name:            pipelineID,
-		Description:     "github e2e pipeline",
+		Name:            RunID,
+		Description:     "github e2e Run",
 		Template:        "standard",
 		Status:          core.StatusCreated,
 		CurrentStage:    core.StageImplement,
@@ -332,8 +332,8 @@ func seedGitHubE2EPipeline(t *testing.T, store core.Store, projectID, pipelineID
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
-	return pipeline
+	return Run
 }

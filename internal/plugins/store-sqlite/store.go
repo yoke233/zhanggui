@@ -64,7 +64,7 @@ func (s *SQLiteStore) UpdateProject(p *core.Project) error {
 }
 
 func (s *SQLiteStore) DeleteProject(id string) error {
-	// Child rows are cleaned by ON DELETE CASCADE via pipelines.project_id foreign key.
+	// Child rows are cleaned by ON DELETE CASCADE via runs.project_id foreign key.
 	_, err := s.db.Exec(`DELETE FROM projects WHERE id=?`, id)
 	return err
 }
@@ -95,7 +95,7 @@ func (s *SQLiteStore) ListProjects(filter core.ProjectFilter) ([]core.Project, e
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) SavePipeline(p *core.Pipeline) error {
+func (s *SQLiteStore) SaveRun(p *core.Run) error {
 	if p.Artifacts == nil {
 		p.Artifacts = map[string]string{}
 	}
@@ -115,7 +115,7 @@ func (s *SQLiteStore) SavePipeline(p *core.Pipeline) error {
 		return err
 	}
 	query := `
-INSERT INTO pipelines (
+INSERT INTO runs (
 	id, project_id, name, description, template, status, current_stage,
 	stages_json, artifacts_json, config_json, branch_name, worktree_path,
 	error_message, max_total_retries, total_retries, run_count, last_error_type, issue_id,
@@ -153,8 +153,8 @@ ON CONFLICT(id) DO UPDATE SET
 	return err
 }
 
-func (s *SQLiteStore) GetPipeline(id string) (*core.Pipeline, error) {
-	p := &core.Pipeline{}
+func (s *SQLiteStore) GetRun(id string) (*core.Run, error) {
+	p := &core.Run{}
 	var (
 		stagesJSON    string
 		artifactsJSON string
@@ -169,7 +169,7 @@ SELECT id, project_id, name, description, template, status, current_stage,
        stages_json, artifacts_json, config_json, branch_name, worktree_path, error_message,
        max_total_retries, total_retries, run_count, last_error_type, COALESCE(issue_id, ''), queued_at, last_heartbeat_at,
 	   started_at, finished_at, created_at, updated_at
-FROM pipelines WHERE id=?`
+FROM runs WHERE id=?`
 	err := s.db.QueryRow(query,
 		id,
 	).Scan(
@@ -179,7 +179,7 @@ FROM pipelines WHERE id=?`
 		&startedAt, &finishedAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("pipeline %s not found", id)
+		return nil, fmt.Errorf("run %s not found", id)
 	}
 	if err != nil {
 		return nil, err
@@ -209,8 +209,8 @@ FROM pipelines WHERE id=?`
 	return p, nil
 }
 
-func (s *SQLiteStore) ListPipelines(projectID string, filter core.PipelineFilter) ([]core.Pipeline, error) {
-	query := `SELECT id, project_id, name, template, status, current_stage, COALESCE(issue_id, ''), created_at FROM pipelines WHERE project_id=?`
+func (s *SQLiteStore) ListRuns(projectID string, filter core.RunFilter) ([]core.Run, error) {
+	query := `SELECT id, project_id, name, template, status, current_stage, COALESCE(issue_id, ''), created_at FROM runs WHERE project_id=?`
 	args := []any{projectID}
 	if filter.Status != "" {
 		query += ` AND status=?`
@@ -232,9 +232,9 @@ func (s *SQLiteStore) ListPipelines(projectID string, filter core.PipelineFilter
 	}
 	defer rows.Close()
 
-	var out []core.Pipeline
+	var out []core.Run
 	for rows.Next() {
-		var p core.Pipeline
+		var p core.Run
 		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Template, &p.Status, &p.CurrentStage, &p.IssueID, &p.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -243,8 +243,8 @@ func (s *SQLiteStore) ListPipelines(projectID string, filter core.PipelineFilter
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) GetActivePipelines() ([]core.Pipeline, error) {
-	rows, err := s.db.Query(`SELECT id FROM pipelines WHERE status IN ('running','paused','waiting_human')`)
+func (s *SQLiteStore) GetActiveRuns() ([]core.Run, error) {
+	rows, err := s.db.Query(`SELECT id FROM runs WHERE status IN ('running','waiting_review','waiting_review')`)
 	if err != nil {
 		return nil, err
 	}
@@ -262,9 +262,9 @@ func (s *SQLiteStore) GetActivePipelines() ([]core.Pipeline, error) {
 		return nil, err
 	}
 
-	out := make([]core.Pipeline, 0, len(ids))
+	out := make([]core.Run, 0, len(ids))
 	for _, id := range ids {
-		p, err := s.GetPipeline(id)
+		p, err := s.GetRun(id)
 		if err != nil {
 			return nil, err
 		}
@@ -273,14 +273,14 @@ func (s *SQLiteStore) GetActivePipelines() ([]core.Pipeline, error) {
 	return out, nil
 }
 
-func (s *SQLiteStore) ListRunnablePipelines(limit int) ([]core.Pipeline, error) {
+func (s *SQLiteStore) ListRunnableRuns(limit int) ([]core.Run, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 
 	rows, err := s.db.Query(`
 SELECT id
-FROM pipelines
+FROM runs
 WHERE status = ?
 ORDER BY COALESCE(queued_at, created_at) ASC, created_at ASC
 LIMIT ?`,
@@ -303,9 +303,9 @@ LIMIT ?`,
 		return nil, err
 	}
 
-	out := make([]core.Pipeline, 0, len(ids))
+	out := make([]core.Run, 0, len(ids))
 	for _, id := range ids {
-		p, err := s.GetPipeline(id)
+		p, err := s.GetRun(id)
 		if err != nil {
 			return nil, err
 		}
@@ -314,18 +314,18 @@ LIMIT ?`,
 	return out, nil
 }
 
-func (s *SQLiteStore) CountRunningPipelinesByProject(projectID string) (int, error) {
+func (s *SQLiteStore) CountRunningRunsByProject(projectID string) (int, error) {
 	var count int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM pipelines WHERE project_id=? AND status=?`,
+		`SELECT COUNT(*) FROM runs WHERE project_id=? AND status=?`,
 		projectID, core.StatusRunning,
 	).Scan(&count)
 	return count, err
 }
 
-func (s *SQLiteStore) TryMarkPipelineRunning(id string, from ...core.PipelineStatus) (bool, error) {
+func (s *SQLiteStore) TryMarkRunRunning(id string, from ...core.RunStatus) (bool, error) {
 	if len(from) == 0 {
-		from = []core.PipelineStatus{core.StatusCreated}
+		from = []core.RunStatus{core.StatusCreated}
 	}
 
 	placeholders := make([]string, len(from))
@@ -337,7 +337,7 @@ func (s *SQLiteStore) TryMarkPipelineRunning(id string, from ...core.PipelineSta
 	}
 
 	query := fmt.Sprintf(`
-UPDATE pipelines
+UPDATE runs
 SET status=?, run_count=run_count+1, started_at=COALESCE(started_at, CURRENT_TIMESTAMP), updated_at=CURRENT_TIMESTAMP
 WHERE id=? AND status IN (%s)`, strings.Join(placeholders, ","))
 
@@ -361,16 +361,16 @@ func (s *SQLiteStore) SaveCheckpoint(cp *core.Checkpoint) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO checkpoints (pipeline_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		cp.PipelineID, cp.StageName, cp.Status, cp.AgentUsed, string(artifactsJSON), cp.TokensUsed, cp.RetryCount, cp.Error, cp.StartedAt, nullableTime(cp.FinishedAt),
+		`INSERT INTO checkpoints (run_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		cp.RunID, cp.StageName, cp.Status, cp.AgentUsed, string(artifactsJSON), cp.TokensUsed, cp.RetryCount, cp.Error, cp.StartedAt, nullableTime(cp.FinishedAt),
 	)
 	return err
 }
 
-func (s *SQLiteStore) GetCheckpoints(pipelineID string) ([]core.Checkpoint, error) {
+func (s *SQLiteStore) GetCheckpoints(RunID string) ([]core.Checkpoint, error) {
 	rows, err := s.db.Query(
-		`SELECT pipeline_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at FROM checkpoints WHERE pipeline_id=? ORDER BY id`,
-		pipelineID,
+		`SELECT run_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at FROM checkpoints WHERE run_id=? ORDER BY id`,
+		RunID,
 	)
 	if err != nil {
 		return nil, err
@@ -384,7 +384,7 @@ func (s *SQLiteStore) GetCheckpoints(pipelineID string) ([]core.Checkpoint, erro
 			artifactsJSON string
 			finishedAt    sql.NullTime
 		)
-		if err := rows.Scan(&cp.PipelineID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.TokensUsed, &cp.RetryCount, &cp.Error, &cp.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.TokensUsed, &cp.RetryCount, &cp.Error, &cp.StartedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(artifactsJSON), &cp.Artifacts); err != nil {
@@ -398,17 +398,17 @@ func (s *SQLiteStore) GetCheckpoints(pipelineID string) ([]core.Checkpoint, erro
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) GetLastSuccessCheckpoint(pipelineID string) (*core.Checkpoint, error) {
+func (s *SQLiteStore) GetLastSuccessCheckpoint(RunID string) (*core.Checkpoint, error) {
 	var (
 		cp            core.Checkpoint
 		artifactsJSON string
 		finishedAt    sql.NullTime
 	)
 	err := s.db.QueryRow(
-		`SELECT pipeline_id, stage, status, agent_used, artifacts_json, started_at, finished_at
-		 FROM checkpoints WHERE pipeline_id=? AND status='success' ORDER BY id DESC LIMIT 1`,
-		pipelineID,
-	).Scan(&cp.PipelineID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.StartedAt, &finishedAt)
+		`SELECT run_id, stage, status, agent_used, artifacts_json, started_at, finished_at
+		 FROM checkpoints WHERE run_id=? AND status='success' ORDER BY id DESC LIMIT 1`,
+		RunID,
+	).Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.StartedAt, &finishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -424,31 +424,31 @@ func (s *SQLiteStore) GetLastSuccessCheckpoint(pipelineID string) (*core.Checkpo
 	return &cp, nil
 }
 
-func (s *SQLiteStore) InvalidateCheckpointsFromStage(pipelineID string, stage core.StageID) error {
+func (s *SQLiteStore) InvalidateCheckpointsFromStage(RunID string, stage core.StageID) error {
 	_, err := s.db.Exec(`
 UPDATE checkpoints
 SET status=?
-WHERE pipeline_id=? AND id >= (
+WHERE run_id=? AND id >= (
 	SELECT MIN(id)
 	FROM checkpoints
-	WHERE pipeline_id=? AND stage=?
-)`, core.CheckpointInvalidated, pipelineID, pipelineID, stage)
+	WHERE run_id=? AND stage=?
+)`, core.CheckpointInvalidated, RunID, RunID, stage)
 	return err
 }
 
 func (s *SQLiteStore) AppendLog(entry core.LogEntry) error {
 	_, err := s.db.Exec(
-		`INSERT INTO logs (pipeline_id, stage, type, agent, content, timestamp) VALUES (?,?,?,?,?,?)`,
-		entry.PipelineID, entry.Stage, entry.Type, entry.Agent, entry.Content, entry.Timestamp,
+		`INSERT INTO logs (run_id, stage, type, agent, content, timestamp) VALUES (?,?,?,?,?,?)`,
+		entry.RunID, entry.Stage, entry.Type, entry.Agent, entry.Content, entry.Timestamp,
 	)
 	return err
 }
 
-func (s *SQLiteStore) GetLogs(pipelineID string, stage string, limit int, offset int) ([]core.LogEntry, int, error) {
+func (s *SQLiteStore) GetLogs(RunID string, stage string, limit int, offset int) ([]core.LogEntry, int, error) {
 	var total int
 	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM logs WHERE pipeline_id=? AND (? = '' OR stage=?)`,
-		pipelineID, stage, stage,
+		`SELECT COUNT(*) FROM logs WHERE run_id=? AND (? = '' OR stage=?)`,
+		RunID, stage, stage,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -457,10 +457,10 @@ func (s *SQLiteStore) GetLogs(pipelineID string, stage string, limit int, offset
 		limit = 100
 	}
 	rows, err := s.db.Query(
-		`SELECT id, pipeline_id, stage, type, agent, content, timestamp
-		 FROM logs WHERE pipeline_id=? AND (? = '' OR stage=?)
+		`SELECT id, run_id, stage, type, agent, content, timestamp
+		 FROM logs WHERE run_id=? AND (? = '' OR stage=?)
 		 ORDER BY id LIMIT ? OFFSET ?`,
-		pipelineID, stage, stage, limit, offset,
+		RunID, stage, stage, limit, offset,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -470,7 +470,7 @@ func (s *SQLiteStore) GetLogs(pipelineID string, stage string, limit int, offset
 	var out []core.LogEntry
 	for rows.Next() {
 		var e core.LogEntry
-		if err := rows.Scan(&e.ID, &e.PipelineID, &e.Stage, &e.Type, &e.Agent, &e.Content, &e.Timestamp); err != nil {
+		if err := rows.Scan(&e.ID, &e.RunID, &e.Stage, &e.Type, &e.Agent, &e.Content, &e.Timestamp); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, e)
@@ -480,17 +480,17 @@ func (s *SQLiteStore) GetLogs(pipelineID string, stage string, limit int, offset
 
 func (s *SQLiteStore) RecordAction(a core.HumanAction) error {
 	_, err := s.db.Exec(
-		`INSERT INTO human_actions (pipeline_id, stage, action, message, source, user_id) VALUES (?,?,?,?,?,?)`,
-		a.PipelineID, a.Stage, a.Action, a.Message, a.Source, a.UserID,
+		`INSERT INTO human_actions (run_id, stage, action, message, source, user_id) VALUES (?,?,?,?,?,?)`,
+		a.RunID, a.Stage, a.Action, a.Message, a.Source, a.UserID,
 	)
 	return err
 }
 
-func (s *SQLiteStore) GetActions(pipelineID string) ([]core.HumanAction, error) {
+func (s *SQLiteStore) GetActions(RunID string) ([]core.HumanAction, error) {
 	rows, err := s.db.Query(
-		`SELECT id, pipeline_id, stage, action, message, source, user_id, created_at
-		 FROM human_actions WHERE pipeline_id=? ORDER BY id`,
-		pipelineID,
+		`SELECT id, run_id, stage, action, message, source, user_id, created_at
+		 FROM human_actions WHERE run_id=? ORDER BY id`,
+		RunID,
 	)
 	if err != nil {
 		return nil, err
@@ -500,7 +500,7 @@ func (s *SQLiteStore) GetActions(pipelineID string) ([]core.HumanAction, error) 
 	var out []core.HumanAction
 	for rows.Next() {
 		var a core.HumanAction
-		if err := rows.Scan(&a.ID, &a.PipelineID, &a.Stage, &a.Action, &a.Message, &a.Source, &a.UserID, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.RunID, &a.Stage, &a.Action, &a.Message, &a.Source, &a.UserID, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -716,17 +716,17 @@ func (s *SQLiteStore) CreateIssue(issue *core.Issue) error {
 	_, err = s.db.Exec(
 		`INSERT INTO issues (
 			id, project_id, session_id, title, body, labels, milestone_id, attachments, depends_on, blocks,
-			priority, template, auto_merge, state, status, pipeline_id, version, superseded_by, external_id, fail_policy, closed_at
+			priority, template, auto_merge, state, status, run_id, version, superseded_by, external_id, fail_policy, closed_at
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		normalized.ID, normalized.ProjectID, nullableString(normalized.SessionID), normalized.Title, normalized.Body, labelsJSON,
 		normalized.MilestoneID, attachmentsJSON, dependsOnJSON, blocksJSON, normalized.Priority, normalized.Template,
-		normalized.AutoMerge, string(normalized.State), string(normalized.Status), nullableString(normalized.PipelineID), normalized.Version,
+		normalized.AutoMerge, string(normalized.State), string(normalized.Status), nullableString(normalized.RunID), normalized.Version,
 		normalized.SupersededBy, normalized.ExternalID, string(normalized.FailPolicy), nullableTimePointer(normalized.ClosedAt),
 	)
 	if err != nil {
 		return err
 	}
-	return s.bindPipelineIssueLink(normalized.PipelineID, normalized.ID)
+	return s.bindRunIssueLink(normalized.RunID, normalized.ID)
 }
 
 func (s *SQLiteStore) GetIssue(id string) (*core.Issue, error) {
@@ -745,14 +745,14 @@ func (s *SQLiteStore) GetIssue(id string) (*core.Issue, error) {
 	err := s.db.QueryRow(
 		`SELECT id, project_id, COALESCE(session_id, ''), title, COALESCE(body, ''), COALESCE(labels, '[]'),
 		        COALESCE(milestone_id, ''), COALESCE(attachments, '[]'), COALESCE(depends_on, '[]'), COALESCE(blocks, '[]'),
-		        priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(pipeline_id, ''), version, COALESCE(superseded_by, ''),
+		        priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(run_id, ''), version, COALESCE(superseded_by, ''),
 		        COALESCE(external_id, ''), COALESCE(fail_policy, ''), closed_at, created_at, updated_at
 		 FROM issues WHERE id=?`,
 		id,
 	).Scan(
 		&issue.ID, &issue.ProjectID, &issue.SessionID, &issue.Title, &issue.Body, &labelsJSON,
 		&issue.MilestoneID, &attachmentsJSON, &dependsOnJSON, &blocksJSON, &issue.Priority,
-		&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.PipelineID, &issue.Version, &issue.SupersededBy,
+		&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.RunID, &issue.Version, &issue.SupersededBy,
 		&issue.ExternalID, &issue.FailPolicy, &closedAt, &issue.CreatedAt, &issue.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -811,7 +811,7 @@ func (s *SQLiteStore) SaveIssue(issue *core.Issue) error {
 	_, err = s.db.Exec(`
 INSERT INTO issues (
 	id, project_id, session_id, title, body, labels, milestone_id, attachments, depends_on, blocks,
-	priority, template, auto_merge, state, status, pipeline_id, version, superseded_by, external_id, fail_policy, closed_at
+	priority, template, auto_merge, state, status, run_id, version, superseded_by, external_id, fail_policy, closed_at
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	project_id=excluded.project_id,
@@ -828,7 +828,7 @@ ON CONFLICT(id) DO UPDATE SET
 	auto_merge=excluded.auto_merge,
 	state=excluded.state,
 	status=excluded.status,
-	pipeline_id=excluded.pipeline_id,
+	run_id=excluded.run_id,
 	version=excluded.version,
 	superseded_by=excluded.superseded_by,
 	external_id=excluded.external_id,
@@ -837,13 +837,13 @@ ON CONFLICT(id) DO UPDATE SET
 	updated_at=CURRENT_TIMESTAMP`,
 		normalized.ID, normalized.ProjectID, nullableString(normalized.SessionID), normalized.Title, normalized.Body, labelsJSON,
 		normalized.MilestoneID, attachmentsJSON, dependsOnJSON, blocksJSON, normalized.Priority, normalized.Template,
-		normalized.AutoMerge, string(normalized.State), string(normalized.Status), nullableString(normalized.PipelineID), normalized.Version,
+		normalized.AutoMerge, string(normalized.State), string(normalized.Status), nullableString(normalized.RunID), normalized.Version,
 		normalized.SupersededBy, normalized.ExternalID, string(normalized.FailPolicy), nullableTimePointer(normalized.ClosedAt),
 	)
 	if err != nil {
 		return err
 	}
-	return s.bindPipelineIssueLink(normalized.PipelineID, normalized.ID)
+	return s.bindRunIssueLink(normalized.RunID, normalized.ID)
 }
 
 func (s *SQLiteStore) ListIssues(projectID string, filter core.IssueFilter) ([]core.Issue, int, error) {
@@ -876,7 +876,7 @@ func (s *SQLiteStore) ListIssues(projectID string, filter core.IssueFilter) ([]c
 	query := fmt.Sprintf(`
 SELECT id, project_id, COALESCE(session_id, ''), title, COALESCE(body, ''), COALESCE(labels, '[]'),
        COALESCE(milestone_id, ''), COALESCE(attachments, '[]'), COALESCE(depends_on, '[]'), COALESCE(blocks, '[]'),
-       priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(pipeline_id, ''), version, COALESCE(superseded_by, ''),
+       priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(run_id, ''), version, COALESCE(superseded_by, ''),
        COALESCE(external_id, ''), COALESCE(fail_policy, ''), closed_at, created_at, updated_at
 FROM issues
 WHERE %s
@@ -909,7 +909,7 @@ ORDER BY created_at DESC`, whereClause)
 		if err := rows.Scan(
 			&issue.ID, &issue.ProjectID, &issue.SessionID, &issue.Title, &issue.Body, &labelsJSON,
 			&issue.MilestoneID, &attachmentsJSON, &dependsOnJSON, &blocksJSON, &issue.Priority,
-			&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.PipelineID, &issue.Version, &issue.SupersededBy,
+			&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.RunID, &issue.Version, &issue.SupersededBy,
 			&issue.ExternalID, &issue.FailPolicy, &closedAt, &issue.CreatedAt, &issue.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
@@ -980,13 +980,13 @@ WHERE state='open' AND status IN ('reviewing','queued','ready','executing')`
 	return out, nil
 }
 
-func (s *SQLiteStore) GetIssueByPipeline(pipelineID string) (*core.Issue, error) {
+func (s *SQLiteStore) GetIssueByRun(RunID string) (*core.Issue, error) {
 	if err := s.ensureIssueTables(); err != nil {
 		return nil, err
 	}
 
 	var mappedIssueID string
-	err := s.db.QueryRow(`SELECT COALESCE(issue_id, '') FROM pipelines WHERE id=?`, pipelineID).Scan(&mappedIssueID)
+	err := s.db.QueryRow(`SELECT COALESCE(issue_id, '') FROM runs WHERE id=?`, RunID).Scan(&mappedIssueID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -1011,14 +1011,14 @@ func (s *SQLiteStore) GetIssueByPipeline(pipelineID string) (*core.Issue, error)
 	err = s.db.QueryRow(
 		`SELECT id, project_id, COALESCE(session_id, ''), title, COALESCE(body, ''), COALESCE(labels, '[]'),
 		        COALESCE(milestone_id, ''), COALESCE(attachments, '[]'), COALESCE(depends_on, '[]'), COALESCE(blocks, '[]'),
-		        priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(pipeline_id, ''), version, COALESCE(superseded_by, ''),
+		        priority, template, COALESCE(auto_merge, 1), state, status, COALESCE(run_id, ''), version, COALESCE(superseded_by, ''),
 		        COALESCE(external_id, ''), COALESCE(fail_policy, ''), closed_at, created_at, updated_at
-		 FROM issues WHERE pipeline_id=? LIMIT 1`,
-		pipelineID,
+		 FROM issues WHERE run_id=? LIMIT 1`,
+		RunID,
 	).Scan(
 		&issue.ID, &issue.ProjectID, &issue.SessionID, &issue.Title, &issue.Body, &labelsJSON,
 		&issue.MilestoneID, &attachmentsJSON, &dependsOnJSON, &blocksJSON, &issue.Priority,
-		&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.PipelineID, &issue.Version, &issue.SupersededBy,
+		&issue.Template, &issue.AutoMerge, &issue.State, &issue.Status, &issue.RunID, &issue.Version, &issue.SupersededBy,
 		&issue.ExternalID, &issue.FailPolicy, &closedAt, &issue.CreatedAt, &issue.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1218,20 +1218,20 @@ func (s *SQLiteStore) GetReviewRecords(issueID string) ([]core.ReviewRecord, err
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) bindPipelineIssueLink(pipelineID, issueID string) error {
-	pipelineID = strings.TrimSpace(pipelineID)
+func (s *SQLiteStore) bindRunIssueLink(RunID, issueID string) error {
+	RunID = strings.TrimSpace(RunID)
 	issueID = strings.TrimSpace(issueID)
-	if pipelineID == "" || issueID == "" {
+	if RunID == "" || issueID == "" {
 		return nil
 	}
 	query := `
-UPDATE pipelines
+UPDATE runs
 SET issue_id = CASE
 	WHEN COALESCE(issue_id, '') = '' THEN ?
 	ELSE issue_id
 END
 WHERE id=?`
-	_, err := s.db.Exec(query, issueID, pipelineID)
+	_, err := s.db.Exec(query, issueID, RunID)
 	return err
 }
 
@@ -1253,7 +1253,7 @@ CREATE TABLE IF NOT EXISTS issues (
 	auto_merge    INTEGER NOT NULL DEFAULT 1,
 	state         TEXT NOT NULL DEFAULT 'open',
 	status        TEXT NOT NULL DEFAULT 'draft',
-	pipeline_id   TEXT REFERENCES pipelines(id) ON DELETE SET NULL,
+	run_id   TEXT REFERENCES runs(id) ON DELETE SET NULL,
 	version       INTEGER NOT NULL DEFAULT 1,
 	superseded_by TEXT NOT NULL DEFAULT '',
 	external_id   TEXT NOT NULL DEFAULT '',
@@ -1264,7 +1264,7 @@ CREATE TABLE IF NOT EXISTS issues (
 );
 CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
 CREATE INDEX IF NOT EXISTS idx_issues_project_status ON issues(project_id, status);
-CREATE INDEX IF NOT EXISTS idx_issues_pipeline ON issues(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_issues_run ON issues(run_id);
 
 CREATE TABLE IF NOT EXISTS issue_attachments (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,

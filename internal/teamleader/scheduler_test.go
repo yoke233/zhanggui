@@ -31,8 +31,8 @@ func TestScheduler_ProfileQueueIgnoresDependencyEdges(t *testing.T) {
 
 	waitIssueStatus(t, store, "issue-a", core.IssueStatusExecuting, 2*time.Second)
 	issueB := waitIssueStatus(t, store, "issue-b", core.IssueStatusExecuting, 2*time.Second)
-	if issueB.PipelineID == "" {
-		t.Fatalf("expected issue-b pipeline assigned even with depends_on edge")
+	if issueB.RunID == "" {
+		t.Fatalf("expected issue-b Run assigned even with depends_on edge")
 	}
 
 	event, ok := bus.FirstEvent(core.EventIssueReady, "issue-b")
@@ -63,11 +63,11 @@ func TestScheduler_ProfileQueueDispatchesStrictBeforeNormal(t *testing.T) {
 
 	strictIssue := waitIssueStatus(t, store, "issue-strict", core.IssueStatusExecuting, 2*time.Second)
 	normalIssue := waitIssueStatus(t, store, "issue-normal", core.IssueStatusReady, 2*time.Second)
-	if strictIssue.PipelineID == "" {
-		t.Fatalf("strict issue pipeline id should be assigned first")
+	if strictIssue.RunID == "" {
+		t.Fatalf("strict issue Run id should be assigned first")
 	}
-	if normalIssue.PipelineID != "" {
-		t.Fatalf("normal issue should remain ready before strict completes, got pipeline=%q", normalIssue.PipelineID)
+	if normalIssue.RunID != "" {
+		t.Fatalf("normal issue should remain ready before strict completes, got Run=%q", normalIssue.RunID)
 	}
 }
 
@@ -89,16 +89,16 @@ func TestScheduler_ProfileQueueDispatchesNextAfterRunDone(t *testing.T) {
 
 	strictIssue := waitIssueStatus(t, store, "issue-strict", core.IssueStatusExecuting, 2*time.Second)
 	if err := s.OnEvent(context.Background(), core.Event{
-		Type:       core.EventPipelineDone,
-		PipelineID: strictIssue.PipelineID,
-		Timestamp:  time.Now(),
+		Type:      core.EventRunDone,
+		RunID:     strictIssue.RunID,
+		Timestamp: time.Now(),
 	}); err != nil {
 		t.Fatalf("OnEvent(done strict) error = %v", err)
 	}
 
 	waitIssueStatus(t, store, "issue-strict", core.IssueStatusDone, 2*time.Second)
 	normalIssue := waitIssueStatus(t, store, "issue-normal", core.IssueStatusExecuting, 2*time.Second)
-	if normalIssue.PipelineID == "" {
+	if normalIssue.RunID == "" {
 		t.Fatalf("normal issue should be dispatched after strict done")
 	}
 }
@@ -120,18 +120,18 @@ func TestScheduler_FailPolicyBlockFailsRemainingQueuedIssues(t *testing.T) {
 
 	issueA := waitIssueStatus(t, store, "issue-a", core.IssueStatusExecuting, 2*time.Second)
 	if err := s.OnEvent(context.Background(), core.Event{
-		Type:       core.EventPipelineFailed,
-		PipelineID: issueA.PipelineID,
-		Error:      "boom",
-		Timestamp:  time.Now(),
+		Type:      core.EventRunFailed,
+		RunID:     issueA.RunID,
+		Error:     "boom",
+		Timestamp: time.Now(),
 	}); err != nil {
 		t.Fatalf("OnEvent(failed A) error = %v", err)
 	}
 
 	waitIssueStatus(t, store, "issue-a", core.IssueStatusFailed, 2*time.Second)
 	issueB := waitIssueStatus(t, store, "issue-b", core.IssueStatusFailed, 2*time.Second)
-	if issueB.PipelineID != "" {
-		t.Fatalf("blocked issue should not be dispatched, got pipeline=%q", issueB.PipelineID)
+	if issueB.RunID != "" {
+		t.Fatalf("blocked issue should not be dispatched, got Run=%q", issueB.RunID)
 	}
 }
 
@@ -142,25 +142,25 @@ func TestScheduler_RecoverExecutingIssuesReplaysDoneAndDispatchesNext(t *testing
 	project := mustCreateSchedulerProject(t, store, "proj-scheduler-recover")
 	mustCreateIssueSessionWithItems(t, store, project.ID, "session-recover", core.FailBlock, []core.Issue{
 		{
-			ID:         "issue-a",
-			Title:      "A",
-			Body:       "A",
-			Status:     core.IssueStatusExecuting,
-			PipelineID: "pipeline-recover-done",
-			Template:   "strict",
-			Labels:     []string{"profile:strict"},
+			ID:       "issue-a",
+			Title:    "A",
+			Body:     "A",
+			Status:   core.IssueStatusExecuting,
+			RunID:    "Run-recover-done",
+			Template: "strict",
+			Labels:   []string{"profile:strict"},
 		},
 		newIssueWithProfile("issue-b", "B", core.WorkflowProfileNormal, nil),
 	})
 
-	if err := store.SavePipeline(&core.Pipeline{
-		ID:        "pipeline-recover-done",
+	if err := store.SaveRun(&core.Run{
+		ID:        "Run-recover-done",
 		ProjectID: project.ID,
-		Name:      "pipeline-recover-done",
+		Name:      "Run-recover-done",
 		Status:    core.StatusDone,
 		IssueID:   "issue-a",
 	}); err != nil {
-		t.Fatalf("SavePipeline(done) error = %v", err)
+		t.Fatalf("SaveRun(done) error = %v", err)
 	}
 
 	s := NewDepScheduler(store, nil, (&schedulerRunner{}).Run, nil, 1)
@@ -170,7 +170,7 @@ func TestScheduler_RecoverExecutingIssuesReplaysDoneAndDispatchesNext(t *testing
 
 	waitIssueStatus(t, store, "issue-a", core.IssueStatusDone, 2*time.Second)
 	issueB := waitIssueStatus(t, store, "issue-b", core.IssueStatusExecuting, 2*time.Second)
-	if issueB.PipelineID == "" {
+	if issueB.RunID == "" {
 		t.Fatalf("expected issue-b dispatched after replaying done event")
 	}
 }
@@ -238,10 +238,10 @@ func (b *recordingSchedulerBus) Events() []core.Event {
 	return out
 }
 
-func (r *schedulerRunner) Run(_ context.Context, pipelineID string) error {
+func (r *schedulerRunner) Run(_ context.Context, RunID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, pipelineID)
+	r.calls = append(r.calls, RunID)
 	return nil
 }
 

@@ -5,47 +5,46 @@ import (
 	"time"
 )
 
-// PipelineStatus represents the lifecycle state of a pipeline.
-type PipelineStatus string
+// RunStatus represents the lifecycle state of a run.
+type RunStatus string
 
 const (
-	StatusCreated      PipelineStatus = "created"
-	StatusRunning      PipelineStatus = "running"
-	StatusWaitingHuman PipelineStatus = "waiting_human"
-	StatusPaused       PipelineStatus = "paused"
-	StatusDone         PipelineStatus = "done"
-	StatusFailed       PipelineStatus = "failed"
-	StatusAborted      PipelineStatus = "aborted"
+	StatusCreated       RunStatus = "created"
+	StatusRunning       RunStatus = "running"
+	StatusWaitingReview RunStatus = "waiting_review"
+	StatusDone          RunStatus = "done"
+	StatusFailed        RunStatus = "failed"
+	StatusTimeout       RunStatus = "timeout"
 )
 
-// validTransitions encodes the state machine: from → set of legal targets.
-var validTransitions = map[PipelineStatus]map[PipelineStatus]bool{
+// validTransitions encodes the state machine: from -> set of legal targets.
+var validTransitions = map[RunStatus]map[RunStatus]bool{
 	StatusCreated: {
 		StatusRunning: true,
-		StatusAborted: true,
 	},
 	StatusRunning: {
-		StatusWaitingHuman: true,
-		StatusPaused:       true,
-		StatusFailed:       true,
-		StatusDone:         true,
+		StatusWaitingReview: true,
+		StatusDone:          true,
+		StatusFailed:        true,
+		StatusTimeout:       true,
 	},
-	StatusPaused: {
+	StatusWaitingReview: {
 		StatusRunning: true,
-		StatusAborted: true,
-	},
-	StatusWaitingHuman: {
-		StatusRunning: true,
-		StatusAborted: true,
+		StatusDone:    true,
+		StatusFailed:  true,
+		StatusTimeout: true,
 	},
 	StatusFailed: {
+		StatusRunning: true,
+	},
+	StatusTimeout: {
 		StatusRunning: true,
 	},
 }
 
 // ValidateTransition checks whether a status change is legal.
 // Returns nil on success or an error describing why the transition is invalid.
-func ValidateTransition(from, to PipelineStatus) error {
+func ValidateTransition(from, to RunStatus) error {
 	targets, ok := validTransitions[from]
 	if !ok {
 		return fmt.Errorf("no transitions allowed from %q", from)
@@ -56,14 +55,14 @@ func ValidateTransition(from, to PipelineStatus) error {
 	return nil
 }
 
-// Pipeline is the central aggregate representing one workflow execution.
-type Pipeline struct {
-	ID          string         `json:"id"`
-	ProjectID   string         `json:"project_id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Template    string         `json:"template"`
-	Status      PipelineStatus `json:"status"`
+// Run is the central aggregate representing one workflow execution.
+type Run struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Template    string    `json:"template"`
+	Status      RunStatus `json:"status"`
 
 	CurrentStage StageID           `json:"current_stage"`
 	Stages       []StageConfig     `json:"stages"`

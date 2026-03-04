@@ -1,6 +1,6 @@
 export interface WsEnvelope<TPayload = unknown> {
   type: string;
-  pipeline_id?: string;
+  run_id?: string;
   project_id?: string;
   issue_id?: string;
   data?: TPayload;
@@ -74,10 +74,10 @@ export interface WsClientMessage {
   type:
     | "subscribe_plan"
     | "unsubscribe_plan"
-    | "subscribe_pipeline"
-    | "unsubscribe_pipeline";
+    | "subscribe_Run"
+    | "unsubscribe_Run";
   plan_id?: string;
-  pipeline_id?: string;
+  run_id?: string;
 }
 
 export type WsEventHandler<TPayload = unknown> = (

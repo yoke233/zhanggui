@@ -4,8 +4,8 @@ import type {
   GitHubConnectionStatus,
   Issue,
   IssueStatus,
-  Pipeline,
-  PipelineStatus,
+  Run,
+  RunStatus,
   Project,
   WorkflowProfile,
   WorkflowProfileType,
@@ -46,7 +46,7 @@ export interface GetProjectCreateRequestResponse {
   error?: string;
 }
 
-export interface CreatePipelineRequest {
+export interface CreateRunRequest {
   name: string;
   description?: string;
   template: string;
@@ -149,7 +149,7 @@ export interface SetIssueAutoMergeResponse {
   auto_merge: boolean;
 }
 
-export interface PipelineActionRequest {
+export interface RunActionRequest {
   action:
     | "approve"
     | "reject"
@@ -165,13 +165,13 @@ export interface PipelineActionRequest {
   role?: string;
 }
 
-export interface PipelineActionResponse {
-  status: PipelineStatus | WorkflowRunStatus | string;
+export interface RunActionResponse {
+  status: RunStatus | WorkflowRunStatus | string;
   current_stage?: string;
 }
 
-export interface PipelineCheckpoint {
-  pipeline_id: string;
+export interface RunCheckpoint {
+  run_id: string;
   stage_name: string;
   status: "in_progress" | "success" | "failed" | "skipped" | "invalidated" | string;
   artifacts: Record<string, string>;
@@ -183,7 +183,7 @@ export interface PipelineCheckpoint {
   error?: string;
 }
 
-export type GetPipelineCheckpointsResponse = PipelineCheckpoint[];
+export type GetRunCheckpointsResponse = RunCheckpoint[];
 
 export type ListProjectsResponse = Project[] | null;
 
@@ -193,16 +193,18 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
-export interface ApiPipeline extends Pipeline {
-  issue_id?: string;
-  github?: {
-    connection_status?: GitHubConnectionStatus;
-    issue_number?: number;
-    issue_url?: string;
-    pr_number?: number;
-    pr_url?: string;
+export type ApiRun = Run &
+  Partial<WorkflowRun> & {
+    issue_id?: string;
+    profile?: WorkflowProfileType;
+    github?: {
+      connection_status?: GitHubConnectionStatus;
+      issue_number?: number;
+      issue_url?: string;
+      pr_number?: number;
+      pr_url?: string;
+    };
   };
-}
 
 export interface ApiIssue extends Issue {
   github?: {
@@ -215,20 +217,15 @@ export interface ApiWorkflowProfile extends WorkflowProfile {
   type: WorkflowProfileType;
 }
 
-export interface ApiRun extends WorkflowRun {
-  profile: WorkflowProfileType;
-}
-
-export type ListPipelinesResponse = PaginatedResponse<ApiPipeline>;
+export type ListRunsResponse = PaginatedResponse<ApiRun>;
 export type ListIssuesResponse = PaginatedResponse<ApiIssue>;
 export type ListWorkflowProfilesResponse = PaginatedResponse<ApiWorkflowProfile>;
-export type ListRunsResponse = PaginatedResponse<ApiRun>;
 
 export interface IssueDagNode {
   id: string;
   title: string;
   status: IssueStatus;
-  pipeline_id: string;
+  run_id: string;
 }
 
 export interface IssueDagEdge {
@@ -289,9 +286,9 @@ export interface IssueChangeRecord {
   created_at: string;
 }
 
-export interface PipelineLogEntry {
+export interface RunLogEntry {
   id: number;
-  pipeline_id: string;
+  run_id: string;
   stage: string;
   type: string;
   agent: string;
@@ -299,17 +296,17 @@ export interface PipelineLogEntry {
   timestamp: string;
 }
 
-export interface GetPipelineLogsQuery {
+export interface GetRunLogsQuery {
   stage?: string;
   limit?: number;
   offset?: number;
 }
 
-export type GetPipelineLogsResponse = PaginatedResponse<PipelineLogEntry>;
+export type GetRunLogsResponse = PaginatedResponse<RunLogEntry>;
 
 export interface IssueTimelineRefs {
   issue_id: string;
-  pipeline_id?: string;
+  run_id?: string;
   stage?: string;
 }
 
@@ -338,7 +335,7 @@ export interface AdminAuditLogItem {
   id: number;
   project_id?: string;
   issue_id?: string;
-  pipeline_id: string;
+  run_id: string;
   stage?: string;
   action: string;
   message: string;
@@ -348,8 +345,8 @@ export interface AdminAuditLogItem {
 }
 
 export interface ApiStatsResponse {
-  total_pipelines: number;
-  active_pipelines: number;
+  total_Runs: number;
+  active_Runs: number;
   success_rate: number;
   avg_duration: string;
   tokens_used: {

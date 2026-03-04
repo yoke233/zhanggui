@@ -478,7 +478,7 @@ func isRoleBindingsEmpty(binds config.RoleBindings) bool {
 	return strings.TrimSpace(binds.TeamLeader.Role) == "" &&
 		strings.TrimSpace(binds.PlanParser.Role) == "" &&
 		strings.TrimSpace(binds.ReviewOrchestrator.Aggregator) == "" &&
-		len(binds.Pipeline.StageRoles) == 0 &&
+		len(binds.Run.StageRoles) == 0 &&
 		len(binds.ReviewOrchestrator.Reviewers) == 0
 }
 

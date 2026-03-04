@@ -136,7 +136,7 @@ func TestV2RunAPIAvailable(t *testing.T) {
 	}
 
 	now := time.Now()
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:              "run-v2-1",
 		ProjectID:       project.ID,
 		Name:            "run-v2",
@@ -152,15 +152,15 @@ func TestV2RunAPIAvailable(t *testing.T) {
 		UpdatedAt:       now,
 		StartedAt:       now,
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("seed run pipeline: %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("seed run Run: %v", err)
 	}
 
 	srv := NewServer(Config{Store: store})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	getResp, err := http.Get(ts.URL + "/api/v2/runs/" + pipeline.ID)
+	getResp, err := http.Get(ts.URL + "/api/v2/runs/" + Run.ID)
 	if err != nil {
 		t.Fatalf("GET /api/v2/runs/{id}: %v", err)
 	}
@@ -173,8 +173,8 @@ func TestV2RunAPIAvailable(t *testing.T) {
 	if err := json.NewDecoder(getResp.Body).Decode(&gotRun); err != nil {
 		t.Fatalf("decode run response: %v", err)
 	}
-	if gotRun.ID != pipeline.ID {
-		t.Fatalf("run id = %q, want %q", gotRun.ID, pipeline.ID)
+	if gotRun.ID != Run.ID {
+		t.Fatalf("run id = %q, want %q", gotRun.ID, Run.ID)
 	}
 	if gotRun.Profile != core.WorkflowProfileStrict {
 		t.Fatalf("run profile = %q, want %q", gotRun.Profile, core.WorkflowProfileStrict)
@@ -196,7 +196,7 @@ func TestV2RunAPIAvailable(t *testing.T) {
 	if err := json.NewDecoder(listResp.Body).Decode(&listed); err != nil {
 		t.Fatalf("decode run list response: %v", err)
 	}
-	if listed.Total != 1 || len(listed.Items) != 1 || listed.Items[0].ID != pipeline.ID {
+	if listed.Total != 1 || len(listed.Items) != 1 || listed.Items[0].ID != Run.ID {
 		t.Fatalf("unexpected run list response: %#v", listed)
 	}
 }

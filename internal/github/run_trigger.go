@@ -11,15 +11,15 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 )
 
-const defaultPipelineTemplate = "standard"
+const defaultRunTemplate = "standard"
 
-type pipelineCreateFn func(projectID, name, description, template string) (*core.Pipeline, error)
+type RunCreateFn func(projectID, name, description, template string) (*core.Run, error)
 
-// PipelineTrigger creates pipelines from issue and slash command events.
-type PipelineTrigger struct {
-	store          core.Store
-	createPipeline pipelineCreateFn
-	now            func() time.Time
+// RunTrigger creates Runs from issue and slash command events.
+type RunTrigger struct {
+	store     core.Store
+	createRun RunCreateFn
+	now       func() time.Time
 }
 
 type IssueTriggerInput struct {
@@ -43,16 +43,16 @@ type CommandTriggerInput struct {
 	TraceID              string
 }
 
-func NewPipelineTrigger(store core.Store, create pipelineCreateFn) *PipelineTrigger {
-	return &PipelineTrigger{
-		store:          store,
-		createPipeline: create,
-		now:            time.Now,
+func NewRunTrigger(store core.Store, create RunCreateFn) *RunTrigger {
+	return &RunTrigger{
+		store:     store,
+		createRun: create,
+		now:       time.Now,
 	}
 }
 
-func (t *PipelineTrigger) TriggerFromIssue(ctx context.Context, input IssueTriggerInput) (*core.Pipeline, error) {
-	template := pickTemplate(input.Labels, input.LabelTemplateMapping, defaultPipelineTemplate)
+func (t *RunTrigger) TriggerFromIssue(ctx context.Context, input IssueTriggerInput) (*core.Run, error) {
+	template := pickTemplate(input.Labels, input.LabelTemplateMapping, defaultRunTemplate)
 	name := strings.TrimSpace(input.IssueTitle)
 	if name == "" {
 		name = fmt.Sprintf("Issue #%d", input.IssueNumber)
@@ -68,12 +68,12 @@ func (t *PipelineTrigger) TriggerFromIssue(ctx context.Context, input IssueTrigg
 	})
 }
 
-func (t *PipelineTrigger) TriggerFromCommand(ctx context.Context, input CommandTriggerInput) (*core.Pipeline, error) {
+func (t *RunTrigger) TriggerFromCommand(ctx context.Context, input CommandTriggerInput) (*core.Run, error) {
 	template := strings.TrimSpace(input.Template)
 	if template == "" {
 		defaultTemplate := input.DefaultTemplate
 		if strings.TrimSpace(defaultTemplate) == "" {
-			defaultTemplate = defaultPipelineTemplate
+			defaultTemplate = defaultRunTemplate
 		}
 		template = pickTemplate(input.Labels, input.LabelTemplateMapping, defaultTemplate)
 	}
@@ -103,12 +103,12 @@ type triggerInput struct {
 	Source      string
 }
 
-func (t *PipelineTrigger) trigger(ctx context.Context, input triggerInput) (*core.Pipeline, error) {
+func (t *RunTrigger) trigger(ctx context.Context, input triggerInput) (*core.Run, error) {
 	if t == nil || t.store == nil {
-		return nil, errors.New("pipeline trigger store is required")
+		return nil, errors.New("Run trigger store is required")
 	}
-	if t.createPipeline == nil {
-		return nil, errors.New("pipeline trigger create function is required")
+	if t.createRun == nil {
+		return nil, errors.New("Run trigger create function is required")
 	}
 	projectID := strings.TrimSpace(input.ProjectID)
 	if projectID == "" {
@@ -118,7 +118,7 @@ func (t *PipelineTrigger) trigger(ctx context.Context, input triggerInput) (*cor
 		return nil, errors.New("issue number must be positive")
 	}
 
-	existing, err := t.findExistingIssuePipeline(projectID, input.IssueNumber)
+	existing, err := t.findExistingIssueRun(projectID, input.IssueNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -128,49 +128,49 @@ func (t *PipelineTrigger) trigger(ctx context.Context, input triggerInput) (*cor
 
 	template := strings.TrimSpace(input.Template)
 	if template == "" {
-		template = defaultPipelineTemplate
+		template = defaultRunTemplate
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		name = fmt.Sprintf("Issue #%d", input.IssueNumber)
 	}
-	pipeline, err := t.createPipeline(projectID, name, input.Description, template)
+	Run, err := t.createRun(projectID, name, input.Description, template)
 	if err != nil {
 		return nil, err
 	}
-	if pipeline == nil {
-		return nil, errors.New("create pipeline returned nil")
+	if Run == nil {
+		return nil, errors.New("create Run returned nil")
 	}
-	if pipeline.Config == nil {
-		pipeline.Config = map[string]any{}
+	if Run.Config == nil {
+		Run.Config = map[string]any{}
 	}
-	pipeline.Config["issue_number"] = input.IssueNumber
-	pipeline.Config["trigger_source"] = input.Source
+	Run.Config["issue_number"] = input.IssueNumber
+	Run.Config["trigger_source"] = input.Source
 	if traceID := strings.TrimSpace(input.TraceID); traceID != "" {
-		pipeline.Config["trace_id"] = traceID
+		Run.Config["trace_id"] = traceID
 	}
-	if pipeline.QueuedAt.IsZero() {
-		pipeline.QueuedAt = t.now()
+	if Run.QueuedAt.IsZero() {
+		Run.QueuedAt = t.now()
 	}
-	if pipeline.CreatedAt.IsZero() {
-		pipeline.CreatedAt = t.now()
+	if Run.CreatedAt.IsZero() {
+		Run.CreatedAt = t.now()
 	}
-	pipeline.UpdatedAt = t.now()
+	Run.UpdatedAt = t.now()
 
-	if err := t.store.SavePipeline(pipeline); err != nil {
+	if err := t.store.SaveRun(Run); err != nil {
 		return nil, err
 	}
-	return pipeline, nil
+	return Run, nil
 }
 
-func (t *PipelineTrigger) findExistingIssuePipeline(projectID string, issueNumber int) (*core.Pipeline, error) {
-	return engine.FindPipelineByIssueNumber(t.store, projectID, issueNumber)
+func (t *RunTrigger) findExistingIssueRun(projectID string, issueNumber int) (*core.Run, error) {
+	return engine.FindRunByIssueNumber(t.store, projectID, issueNumber)
 }
 
 func pickTemplate(labels []string, mapping map[string]string, fallback string) string {
 	if len(mapping) == 0 {
 		if strings.TrimSpace(fallback) == "" {
-			return defaultPipelineTemplate
+			return defaultRunTemplate
 		}
 		return strings.TrimSpace(fallback)
 	}
@@ -188,7 +188,7 @@ func pickTemplate(labels []string, mapping map[string]string, fallback string) s
 		}
 	}
 	if strings.TrimSpace(fallback) == "" {
-		return defaultPipelineTemplate
+		return defaultRunTemplate
 	}
 	return strings.TrimSpace(fallback)
 }

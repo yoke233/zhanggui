@@ -95,7 +95,7 @@ func TestDesktopNotifier_Notify_WindowsCommand(t *testing.T) {
 	}, "windows", false)
 
 	if err := notifier.Notify(context.Background(), core.Notification{
-		Title: "Pipeline",
+		Title: "Run",
 		Body:  "Deploy done",
 	}); err != nil {
 		t.Fatalf("Notify() error = %v", err)

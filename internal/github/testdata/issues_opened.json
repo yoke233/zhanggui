@@ -3,7 +3,7 @@
   "issue": {
     "number": 201,
     "title": "Feature request: improve GitHub integration",
-    "body": "请创建 pipeline 并开始执行。",
+    "body": "请创建 Run 并开始执行。",
     "labels": [
       {
         "name": "type:feature"

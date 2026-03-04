@@ -31,7 +31,7 @@ func NewPRLifecycle(store core.Store, scm prLifecycleSCM) *PRLifecycle {
 	}
 }
 
-func (l *PRLifecycle) OnImplementComplete(ctx context.Context, pipelineID string) (string, error) {
+func (l *PRLifecycle) OnImplementComplete(ctx context.Context, RunID string) (string, error) {
 	if l == nil || l.store == nil {
 		return "", errors.New("pr lifecycle store is required")
 	}
@@ -39,35 +39,35 @@ func (l *PRLifecycle) OnImplementComplete(ctx context.Context, pipelineID string
 		return "", errors.New("pr lifecycle scm is required")
 	}
 
-	pipeline, err := l.store.GetPipeline(strings.TrimSpace(pipelineID))
+	Run, err := l.store.GetRun(strings.TrimSpace(RunID))
 	if err != nil {
 		return "", err
 	}
 
-	if existing := prNumberFromPipeline(pipeline); existing > 0 {
-		if pipeline.Config == nil {
-			pipeline.Config = map[string]any{}
+	if existing := prNumberFromRun(Run); existing > 0 {
+		if Run.Config == nil {
+			Run.Config = map[string]any{}
 		}
-		if url, _ := pipeline.Config["pr_url"].(string); strings.TrimSpace(url) != "" {
+		if url, _ := Run.Config["pr_url"].(string); strings.TrimSpace(url) != "" {
 			return strings.TrimSpace(url), nil
 		}
 	}
 
 	base := "main"
-	if pipeline.Config != nil {
-		if v, _ := pipeline.Config["base_branch"].(string); strings.TrimSpace(v) != "" {
+	if Run.Config != nil {
+		if v, _ := Run.Config["base_branch"].(string); strings.TrimSpace(v) != "" {
 			base = strings.TrimSpace(v)
 		}
 	}
-	head := strings.TrimSpace(pipeline.BranchName)
+	head := strings.TrimSpace(Run.BranchName)
 	if head == "" {
-		head = "ai-flow/" + pipeline.ID
+		head = "ai-flow/" + Run.ID
 	}
 
 	draft := true
 	prURL, err := l.scm.CreatePR(ctx, core.PullRequest{
-		Title: pipeline.Name,
-		Body:  pipeline.Description,
+		Title: Run.Name,
+		Body:  Run.Description,
 		Head:  head,
 		Base:  base,
 		Draft: &draft,
@@ -76,21 +76,21 @@ func (l *PRLifecycle) OnImplementComplete(ctx context.Context, pipelineID string
 		return "", err
 	}
 
-	if pipeline.Config == nil {
-		pipeline.Config = map[string]any{}
+	if Run.Config == nil {
+		Run.Config = map[string]any{}
 	}
-	pipeline.Config["pr_url"] = strings.TrimSpace(prURL)
+	Run.Config["pr_url"] = strings.TrimSpace(prURL)
 	if prNumber := parsePRNumber(prURL); prNumber > 0 {
-		pipeline.Config["pr_number"] = prNumber
+		Run.Config["pr_number"] = prNumber
 	}
-	pipeline.UpdatedAt = l.now()
-	if err := l.store.SavePipeline(pipeline); err != nil {
+	Run.UpdatedAt = l.now()
+	if err := l.store.SaveRun(Run); err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(prURL), nil
 }
 
-func (l *PRLifecycle) OnMergeApproved(ctx context.Context, pipelineID string) error {
+func (l *PRLifecycle) OnMergeApproved(ctx context.Context, RunID string) error {
 	if l == nil || l.store == nil {
 		return errors.New("pr lifecycle store is required")
 	}
@@ -98,11 +98,11 @@ func (l *PRLifecycle) OnMergeApproved(ctx context.Context, pipelineID string) er
 		return errors.New("pr lifecycle scm is required")
 	}
 
-	pipeline, err := l.store.GetPipeline(strings.TrimSpace(pipelineID))
+	Run, err := l.store.GetRun(strings.TrimSpace(RunID))
 	if err != nil {
 		return err
 	}
-	prNumber := prNumberFromPipeline(pipeline)
+	prNumber := prNumberFromRun(Run)
 	if prNumber <= 0 {
 		return errors.New("pr number is required")
 	}
@@ -112,7 +112,7 @@ func (l *PRLifecycle) OnMergeApproved(ctx context.Context, pipelineID string) er
 	}
 	return l.scm.MergePR(ctx, core.PullRequestMerge{
 		Number:      prNumber,
-		CommitTitle: fmt.Sprintf("merge pipeline %s", pipeline.ID),
+		CommitTitle: fmt.Sprintf("merge Run %s", Run.ID),
 	})
 }
 
@@ -126,48 +126,48 @@ func (l *PRLifecycle) OnPullRequestClosed(
 		return nil
 	}
 
-	pipeline, err := findPipelineByPRNumber(l.store, projectID, prNumber)
+	Run, err := findRunByPRNumber(l.store, projectID, prNumber)
 	if err != nil {
 		return err
 	}
-	if pipeline == nil {
+	if Run == nil {
 		return nil
 	}
 
 	if merged {
-		pipeline.Status = core.StatusDone
-		pipeline.ErrorMessage = ""
+		Run.Status = core.StatusDone
+		Run.ErrorMessage = ""
 	} else {
-		pipeline.Status = core.StatusFailed
-		pipeline.ErrorMessage = "pull request closed without merge"
+		Run.Status = core.StatusFailed
+		Run.ErrorMessage = "pull request closed without merge"
 	}
-	pipeline.FinishedAt = l.now()
-	pipeline.UpdatedAt = l.now()
-	return l.store.SavePipeline(pipeline)
+	Run.FinishedAt = l.now()
+	Run.UpdatedAt = l.now()
+	return l.store.SaveRun(Run)
 }
 
-func findPipelineByPRNumber(store core.Store, projectID string, prNumber int) (*core.Pipeline, error) {
+func findRunByPRNumber(store core.Store, projectID string, prNumber int) (*core.Run, error) {
 	if store == nil || strings.TrimSpace(projectID) == "" || prNumber <= 0 {
 		return nil, nil
 	}
 
-	pipelines, err := store.ListPipelines(projectID, core.PipelineFilter{Limit: 500})
+	Runs, err := store.ListRuns(projectID, core.RunFilter{Limit: 500})
 	if err != nil {
 		return nil, err
 	}
-	for i := range pipelines {
-		pipeline, err := store.GetPipeline(pipelines[i].ID)
+	for i := range Runs {
+		Run, err := store.GetRun(Runs[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		if prNumberFromPipeline(pipeline) == prNumber {
-			return pipeline, nil
+		if prNumberFromRun(Run) == prNumber {
+			return Run, nil
 		}
 	}
 	return nil, nil
 }
 
-func prNumberFromPipeline(p *core.Pipeline) int {
+func prNumberFromRun(p *core.Run) int {
 	if p == nil {
 		return 0
 	}

@@ -42,7 +42,7 @@ func MergeAgentConfig(base, override *AgentConfig) *AgentConfig {
 	return &out
 }
 
-func MergeForPipeline(global *Config, project *ConfigLayer, override map[string]any) (*Config, error) {
+func MergeForRun(global *Config, project *ConfigLayer, override map[string]any) (*Config, error) {
 	merged := Defaults()
 	if global != nil {
 		merged = cloneConfig(*global)
@@ -53,7 +53,7 @@ func MergeForPipeline(global *Config, project *ConfigLayer, override map[string]
 	if len(override) > 0 {
 		layer, err := decodeLayerFromMap(override)
 		if err != nil {
-			return nil, fmt.Errorf("decode pipeline override: %w", err)
+			return nil, fmt.Errorf("decode Run override: %w", err)
 		}
 		ApplyConfigLayer(&merged, layer)
 	}
@@ -142,8 +142,8 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		if v := binds.PlanParser; v != nil && v.Role != nil {
 			cfg.RoleBinds.PlanParser.Role = *v.Role
 		}
-		if v := binds.Pipeline; v != nil && v.StageRoles != nil {
-			cfg.RoleBinds.Pipeline.StageRoles = cloneStringMap(*v.StageRoles)
+		if v := binds.Run; v != nil && v.StageRoles != nil {
+			cfg.RoleBinds.Run.StageRoles = cloneStringMap(*v.StageRoles)
 		}
 		if v := binds.ReviewOrchestrator; v != nil {
 			if v.Reviewers != nil {
@@ -155,18 +155,18 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
-	if pipeline := layer.Pipeline; pipeline != nil {
-		if pipeline.DefaultTemplate != nil {
-			cfg.Pipeline.DefaultTemplate = *pipeline.DefaultTemplate
+	if Run := layer.Run; Run != nil {
+		if Run.DefaultTemplate != nil {
+			cfg.Run.DefaultTemplate = *Run.DefaultTemplate
 		}
-		if pipeline.GlobalTimeout != nil {
-			cfg.Pipeline.GlobalTimeout = *pipeline.GlobalTimeout
+		if Run.GlobalTimeout != nil {
+			cfg.Run.GlobalTimeout = *Run.GlobalTimeout
 		}
-		if pipeline.AutoInferTemplate != nil {
-			cfg.Pipeline.AutoInferTemplate = *pipeline.AutoInferTemplate
+		if Run.AutoInferTemplate != nil {
+			cfg.Run.AutoInferTemplate = *Run.AutoInferTemplate
 		}
-		if pipeline.MaxTotalRetries != nil {
-			cfg.Pipeline.MaxTotalRetries = *pipeline.MaxTotalRetries
+		if Run.MaxTotalRetries != nil {
+			cfg.Run.MaxTotalRetries = *Run.MaxTotalRetries
 		}
 	}
 
@@ -180,8 +180,8 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		if scheduler.MaxGlobalAgents != nil {
 			cfg.Scheduler.MaxGlobalAgents = *scheduler.MaxGlobalAgents
 		}
-		if scheduler.MaxProjectPipelines != nil {
-			cfg.Scheduler.MaxProjectPipelines = *scheduler.MaxProjectPipelines
+		if scheduler.MaxProjectRuns != nil {
+			cfg.Scheduler.MaxProjectRuns = *scheduler.MaxProjectRuns
 		}
 	}
 
@@ -337,7 +337,7 @@ func cloneRoles(in []RoleConfig) []RoleConfig {
 
 func cloneRoleBindings(in RoleBindings) RoleBindings {
 	out := in
-	out.Pipeline.StageRoles = cloneStringMap(in.Pipeline.StageRoles)
+	out.Run.StageRoles = cloneStringMap(in.Run.StageRoles)
 	out.ReviewOrchestrator.Reviewers = cloneStringMap(in.ReviewOrchestrator.Reviewers)
 	return out
 }

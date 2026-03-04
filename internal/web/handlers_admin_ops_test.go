@@ -40,7 +40,7 @@ func TestAdminOps_ForceReady_Audited(t *testing.T) {
 		t.Fatalf("issue status = %s, want %s", updated.Status, core.IssueStatusReady)
 	}
 
-	actions, err := store.GetActions(issue.PipelineID)
+	actions, err := store.GetActions(issue.RunID)
 	if err != nil {
 		t.Fatalf("GetActions() error = %v", err)
 	}
@@ -81,7 +81,7 @@ func TestAdminOps_ForceUnblock_Audited(t *testing.T) {
 		t.Fatalf("issue status = %s, want %s", updated.Status, core.IssueStatusReady)
 	}
 
-	actions, err := store.GetActions(issue.PipelineID)
+	actions, err := store.GetActions(issue.RunID)
 	if err != nil {
 		t.Fatalf("GetActions() error = %v", err)
 	}
@@ -145,23 +145,23 @@ func postJSON(t *testing.T, url string, body map[string]any) *http.Response {
 	return resp
 }
 
-func seedAdminIssueFixture(t *testing.T, store core.Store, pipelineID string, status core.IssueStatus) *core.Issue {
+func seedAdminIssueFixture(t *testing.T, store core.Store, RunID string, status core.IssueStatus) *core.Issue {
 	t.Helper()
 
 	project := &core.Project{
-		ID:       "proj-admin-" + pipelineID,
-		Name:     "admin-" + pipelineID,
+		ID:       "proj-admin-" + RunID,
+		Name:     "admin-" + RunID,
 		RepoPath: filepath.Join(t.TempDir(), "repo"),
 	}
 	if err := store.CreateProject(project); err != nil {
 		t.Fatalf("CreateProject() error = %v", err)
 	}
 
-	pipeline := &core.Pipeline{
-		ID:              pipelineID,
+	Run := &core.Run{
+		ID:              RunID,
 		ProjectID:       project.ID,
-		Name:            "pipeline",
-		Description:     "pipeline for admin ops",
+		Name:            "Run",
+		Description:     "Run for admin ops",
 		Template:        "standard",
 		Status:          core.StatusCreated,
 		Stages:          []core.StageConfig{},
@@ -171,19 +171,19 @@ func seedAdminIssueFixture(t *testing.T, store core.Store, pipelineID string, st
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(pipeline); err != nil {
-		t.Fatalf("SavePipeline() error = %v", err)
+	if err := store.SaveRun(Run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
 	}
 
 	issue := &core.Issue{
-		ID:         "issue-" + pipelineID,
+		ID:         "issue-" + RunID,
 		ProjectID:  project.ID,
 		Title:      "admin-issue",
 		Body:       "admin issue",
 		Template:   "standard",
 		State:      core.IssueStateOpen,
 		Status:     status,
-		PipelineID: pipelineID,
+		RunID:      RunID,
 		FailPolicy: core.FailBlock,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -212,11 +212,11 @@ func TestAdminOps_ListAuditLog_WithFilters(t *testing.T) {
 	issue := seedAdminIssueFixture(t, store, "pipe-admin-audit-list", core.IssueStatusReady)
 
 	if err := store.RecordAction(core.HumanAction{
-		PipelineID: issue.PipelineID,
-		Action:     "force_ready",
-		Message:    "trace_id=trace-audit-list",
-		Source:     "admin",
-		UserID:     "admin",
+		RunID:   issue.RunID,
+		Action:  "force_ready",
+		Message: "trace_id=trace-audit-list",
+		Source:  "admin",
+		UserID:  "admin",
 	}); err != nil {
 		t.Fatalf("RecordAction() error = %v", err)
 	}

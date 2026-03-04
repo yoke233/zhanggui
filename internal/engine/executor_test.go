@@ -30,8 +30,8 @@ func (p *singleStreamEventParser) Next() (*core.StreamEvent, error) {
 	return &evt, nil
 }
 
-func TestNewPipelineID(t *testing.T) {
-	id := NewPipelineID()
+func TestNewRunID(t *testing.T) {
+	id := NewRunID()
 	if len(id) != 8+1+12 {
 		t.Errorf("unexpected ID length: %s (len=%d)", id, len(id))
 	}
@@ -144,7 +144,7 @@ func TestDefaultStageConfig_RoleOnlyDefaults(t *testing.T) {
 	})
 }
 
-func TestCreatePipeline_FillsStageRolesFromBindings(t *testing.T) {
+func TestCreateRun_FillsStageRolesFromBindings(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
@@ -158,15 +158,15 @@ func TestCreatePipeline_FillsStageRolesFromBindings(t *testing.T) {
 	}
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, nil)
-	execEngine.SetPipelineStageRoles(map[string]string{
+	execEngine.SetRunstageRoles(map[string]string{
 		"requirements": "worker",
 		"implement":    "worker",
 		"code_review":  "reviewer",
 	})
 
-	p, err := execEngine.CreatePipeline(project.ID, "pipe-role", "desc", "quick")
+	p, err := execEngine.CreateRun(project.ID, "pipe-role", "desc", "quick")
 	if err != nil {
-		t.Fatalf("create pipeline: %v", err)
+		t.Fatalf("create Run: %v", err)
 	}
 
 	roleByStage := make(map[core.StageID]string, len(p.Stages))
@@ -185,7 +185,7 @@ func TestCreatePipeline_FillsStageRolesFromBindings(t *testing.T) {
 	}
 }
 
-func TestPromptVars_NoLegacyPipelineSpecFields(t *testing.T) {
+func TestPromptVars_NoLegacyRunspecFields(t *testing.T) {
 	content, err := os.ReadFile("prompts.go")
 	if err != nil {
 		t.Fatalf("read prompts.go: %v", err)
@@ -246,7 +246,7 @@ func TestExecutorRun_AppendsLogsForStageLifecycleAndAgentOutput(t *testing.T) {
 		},
 	}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:         core.StageImplement,
 			Agent:        "codex",
@@ -256,8 +256,8 @@ func TestExecutorRun_AppendsLogsForStageLifecycleAndAgentOutput(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
-		t.Fatalf("save pipeline: %v", err)
+	if err := store.SaveRun(p); err != nil {
+		t.Fatalf("save Run: %v", err)
 	}
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
@@ -307,7 +307,7 @@ func TestExecutorRun_AppendsLogForStageFailed(t *testing.T) {
 	runtime := &fakeRuntime{waitResults: []error{errors.New("fatal-run")}}
 	agent := &fakeAgent{name: "codex"}
 
-	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{
 			Name:       core.StageImplement,
 			Agent:      "codex",
@@ -316,8 +316,8 @@ func TestExecutorRun_AppendsLogForStageFailed(t *testing.T) {
 		},
 	})
 	p.WorktreePath = workDir
-	if err := store.SavePipeline(p); err != nil {
-		t.Fatalf("save pipeline: %v", err)
+	if err := store.SaveRun(p); err != nil {
+		t.Fatalf("save Run: %v", err)
 	}
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)

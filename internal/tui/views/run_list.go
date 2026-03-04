@@ -7,13 +7,13 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func RenderPipelineList(pipelines []core.Pipeline, cursor int, styleStatus map[string]func(string) string) string {
-	if len(pipelines) == 0 {
-		return "No pipelines found. Use `ai-flow pipeline create` to get started.\n"
+func RenderRunList(Runs []core.Run, cursor int, styleStatus map[string]func(string) string) string {
+	if len(Runs) == 0 {
+		return "No Runs found. Use `ai-flow Run create` to get started.\n"
 	}
 
 	var b strings.Builder
-	for i, p := range pipelines {
+	for i, p := range Runs {
 		prefix := "  "
 		if i == cursor {
 			prefix = "> "

@@ -122,7 +122,7 @@ func TestFactoryBuildsRoleResolver_TrimmedNamesResolve(t *testing.T) {
 		TeamLeader: config.SingleRoleBinding{
 			Role: "worker",
 		},
-		Pipeline: config.PipelineRoleBindings{
+		Run: config.RunRoleBindings{
 			StageRoles: map[string]string{
 				"implement": "worker",
 			},
@@ -248,7 +248,7 @@ func TestFactoryBuildRoleAgentMustBeExecutable(t *testing.T) {
 		TeamLeader: config.SingleRoleBinding{
 			Role: "worker",
 		},
-		Pipeline: config.PipelineRoleBindings{
+		Run: config.RunRoleBindings{
 			StageRoles: map[string]string{
 				"implement": "worker",
 			},

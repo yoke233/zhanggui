@@ -11,8 +11,8 @@ func TestMCPToolsFromRoleConfig(t *testing.T) {
 		MCPTools: []string{
 			" query_issues ",
 			"query_issue_detail",
-			"query_pipelines",
-			"query_pipeline_logs",
+			"query_Runs",
+			"query_Run_logs",
 			"query_project_stats",
 			"query_issues",
 			"unknown_tool",
@@ -27,8 +27,8 @@ func TestMCPToolsFromRoleConfig(t *testing.T) {
 	wantByName := map[string]string{
 		"workflow-query-query_issues":        "query_issues",
 		"workflow-query-query_issue_detail":  "query_issue_detail",
-		"workflow-query-query_pipelines":     "query_pipelines",
-		"workflow-query-query_pipeline_logs": "query_pipeline_logs",
+		"workflow-query-query_Runs":          "query_Runs",
+		"workflow-query-query_Run_logs":      "query_Run_logs",
 		"workflow-query-query_project_stats": "query_project_stats",
 	}
 

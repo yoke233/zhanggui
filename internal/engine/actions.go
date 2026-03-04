@@ -10,12 +10,12 @@ import (
 	"github.com/yoke233/ai-workflow/internal/observability"
 )
 
-func (e *Executor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
+func (e *Executor) ApplyAction(ctx context.Context, action core.RunAction) error {
 	if err := action.Validate(); err != nil {
 		return err
 	}
 
-	p, err := e.store.GetPipeline(action.PipelineID)
+	p, err := e.store.GetRun(action.RunID)
 	if err != nil {
 		return err
 	}
@@ -32,12 +32,12 @@ func (e *Executor) ApplyAction(ctx context.Context, action core.PipelineAction) 
 	}
 
 	if err := e.store.RecordAction(core.HumanAction{
-		PipelineID: p.ID,
-		Stage:      string(stage),
-		Action:     string(action.Type),
-		Message:    action.Message,
-		Source:     "manual",
-		UserID:     "local",
+		RunID:   p.ID,
+		Stage:   string(stage),
+		Action:  string(action.Type),
+		Message: action.Message,
+		Source:  "manual",
+		UserID:  "local",
 	}); err != nil {
 		return err
 	}
@@ -66,14 +66,14 @@ func (e *Executor) ApplyAction(ctx context.Context, action core.PipelineAction) 
 	}
 }
 
-func (e *Executor) applyApprove(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
-	if p.Status != core.StatusWaitingHuman && p.Status != core.StatusPaused {
-		return fmt.Errorf("approve requires waiting_human/paused status, got %s", p.Status)
+func (e *Executor) applyApprove(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
+	if p.Status != core.StatusWaitingReview {
+		return fmt.Errorf("approve requires waiting_review status, got %s", p.Status)
 	}
 	p.Status = core.StatusRunning
 	p.ErrorMessage = ""
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -82,17 +82,17 @@ func (e *Executor) applyApprove(ctx context.Context, p *core.Pipeline, action co
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) applyReject(p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applyReject(p *core.Run, action core.RunAction, stage core.StageID) error {
 	if stage == "" {
 		return fmt.Errorf("reject action requires target stage")
 	}
 	if err := e.store.InvalidateCheckpointsFromStage(p.ID, stage); err != nil {
 		return err
 	}
-	p.Status = core.StatusWaitingHuman
+	p.Status = core.StatusWaitingReview
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -101,7 +101,7 @@ func (e *Executor) applyReject(p *core.Pipeline, action core.PipelineAction, sta
 	return nil
 }
 
-func (e *Executor) applyModify(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applyModify(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
 	if p.Artifacts == nil {
 		p.Artifacts = map[string]string{}
 	}
@@ -113,7 +113,7 @@ func (e *Executor) applyModify(ctx context.Context, p *core.Pipeline, action cor
 	p.Status = core.StatusRunning
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -122,7 +122,7 @@ func (e *Executor) applyModify(ctx context.Context, p *core.Pipeline, action cor
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
 	currentIndex := findStageIndex(p.Stages, p.CurrentStage)
 	if currentIndex < 0 {
 		return fmt.Errorf("skip action requires current stage")
@@ -132,7 +132,7 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.
 		p.Status = core.StatusDone
 		p.FinishedAt = time.Now()
 		p.UpdatedAt = time.Now()
-		if err := e.store.SavePipeline(p); err != nil {
+		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
 		if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -144,7 +144,7 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.
 	p.CurrentStage = p.Stages[next].Name
 	p.Status = core.StatusRunning
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -153,10 +153,10 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) applyRerun(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applyRerun(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
 	p.Status = core.StatusRunning
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -165,7 +165,7 @@ func (e *Executor) applyRerun(ctx context.Context, p *core.Pipeline, action core
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) applyChangeRole(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applyChangeRole(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
 	if action.Role == "" {
 		return fmt.Errorf("change_role requires role field")
 	}
@@ -180,19 +180,19 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Pipeline, action
 	p.Stages[targetIndex].Role = action.Role
 	p.Status = core.StatusRunning
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	e.publishActionApplied(p, action, target)
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) applyAbort(p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
-	p.Status = core.StatusAborted
+func (e *Executor) applyAbort(p *core.Run, action core.RunAction, stage core.StageID) error {
+	p.Status = core.StatusFailed
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
@@ -201,53 +201,53 @@ func (e *Executor) applyAbort(p *core.Pipeline, action core.PipelineAction, stag
 	return nil
 }
 
-func (e *Executor) applyPause(p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.StageID) error {
 	if err := e.killActiveSession(p.ID); err != nil {
 		return err
 	}
-	p.Status = core.StatusPaused
+	p.Status = core.StatusWaitingReview
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
 		return err
 	}
 	e.bus.Publish(core.Event{
-		Type:       core.EventPipelinePaused,
-		PipelineID: p.ID,
-		ProjectID:  p.ProjectID,
-		Stage:      stage,
-		Timestamp:  time.Now(),
+		Type:      core.EventRunwaiting_review,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Stage:     stage,
+		Timestamp: time.Now(),
 	})
 	return nil
 }
 
-func (e *Executor) applyResume(ctx context.Context, p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
-	if p.Status != core.StatusPaused {
-		return fmt.Errorf("resume requires paused status, got %s", p.Status)
+func (e *Executor) applyResume(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
+	if p.Status != core.StatusWaitingReview {
+		return fmt.Errorf("resume requires waiting_review status, got %s", p.Status)
 	}
 	p.Status = core.StatusRunning
 	p.ErrorMessage = ""
 	p.UpdatedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	if err := e.publishActionApplied(p, action, stage); err != nil {
 		return err
 	}
 	e.bus.Publish(core.Event{
-		Type:       core.EventPipelineResumed,
-		PipelineID: p.ID,
-		ProjectID:  p.ProjectID,
-		Stage:      stage,
-		Timestamp:  time.Now(),
+		Type:      core.EventRunResumed,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Stage:     stage,
+		Timestamp: time.Now(),
 	})
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+func (e *Executor) publishActionApplied(p *core.Run, action core.RunAction, stage core.StageID) error {
 	now := time.Now()
 	logPayload := map[string]string{
 		"action": string(action.Type),
@@ -282,17 +282,17 @@ func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAc
 	if action.Role != "" {
 		data["role"] = action.Role
 	}
-	if traceID := pipelineTraceID(p); traceID != "" {
+	if traceID := RunTraceID(p); traceID != "" {
 		data["trace_id"] = traceID
 	}
 
 	e.bus.Publish(core.Event{
-		Type:       core.EventActionApplied,
-		PipelineID: p.ID,
-		ProjectID:  p.ProjectID,
-		Stage:      stage,
-		Data:       data,
-		Timestamp:  now,
+		Type:      core.EventActionApplied,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Stage:     stage,
+		Data:      data,
+		Timestamp: now,
 	})
 	return nil
 }

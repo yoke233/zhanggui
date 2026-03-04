@@ -74,7 +74,7 @@ func EventDataWithTrace(data map[string]string, traceID string) map[string]strin
 type StructuredLogInput struct {
 	TraceID     string
 	ProjectID   string
-	PipelineID  string
+	RunID       string
 	IssueNumber int
 	Operation   string
 	Latency     time.Duration
@@ -83,11 +83,11 @@ type StructuredLogInput struct {
 // StructuredLogFields returns normalized structured log field map.
 func StructuredLogFields(input StructuredLogInput) map[string]any {
 	fields := map[string]any{
-		"trace_id":    strings.TrimSpace(input.TraceID),
-		"project_id":  strings.TrimSpace(input.ProjectID),
-		"pipeline_id": strings.TrimSpace(input.PipelineID),
-		"op":          strings.TrimSpace(input.Operation),
-		"latency_ms":  input.Latency.Milliseconds(),
+		"trace_id":   strings.TrimSpace(input.TraceID),
+		"project_id": strings.TrimSpace(input.ProjectID),
+		"Run_id":     strings.TrimSpace(input.RunID),
+		"op":         strings.TrimSpace(input.Operation),
+		"latency_ms": input.Latency.Milliseconds(),
 	}
 	if input.IssueNumber > 0 {
 		fields["issue_number"] = input.IssueNumber
@@ -103,7 +103,7 @@ func StructuredLogArgs(input StructuredLogInput) []any {
 	args = append(args,
 		"trace_id", fields["trace_id"],
 		"project_id", fields["project_id"],
-		"pipeline_id", fields["pipeline_id"],
+		"Run_id", fields["Run_id"],
 	)
 	if hasIssue {
 		args = append(args, "issue_number", issueRaw)

@@ -34,8 +34,8 @@ func TestWorktreePlugin_SetupCreatesWorktree(t *testing.T) {
 	plugin := New()
 
 	result, err := plugin.Setup(context.Background(), core.WorkspaceSetupRequest{
-		RepoPath:   repo,
-		PipelineID: "20260302-p35",
+		RepoPath: repo,
+		RunID:    "20260302-p35",
 	})
 	if err != nil {
 		t.Fatalf("setup failed: %v", err)
@@ -62,7 +62,7 @@ func TestWorktreePlugin_CleanupRemovesWorktree(t *testing.T) {
 
 	_, err := plugin.Setup(context.Background(), core.WorkspaceSetupRequest{
 		RepoPath:     repo,
-		PipelineID:   "pipe-cleanup",
+		RunID:        "pipe-cleanup",
 		BranchName:   "ai-flow/pipe-cleanup",
 		WorktreePath: worktreePath,
 	})
@@ -85,7 +85,7 @@ func TestWorktreePlugin_CleanupRemovesWorktree(t *testing.T) {
 func TestWorktreePlugin_SetupRejectsEmptyRepoPath(t *testing.T) {
 	plugin := New()
 	_, err := plugin.Setup(context.Background(), core.WorkspaceSetupRequest{
-		PipelineID: "pipe-err",
+		RunID: "pipe-err",
 	})
 	if err == nil {
 		t.Fatal("expected error when repo path is empty")

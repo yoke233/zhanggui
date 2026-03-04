@@ -47,7 +47,7 @@ func TestProjectCRUD(t *testing.T) {
 	}
 }
 
-func TestPipelineSaveAndGet(t *testing.T) {
+func TestRunsaveAndGet(t *testing.T) {
 	s, err := New(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestPipelineSaveAndGet(t *testing.T) {
 
 	_ = s.CreateProject(&core.Project{ID: "proj-1", Name: "P", RepoPath: "/tmp/p"})
 
-	pipe := &core.Pipeline{
+	pipe := &core.Run{
 		ID:        "20260228-aabbccddeeff",
 		ProjectID: "proj-1",
 		Name:      "test-pipe",
@@ -68,11 +68,11 @@ func TestPipelineSaveAndGet(t *testing.T) {
 
 		MaxTotalRetries: 5,
 	}
-	if err := s.SavePipeline(pipe); err != nil {
+	if err := s.SaveRun(pipe); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := s.GetPipeline("20260228-aabbccddeeff")
+	got, err := s.GetRun("20260228-aabbccddeeff")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestPipelineSaveAndGet(t *testing.T) {
 		t.Errorf("expected standard, got %s", got.Template)
 	}
 	if got.IssueID != pipe.IssueID {
-		t.Fatalf("pipeline issue_id mismatch: got=%q want=%q", got.IssueID, pipe.IssueID)
+		t.Fatalf("Run issue_id mismatch: got=%q want=%q", got.IssueID, pipe.IssueID)
 	}
 }
 
@@ -103,16 +103,16 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 	if err := s.CreateChatSession(session); err != nil {
 		t.Fatal(err)
 	}
-	pipeline := &core.Pipeline{
+	Run := &core.Run{
 		ID:        "pipe-issue-rt",
 		ProjectID: project.ID,
-		Name:      "pipeline-issue-rt",
+		Name:      "Run-issue-rt",
 		Template:  "standard",
 		Status:    core.StatusCreated,
 		Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts: map[string]string{},
 	}
-	if err := s.SavePipeline(pipeline); err != nil {
+	if err := s.SaveRun(Run); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,7 +131,7 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 		Template:    "standard",
 		State:       core.IssueStateOpen,
 		Status:      core.IssueStatusDraft,
-		PipelineID:  pipeline.ID,
+		RunID:       Run.ID,
 		Version:     1,
 		ExternalID:  "ISSUE-101",
 		FailPolicy:  core.FailBlock,
@@ -172,47 +172,47 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 		t.Fatalf("issue labels mismatch after save: got=%#v want=%#v", got2.Labels, issue.Labels)
 	}
 
-	byPipeline, err := s.GetIssueByPipeline(pipeline.ID)
+	byRun, err := s.GetIssueByRun(Run.ID)
 	if err != nil {
-		t.Fatalf("get issue by pipeline: %v", err)
+		t.Fatalf("get issue by Run: %v", err)
 	}
-	if byPipeline == nil || byPipeline.ID != issue.ID {
-		t.Fatalf("expected issue %q by pipeline, got %#v", issue.ID, byPipeline)
+	if byRun == nil || byRun.ID != issue.ID {
+		t.Fatalf("expected issue %q by Run, got %#v", issue.ID, byRun)
 	}
 }
 
-func TestPipelineRoundTrip_PersistsIssueID(t *testing.T) {
+func TestRunRoundTrip_PersistsIssueID(t *testing.T) {
 	s, err := New(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
-	project := &core.Project{ID: "proj-pipeline-issue", Name: "pipe", RepoPath: t.TempDir()}
+	project := &core.Project{ID: "proj-Run-issue", Name: "pipe", RepoPath: t.TempDir()}
 	if err := s.CreateProject(project); err != nil {
 		t.Fatal(err)
 	}
 
-	p := &core.Pipeline{
+	p := &core.Run{
 		ID:        "pipe-issue-1",
 		ProjectID: project.ID,
-		Name:      "pipeline-with-issue",
+		Name:      "Run-with-issue",
 		Template:  "standard",
 		Status:    core.StatusCreated,
 		IssueID:   "issue-55667788-1",
 		Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts: map[string]string{},
 	}
-	if err := s.SavePipeline(p); err != nil {
-		t.Fatalf("save pipeline: %v", err)
+	if err := s.SaveRun(p); err != nil {
+		t.Fatalf("save Run: %v", err)
 	}
 
-	got, err := s.GetPipeline(p.ID)
+	got, err := s.GetRun(p.ID)
 	if err != nil {
-		t.Fatalf("get pipeline: %v", err)
+		t.Fatalf("get Run: %v", err)
 	}
 	if got.IssueID != p.IssueID {
-		t.Fatalf("pipeline issue_id mismatch: got=%q want=%q", got.IssueID, p.IssueID)
+		t.Fatalf("Run issue_id mismatch: got=%q want=%q", got.IssueID, p.IssueID)
 	}
 }
 

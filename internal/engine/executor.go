@@ -59,7 +59,7 @@ func (e *Executor) SetWorkspace(workspace core.WorkspacePlugin) {
 	e.workspace = workspace
 }
 
-func (e *Executor) SetPipelineStageRoles(stageRoles map[string]string) {
+func (e *Executor) SetRunstageRoles(stageRoles map[string]string) {
 	if len(stageRoles) == 0 {
 		e.stageRoles = nil
 		return
@@ -77,7 +77,7 @@ func (e *Executor) SetPipelineStageRoles(stageRoles map[string]string) {
 	e.stageRoles = normalized
 }
 
-func (e *Executor) CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error) {
+func (e *Executor) CreateRun(projectID, name, description, template string) (*core.Run, error) {
 	stageIDs, ok := Templates[template]
 	if !ok {
 		return nil, fmt.Errorf("unknown template: %s", template)
@@ -91,8 +91,8 @@ func (e *Executor) CreatePipeline(projectID, name, description, template string)
 		}
 	}
 
-	p := &core.Pipeline{
-		ID:              NewPipelineID(),
+	p := &core.Run{
+		ID:              NewRunID(),
 		ProjectID:       projectID,
 		Name:            name,
 		Description:     description,
@@ -105,23 +105,23 @@ func (e *Executor) CreatePipeline(projectID, name, description, template string)
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-func (e *Executor) Run(ctx context.Context, pipelineID string) error {
-	return e.run(ctx, pipelineID, false)
+func (e *Executor) Run(ctx context.Context, RunID string) error {
+	return e.run(ctx, RunID, false)
 }
 
-// RunScheduled executes a pipeline that has already been CAS-marked as running by scheduler.
-func (e *Executor) RunScheduled(ctx context.Context, pipelineID string) error {
-	return e.run(ctx, pipelineID, true)
+// RunScheduled executes a Run that has already been CAS-marked as running by scheduler.
+func (e *Executor) RunScheduled(ctx context.Context, RunID string) error {
+	return e.run(ctx, RunID, true)
 }
 
-func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunning bool) error {
-	p, err := e.store.GetPipeline(pipelineID)
+func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bool) error {
+	p, err := e.store.GetRun(RunID)
 	if err != nil {
 		return err
 	}
@@ -135,8 +135,8 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		logger = slog.Default()
 	}
 	ctx, traceID := observability.EnsureTraceID(ctx, p.ID)
-	issueNumber := issueNumberFromPipeline(p)
-	prNumber := prNumberFromPipelineData(p)
+	issueNumber := issueNumberFromRun(p)
+	prNumber := prNumberFromRunData(p)
 	baseEventData := make(map[string]string, 1)
 	if prNumber > 0 {
 		baseEventData["pr_number"] = strconv.Itoa(prNumber)
@@ -151,7 +151,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 	if allowAlreadyRunning && p.Status == core.StatusRunning {
 		if p.StartedAt.IsZero() {
 			p.StartedAt = time.Now()
-			if err := e.store.SavePipeline(p); err != nil {
+			if err := e.store.SaveRun(p); err != nil {
 				return err
 			}
 		}
@@ -161,7 +161,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		}
 		p.Status = core.StatusRunning
 		p.StartedAt = time.Now()
-		if err := e.store.SavePipeline(p); err != nil {
+		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
 	}
@@ -170,27 +170,27 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 	for i := startIndex; i < len(p.Stages); i++ {
 		stage := p.Stages[i]
 		p.CurrentStage = stage.Name
-		if err := e.store.SavePipeline(p); err != nil {
+		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
 		stageStartedAt := time.Now()
 
 		stageStartTS := time.Now()
 		e.bus.Publish(core.Event{
-			Type:       core.EventStageStart,
-			PipelineID: p.ID,
-			ProjectID:  p.ProjectID,
-			Stage:      stage.Name,
-			Data:       pipelineEventData(traceID, issueNumber, "stage_start", baseEventData),
-			Timestamp:  stageStartTS,
+			Type:      core.EventStageStart,
+			RunID:     p.ID,
+			ProjectID: p.ProjectID,
+			Stage:     stage.Name,
+			Data:      RunEventData(traceID, issueNumber, "stage_start", baseEventData),
+			Timestamp: stageStartTS,
 		})
 		if err := e.appendEventLog(p.ID, stage.Name, core.EventStageStart, "", "stage started", stageStartTS); err != nil {
 			return fmt.Errorf("append stage_start log: %w", err)
 		}
-		logger.Info("pipeline stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
+		logger.Info("Run stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
 			TraceID:     traceID,
 			ProjectID:   p.ProjectID,
-			PipelineID:  p.ID,
+			RunID:       p.ID,
 			IssueNumber: issueNumber,
 			Operation:   "stage_start",
 			Latency:     0,
@@ -210,7 +210,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			}
 
 			cp := &core.Checkpoint{
-				PipelineID: p.ID,
+				RunID:      p.ID,
 				StageName:  stage.Name,
 				Status:     core.CheckpointInProgress,
 				StartedAt:  time.Now(),
@@ -230,20 +230,20 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				}
 				stageCompleteTS := time.Now()
 				e.bus.Publish(core.Event{
-					Type:       core.EventStageComplete,
-					PipelineID: p.ID,
-					ProjectID:  p.ProjectID,
-					Stage:      stage.Name,
-					Data:       pipelineEventData(traceID, issueNumber, "stage_complete", baseEventData),
-					Timestamp:  stageCompleteTS,
+					Type:      core.EventStageComplete,
+					RunID:     p.ID,
+					ProjectID: p.ProjectID,
+					Stage:     stage.Name,
+					Data:      RunEventData(traceID, issueNumber, "stage_complete", baseEventData),
+					Timestamp: stageCompleteTS,
 				})
 				if err := e.appendEventLog(p.ID, stage.Name, core.EventStageComplete, "", "stage completed", stageCompleteTS); err != nil {
 					return fmt.Errorf("append stage_complete log: %w", err)
 				}
-				logger.Info("pipeline stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
+				logger.Info("Run stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
 					TraceID:     traceID,
 					ProjectID:   p.ProjectID,
-					PipelineID:  p.ID,
+					RunID:       p.ID,
 					IssueNumber: issueNumber,
 					Operation:   "stage_complete",
 					Latency:     time.Since(stageStartedAt),
@@ -252,11 +252,11 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				break
 			}
 
-			paused, stateErr := e.isPipelinePaused(p.ID)
+			waiting_review, stateErr := e.isRunwaiting_review(p.ID)
 			if stateErr != nil {
 				return stateErr
 			}
-			if paused {
+			if waiting_review {
 				// Pause keeps current stage in-progress for a later explicit resume.
 				return nil
 			}
@@ -268,32 +268,32 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			}
 			stageFailedTS := time.Now()
 			e.bus.Publish(core.Event{
-				Type:       core.EventStageFailed,
-				PipelineID: p.ID,
-				ProjectID:  p.ProjectID,
-				Stage:      stage.Name,
-				Data:       pipelineEventData(traceID, issueNumber, "stage_failed", baseEventData),
-				Error:      err.Error(),
-				Timestamp:  stageFailedTS,
+				Type:      core.EventStageFailed,
+				RunID:     p.ID,
+				ProjectID: p.ProjectID,
+				Stage:     stage.Name,
+				Data:      RunEventData(traceID, issueNumber, "stage_failed", baseEventData),
+				Error:     err.Error(),
+				Timestamp: stageFailedTS,
 			})
 			if err := e.appendEventLog(p.ID, stage.Name, core.EventStageFailed, "", err.Error(), stageFailedTS); err != nil {
 				return fmt.Errorf("append stage_failed log: %w", err)
 			}
-			logger.Error("pipeline stage failed", observability.StructuredLogArgs(observability.StructuredLogInput{
+			logger.Error("Run stage failed", observability.StructuredLogArgs(observability.StructuredLogInput{
 				TraceID:     traceID,
 				ProjectID:   p.ProjectID,
-				PipelineID:  p.ID,
+				RunID:       p.ID,
 				IssueNumber: issueNumber,
 				Operation:   "stage_failed",
 				Latency:     time.Since(stageStartedAt),
 			})...)
 
 			p.TotalRetries++
-			if saveErr := e.store.SavePipeline(p); saveErr != nil {
+			if saveErr := e.store.SaveRun(p); saveErr != nil {
 				return saveErr
 			}
 			if p.TotalRetries >= p.MaxTotalRetries {
-				return e.failPipeline(p, fmt.Sprintf("retry budget exhausted at stage %s: %v", stage.Name, err), err)
+				return e.failRun(p, fmt.Sprintf("retry budget exhausted at stage %s: %v", stage.Name, err), err)
 			}
 
 			action, matched := EvaluateReactionRules(ReactionContext{
@@ -303,7 +303,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				Err:      err,
 			}, CompileOnFailureReactions(stage))
 			if !matched {
-				action = ReactionAbortPipeline
+				action = ReactionAbortRun
 			}
 
 			switch action {
@@ -311,11 +311,11 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				if attempt < maxRetries {
 					continue
 				}
-				return e.failPipeline(p, fmt.Sprintf("stage %s exhausted retries(%d): %v", stage.Name, maxRetries, err), err)
+				return e.failRun(p, fmt.Sprintf("stage %s exhausted retries(%d): %v", stage.Name, maxRetries, err), err)
 			case ReactionSkipStage:
 				stageSkipped = true
 				cpSkip := &core.Checkpoint{
-					PipelineID: p.ID,
+					RunID:      p.ID,
 					StageName:  stage.Name,
 					Status:     core.CheckpointSkipped,
 					StartedAt:  time.Now(),
@@ -328,29 +328,29 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					return saveErr
 				}
 			case ReactionEscalateHuman:
-				p.Status = core.StatusWaitingHuman
+				p.Status = core.StatusWaitingReview
 				p.ErrorMessage = err.Error()
-				if saveErr := e.store.SavePipeline(p); saveErr != nil {
+				if saveErr := e.store.SaveRun(p); saveErr != nil {
 					return saveErr
 				}
 				humanRequiredTS := time.Now()
 				e.bus.Publish(core.Event{
-					Type:       core.EventHumanRequired,
-					PipelineID: p.ID,
-					ProjectID:  p.ProjectID,
-					Stage:      stage.Name,
-					Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
-					Error:      err.Error(),
-					Timestamp:  humanRequiredTS,
+					Type:      core.EventHumanRequired,
+					RunID:     p.ID,
+					ProjectID: p.ProjectID,
+					Stage:     stage.Name,
+					Data:      RunEventData(traceID, issueNumber, "human_required", baseEventData),
+					Error:     err.Error(),
+					Timestamp: humanRequiredTS,
 				})
 				if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", err.Error(), humanRequiredTS); err != nil {
 					return fmt.Errorf("append human_required log: %w", err)
 				}
 				return nil
-			case ReactionAbortPipeline:
-				return e.failPipeline(p, fmt.Sprintf("stage %s failed: %v", stage.Name, err), err)
+			case ReactionAbortRun:
+				return e.failRun(p, fmt.Sprintf("stage %s failed: %v", stage.Name, err), err)
 			default:
-				return e.failPipeline(p, fmt.Sprintf("stage %s failed with unknown reaction %q: %v", stage.Name, action, err), err)
+				return e.failRun(p, fmt.Sprintf("stage %s failed with unknown reaction %q: %v", stage.Name, action, err), err)
 			}
 
 			break
@@ -360,22 +360,22 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			continue
 		}
 		if !stageSucceeded {
-			return e.failPipeline(p, fmt.Sprintf("stage %s did not succeed", stage.Name), errors.New("stage not successful"))
+			return e.failRun(p, fmt.Sprintf("stage %s did not succeed", stage.Name), errors.New("stage not successful"))
 		}
 
 		if stage.RequireHuman {
-			p.Status = core.StatusWaitingHuman
-			if err := e.store.SavePipeline(p); err != nil {
+			p.Status = core.StatusWaitingReview
+			if err := e.store.SaveRun(p); err != nil {
 				return err
 			}
 			humanRequiredTS := time.Now()
 			e.bus.Publish(core.Event{
-				Type:       core.EventHumanRequired,
-				PipelineID: p.ID,
-				ProjectID:  p.ProjectID,
-				Stage:      stage.Name,
-				Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
-				Timestamp:  humanRequiredTS,
+				Type:      core.EventHumanRequired,
+				RunID:     p.ID,
+				ProjectID: p.ProjectID,
+				Stage:     stage.Name,
+				Data:      RunEventData(traceID, issueNumber, "human_required", baseEventData),
+				Timestamp: humanRequiredTS,
 			})
 			if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", "human approval required", humanRequiredTS); err != nil {
 				return fmt.Errorf("append human_required log: %w", err)
@@ -387,28 +387,28 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 	p.Status = core.StatusDone
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = ""
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
 	e.bus.Publish(core.Event{
-		Type:       core.EventPipelineDone,
-		PipelineID: p.ID,
-		ProjectID:  p.ProjectID,
-		Data:       pipelineEventData(traceID, issueNumber, "pipeline_done", baseEventData),
-		Timestamp:  time.Now(),
+		Type:      core.EventRunDone,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Data:      RunEventData(traceID, issueNumber, "run_done", baseEventData),
+		Timestamp: time.Now(),
 	})
-	logger.Info("pipeline done", observability.StructuredLogArgs(observability.StructuredLogInput{
+	logger.Info("Run done", observability.StructuredLogArgs(observability.StructuredLogInput{
 		TraceID:     traceID,
 		ProjectID:   p.ProjectID,
-		PipelineID:  p.ID,
+		RunID:       p.ID,
 		IssueNumber: issueNumber,
-		Operation:   "pipeline_done",
+		Operation:   "run_done",
 		Latency:     0,
 	})...)
 	return nil
 }
 
-func (e *Executor) resolveStartIndex(p *core.Pipeline, allowAlreadyRunning bool) int {
+func (e *Executor) resolveStartIndex(p *core.Run, allowAlreadyRunning bool) int {
 	if !allowAlreadyRunning || p.CurrentStage == "" {
 		return 0
 	}
@@ -420,7 +420,7 @@ func (e *Executor) resolveStartIndex(p *core.Pipeline, allowAlreadyRunning bool)
 
 	checkpoints, err := e.store.GetCheckpoints(p.ID)
 	if err != nil {
-		e.logger.Warn("resolve start index fallback to current stage due checkpoint read error", "pipeline_id", p.ID, "error", err)
+		e.logger.Warn("resolve start index fallback to current stage due checkpoint read error", "run_id", p.ID, "error", err)
 		return currentIndex
 	}
 
@@ -453,25 +453,25 @@ func latestCheckpointForStage(checkpoints []core.Checkpoint, stage core.StageID)
 	return nil
 }
 
-func (e *Executor) registerSession(pipelineID, sessionID string) {
+func (e *Executor) registerSession(RunID, sessionID string) {
 	e.sessionMu.Lock()
 	defer e.sessionMu.Unlock()
-	e.activeSession[pipelineID] = sessionID
+	e.activeSession[RunID] = sessionID
 }
 
-func (e *Executor) unregisterSession(pipelineID, sessionID string) {
+func (e *Executor) unregisterSession(RunID, sessionID string) {
 	e.sessionMu.Lock()
 	defer e.sessionMu.Unlock()
 
-	existing := e.activeSession[pipelineID]
+	existing := e.activeSession[RunID]
 	if existing == sessionID {
-		delete(e.activeSession, pipelineID)
+		delete(e.activeSession, RunID)
 	}
 }
 
-func (e *Executor) killActiveSession(pipelineID string) error {
+func (e *Executor) killActiveSession(RunID string) error {
 	e.sessionMu.Lock()
-	sessionID := e.activeSession[pipelineID]
+	sessionID := e.activeSession[RunID]
 	e.sessionMu.Unlock()
 
 	if sessionID == "" {
@@ -480,45 +480,45 @@ func (e *Executor) killActiveSession(pipelineID string) error {
 	return e.runtime.Kill(sessionID)
 }
 
-func (e *Executor) isPipelinePaused(pipelineID string) (bool, error) {
-	p, err := e.store.GetPipeline(pipelineID)
+func (e *Executor) isRunwaiting_review(RunID string) (bool, error) {
+	p, err := e.store.GetRun(RunID)
 	if err != nil {
 		return false, err
 	}
-	return p.Status == core.StatusPaused, nil
+	return p.Status == core.StatusWaitingReview, nil
 }
 
-func (e *Executor) failPipeline(p *core.Pipeline, message string, cause error) error {
+func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 	p.Status = core.StatusFailed
 	p.ErrorMessage = message
 	p.FinishedAt = time.Now()
-	if err := e.store.SavePipeline(p); err != nil {
+	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
-	traceID := pipelineTraceID(p)
-	issueNumber := issueNumberFromPipeline(p)
+	traceID := RunTraceID(p)
+	issueNumber := issueNumberFromRun(p)
 	extra := map[string]string{}
-	if prNumber := prNumberFromPipelineData(p); prNumber > 0 {
+	if prNumber := prNumberFromRunData(p); prNumber > 0 {
 		extra["pr_number"] = strconv.Itoa(prNumber)
 	}
 	e.bus.Publish(core.Event{
-		Type:       core.EventPipelineFailed,
-		PipelineID: p.ID,
-		ProjectID:  p.ProjectID,
-		Data:       pipelineEventData(traceID, issueNumber, "pipeline_failed", extra),
-		Error:      message,
-		Timestamp:  time.Now(),
+		Type:      core.EventRunFailed,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Data:      RunEventData(traceID, issueNumber, "run_failed", extra),
+		Error:     message,
+		Timestamp: time.Now(),
 	})
 	logger := e.logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	logger.Error("pipeline failed", observability.StructuredLogArgs(observability.StructuredLogInput{
+	logger.Error("Run failed", observability.StructuredLogArgs(observability.StructuredLogInput{
 		TraceID:     traceID,
 		ProjectID:   p.ProjectID,
-		PipelineID:  p.ID,
+		RunID:       p.ID,
 		IssueNumber: issueNumber,
-		Operation:   "pipeline_failed",
+		Operation:   "run_failed",
 		Latency:     0,
 	})...)
 	if cause == nil {
@@ -527,7 +527,7 @@ func (e *Executor) failPipeline(p *core.Pipeline, message string, cause error) e
 	return fmt.Errorf("%s: %w", message, cause)
 }
 
-func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *core.Pipeline, stage *core.StageConfig) error {
+func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *core.Run, stage *core.StageConfig) error {
 	switch stage.Name {
 	case core.StageWorktreeSetup:
 		return e.runWorktreeSetup(project, p)
@@ -605,10 +605,10 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 			return fmt.Errorf("parse stream: %w", err)
 		}
 		e.bus.Publish(core.Event{
-			Type:       core.EventAgentOutput,
-			PipelineID: p.ID,
-			Stage:      stage.Name,
-			Agent:      agentName,
+			Type:  core.EventAgentOutput,
+			RunID: p.ID,
+			Stage: stage.Name,
+			Agent: agentName,
 			Data: map[string]string{
 				"content": evt.Content,
 				"type":    evt.Type,
@@ -675,13 +675,13 @@ func stageRequiresRole(stage core.StageID) bool {
 	}
 }
 
-func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, error) {
+func buildPromptExecutionContext(p *core.Run, stage core.StageID) (string, error) {
 	ctx := map[string]string{
-		"pipeline_id":   p.ID,
-		"pipeline_name": p.Name,
-		"stage":         string(stage),
-		"template":      p.Template,
-		"branch_name":   p.BranchName,
+		"run_id":      p.ID,
+		"run_name":    p.Name,
+		"stage":       string(stage),
+		"template":    p.Template,
+		"branch_name": p.BranchName,
 	}
 	payload, err := json.Marshal(ctx)
 	if err != nil {
@@ -690,7 +690,7 @@ func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, 
 	return string(payload), nil
 }
 
-func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Pipeline) error {
+func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Run) error {
 	if p.Config == nil {
 		p.Config = map[string]any{}
 	}
@@ -700,7 +700,7 @@ func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Pipeline) err
 
 	result, err := e.workspace.Setup(context.Background(), core.WorkspaceSetupRequest{
 		RepoPath:     project.RepoPath,
-		PipelineID:   p.ID,
+		RunID:        p.ID,
 		BranchName:   p.BranchName,
 		WorktreePath: p.WorktreePath,
 	})
@@ -713,10 +713,10 @@ func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Pipeline) err
 		p.Config["base_branch"] = result.BaseBranch
 	}
 
-	return e.store.SavePipeline(p)
+	return e.store.SaveRun(p)
 }
 
-func (e *Executor) runMerge(project *core.Project, p *core.Pipeline) error {
+func (e *Executor) runMerge(project *core.Project, p *core.Run) error {
 	if p.BranchName == "" {
 		return errors.New("branch name is empty")
 	}
@@ -741,7 +741,7 @@ func (e *Executor) runMerge(project *core.Project, p *core.Pipeline) error {
 	return err
 }
 
-func (e *Executor) runCleanup(project *core.Project, p *core.Pipeline) error {
+func (e *Executor) runCleanup(project *core.Project, p *core.Run) error {
 	if p.WorktreePath == "" {
 		return nil
 	}
@@ -777,7 +777,7 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 	return cfg
 }
 
-func pipelineEventData(traceID string, issueNumber int, op string, extra map[string]string) map[string]string {
+func RunEventData(traceID string, issueNumber int, op string, extra map[string]string) map[string]string {
 	data := make(map[string]string, len(extra)+2)
 	for k, v := range extra {
 		data[k] = v
@@ -791,21 +791,21 @@ func pipelineEventData(traceID string, issueNumber int, op string, extra map[str
 	return observability.EventDataWithTrace(data, traceID)
 }
 
-func (e *Executor) appendEventLog(pipelineID string, stage core.StageID, eventType core.EventType, agent, content string, timestamp time.Time) error {
+func (e *Executor) appendEventLog(RunID string, stage core.StageID, eventType core.EventType, agent, content string, timestamp time.Time) error {
 	if timestamp.IsZero() {
 		timestamp = time.Now()
 	}
 	return e.store.AppendLog(core.LogEntry{
-		PipelineID: pipelineID,
-		Stage:      string(stage),
-		Type:       string(eventType),
-		Agent:      strings.TrimSpace(agent),
-		Content:    content,
-		Timestamp:  timestamp.UTC().Format(time.RFC3339Nano),
+		RunID:     RunID,
+		Stage:     string(stage),
+		Type:      string(eventType),
+		Agent:     strings.TrimSpace(agent),
+		Content:   content,
+		Timestamp: timestamp.UTC().Format(time.RFC3339Nano),
 	})
 }
 
-func issueNumberFromPipeline(p *core.Pipeline) int {
+func issueNumberFromRun(p *core.Run) int {
 	if p == nil {
 		return 0
 	}
@@ -826,7 +826,7 @@ func issueNumberFromPipeline(p *core.Pipeline) int {
 	return 0
 }
 
-func prNumberFromPipelineData(p *core.Pipeline) int {
+func prNumberFromRunData(p *core.Run) int {
 	if p == nil {
 		return 0
 	}
@@ -874,7 +874,7 @@ func parseIssueNumberConfigValue(raw any) int {
 	return 0
 }
 
-func pipelineTraceID(p *core.Pipeline) string {
+func RunTraceID(p *core.Run) string {
 	if p == nil || p.Config == nil {
 		return ""
 	}

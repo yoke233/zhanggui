@@ -290,7 +290,7 @@ func (r defaultTemplateReviewer) Review(_ context.Context, input ReviewerInput) 
 		if template == "" {
 			continue
 		}
-		if _, ok := allowedPipelineTemplates[template]; ok {
+		if _, ok := allowedRunTemplates[template]; ok {
 			continue
 		}
 		issues = append(issues, core.ReviewIssue{
@@ -304,7 +304,7 @@ func (r defaultTemplateReviewer) Review(_ context.Context, input ReviewerInput) 
 	return buildReviewVerdict(r.Name(), issues), nil
 }
 
-var allowedPipelineTemplates = map[string]struct{}{
+var allowedRunTemplates = map[string]struct{}{
 	"full":     {},
 	"standard": {},
 	"quick":    {},

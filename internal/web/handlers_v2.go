@@ -53,7 +53,7 @@ func registerV2Routes(
 	store core.Store,
 	issueManager IssueManager,
 	issueParserRoleID string,
-	executor PipelineExecutor,
+	executor RunExecutor,
 	stageRoleBindings map[string]string,
 ) {
 	_ = issueManager
@@ -236,8 +236,8 @@ func (h *v2RunHandlers) listRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := h.store.ListPipelines(projectID, core.PipelineFilter{
-		Status: strings.TrimSpace(r.URL.Query().Get("status")),
+	items, err := h.store.ListRuns(projectID, core.RunFilter{
+		Status: core.RunStatus(strings.TrimSpace(r.URL.Query().Get("status"))),
 		Limit:  limit,
 		Offset: offset,
 	})
@@ -270,7 +270,7 @@ func (h *v2RunHandlers) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipeline, err := h.store.GetPipeline(runID)
+	Run, err := h.store.GetRun(runID)
 	if err != nil {
 		if isNotFoundError(err) {
 			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("run %s not found", runID), "RUN_NOT_FOUND")
@@ -279,10 +279,10 @@ func (h *v2RunHandlers) getRun(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "failed to load run", "GET_RUN_FAILED")
 		return
 	}
-	writeJSON(w, http.StatusOK, toWorkflowRunResponse(*pipeline))
+	writeJSON(w, http.StatusOK, toWorkflowRunResponse(*Run))
 }
 
-func toWorkflowRunResponse(p core.Pipeline) workflowRunResponse {
+func toWorkflowRunResponse(p core.Run) workflowRunResponse {
 	profile := core.WorkflowProfileNormal
 	if raw, ok := p.Config["workflow_profile"]; ok {
 		if text, ok := raw.(string); ok {
@@ -297,7 +297,7 @@ func toWorkflowRunResponse(p core.Pipeline) workflowRunResponse {
 		ProjectID:  p.ProjectID,
 		IssueID:    strings.TrimSpace(p.IssueID),
 		Profile:    profile,
-		Status:     mapPipelineStatusToWorkflowRunStatus(p.Status),
+		Status:     mapRunStatusToWorkflowRunStatus(p.Status),
 		Error:      strings.TrimSpace(p.ErrorMessage),
 		CreatedAt:  toRFC3339OrEmpty(p.CreatedAt),
 		UpdatedAt:  toRFC3339OrEmpty(p.UpdatedAt),
@@ -306,17 +306,17 @@ func toWorkflowRunResponse(p core.Pipeline) workflowRunResponse {
 	}
 }
 
-func mapPipelineStatusToWorkflowRunStatus(status core.PipelineStatus) core.WorkflowRunStatus {
+func mapRunStatusToWorkflowRunStatus(status core.RunStatus) core.WorkflowRunStatus {
 	switch status {
 	case core.StatusCreated:
 		return core.WorkflowRunStatusCreated
 	case core.StatusRunning:
 		return core.WorkflowRunStatusRunning
-	case core.StatusWaitingHuman, core.StatusPaused:
+	case core.StatusWaitingReview:
 		return core.WorkflowRunStatusWaitingReview
 	case core.StatusDone:
 		return core.WorkflowRunStatusDone
-	case core.StatusFailed, core.StatusAborted:
+	case core.StatusFailed:
 		return core.WorkflowRunStatusFailed
 	default:
 		return core.WorkflowRunStatusFailed

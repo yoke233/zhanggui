@@ -9,15 +9,15 @@ import (
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 )
 
-func TestPipelineTrigger_LabelMapping_SelectsTemplate(t *testing.T) {
-	store := newPipelineTriggerTestStore(t)
+func TestRunTrigger_LabelMapping_SelectsTemplate(t *testing.T) {
+	store := newRunTriggerTestStore(t)
 	defer store.Close()
-	projectID := seedPipelineTriggerProject(t, store)
+	projectID := seedRunTriggerProject(t, store)
 
 	createCalls := 0
-	trigger := NewPipelineTrigger(store, func(projectID, name, description, template string) (*core.Pipeline, error) {
+	trigger := NewRunTrigger(store, func(projectID, name, description, template string) (*core.Run, error) {
 		createCalls++
-		return &core.Pipeline{
+		return &core.Run{
 			ID:              "pipe-trigger-1",
 			ProjectID:       projectID,
 			Name:            name,
@@ -33,7 +33,7 @@ func TestPipelineTrigger_LabelMapping_SelectsTemplate(t *testing.T) {
 		}, nil
 	})
 
-	pipeline, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
+	Run, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
 		ProjectID:            projectID,
 		IssueNumber:          201,
 		IssueTitle:           "issue trigger",
@@ -44,20 +44,20 @@ func TestPipelineTrigger_LabelMapping_SelectsTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TriggerFromIssue() error = %v", err)
 	}
-	if pipeline.Template != "feature" {
-		t.Fatalf("expected template feature, got %q", pipeline.Template)
+	if Run.Template != "feature" {
+		t.Fatalf("expected template feature, got %q", Run.Template)
 	}
 	if createCalls != 1 {
 		t.Fatalf("expected create called once, got %d", createCalls)
 	}
 }
 
-func TestPipelineTrigger_Idempotent_NoDuplicatePipelineForSameIssue(t *testing.T) {
-	store := newPipelineTriggerTestStore(t)
+func TestRunTrigger_Idempotent_NoDuplicateRunForSameIssue(t *testing.T) {
+	store := newRunTriggerTestStore(t)
 	defer store.Close()
-	projectID := seedPipelineTriggerProject(t, store)
+	projectID := seedRunTriggerProject(t, store)
 
-	existing := &core.Pipeline{
+	existing := &core.Run{
 		ID:              "pipe-existing",
 		ProjectID:       projectID,
 		Name:            "existing",
@@ -71,14 +71,14 @@ func TestPipelineTrigger_Idempotent_NoDuplicatePipelineForSameIssue(t *testing.T
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := store.SavePipeline(existing); err != nil {
-		t.Fatalf("SavePipeline(existing) error = %v", err)
+	if err := store.SaveRun(existing); err != nil {
+		t.Fatalf("SaveRun(existing) error = %v", err)
 	}
 
 	createCalls := 0
-	trigger := NewPipelineTrigger(store, func(projectID, name, description, template string) (*core.Pipeline, error) {
+	trigger := NewRunTrigger(store, func(projectID, name, description, template string) (*core.Run, error) {
 		createCalls++
-		return &core.Pipeline{
+		return &core.Run{
 			ID:              "pipe-new",
 			ProjectID:       projectID,
 			Name:            name,
@@ -94,7 +94,7 @@ func TestPipelineTrigger_Idempotent_NoDuplicatePipelineForSameIssue(t *testing.T
 		}, nil
 	})
 
-	pipeline, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
+	Run, err := trigger.TriggerFromIssue(context.Background(), IssueTriggerInput{
 		ProjectID:   projectID,
 		IssueNumber: 202,
 		IssueTitle:  "same issue",
@@ -102,21 +102,21 @@ func TestPipelineTrigger_Idempotent_NoDuplicatePipelineForSameIssue(t *testing.T
 	if err != nil {
 		t.Fatalf("TriggerFromIssue() error = %v", err)
 	}
-	if pipeline.ID != "pipe-existing" {
-		t.Fatalf("expected existing pipeline, got %q", pipeline.ID)
+	if Run.ID != "pipe-existing" {
+		t.Fatalf("expected existing Run, got %q", Run.ID)
 	}
 	if createCalls != 0 {
 		t.Fatalf("expected create not called, got %d", createCalls)
 	}
 }
 
-func TestPipelineTrigger_CommandRun_UsesExplicitTemplate(t *testing.T) {
-	store := newPipelineTriggerTestStore(t)
+func TestRunTrigger_CommandRun_UsesExplicitTemplate(t *testing.T) {
+	store := newRunTriggerTestStore(t)
 	defer store.Close()
-	projectID := seedPipelineTriggerProject(t, store)
+	projectID := seedRunTriggerProject(t, store)
 
-	trigger := NewPipelineTrigger(store, func(projectID, name, description, template string) (*core.Pipeline, error) {
-		return &core.Pipeline{
+	trigger := NewRunTrigger(store, func(projectID, name, description, template string) (*core.Run, error) {
+		return &core.Run{
 			ID:              "pipe-command-1",
 			ProjectID:       projectID,
 			Name:            name,
@@ -132,7 +132,7 @@ func TestPipelineTrigger_CommandRun_UsesExplicitTemplate(t *testing.T) {
 		}, nil
 	})
 
-	pipeline, err := trigger.TriggerFromCommand(context.Background(), CommandTriggerInput{
+	Run, err := trigger.TriggerFromCommand(context.Background(), CommandTriggerInput{
 		ProjectID:   projectID,
 		IssueNumber: 203,
 		Template:    "hotfix",
@@ -141,12 +141,12 @@ func TestPipelineTrigger_CommandRun_UsesExplicitTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TriggerFromCommand() error = %v", err)
 	}
-	if pipeline.Template != "hotfix" {
-		t.Fatalf("expected template hotfix, got %q", pipeline.Template)
+	if Run.Template != "hotfix" {
+		t.Fatalf("expected template hotfix, got %q", Run.Template)
 	}
 }
 
-func newPipelineTriggerTestStore(t *testing.T) *storesqlite.SQLiteStore {
+func newRunTriggerTestStore(t *testing.T) *storesqlite.SQLiteStore {
 	t.Helper()
 	store, err := storesqlite.New(":memory:")
 	if err != nil {
@@ -155,11 +155,11 @@ func newPipelineTriggerTestStore(t *testing.T) *storesqlite.SQLiteStore {
 	return store
 }
 
-func seedPipelineTriggerProject(t *testing.T, store core.Store) string {
+func seedRunTriggerProject(t *testing.T, store core.Store) string {
 	t.Helper()
 	project := &core.Project{
-		ID:       "proj-pipeline-trigger",
-		Name:     "proj-pipeline-trigger",
+		ID:       "proj-Run-trigger",
+		Name:     "proj-Run-trigger",
 		RepoPath: t.TempDir(),
 	}
 	if err := store.CreateProject(project); err != nil {

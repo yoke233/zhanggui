@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
-import type { Pipeline } from "../types/workflow";
-import type { PipelineActionRequest, PipelineCheckpoint } from "../types/api";
+import type { Run } from "../types/workflow";
+import type { RunActionRequest, RunCheckpoint } from "../types/api";
 import GitHubStatusBadge from "../components/GitHubStatusBadge";
 
-interface PipelineViewProps {
+interface RunViewProps {
   apiClient: ApiClient;
   projectId: string;
   refreshToken: number;
 }
 
-const PIPELINE_STAGE_ORDER: Record<string, string[]> = {
+const Run_STAGE_ORDER: Record<string, string[]> = {
   standard: [
     "requirements",
     "spec_gen",
@@ -44,8 +44,8 @@ const getErrorMessage = (error: unknown): string => {
 const PAGE_LIMIT = 50;
 const REFRESH_INTERVAL_MS = 10_000;
 
-const getPipelineProgress = (pipeline: Pipeline) => {
-  const stages = PIPELINE_STAGE_ORDER[pipeline.template] ?? [];
+const getRunProgress = (Run: Run) => {
+  const stages = Run_STAGE_ORDER[Run.template] ?? [];
   const totalStages = stages.length;
   if (totalStages === 0) {
     return {
@@ -54,14 +54,14 @@ const getPipelineProgress = (pipeline: Pipeline) => {
     };
   }
 
-  const currentIndex = stages.findIndex((stage) => stage === pipeline.current_stage);
-  if (pipeline.status === "done" || pipeline.status === "failed" || pipeline.status === "aborted") {
+  const currentIndex = stages.findIndex((stage) => stage === Run.current_stage);
+  if (Run.status === "done" || Run.status === "failed" || Run.status === "timeout") {
     return {
       percentage: 100,
       stageText: `${totalStages}/${totalStages}`,
     };
   }
-  if (pipeline.status === "created") {
+  if (Run.status === "created") {
     return {
       percentage: 0,
       stageText: `0/${totalStages}`,
@@ -77,10 +77,10 @@ const getPipelineProgress = (pipeline: Pipeline) => {
   };
 };
 
-const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps) => {
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
-  const [checkpoints, setCheckpoints] = useState<PipelineCheckpoint[]>([]);
+const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
+  const [Runs, setRuns] = useState<Run[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [checkpoints, setCheckpoints] = useState<RunCheckpoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -93,7 +93,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
-    const loadPipelines = async () => {
+    const loadRuns = async () => {
       if (inFlight) {
         return;
       }
@@ -102,17 +102,17 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       setError(null);
 
       try {
-        const allPipelines: Pipeline[] = [];
+        const allRuns: Run[] = [];
         let offset = 0;
         while (true) {
-          const response = await apiClient.listPipelines(projectId, {
+          const response = await apiClient.listRuns(projectId, {
             limit: PAGE_LIMIT,
             offset,
           });
           if (cancelled) {
             return;
           }
-          allPipelines.push(...response.items);
+          allRuns.push(...response.items);
           const currentCount = response.items.length;
           if (currentCount === 0) {
             break;
@@ -123,18 +123,18 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           }
         }
         if (!cancelled) {
-          setPipelines(allPipelines);
-          setSelectedPipelineId((current) => {
-            if (current && allPipelines.some((item) => item.id === current)) {
+          setRuns(allRuns);
+          setSelectedRunId((current) => {
+            if (current && allRuns.some((item) => item.id === current)) {
               return current;
             }
-            return allPipelines[0]?.id ?? null;
+            return allRuns[0]?.id ?? null;
           });
         }
       } catch (requestError) {
         if (!cancelled) {
-          setPipelines([]);
-          setSelectedPipelineId(null);
+          setRuns([]);
+          setSelectedRunId(null);
           setCheckpoints([]);
           setError(getErrorMessage(requestError));
         }
@@ -146,10 +146,10 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       }
     };
 
-    void loadPipelines();
+    void loadRuns();
     // Fallback refresh for non-board scenarios where WS events are not enough to keep list current.
     const intervalId = setInterval(() => {
-      void loadPipelines();
+      void loadRuns();
     }, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
@@ -158,11 +158,11 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   }, [apiClient, projectId, refreshToken]);
 
   const loadCheckpoints = useCallback(
-    async (pipelineId: string) => {
+    async (RunId: string) => {
       setCheckpointsLoading(true);
       setActionError(null);
       try {
-        const response = await apiClient.getPipelineCheckpoints(projectId, pipelineId);
+        const response = await apiClient.getRunCheckpoints(projectId, RunId);
         setCheckpoints(response);
       } catch (requestError) {
         setCheckpoints([]);
@@ -175,39 +175,39 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   );
 
   useEffect(() => {
-    if (!selectedPipelineId) {
+    if (!selectedRunId) {
       setCheckpoints([]);
       return;
     }
-    void loadCheckpoints(selectedPipelineId);
-  }, [selectedPipelineId, loadCheckpoints]);
+    void loadCheckpoints(selectedRunId);
+  }, [selectedRunId, loadCheckpoints]);
 
-  const selectedPipeline = useMemo(
-    () => pipelines.find((pipeline) => pipeline.id === selectedPipelineId) ?? null,
-    [pipelines, selectedPipelineId],
+  const selectedRun = useMemo(
+    () => Runs.find((Run) => Run.id === selectedRunId) ?? null,
+    [Runs, selectedRunId],
   );
-  const progress = selectedPipeline ? getPipelineProgress(selectedPipeline) : null;
+  const progress = selectedRun ? getRunProgress(selectedRun) : null;
 
   const currentStageTeamLeader = useMemo(() => {
-    if (!selectedPipeline) return null;
-    let cp: PipelineCheckpoint | undefined;
+    if (!selectedRun) return null;
+    let cp: RunCheckpoint | undefined;
     for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
-      if (checkpoints[i]?.stage_name === selectedPipeline.current_stage) {
+      if (checkpoints[i]?.stage_name === selectedRun.current_stage) {
         cp = checkpoints[i];
         break;
       }
     }
     return cp?.agent_used || null;
-  }, [selectedPipeline, checkpoints]);
+  }, [selectedRun, checkpoints]);
 
-  const isTerminal = selectedPipeline
-    ? ["done", "failed", "aborted"].includes(selectedPipeline.status)
+  const isTerminal = selectedRun
+    ? ["done", "failed", "failed"].includes(selectedRun.status)
     : true;
 
-  const handlePipelineAction = async (
-    action: PipelineActionRequest["action"],
+  const handleRunAction = async (
+    action: RunActionRequest["action"],
   ) => {
-    if (!selectedPipeline) {
+    if (!selectedRun) {
       return;
     }
 
@@ -215,14 +215,14 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
     setActionError(null);
     setActionNotice(null);
     try {
-      const body: PipelineActionRequest = { action };
+      const body: RunActionRequest = { action };
       const trimmedMessage = actionMessage.trim();
       if (action === "reject") {
-        body.stage = selectedPipeline.current_stage || undefined;
+        body.stage = selectedRun.current_stage || undefined;
         body.message = trimmedMessage || "人工驳回，请调整后重试。";
       } else if (action === "change_role") {
         body.role = changeRoleValue.trim();
-        body.stage = selectedPipeline.current_stage || undefined;
+        body.stage = selectedRun.current_stage || undefined;
         if (trimmedMessage) {
           body.message = trimmedMessage;
         }
@@ -230,24 +230,24 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
         body.message = trimmedMessage;
       }
 
-      const response = await apiClient.applyPipelineAction(
+      const response = await apiClient.applyRunAction(
         projectId,
-        selectedPipeline.id,
+        selectedRun.id,
         body,
       );
-      setPipelines((current) =>
-        current.map((pipeline) =>
-          pipeline.id === selectedPipeline.id
+      setRuns((current) =>
+        current.map((Run) =>
+          Run.id === selectedRun.id
             ? {
-                ...pipeline,
-                status: response.status as Pipeline["status"],
-                current_stage: response.current_stage ?? pipeline.current_stage,
+                ...Run,
+                status: response.status as Run["status"],
+                current_stage: response.current_stage ?? Run.current_stage,
               }
-            : pipeline,
+            : Run,
         ),
       );
       setActionNotice(`动作 ${action} 已提交，状态：${response.status}`);
-      await loadCheckpoints(selectedPipeline.id);
+      await loadCheckpoints(selectedRun.id);
     } catch (requestError) {
       setActionError(getErrorMessage(requestError));
     } finally {
@@ -273,7 +273,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         {loading ? (
           <p className="text-sm text-slate-500">加载中...</p>
-        ) : pipelines.length === 0 ? (
+        ) : Runs.length === 0 ? (
           <p className="text-sm text-slate-500">当前项目暂无运行记录。</p>
         ) : (
           <div className="overflow-x-auto">
@@ -288,23 +288,23 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
                 </tr>
               </thead>
               <tbody>
-                {pipelines.map((pipeline) => (
+                {Runs.map((Run) => (
                   <tr
-                    key={pipeline.id}
-                    data-testid="pipeline-row"
+                    key={Run.id}
+                    data-testid="Run-row"
                     className={`cursor-pointer border-b border-slate-100 ${
-                      selectedPipelineId === pipeline.id ? "bg-slate-50" : ""
+                      selectedRunId === Run.id ? "bg-slate-50" : ""
                     }`}
                     onClick={() => {
-                      setSelectedPipelineId(pipeline.id);
+                      setSelectedRunId(Run.id);
                     }}
                   >
-                    <td className="px-2 py-2 font-mono text-xs">{pipeline.id}</td>
-                    <td className="px-2 py-2">{pipeline.name}</td>
-                    <td className="px-2 py-2">{pipeline.status}</td>
-                    <td className="px-2 py-2">{pipeline.current_stage || "-"}</td>
+                    <td className="px-2 py-2 font-mono text-xs">{Run.id}</td>
+                    <td className="px-2 py-2">{Run.name}</td>
+                    <td className="px-2 py-2">{Run.status}</td>
+                    <td className="px-2 py-2">{Run.current_stage || "-"}</td>
                     <td className="px-2 py-2">
-                      {pipeline.updated_at ? new Date(pipeline.updated_at).toLocaleString("zh-CN") : "-"}
+                      {Run.updated_at ? new Date(Run.updated_at).toLocaleString("zh-CN") : "-"}
                     </td>
                   </tr>
                 ))}
@@ -316,22 +316,22 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold">阶段进度</h2>
-        {!selectedPipeline || !progress ? (
+        {!selectedRun || !progress ? (
           <p className="mt-2 text-xs text-slate-500">请选择运行记录查看阶段进度。</p>
         ) : (
           <>
             <div className="mt-2">
-              <GitHubStatusBadge status={selectedPipeline.github?.connection_status} />
+              <GitHubStatusBadge status={selectedRun.github?.connection_status} />
             </div>
             <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
               <div
-                data-testid="pipeline-progress-value"
+                data-testid="Run-progress-value"
                 className="h-full bg-slate-900 transition-all"
                 style={{ width: `${progress.percentage}%` }}
               />
             </div>
             <p className="mt-2 text-xs text-slate-600">
-              stage={selectedPipeline.current_stage || "-"}
+              stage={selectedRun.current_stage || "-"}
               {currentStageTeamLeader ? ` · team_leader=${currentStageTeamLeader}` : ""} · 进度{" "}
               {progress.stageText} · {progress.percentage}%
             </p>
@@ -342,49 +342,49 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold">输出区</h3>
-          {!selectedPipeline ? (
+          {!selectedRun ? (
             <p className="mt-2 text-xs text-slate-500">请选择运行记录查看输出。</p>
           ) : (
             <div className="mt-2 space-y-2 text-xs">
               <p className="text-slate-600">GitHub</p>
-              <div data-testid="pipeline-github-links" className="rounded-md border border-slate-200 px-2 py-2">
+              <div data-testid="Run-github-links" className="rounded-md border border-slate-200 px-2 py-2">
                 <div className="flex flex-wrap gap-3">
-                  {selectedPipeline.github?.issue_url ? (
+                  {selectedRun.github?.issue_url ? (
                     <a
-                      href={selectedPipeline.github.issue_url}
+                      href={selectedRun.github.issue_url}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-700 underline"
                     >
-                      {selectedPipeline.github.issue_number
-                        ? `Issue #${selectedPipeline.github.issue_number}`
+                      {selectedRun.github.issue_number
+                        ? `Issue #${selectedRun.github.issue_number}`
                         : "Issue Link"}
                     </a>
                   ) : null}
-                  {selectedPipeline.github?.pr_url ? (
+                  {selectedRun.github?.pr_url ? (
                     <a
-                      href={selectedPipeline.github.pr_url}
+                      href={selectedRun.github.pr_url}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-700 underline"
                     >
-                      {selectedPipeline.github.pr_number
-                        ? `PR #${selectedPipeline.github.pr_number}`
+                      {selectedRun.github.pr_number
+                        ? `PR #${selectedRun.github.pr_number}`
                         : "PR Link"}
                     </a>
                   ) : null}
                 </div>
-                {!selectedPipeline.github?.issue_url && !selectedPipeline.github?.pr_url ? (
+                {!selectedRun.github?.issue_url && !selectedRun.github?.pr_url ? (
                   <p className="text-slate-500">暂无 GitHub Issue/PR 关联。</p>
                 ) : null}
               </div>
               <p className="text-slate-600">Artifacts</p>
               <pre className="max-h-52 overflow-auto rounded-md bg-slate-950 p-3 text-slate-100">
-                {JSON.stringify(selectedPipeline.artifacts ?? {}, null, 2)}
+                {JSON.stringify(selectedRun.artifacts ?? {}, null, 2)}
               </pre>
               <p className="text-slate-600">Error</p>
               <pre className="max-h-24 overflow-auto rounded-md bg-slate-100 p-2 text-slate-800">
-                {selectedPipeline.error_message || "-"}
+                {selectedRun.error_message || "-"}
               </pre>
             </div>
           )}
@@ -417,25 +417,25 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
         <p className="mt-1 text-xs text-slate-500">
           Run Action API：审批、流程控制与 Team Leader 切换。
         </p>
-        <label htmlFor="pipeline-action-message" className="mt-2 block text-xs text-slate-700">
+        <label htmlFor="Run-action-message" className="mt-2 block text-xs text-slate-700">
           动作备注（可选）
         </label>
         <input
-          id="pipeline-action-message"
+          id="Run-action-message"
           className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
           value={actionMessage}
           onChange={(event) => {
             setActionMessage(event.target.value);
           }}
-          disabled={!selectedPipeline || actionLoading}
+          disabled={!selectedRun || actionLoading}
         />
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <button
             type="button"
             className="rounded-md border border-emerald-300 px-3 py-2 text-sm text-emerald-700 disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading}
+            disabled={!selectedRun || actionLoading}
             onClick={() => {
-              void handlePipelineAction("approve");
+              void handleRunAction("approve");
             }}
           >
             Approve
@@ -443,9 +443,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <button
             type="button"
             className="rounded-md border border-rose-300 px-3 py-2 text-sm text-rose-700 disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading}
+            disabled={!selectedRun || actionLoading}
             onClick={() => {
-              void handlePipelineAction("reject");
+              void handleRunAction("reject");
             }}
           >
             Reject
@@ -453,9 +453,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <button
             type="button"
             className="rounded-md border border-amber-300 px-3 py-2 text-sm text-amber-700 disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading}
+            disabled={!selectedRun || actionLoading}
             onClick={() => {
-              void handlePipelineAction("skip");
+              void handleRunAction("skip");
             }}
           >
             Skip
@@ -463,9 +463,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <button
             type="button"
             className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading}
+            disabled={!selectedRun || actionLoading}
             onClick={() => {
-              void handlePipelineAction("abort");
+              void handleRunAction("abort");
             }}
           >
             Abort
@@ -475,9 +475,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <button
             type="button"
             className="rounded-md border border-sky-300 px-3 py-2 text-sm text-sky-700 disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading || selectedPipeline?.status !== "running"}
+            disabled={!selectedRun || actionLoading || selectedRun?.status !== "running"}
             onClick={() => {
-              void handlePipelineAction("pause");
+              void handleRunAction("pause");
             }}
           >
             Pause
@@ -485,9 +485,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <button
             type="button"
             className="rounded-md border border-sky-300 px-3 py-2 text-sm text-sky-700 disabled:opacity-50"
-            disabled={!selectedPipeline || actionLoading || selectedPipeline?.status !== "paused"}
+            disabled={!selectedRun || actionLoading || selectedRun?.status !== "waiting_review"}
             onClick={() => {
-              void handlePipelineAction("resume");
+              void handleRunAction("resume");
             }}
           >
             Resume
@@ -496,12 +496,12 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
             type="button"
             className="rounded-md border border-indigo-300 px-3 py-2 text-sm text-indigo-700 disabled:opacity-50"
             disabled={
-              !selectedPipeline ||
+              !selectedRun ||
               actionLoading ||
-              (selectedPipeline?.status !== "failed" && selectedPipeline?.status !== "done")
+              (selectedRun?.status !== "failed" && selectedRun?.status !== "done")
             }
             onClick={() => {
-              void handlePipelineAction("rerun");
+              void handleRunAction("rerun");
             }}
           >
             Rerun
@@ -509,26 +509,26 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
         </div>
         <div className="mt-2 flex gap-2">
           <input
-            id="pipeline-change-role"
+            id="Run-change-role"
             className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
             placeholder="目标 Team Leader（如 claude, codex）"
             value={changeRoleValue}
             onChange={(event) => {
               setChangeRoleValue(event.target.value);
             }}
-            disabled={!selectedPipeline || actionLoading || isTerminal}
+            disabled={!selectedRun || actionLoading || isTerminal}
           />
           <button
             type="button"
             className="rounded-md border border-violet-300 px-3 py-2 text-sm text-violet-700 disabled:opacity-50"
             disabled={
-              !selectedPipeline ||
+              !selectedRun ||
               actionLoading ||
               isTerminal ||
               changeRoleValue.trim().length === 0
             }
             onClick={() => {
-              void handlePipelineAction("change_role");
+              void handleRunAction("change_role");
             }}
           >
             Change Team Leader
@@ -549,5 +549,5 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   );
 };
 
-export default PipelineView;
+export default RunView;
 

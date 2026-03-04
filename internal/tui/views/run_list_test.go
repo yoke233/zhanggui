@@ -7,8 +7,8 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestRenderPipelineListShowsCurrentStage(t *testing.T) {
-	out := RenderPipelineList([]core.Pipeline{
+func TestRenderRunListShowsCurrentStage(t *testing.T) {
+	out := RenderRunList([]core.Run{
 		{
 			ID:           "p-1",
 			Name:         "demo-pipe",

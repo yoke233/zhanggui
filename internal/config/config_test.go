@@ -42,8 +42,8 @@ func TestMergeAgentConfig_CapabilitiesMaxOverride(t *testing.T) {
 
 func TestLoadDefaults(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Pipeline.DefaultTemplate != "standard" {
-		t.Errorf("expected default template standard, got %s", cfg.Pipeline.DefaultTemplate)
+	if cfg.Run.DefaultTemplate != "standard" {
+		t.Errorf("expected default template standard, got %s", cfg.Run.DefaultTemplate)
 	}
 	if cfg.Scheduler.MaxGlobalAgents != 3 {
 		t.Errorf("expected max_global_agents 3, got %d", cfg.Scheduler.MaxGlobalAgents)
@@ -214,7 +214,7 @@ roles:
 role_bindings:
   team_leader:
     role: worker
-  pipeline:
+  Run:
     stage_roles:
       implement: worker
   review_orchestrator:
@@ -231,7 +231,7 @@ role_bindings:
 	if got := agents[0].LaunchCommand; got != "claude-agent-acp" {
 		t.Fatalf("expected launch command claude-agent-acp, got %q", got)
 	}
-	if got := cfg.RoleBinds.Pipeline.StageRoles["implement"]; got != "worker" {
+	if got := cfg.RoleBinds.Run.StageRoles["implement"]; got != "worker" {
 		t.Fatalf("expected stage role implement=worker, got %q", got)
 	}
 	if got := cfg.RoleBinds.TeamLeader.Role; got != "worker" {
@@ -279,7 +279,7 @@ func TestApplyConfigLayer_RoleBindingsPartialOverrideKeepsOtherBindings(t *testi
 	cfg := Defaults()
 	layer, err := loadLayerFromBytes([]byte(`
 role_bindings:
-  pipeline:
+  Run:
     stage_roles:
       implement: reviewer
 `))
@@ -298,8 +298,8 @@ role_bindings:
 	if got := cfg.RoleBinds.ReviewOrchestrator.Aggregator; got != "aggregator" {
 		t.Fatalf("expected review aggregator binding kept, got %q", got)
 	}
-	if got := cfg.RoleBinds.Pipeline.StageRoles["implement"]; got != "reviewer" {
-		t.Fatalf("expected pipeline implement role overwritten to reviewer, got %q", got)
+	if got := cfg.RoleBinds.Run.StageRoles["implement"]; got != "reviewer" {
+		t.Fatalf("expected Run implement role overwritten to reviewer, got %q", got)
 	}
 }
 
