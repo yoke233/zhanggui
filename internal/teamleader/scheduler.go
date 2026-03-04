@@ -368,7 +368,7 @@ func (s *DepScheduler) recoverSession(ctx context.Context, sessionID string, iss
 				return fmt.Errorf("recover issue %s Run %s: %w", issueID, issue.RunID, getErr)
 			}
 			rs.Running[issueID] = issue.RunID
-			if evtType, terminal := RunRecoveryEvent(Run.Status); terminal {
+			if evtType, terminal := RunRecoveryEvent(Run.Status, Run.Conclusion); terminal {
 				replayEvents = append(replayEvents, core.Event{
 					Type:      evtType,
 					RunID:     issue.RunID,
@@ -888,15 +888,18 @@ func (s *DepScheduler) releaseSlot() {
 	}
 }
 
-func RunRecoveryEvent(status core.RunStatus) (core.EventType, bool) {
-	switch status {
-	case core.StatusDone:
-		return core.EventRunDone, true
-	case core.StatusFailed, core.StatusTimeout:
-		return core.EventRunFailed, true
-	default:
+// RunRecoveryEvent maps a terminal run's status+conclusion to an event for scheduler replay.
+// All non-success conclusions (failure, timed_out, cancelled) map to EventRunFailed
+// because the scheduler treats any non-success outcome identically: mark the issue failed
+// and apply the session's fail policy.
+func RunRecoveryEvent(status core.RunStatus, conclusion core.RunConclusion) (core.EventType, bool) {
+	if status != core.StatusCompleted {
 		return "", false
 	}
+	if conclusion == core.ConclusionSuccess {
+		return core.EventRunDone, true
+	}
+	return core.EventRunFailed, true
 }
 
 func workflowDispatchProfileOrder() []core.WorkflowProfileType {
@@ -982,7 +985,7 @@ func buildRunFromIssue(issue *core.Issue, profile core.WorkflowProfileType, stag
 		Name:        name,
 		Description: issue.Body,
 		Template:    template,
-		Status:      core.StatusCreated,
+		Status:      core.StatusQueued,
 		Stages:      stages,
 		Artifacts:   map[string]string{},
 		Config: map[string]any{
@@ -1022,17 +1025,17 @@ func schedulerDefaultStageConfig(id core.StageID) core.StageConfig {
 	}
 
 	switch id {
-	case core.StageRequirements, core.StageCodeReview:
+	case core.StageRequirements, core.StageReview:
 		cfg.Agent = "codex"
 	case core.StageImplement:
 		cfg.Agent = "codex"
 	case core.StageFixup:
 		cfg.Agent = "codex"
 		cfg.ReuseSessionFrom = core.StageImplement
-	case core.StageE2ETest:
+	case core.StageTest:
 		cfg.Agent = "codex"
 		cfg.Timeout = 15 * time.Minute
-	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
+	case core.StageSetup, core.StageMerge, core.StageCleanup:
 		cfg.Timeout = 2 * time.Minute
 	}
 	return cfg

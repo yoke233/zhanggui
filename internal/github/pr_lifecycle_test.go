@@ -81,7 +81,7 @@ func TestPRLifecycle_PullRequestClosedMerged_RunDone(t *testing.T) {
 	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-closed-merged", map[string]any{
 		"pr_number": 501,
 	})
-	Run.Status = core.StatusRunning
+	Run.Status = core.StatusInProgress
 	if err := store.SaveRun(Run); err != nil {
 		t.Fatalf("SaveRun() error = %v", err)
 	}
@@ -95,8 +95,11 @@ func TestPRLifecycle_PullRequestClosedMerged_RunDone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if updated.Status != core.StatusDone {
-		t.Fatalf("expected Run done, got %s", updated.Status)
+	if updated.Status != core.StatusCompleted {
+		t.Fatalf("expected Run completed, got %s", updated.Status)
+	}
+	if updated.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected conclusion success, got %s", updated.Conclusion)
 	}
 	if updated.FinishedAt.IsZero() {
 		t.Fatal("expected finished_at to be set")
@@ -111,7 +114,7 @@ func TestPRLifecycle_PullRequestClosedNotMerged_RunFailed(t *testing.T) {
 	Run := seedPRLifecycleRun(t, store, projectID, "pipe-pr-closed-unmerged", map[string]any{
 		"pr_number": 777,
 	})
-	Run.Status = core.StatusRunning
+	Run.Status = core.StatusInProgress
 	if err := store.SaveRun(Run); err != nil {
 		t.Fatalf("SaveRun() error = %v", err)
 	}
@@ -125,8 +128,11 @@ func TestPRLifecycle_PullRequestClosedNotMerged_RunFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if updated.Status != core.StatusFailed {
-		t.Fatalf("expected Run failed, got %s", updated.Status)
+	if updated.Status != core.StatusCompleted {
+		t.Fatalf("expected Run completed, got %s", updated.Status)
+	}
+	if updated.Conclusion != core.ConclusionFailure {
+		t.Fatalf("expected conclusion failure, got %s", updated.Conclusion)
 	}
 	if updated.ErrorMessage == "" {
 		t.Fatal("expected failure message to be recorded")
@@ -172,7 +178,7 @@ func seedPRLifecycleRun(
 		Name:            id,
 		Description:     "Run for pr lifecycle",
 		Template:        "standard",
-		Status:          core.StatusRunning,
+		Status:          core.StatusInProgress,
 		CurrentStage:    core.StageImplement,
 		BranchName:      "ai-flow/" + id,
 		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},

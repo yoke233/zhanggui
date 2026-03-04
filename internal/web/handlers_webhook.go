@@ -251,7 +251,7 @@ func (h *webhookHandlers) createRunForTrigger(
 		Name:            strings.TrimSpace(name),
 		Description:     strings.TrimSpace(description),
 		Template:        strings.TrimSpace(template),
-		Status:          core.StatusCreated,
+		Status:          core.StatusQueued,
 		Stages:          stages,
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{},

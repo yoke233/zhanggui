@@ -16,8 +16,19 @@
 
 - `/run`：按 issue 当前 `workflow_profile` 触发 run。
 - `/run <profile>`：使用指定档位触发（`normal|strict|fast_release`）。
-- `/review`：触发 issue review（若存在 `review_scope.files`，仅审该范围）。
-- `/cancel`：取消当前活跃 run（可选实现）。
+- `/review`：等同于 `/approve`，触发 issue 审批通过。
+- `/cancel`：等同于 `/abort`，取消当前活跃 run。
+- `/approve`：审批通过当前 issue。
+- `/reject`：驳回当前 issue。
+- `/status`：查询当前 run 状态。
+- `/abort`：中止当前活跃 run。
+
+## 分支与 PR
+
+- auto-merge 创建 PR 时，base branch 取自 `run.config["base_branch"]`（源自 `project.default_branch`）。
+- GitHub 触发的 run 与本地触发的 run 共享同一 `default_branch`，保证一致性。
+- 若项目未配置 `default_branch`（历史数据），fallback 到仓库当前 HEAD 分支。
+- PR body 自动追加 `Closes #N`（当 run.config 中存在 `issue_number` / `github_issue_number` 时）。
 
 ## 幂等与并发规则
 

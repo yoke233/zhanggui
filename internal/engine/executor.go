@@ -126,7 +126,7 @@ func (e *Executor) CreateRun(projectID, name, description, template string) (*co
 		Name:            name,
 		Description:     description,
 		Template:        template,
-		Status:          core.StatusCreated,
+		Status:          core.StatusQueued,
 		Stages:          stages,
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{},
@@ -180,7 +180,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		p.Config["trace_id"] = traceID
 	}
 
-	if allowAlreadyRunning && p.Status == core.StatusRunning {
+	if allowAlreadyRunning && p.Status == core.StatusInProgress {
 		if p.StartedAt.IsZero() {
 			p.StartedAt = time.Now()
 			if err := e.store.SaveRun(p); err != nil {
@@ -188,10 +188,10 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 			}
 		}
 	} else {
-		if err := core.ValidateTransition(p.Status, core.StatusRunning); err != nil {
+		if err := core.ValidateTransition(p.Status, core.StatusInProgress); err != nil {
 			return err
 		}
-		p.Status = core.StatusRunning
+		p.Status = core.StatusInProgress
 		p.StartedAt = time.Now()
 		if err := e.store.SaveRun(p); err != nil {
 			return err
@@ -216,9 +216,6 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 			Data:      RunEventData(traceID, issueNumber, "stage_start", baseEventData),
 			Timestamp: stageStartTS,
 		})
-		if err := e.appendEventLog(p.ID, stage.Name, core.EventStageStart, "", "stage started", stageStartTS); err != nil {
-			return fmt.Errorf("append stage_start log: %w", err)
-		}
 		logger.Info("Run stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
 			TraceID:     traceID,
 			ProjectID:   p.ProjectID,
@@ -269,9 +266,6 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					Data:      RunEventData(traceID, issueNumber, "stage_complete", baseEventData),
 					Timestamp: stageCompleteTS,
 				})
-				if err := e.appendEventLog(p.ID, stage.Name, core.EventStageComplete, "", "stage completed", stageCompleteTS); err != nil {
-					return fmt.Errorf("append stage_complete log: %w", err)
-				}
 				logger.Info("Run stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
 					TraceID:     traceID,
 					ProjectID:   p.ProjectID,
@@ -284,11 +278,11 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				break
 			}
 
-			waiting_review, stateErr := e.isRunwaiting_review(p.ID)
+			actionRequired, stateErr := e.isRunActionRequired(p.ID)
 			if stateErr != nil {
 				return stateErr
 			}
-			if waiting_review {
+			if actionRequired {
 				// Pause keeps current stage in-progress for a later explicit resume.
 				return nil
 			}
@@ -308,9 +302,6 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				Error:     err.Error(),
 				Timestamp: stageFailedTS,
 			})
-			if err := e.appendEventLog(p.ID, stage.Name, core.EventStageFailed, "", err.Error(), stageFailedTS); err != nil {
-				return fmt.Errorf("append stage_failed log: %w", err)
-			}
 			logger.Error("Run stage failed", observability.StructuredLogArgs(observability.StructuredLogInput{
 				TraceID:     traceID,
 				ProjectID:   p.ProjectID,
@@ -360,7 +351,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					return saveErr
 				}
 			case ReactionEscalateHuman:
-				p.Status = core.StatusWaitingReview
+				p.Status = core.StatusActionRequired
 				p.ErrorMessage = err.Error()
 				if saveErr := e.store.SaveRun(p); saveErr != nil {
 					return saveErr
@@ -375,9 +366,6 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					Error:     err.Error(),
 					Timestamp: humanRequiredTS,
 				})
-				if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", err.Error(), humanRequiredTS); err != nil {
-					return fmt.Errorf("append human_required log: %w", err)
-				}
 				return nil
 			case ReactionAbortRun:
 				return e.failRun(p, fmt.Sprintf("stage %s failed: %v", stage.Name, err), err)
@@ -396,7 +384,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		}
 
 		if stage.RequireHuman {
-			p.Status = core.StatusWaitingReview
+			p.Status = core.StatusActionRequired
 			if err := e.store.SaveRun(p); err != nil {
 				return err
 			}
@@ -409,14 +397,12 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				Data:      RunEventData(traceID, issueNumber, "human_required", baseEventData),
 				Timestamp: humanRequiredTS,
 			})
-			if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", "human approval required", humanRequiredTS); err != nil {
-				return fmt.Errorf("append human_required log: %w", err)
-			}
 			return nil
 		}
 	}
 
-	p.Status = core.StatusDone
+	p.Status = core.StatusCompleted
+	p.Conclusion = core.ConclusionSuccess
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = ""
 	if err := e.store.SaveRun(p); err != nil {
@@ -512,16 +498,17 @@ func (e *Executor) killActiveSession(RunID string) error {
 	return e.runtime.Kill(sessionID)
 }
 
-func (e *Executor) isRunwaiting_review(RunID string) (bool, error) {
+func (e *Executor) isRunActionRequired(RunID string) (bool, error) {
 	p, err := e.store.GetRun(RunID)
 	if err != nil {
 		return false, err
 	}
-	return p.Status == core.StatusWaitingReview, nil
+	return p.Status == core.StatusActionRequired, nil
 }
 
 func (e *Executor) failRun(p *core.Run, message string, cause error) error {
-	p.Status = core.StatusFailed
+	p.Status = core.StatusCompleted
+	p.Conclusion = core.ConclusionFailure
 	p.ErrorMessage = message
 	p.FinishedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -561,7 +548,7 @@ func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 
 func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *core.Run, stage *core.StageConfig) error {
 	switch stage.Name {
-	case core.StageWorktreeSetup:
+	case core.StageSetup:
 		return e.runWorktreeSetup(project, p)
 	case core.StageMerge:
 		return e.runMerge(project, p)
@@ -683,9 +670,6 @@ func (e *Executor) runCLIStage(
 			},
 			Timestamp: evt.Timestamp,
 		})
-		if err := e.appendEventLog(p.ID, stage.Name, core.EventAgentOutput, agentName, evt.Content, evt.Timestamp); err != nil {
-			return fmt.Errorf("append agent_output log: %w", err)
-		}
 	}
 
 	if err := sess.Wait(); err != nil {
@@ -878,9 +862,6 @@ func (e *Executor) promptACPSession(
 		},
 		Timestamp: time.Now(),
 	})
-	if err := e.appendEventLog(p.ID, stage.Name, core.EventAgentOutput, agentName, replyText, time.Now()); err != nil {
-		return fmt.Errorf("append agent_output log: %w", err)
-	}
 	return nil
 }
 
@@ -907,7 +888,6 @@ func (b *stageEventBridge) HandleSessionUpdate(_ context.Context, update acpclie
 		},
 		Timestamp: time.Now(),
 	})
-	_ = b.executor.appendEventLog(b.runID, b.stage, core.EventAgentOutput, b.agentName, update.Text, time.Now())
 	return nil
 }
 
@@ -951,7 +931,7 @@ func (e *Executor) resolveStageAgentName(stage *core.StageConfig) (string, acpcl
 
 func stageRequiresRole(stage core.StageID) bool {
 	switch stage {
-	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
+	case core.StageSetup, core.StageMerge, core.StageCleanup:
 		return false
 	default:
 		return true
@@ -982,10 +962,11 @@ func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Run) error {
 	}
 
 	result, err := e.workspace.Setup(context.Background(), core.WorkspaceSetupRequest{
-		RepoPath:     project.RepoPath,
-		RunID:        p.ID,
-		BranchName:   p.BranchName,
-		WorktreePath: p.WorktreePath,
+		RepoPath:      project.RepoPath,
+		RunID:         p.ID,
+		BranchName:    p.BranchName,
+		WorktreePath:  p.WorktreePath,
+		DefaultBranch: project.DefaultBranch,
 	})
 	if err != nil {
 		return err
@@ -1045,17 +1026,17 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 		OnFailure:  core.OnFailureHuman,
 	}
 	switch id {
-	case core.StageRequirements, core.StageCodeReview:
+	case core.StageRequirements, core.StageReview:
 		cfg.Agent = ""
 	case core.StageImplement:
 		cfg.Agent = ""
 	case core.StageFixup:
 		cfg.Agent = ""
 		cfg.ReuseSessionFrom = core.StageImplement
-	case core.StageE2ETest:
+	case core.StageTest:
 		cfg.Agent = ""
 		cfg.Timeout = 15 * time.Minute
-	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
+	case core.StageSetup, core.StageMerge, core.StageCleanup:
 		cfg.Agent = ""
 		cfg.Timeout = 2 * time.Minute
 	}
@@ -1075,20 +1056,6 @@ func RunEventData(traceID string, issueNumber int, op string, extra map[string]s
 		data["op"] = strings.TrimSpace(op)
 	}
 	return observability.EventDataWithTrace(data, traceID)
-}
-
-func (e *Executor) appendEventLog(RunID string, stage core.StageID, eventType core.EventType, agent, content string, timestamp time.Time) error {
-	if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-	return e.store.AppendLog(core.LogEntry{
-		RunID:     RunID,
-		Stage:     string(stage),
-		Type:      string(eventType),
-		Agent:     strings.TrimSpace(agent),
-		Content:   content,
-		Timestamp: timestamp.UTC().Format(time.RFC3339Nano),
-	})
 }
 
 func issueNumberFromRun(p *core.Run) int {

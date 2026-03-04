@@ -33,7 +33,27 @@
       "Bash(curl *)",
       "Bash(wget *)",
       "Bash(do echo:*)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(cd /mnt/d/project/ai-workflow/web && npx tsc --noEmit 2>&1)",
+      "Bash(npx vitest run 2>&1)",
+      "Bash(./ai-flow *)",
+      "Bash(kill %1 2>/dev/null; echo \"server stopped\")",
+      "WebFetch(domain:right.codes)",
+      "WebFetch(domain:registry.npmmirror.com)",
+      "WebFetch(domain:cdn.npmmirror.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebFetch(domain:goproxy.cn)",
+      "WebFetch(domain:gopkg.in)",
+      "WebFetch(domain:modernc.org)",
+      "WebFetch(domain:golang.org)",
+      "WebFetch(domain:go.opentelemetry.io)",
+      "WebFetch(domain:google.golang.org)",
+      "WebFetch(domain:proxy.golang.org)"
     ]
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": false,
+    "allowUnsandboxedCommands": true
   }
 }

@@ -35,7 +35,7 @@ func TestParseSlashCommand_Reject_WithStageAndReason(t *testing.T) {
 }
 
 func TestParseSlashCommand_Reject_CodeReview(t *testing.T) {
-	cmd, ok, err := ParseSlashCommand("/reject code_review 测试覆盖不足")
+	cmd, ok, err := ParseSlashCommand("/reject review 测试覆盖不足")
 	if err != nil {
 		t.Fatalf("ParseSlashCommand() error = %v", err)
 	}
@@ -45,8 +45,8 @@ func TestParseSlashCommand_Reject_CodeReview(t *testing.T) {
 	if cmd.Type != SlashCommandReject {
 		t.Fatalf("expected reject command, got %s", cmd.Type)
 	}
-	if cmd.Stage != "code_review" {
-		t.Fatalf("expected stage code_review, got %s", cmd.Stage)
+	if cmd.Stage != "review" {
+		t.Fatalf("expected stage review, got %s", cmd.Stage)
 	}
 }
 

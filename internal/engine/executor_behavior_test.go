@@ -155,8 +155,12 @@ func newTestStore(t *testing.T) *storesqlite.SQLiteStore {
 }
 
 func newExecutor(store core.Store, agents map[string]core.AgentPlugin, runtime core.RuntimePlugin) *Executor {
+	return newExecutorWithBus(store, eventbus.New(), agents, runtime)
+}
+
+func newExecutorWithBus(store core.Store, bus *eventbus.Bus, agents map[string]core.AgentPlugin, runtime core.RuntimePlugin) *Executor {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	execEngine := NewExecutor(store, eventbus.New(), agents, runtime, logger)
+	execEngine := NewExecutor(store, bus, agents, runtime, logger)
 	if defaultAgent := defaultTestAgentName(agents); defaultAgent != "" {
 		execEngine.SetRoleResolver(acpclient.NewRoleResolver(
 			[]acpclient.AgentProfile{
@@ -241,7 +245,7 @@ func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages 
 		Name:            "pipe",
 		Description:     "需求A",
 		Template:        "quick",
-		Status:          core.StatusCreated,
+		Status:          core.StatusQueued,
 		Stages:          normalizedStages,
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{},
@@ -257,7 +261,7 @@ func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages 
 
 func defaultTestRoleForStage(stage core.StageID) string {
 	switch stage {
-	case core.StageCodeReview:
+	case core.StageReview:
 		return "reviewer"
 	default:
 		return "worker"
@@ -296,7 +300,7 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 	}
 
 	p := setupProjectAndRun(t, store, repo, []core.StageConfig{
-		{Name: core.StageWorktreeSetup, OnFailure: core.OnFailureAbort},
+		{Name: core.StageSetup, OnFailure: core.OnFailureAbort},
 		{Name: core.StageImplement, Agent: "codex", PromptTemplate: "implement", OnFailure: core.OnFailureAbort},
 		{Name: core.StageMerge, OnFailure: core.OnFailureAbort},
 		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
@@ -342,7 +346,7 @@ func TestExecutor_Run_WorktreeStagesUseWorkspacePlugin(t *testing.T) {
 	}
 
 	p := setupProjectAndRun(t, store, repoPath, []core.StageConfig{
-		{Name: core.StageWorktreeSetup, OnFailure: core.OnFailureAbort},
+		{Name: core.StageSetup, OnFailure: core.OnFailureAbort},
 		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
 	})
 
@@ -410,8 +414,11 @@ func TestExecutor_Run_OnFailureRetryAndMaxRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
-		t.Fatalf("expected done, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
 	}
 	if runtime.calls != 3 {
 		t.Fatalf("expected 3 attempts, got %d", runtime.calls)
@@ -447,8 +454,11 @@ func TestExecutor_Run_OnFailureSkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
-		t.Fatalf("expected done, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
 	}
 	if runtime.calls != 2 {
 		t.Fatalf("expected two stage executions, got %d", runtime.calls)
@@ -480,7 +490,7 @@ func TestExecutor_Run_OnFailureHuman(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusWaitingReview {
+	if got.Status != core.StatusActionRequired {
 		t.Fatalf("expected waiting_review, got %s", got.Status)
 	}
 }
@@ -510,8 +520,11 @@ func TestExecutor_Run_OnFailureAbort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusFailed {
-		t.Fatalf("expected failed, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionFailure {
+		t.Fatalf("expected failure conclusion, got %s", got.Conclusion)
 	}
 }
 
@@ -651,8 +664,11 @@ func TestExecuteStageByRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
-		t.Fatalf("expected done, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected success conclusion, got %s", got.Conclusion)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected one stage execution, got %d", runtime.calls)
@@ -752,7 +768,7 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 		ProjectID:    project.ID,
 		Name:         "pipe-empty-role",
 		Template:     "quick",
-		Status:       core.StatusCreated,
+		Status:       core.StatusQueued,
 		CurrentStage: core.StageImplement,
 		Stages: []core.StageConfig{
 			{
@@ -833,7 +849,7 @@ func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
 		ProjectID:    project.ID,
 		Name:         "pipe-no-fallback",
 		Template:     "quick",
-		Status:       core.StatusCreated,
+		Status:       core.StatusQueued,
 		CurrentStage: core.StageImplement,
 		Stages: []core.StageConfig{
 			{
@@ -953,7 +969,7 @@ func TestACPPool_PutGetCleanup(t *testing.T) {
 	}
 
 	// Get with wrong stage returns nil.
-	if e.acpPoolGet("run-1", core.StageCodeReview) != nil {
+	if e.acpPoolGet("run-1", core.StageReview) != nil {
 		t.Fatal("expected nil for different stage")
 	}
 
@@ -1000,9 +1016,9 @@ func TestDefaultStageConfig_ImplementNoReuse(t *testing.T) {
 	}
 }
 
-func TestDefaultStageConfig_CodeReviewNoReuse(t *testing.T) {
-	cfg := defaultStageConfig(core.StageCodeReview)
+func TestDefaultStageConfig_ReviewNoReuse(t *testing.T) {
+	cfg := defaultStageConfig(core.StageReview)
 	if cfg.ReuseSessionFrom != "" {
-		t.Fatalf("code_review ReuseSessionFrom = %q, want empty", cfg.ReuseSessionFrom)
+		t.Fatalf("review ReuseSessionFrom = %q, want empty", cfg.ReuseSessionFrom)
 	}
 }

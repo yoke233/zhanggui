@@ -233,7 +233,7 @@ func mustSaveCreatedRun(
 		ProjectID:    projectID,
 		Name:         id,
 		Template:     "quick",
-		Status:       core.StatusCreated,
+		Status:       core.StatusQueued,
 		QueuedAt:     queuedAt,
 		WorktreePath: worktreePath,
 		Stages:       []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
@@ -251,7 +251,8 @@ func markRunDone(t *testing.T, store core.Store, RunID string) {
 	if err != nil {
 		t.Fatalf("get Run %s: %v", RunID, err)
 	}
-	p.Status = core.StatusDone
+	p.Status = core.StatusCompleted
+	p.Conclusion = core.ConclusionSuccess
 	p.FinishedAt = time.Now()
 	p.UpdatedAt = time.Now()
 	if err := store.SaveRun(p); err != nil {
@@ -269,7 +270,7 @@ func waitRunsDone(t *testing.T, store core.Store, ids []string, timeout time.Dur
 			if err != nil {
 				t.Fatalf("get Run %s: %v", id, err)
 			}
-			if p.Status != core.StatusDone {
+			if p.Status != core.StatusCompleted {
 				allDone = false
 				break
 			}

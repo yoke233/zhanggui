@@ -4,19 +4,19 @@ import "github.com/yoke233/ai-workflow/internal/core"
 
 var Templates = map[string][]core.StageID{
 	"full": {
-		core.StageWorktreeSetup, core.StageRequirements, core.StageImplement,
-		core.StageCodeReview, core.StageFixup, core.StageE2ETest,
+		core.StageSetup, core.StageRequirements, core.StageImplement,
+		core.StageReview, core.StageFixup, core.StageTest,
 		core.StageMerge, core.StageCleanup,
 	},
 	"standard": {
-		core.StageWorktreeSetup, core.StageRequirements, core.StageImplement,
-		core.StageCodeReview, core.StageFixup, core.StageMerge, core.StageCleanup,
+		core.StageSetup, core.StageRequirements, core.StageImplement,
+		core.StageReview, core.StageFixup, core.StageMerge, core.StageCleanup,
 	},
 	"quick": {
-		core.StageWorktreeSetup, core.StageRequirements, core.StageImplement,
-		core.StageCodeReview, core.StageMerge, core.StageCleanup,
+		core.StageSetup, core.StageRequirements, core.StageImplement,
+		core.StageReview, core.StageMerge, core.StageCleanup,
 	},
 	"hotfix": {
-		core.StageWorktreeSetup, core.StageImplement, core.StageMerge, core.StageCleanup,
+		core.StageSetup, core.StageImplement, core.StageMerge, core.StageCleanup,
 	},
 }

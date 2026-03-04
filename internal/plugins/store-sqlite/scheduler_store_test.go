@@ -26,7 +26,7 @@ func TestSchedulerListRunnableRunsFIFO(t *testing.T) {
 			ProjectID: project.ID,
 			Name:      "one",
 			Template:  "quick",
-			Status:    core.StatusCreated,
+			Status:    core.StatusQueued,
 			QueuedAt:  base.Add(1 * time.Minute),
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
@@ -35,7 +35,7 @@ func TestSchedulerListRunnableRunsFIFO(t *testing.T) {
 			ProjectID: project.ID,
 			Name:      "two",
 			Template:  "quick",
-			Status:    core.StatusCreated,
+			Status:    core.StatusQueued,
 			QueuedAt:  base.Add(2 * time.Minute),
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
@@ -44,7 +44,7 @@ func TestSchedulerListRunnableRunsFIFO(t *testing.T) {
 			ProjectID: project.ID,
 			Name:      "three",
 			Template:  "quick",
-			Status:    core.StatusRunning,
+			Status:    core.StatusInProgress,
 			QueuedAt:  base.Add(3 * time.Minute),
 			Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		},
@@ -102,12 +102,12 @@ func TestSchedulerCountRunningByProject(t *testing.T) {
 		}
 	}
 
-	saveRun("a-running-1", projectA.ID, core.StatusRunning)
-	saveRun("a-running-2", projectA.ID, core.StatusRunning)
-	saveRun("a-created", projectA.ID, core.StatusCreated)
-	saveRun("b-running-1", projectB.ID, core.StatusRunning)
+	saveRun("a-running-1", projectA.ID, core.StatusInProgress)
+	saveRun("a-running-2", projectA.ID, core.StatusInProgress)
+	saveRun("a-created", projectA.ID, core.StatusQueued)
+	saveRun("b-running-1", projectB.ID, core.StatusInProgress)
 
-	countA, err := s.CountRunningRunsByProject(projectA.ID)
+	countA, err := s.CountInProgressRunsByProject(projectA.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestSchedulerCountRunningByProject(t *testing.T) {
 		t.Fatalf("expected project A running count=2, got %d", countA)
 	}
 
-	countB, err := s.CountRunningRunsByProject(projectB.ID)
+	countB, err := s.CountInProgressRunsByProject(projectB.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		ProjectID: project.ID,
 		Name:      "one",
 		Template:  "quick",
-		Status:    core.StatusCreated,
+		Status:    core.StatusQueued,
 		Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -150,7 +150,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok, err := s.TryMarkRunRunning(p.ID, core.StatusCreated)
+	ok, err := s.TryMarkRunInProgress(p.ID, core.StatusQueued)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 		t.Fatal("expected first CAS mark to succeed")
 	}
 
-	ok, err = s.TryMarkRunRunning(p.ID, core.StatusCreated)
+	ok, err = s.TryMarkRunInProgress(p.ID, core.StatusQueued)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestSchedulerTryMarkRunningCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusRunning {
+	if got.Status != core.StatusInProgress {
 		t.Fatalf("expected running status, got %s", got.Status)
 	}
 	if got.RunCount != 1 {

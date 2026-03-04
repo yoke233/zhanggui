@@ -180,7 +180,7 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 		ProjectID: project.ID,
 		Name:      "task-runner",
 		Template:  "standard",
-		Status:    core.StatusCreated,
+		Status:    core.StatusQueued,
 		Stages:    []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 	}
 	if err := s.SaveRun(Run); err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yoke233/ai-workflow/internal/core"
+	gitops "github.com/yoke233/ai-workflow/internal/git"
 )
 
 type projectHandlers struct {
@@ -24,9 +25,10 @@ type projectHandlers struct {
 }
 
 type createProjectRequest struct {
-	Name     string `json:"name"`
-	RepoPath string `json:"repo_path"`
-	GitHub   struct {
+	Name          string `json:"name"`
+	RepoPath      string `json:"repo_path"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	GitHub        struct {
 		Owner string `json:"owner"`
 		Repo  string `json:"repo"`
 	} `json:"github"`
@@ -183,12 +185,18 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	defaultBranch := strings.TrimSpace(req.DefaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = gitops.DetectDefaultBranch(req.RepoPath)
+	}
+
 	project := &core.Project{
-		ID:          uuid.NewString(),
-		Name:        req.Name,
-		RepoPath:    req.RepoPath,
-		GitHubOwner: req.GitHub.Owner,
-		GitHubRepo:  req.GitHub.Repo,
+		ID:            uuid.NewString(),
+		Name:          req.Name,
+		RepoPath:      req.RepoPath,
+		GitHubOwner:   req.GitHub.Owner,
+		GitHubRepo:    req.GitHub.Repo,
+		DefaultBranch: defaultBranch,
 	}
 
 	if err := h.store.CreateProject(project); err != nil {
@@ -402,11 +410,12 @@ func (h *projectHandlers) processProjectCreateRequest(requestID string, req crea
 	}
 	h.broadcastProjectCreateEvent("project_create_progress", updatedState, updatedState.Step, updatedState.Message)
 	project := &core.Project{
-		ID:          uuid.NewString(),
-		Name:        projectName,
-		RepoPath:    updatedState.RepoPath,
-		GitHubOwner: updatedState.GitHub.Owner,
-		GitHubRepo:  updatedState.GitHub.Repo,
+		ID:            uuid.NewString(),
+		Name:          projectName,
+		RepoPath:      updatedState.RepoPath,
+		GitHubOwner:   updatedState.GitHub.Owner,
+		GitHubRepo:    updatedState.GitHub.Repo,
+		DefaultBranch: gitops.DetectDefaultBranch(updatedState.RepoPath),
 	}
 	if err := h.store.CreateProject(project); err != nil {
 		if isConflictError(err) {

@@ -16,6 +16,7 @@ import type {
 export interface CreateProjectRequest {
   name: string;
   repo_path: string;
+  default_branch?: string;
   github?: {
     owner?: string;
     repo?: string;

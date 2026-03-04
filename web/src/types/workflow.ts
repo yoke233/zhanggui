@@ -44,6 +44,7 @@ export interface Project {
   repo_path: string;
   github_owner?: string;
   github_repo?: string;
+  default_branch?: string;
   created_at: string;
   updated_at: string;
 }

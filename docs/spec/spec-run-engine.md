@@ -15,6 +15,55 @@ Run Engine 接收 `issue + workflow_profile`，驱动一次 `workflow_run`
 - `message` / `context`
 - `trigger`: `user | system | github`（可扩展）
 
+## 执行路径
+
+Executor 支持两条 stage 执行路径：
+
+1. **ACP 协议（主路径）**：当 agent profile 配置了 `launch_command` 且 `ACPHandlerFactory` 可用时，
+   通过 ACP JSON-RPC over stdio 驱动 agent。支持跨 stage 会话复用。
+2. **CLI Agent Plugin（遗留 fallback）**：当 ACP 条件不满足时，退回到 `core.AgentPlugin` 接口
+   启动进程并解析 stdout 流。
+
+Stage 使用 role-based 解析：`stage.Role` → `RoleResolver.Resolve()` → `AgentProfile + RoleProfile`，
+不再直接指定 agent name。
+
+## ACP 会话池
+
+Executor 维护 `acpPool`（key: `runID:stageID`），支持跨 stage 会话复用：
+
+- `StageConfig.ReuseSessionFrom`：声明复用哪个 stage 的会话（如 fixup 复用 implement）。
+- 会话在 run 结束时（成功/失败/panic）统一清理（`acpPoolCleanup`）。
+- 池未命中时自动创建新会话。
+
+默认配置：`fixup` stage 的 `reuse_session_from = implement`。
+
+## Workspace 与分支决议
+
+Run 启动时，executor 通过 workspace plugin 创建 worktree 并确定 base branch：
+
+1. 读取 `project.default_branch`。
+2. 若非空，直接作为 `base_branch` 写入 `run.config["base_branch"]`。
+3. 若为空（历史数据兼容），fallback 到 `git rev-parse --abbrev-ref HEAD`。
+
+merge stage 使用 `run.config["base_branch"]` 执行合并，不再运行时探测主仓库 HEAD。
+
+此设计消除并发 run 间的分支竞争：base branch 在 project 创建时确定，
+所有 run 共享同一确定性值。
+
+## Auto-Merge
+
+当 `issue.auto_merge = true` 且 run 成功完成时，`AutoMergeHandler` 监听 `EventRunDone` 执行：
+
+1. **Test Gate**：仅对变更的 Go package 运行 `go test`；无变更则 `go build ./...`。
+   超时 10 分钟。
+2. **Create PR**：通过 `PRMerger.OnImplementComplete` 创建 draft PR，
+   base branch 取自 `run.config["base_branch"]`。
+3. **Merge PR**：通过 `PRMerger.OnMergeApproved` 合并。
+4. **发布 `auto_merged` 事件**。
+
+任一步骤失败均发布 `EventRunFailed`（含 `phase` 标识失败阶段）。
+`PRMerger` 为可选依赖——为 nil 时跳过 PR 操作直接发布成功事件。
+
 ## 调度模型（替代 DAG）
 
 - 使用 `profile queue scheduler`，不再构建或维护 DAG。
@@ -85,6 +134,22 @@ Team Leader 侧事件使用 `team_leader_*` 前缀，由上层模块发布。
   - `payload`
   - `created_at`
 - 查询默认按 `created_at ASC`。
+
+### RunEvent 持久化
+
+EventBus 订阅者将带 `run_id` 的事件写入 `run_events` 表：
+
+```
+RunEvent {
+  id, run_id, project_id, issue_id,
+  event_type, stage, agent,
+  data (map[string]string), error,
+  created_at
+}
+```
+
+Store 接口：`SaveRunEvent(RunEvent)` / `ListRunEvents(runID)`。
+API：`GET /runs/{runID}/events` → `{ items: RunEvent[], total: int }`。
 
 ## SLA 与超时
 

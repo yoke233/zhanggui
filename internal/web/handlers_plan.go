@@ -1284,37 +1284,39 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 	}
 
 	if _, include := kinds["log"]; include {
-		logs, err := listAllRunLogs(h.store, RunID)
+		runEvents, err := h.store.ListRunEvents(RunID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load Run logs")
+			return nil, fmt.Errorf("failed to load run events")
 		}
-		for i := range logs {
-			logEntry := logs[i]
-			parsedTime, hasTime := parseIssueTimelineTimestamp(logEntry.Timestamp)
-			stage := issueTimelineStringOrFallback(logEntry.Stage, "unknown")
-			logType := issueTimelineStringOrFallback(logEntry.Type, "output")
-			actorName := normalizeTimelineActorName(logEntry.Agent, "system")
+		for i := range runEvents {
+			evt := runEvents[i]
+			stage := issueTimelineStringOrFallback(evt.Stage, "unknown")
+			actorName := normalizeTimelineActorName(evt.Agent, "system")
+			content := ""
+			if c, ok := evt.Data["content"]; ok {
+				content = c
+			}
 			appendEvent(issueTimelineItem{
-				EventID:         numericTimelineEventID("log", logEntry.ID, seq),
+				EventID:         numericTimelineEventID("log", evt.ID, seq),
 				Kind:            "log",
-				CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
-				ActorType:       timelineActorTypeFromLog(logEntry),
+				CreatedAt:       evt.CreatedAt.UTC().Format(time.RFC3339),
+				ActorType:       timelineActorTypeFromRunEvent(evt),
 				ActorName:       actorName,
 				ActorAvatarSeed: actorName,
-				Title:           "log · " + stage + "/" + logType,
-				Body:            issueTimelineBodyWithFallback(logEntry.Content, "log 输出为空"),
-				Status:          issueTimelineStatusFromLog(logEntry.Type),
+				Title:           "log · " + stage + "/" + evt.EventType,
+				Body:            issueTimelineBodyWithFallback(content, "log 输出为空"),
+				Status:          issueTimelineStatusFromLog(evt.EventType),
 				Refs: issueTimelineRefs{
 					IssueID: issue.ID,
 					RunID:   RunID,
-					Stage:   strings.TrimSpace(logEntry.Stage),
+					Stage:   strings.TrimSpace(evt.Stage),
 				},
 				Meta: map[string]any{
-					"type":    logEntry.Type,
-					"agent":   logEntry.Agent,
-					"content": logEntry.Content,
+					"type":  evt.EventType,
+					"agent": evt.Agent,
+					"data":  evt.Data,
 				},
-			}, parsedTime, hasTime)
+			}, evt.CreatedAt, !evt.CreatedAt.IsZero())
 		}
 	}
 
@@ -1393,8 +1395,8 @@ func timelineActorTypeFromCheckpoint(checkpoint core.Checkpoint) string {
 	return "system"
 }
 
-func timelineActorTypeFromLog(logEntry core.LogEntry) string {
-	agent := strings.ToLower(strings.TrimSpace(logEntry.Agent))
+func timelineActorTypeFromRunEvent(evt core.RunEvent) string {
+	agent := strings.ToLower(strings.TrimSpace(evt.Agent))
 	if agent == "" || agent == "system" {
 		return "system"
 	}
@@ -1513,26 +1515,6 @@ func checkpointTimelineEventID(checkpoint core.Checkpoint, fallback int) string 
 	return fmt.Sprintf("checkpoint:%s:%d", stage, fallback)
 }
 
-func listAllRunLogs(store core.Store, RunID string) ([]core.LogEntry, error) {
-	const pageSize = 200
-	offset := 0
-	out := make([]core.LogEntry, 0)
-	for {
-		items, total, err := store.GetLogs(RunID, "", pageSize, offset)
-		if err != nil {
-			return nil, err
-		}
-		if len(items) == 0 {
-			break
-		}
-		out = append(out, items...)
-		offset += len(items)
-		if offset >= total {
-			break
-		}
-	}
-	return out, nil
-}
 
 func issueTimelineCheckpointTime(checkpoint core.Checkpoint) (time.Time, bool) {
 	switch {

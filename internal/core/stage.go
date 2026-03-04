@@ -6,25 +6,25 @@ import "time"
 type StageID string
 
 const (
-	StageRequirements  StageID = "requirements"
-	StageWorktreeSetup StageID = "worktree_setup"
-	StageImplement     StageID = "implement"
-	StageCodeReview    StageID = "code_review"
-	StageFixup         StageID = "fixup"
-	StageE2ETest       StageID = "e2e_test"
-	StageMerge         StageID = "merge"
-	StageCleanup       StageID = "cleanup"
+	StageRequirements StageID = "requirements"
+	StageSetup        StageID = "setup"
+	StageImplement    StageID = "implement"
+	StageReview       StageID = "review"
+	StageFixup        StageID = "fixup"
+	StageTest         StageID = "test"
+	StageMerge        StageID = "merge"
+	StageCleanup      StageID = "cleanup"
 )
 
 var knownStageIDs = map[StageID]struct{}{
-	StageRequirements:  {},
-	StageWorktreeSetup: {},
-	StageImplement:     {},
-	StageCodeReview:    {},
-	StageFixup:         {},
-	StageE2ETest:       {},
-	StageMerge:         {},
-	StageCleanup:       {},
+	StageRequirements: {},
+	StageSetup:        {},
+	StageImplement:    {},
+	StageReview:       {},
+	StageFixup:        {},
+	StageTest:         {},
+	StageMerge:        {},
+	StageCleanup:      {},
 }
 
 func IsKnownStage(stage StageID) bool {

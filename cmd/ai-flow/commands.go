@@ -24,6 +24,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
+	gitops "github.com/yoke233/ai-workflow/internal/git"
 	ghwebhook "github.com/yoke233/ai-workflow/internal/github"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
@@ -289,7 +290,7 @@ var (
 			reviewPanel.MaxRounds = teamLeaderCfg.ReviewOrchestrator.MaxRounds
 		}
 		runTaskRun := func(ctx context.Context, RunID string) error {
-			ok, err := bootstrapSet.Store.TryMarkRunRunning(RunID, core.StatusCreated)
+			ok, err := bootstrapSet.Store.TryMarkRunInProgress(RunID, core.StatusQueued)
 			if err != nil {
 				return err
 			}
@@ -404,7 +405,16 @@ func cmdProjectAdd(args []string) error {
 	defer store.Close()
 
 	p := &core.Project{ID: args[0], Name: args[0], RepoPath: args[1]}
-	return store.CreateProject(p)
+	if err := store.CreateProject(p); err != nil {
+		return err
+	}
+	if p.DefaultBranch == "" {
+		p.DefaultBranch = gitops.DetectDefaultBranch(p.RepoPath)
+		if p.DefaultBranch != "" {
+			_ = store.UpdateProject(p)
+		}
+	}
+	return nil
 }
 
 func cmdProjectList() error {
@@ -796,8 +806,11 @@ func runServer(ctx context.Context, args []string) error {
 		EventPublisher:   bus,
 		RunEventRecorder: runEventRecorder,
 	})
-	prLC := ghwebhook.NewPRLifecycle(store, bootstrapSet.SCM)
-	autoMerger := teamleader.NewAutoMergeHandler(store, bus, prLC)
+	var merger teamleader.PRMerger
+	if cfg.GitHub.Enabled {
+		merger = ghwebhook.NewPRLifecycle(store, bootstrapSet.SCM)
+	}
+	autoMerger := teamleader.NewAutoMergeHandler(store, bus, merger)
 
 	sub := bus.Subscribe()
 	bridgeDone := make(chan struct{})
@@ -812,7 +825,7 @@ func runServer(ctx context.Context, args []string) error {
 					return
 				}
 				hub.BroadcastCoreEvent(evt)
-				if evt.RunID != "" {
+				if evt.RunID != "" && !isTransientChunkEvent(evt) {
 					if err := store.SaveRunEvent(core.RunEvent{
 						RunID:     evt.RunID,
 						ProjectID: evt.ProjectID,
@@ -1070,4 +1083,19 @@ func (f *acpHandlerFactoryAdapter) SetPermissionPolicy(handler acpproto.Client, 
 	if h, ok := handler.(*teamleader.ACPHandler); ok {
 		h.SetPermissionPolicy(policy)
 	}
+}
+
+// isTransientChunkEvent returns true for high-frequency streaming chunk events
+// that should NOT be persisted to run_events (they are broadcast via WS only).
+func isTransientChunkEvent(evt core.Event) bool {
+	if evt.Type != core.EventAgentOutput {
+		return false
+	}
+	switch evt.Data["type"] {
+	case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk",
+		"available_commands_update", "current_mode_update",
+		"config_option_update", "session_info_update":
+		return true
+	}
+	return false
 }

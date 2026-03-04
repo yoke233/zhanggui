@@ -28,10 +28,10 @@ func (e *Executor) RecoverActiveRuns(ctx context.Context) error {
 
 		p := Runs[i]
 		switch p.Status {
-		case core.StatusWaitingReview:
+		case core.StatusActionRequired:
 			// waiting_review runs wait for explicit resume action.
 			continue
-		case core.StatusRunning:
+		case core.StatusInProgress:
 			if err := e.recoverRunningRun(ctx, &p); err != nil {
 				return err
 			}
@@ -65,7 +65,7 @@ func (e *Executor) recoverRunningRun(ctx context.Context, p *core.Run) error {
 		}
 	}
 
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err

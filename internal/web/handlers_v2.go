@@ -34,7 +34,8 @@ type workflowRunResponse struct {
 	ProjectID  string                   `json:"project_id"`
 	IssueID    string                   `json:"issue_id,omitempty"`
 	Profile    core.WorkflowProfileType `json:"profile"`
-	Status     core.WorkflowRunStatus   `json:"status"`
+	Status     core.RunStatus           `json:"status"`
+	Conclusion core.RunConclusion       `json:"conclusion,omitempty"`
 	Error      string                   `json:"error,omitempty"`
 	CreatedAt  string                   `json:"created_at,omitempty"`
 	UpdatedAt  string                   `json:"updated_at,omitempty"`
@@ -322,29 +323,13 @@ func toWorkflowRunResponse(p core.Run) workflowRunResponse {
 		ProjectID:  p.ProjectID,
 		IssueID:    strings.TrimSpace(p.IssueID),
 		Profile:    profile,
-		Status:     mapRunStatusToWorkflowRunStatus(p.Status),
+		Status:     p.Status,
+		Conclusion: p.Conclusion,
 		Error:      strings.TrimSpace(p.ErrorMessage),
 		CreatedAt:  toRFC3339OrEmpty(p.CreatedAt),
 		UpdatedAt:  toRFC3339OrEmpty(p.UpdatedAt),
 		StartedAt:  toRFC3339OrEmpty(p.StartedAt),
 		FinishedAt: toRFC3339OrEmpty(p.FinishedAt),
-	}
-}
-
-func mapRunStatusToWorkflowRunStatus(status core.RunStatus) core.WorkflowRunStatus {
-	switch status {
-	case core.StatusCreated:
-		return core.WorkflowRunStatusCreated
-	case core.StatusRunning:
-		return core.WorkflowRunStatusRunning
-	case core.StatusWaitingReview:
-		return core.WorkflowRunStatusWaitingReview
-	case core.StatusDone:
-		return core.WorkflowRunStatusDone
-	case core.StatusFailed:
-		return core.WorkflowRunStatusFailed
-	default:
-		return core.WorkflowRunStatusFailed
 	}
 }
 

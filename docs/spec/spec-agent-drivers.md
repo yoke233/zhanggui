@@ -60,6 +60,44 @@ role_bindings:
 - `reset_prompt=true`：复用前注入重置语义，避免上下文漂移。
 - 会话失效（找不到/超时/权限异常）时自动新建。
 
+## ACP 执行协议
+
+Stage 执行优先走 ACP（Agent Communication Protocol）路径：
+
+- 条件：agent profile 配有 `launch_command` 且 `ACPHandlerFactory` 可用。
+- 不满足时 fallback 到 CLI agent plugin（遗留路径）。
+
+ACP 流程：`LaunchConfig → Initialize → NewSession → Prompt → 事件流`。
+`stageEventBridge` 将 ACP session update 转换为 `EventAgentOutput` 发布到 EventBus。
+
+### ACP 会话池
+
+Executor 维护 `acpPool`（key: `runID:stageID`），支持跨 stage 复用：
+
+```yaml
+# StageConfig 声明式复用
+stages:
+  - name: fixup
+    agent: codex
+    reuse_session_from: implement  # 复用 implement 阶段的 ACP 会话
+```
+
+- 池命中时直接向已有 session 发送 prompt，保留上下文。
+- 池未命中时创建新 session 并入池。
+- Run 结束时统一清理所有 pooled session。
+
+### Agent 启动配置
+
+```yaml
+agents:
+  - name: codex
+    launch_command: npx
+    launch_args: ["-y", "@zed-industries/codex-acp"]
+    env: {}
+```
+
+`@latest` 后缀已移除，优先使用本地 npm 缓存。
+
 ## Run 事件要求
 
 每个 run 至少发布：

@@ -63,9 +63,13 @@ func (p *WorktreePlugin) Setup(_ context.Context, req core.WorkspaceSetupRequest
 		return core.WorkspaceSetupResult{}, err
 	}
 
-	baseBranch, err := runner.CurrentBranch()
-	if err != nil {
-		return core.WorkspaceSetupResult{}, err
+	baseBranch := strings.TrimSpace(req.DefaultBranch)
+	if baseBranch == "" {
+		var err error
+		baseBranch, err = runner.CurrentBranch()
+		if err != nil {
+			return core.WorkspaceSetupResult{}, err
+		}
 	}
 
 	return core.WorkspaceSetupResult{

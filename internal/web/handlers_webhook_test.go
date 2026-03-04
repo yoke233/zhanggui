@@ -171,7 +171,7 @@ func TestWebhook_IssueCommentSlashReject_AppliesRunAction(t *testing.T) {
 		Name:            "slash reject",
 		Description:     "slash reject",
 		Template:        "standard",
-		Status:          core.StatusWaitingReview,
+		Status:          core.StatusActionRequired,
 		CurrentStage:    core.StageImplement,
 		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts:       map[string]string{},
@@ -244,9 +244,9 @@ func TestWebhook_IssueCommentSlashUnauthorized_NoAction(t *testing.T) {
 		Name:            "slash unauthorized",
 		Description:     "slash unauthorized",
 		Template:        "standard",
-		Status:          core.StatusWaitingReview,
-		CurrentStage:    core.StageCodeReview,
-		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
+		Status:          core.StatusActionRequired,
+		CurrentStage:    core.StageReview,
+		Stages:          []core.StageConfig{{Name: core.StageReview, Agent: "claude"}},
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{"issue_number": 42},
 		MaxTotalRetries: 5,
@@ -371,9 +371,9 @@ func TestWebhook_PullRequestClosedMerged_MarksRunDone(t *testing.T) {
 		Name:            "pr merged",
 		Description:     "pr merged",
 		Template:        "standard",
-		Status:          core.StatusRunning,
-		CurrentStage:    core.StageCodeReview,
-		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
+		Status:          core.StatusInProgress,
+		CurrentStage:    core.StageReview,
+		Stages:          []core.StageConfig{{Name: core.StageReview, Agent: "claude"}},
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{"pr_number": 555},
 		MaxTotalRetries: 5,
@@ -405,8 +405,11 @@ func TestWebhook_PullRequestClosedMerged_MarksRunDone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if updated.Status != core.StatusDone {
-		t.Fatalf("expected status done, got %s", updated.Status)
+	if updated.Status != core.StatusCompleted {
+		t.Fatalf("expected status completed, got %s", updated.Status)
+	}
+	if updated.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected conclusion success, got %s", updated.Conclusion)
 	}
 }
 
@@ -429,9 +432,9 @@ func TestWebhook_PullRequestClosedNotMerged_MarksRunFailed(t *testing.T) {
 		Name:            "pr failed",
 		Description:     "pr failed",
 		Template:        "standard",
-		Status:          core.StatusRunning,
-		CurrentStage:    core.StageCodeReview,
-		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
+		Status:          core.StatusInProgress,
+		CurrentStage:    core.StageReview,
+		Stages:          []core.StageConfig{{Name: core.StageReview, Agent: "claude"}},
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{"pr_number": 556},
 		MaxTotalRetries: 5,
@@ -463,8 +466,11 @@ func TestWebhook_PullRequestClosedNotMerged_MarksRunFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if updated.Status != core.StatusFailed {
-		t.Fatalf("expected status failed, got %s", updated.Status)
+	if updated.Status != core.StatusCompleted {
+		t.Fatalf("expected status completed, got %s", updated.Status)
+	}
+	if updated.Conclusion != core.ConclusionFailure {
+		t.Fatalf("expected conclusion failure, got %s", updated.Conclusion)
 	}
 }
 

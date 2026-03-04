@@ -92,8 +92,28 @@ Review 范围规则：
 
 - 每次用户提交至多触发一个活跃 run。
 - 同一 session 同时只允许一个 `running/waiting_review` run。
-- 重复触发请求应返回“已有运行态”并附 run 标识。
+- 重复触发请求应返回”已有运行态”并附 run 标识。
 - 取消 run 后必须写入 `run_cancelled` 并同步 issue 时间线。
+
+## A2A 集成
+
+通过 A2A 协议（JSON-RPC）接收外部 agent 任务：
+
+- A2A 创建的 issue 默认 `auto_merge = true`。
+- 创建后自动执行 approve action，使 run 立即启动（无需人工审批）。
+- A2A 端点默认启用（`a2a.enabled: true`），需配置 token。
+
+## Auto-Merge 流程
+
+`AutoMergeHandler` 监听 `EventRunDone`，当 `issue.auto_merge = true` 时：
+
+1. Test gate：仅测试变更的 Go package，无变更则 `go build`，10 分钟超时。
+2. 创建 PR（draft → ready）。
+3. 合并 PR。
+4. 发布 `auto_merged` 事件。
+
+失败时发布 `EventRunFailed`，`data.phase` 标识失败阶段
+（`auto_merge_test_gate` / `auto_merge_create_pr` / `auto_merge_merge_pr`）。
 
 ## 观测与可追溯性
 

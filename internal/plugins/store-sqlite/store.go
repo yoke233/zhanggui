@@ -36,8 +36,8 @@ func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 func (s *SQLiteStore) CreateProject(p *core.Project) error {
 	_, err := s.db.Exec(
-		`INSERT INTO projects (id, name, repo_path, github_owner, github_repo) VALUES (?,?,?,?,?)`,
-		p.ID, p.Name, p.RepoPath, p.GitHubOwner, p.GitHubRepo,
+		`INSERT INTO projects (id, name, repo_path, github_owner, github_repo, default_branch) VALUES (?,?,?,?,?,?)`,
+		p.ID, p.Name, p.RepoPath, p.GitHubOwner, p.GitHubRepo, p.DefaultBranch,
 	)
 	return err
 }
@@ -45,9 +45,9 @@ func (s *SQLiteStore) CreateProject(p *core.Project) error {
 func (s *SQLiteStore) GetProject(id string) (*core.Project, error) {
 	p := &core.Project{}
 	err := s.db.QueryRow(
-		`SELECT id, name, repo_path, github_owner, github_repo, created_at, updated_at FROM projects WHERE id=?`,
+		`SELECT id, name, repo_path, github_owner, github_repo, COALESCE(default_branch, ''), created_at, updated_at FROM projects WHERE id=?`,
 		id,
-	).Scan(&p.ID, &p.Name, &p.RepoPath, &p.GitHubOwner, &p.GitHubRepo, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.RepoPath, &p.GitHubOwner, &p.GitHubRepo, &p.DefaultBranch, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("project %s not found", id)
 	}
@@ -56,8 +56,8 @@ func (s *SQLiteStore) GetProject(id string) (*core.Project, error) {
 
 func (s *SQLiteStore) UpdateProject(p *core.Project) error {
 	_, err := s.db.Exec(
-		`UPDATE projects SET name=?, repo_path=?, github_owner=?, github_repo=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		p.Name, p.RepoPath, p.GitHubOwner, p.GitHubRepo, p.ID,
+		`UPDATE projects SET name=?, repo_path=?, github_owner=?, github_repo=?, default_branch=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		p.Name, p.RepoPath, p.GitHubOwner, p.GitHubRepo, p.DefaultBranch, p.ID,
 	)
 	return err
 }
@@ -69,7 +69,7 @@ func (s *SQLiteStore) DeleteProject(id string) error {
 }
 
 func (s *SQLiteStore) ListProjects(filter core.ProjectFilter) ([]core.Project, error) {
-	query := `SELECT id, name, repo_path, github_owner, github_repo, created_at, updated_at FROM projects`
+	query := `SELECT id, name, repo_path, github_owner, github_repo, COALESCE(default_branch, ''), created_at, updated_at FROM projects`
 	args := []any{}
 	if filter.NameContains != "" {
 		query += ` WHERE lower(name) LIKE ?`
@@ -86,7 +86,7 @@ func (s *SQLiteStore) ListProjects(filter core.ProjectFilter) ([]core.Project, e
 	var out []core.Project
 	for rows.Next() {
 		var p core.Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.RepoPath, &p.GitHubOwner, &p.GitHubRepo, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RepoPath, &p.GitHubOwner, &p.GitHubRepo, &p.DefaultBranch, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -115,17 +115,18 @@ func (s *SQLiteStore) SaveRun(p *core.Run) error {
 	}
 	query := `
 INSERT INTO runs (
-	id, project_id, name, description, template, status, current_stage,
+	id, project_id, name, description, template, status, conclusion, current_stage,
 	stages_json, artifacts_json, config_json, branch_name, worktree_path,
 	error_message, max_total_retries, total_retries, run_count, last_error_type, issue_id,
 	queued_at, last_heartbeat_at, started_at, finished_at
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	project_id=excluded.project_id,
 	name=excluded.name,
 	description=excluded.description,
 	template=excluded.template,
 	status=excluded.status,
+	conclusion=excluded.conclusion,
 	current_stage=excluded.current_stage,
 	stages_json=excluded.stages_json,
 	artifacts_json=excluded.artifacts_json,
@@ -144,7 +145,7 @@ ON CONFLICT(id) DO UPDATE SET
 	finished_at=excluded.finished_at,
 	updated_at=CURRENT_TIMESTAMP`
 	_, err = s.db.Exec(query,
-		p.ID, p.ProjectID, p.Name, p.Description, p.Template, p.Status, p.CurrentStage,
+		p.ID, p.ProjectID, p.Name, p.Description, p.Template, p.Status, p.Conclusion, p.CurrentStage,
 		string(stagesJSON), string(artifactsJSON), string(configJSON), p.BranchName, p.WorktreePath,
 		p.ErrorMessage, p.MaxTotalRetries, p.TotalRetries, p.RunCount, p.LastErrorType, nullableString(p.IssueID),
 		nullableTime(p.QueuedAt), nullableTime(p.LastHeartbeatAt), nullableTime(p.StartedAt), nullableTime(p.FinishedAt),
@@ -164,7 +165,7 @@ func (s *SQLiteStore) GetRun(id string) (*core.Run, error) {
 		finishedAt    sql.NullTime
 	)
 	query := `
-SELECT id, project_id, name, description, template, status, current_stage,
+SELECT id, project_id, name, description, template, status, COALESCE(conclusion, ''), current_stage,
        stages_json, artifacts_json, config_json, branch_name, worktree_path, error_message,
        max_total_retries, total_retries, run_count, last_error_type, COALESCE(issue_id, ''), queued_at, last_heartbeat_at,
 	   started_at, finished_at, created_at, updated_at
@@ -172,7 +173,7 @@ FROM runs WHERE id=?`
 	err := s.db.QueryRow(query,
 		id,
 	).Scan(
-		&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Template, &p.Status, &p.CurrentStage,
+		&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Template, &p.Status, &p.Conclusion, &p.CurrentStage,
 		&stagesJSON, &artifactsJSON, &configJSON, &p.BranchName, &p.WorktreePath, &p.ErrorMessage,
 		&p.MaxTotalRetries, &p.TotalRetries, &p.RunCount, &p.LastErrorType, &p.IssueID, &queuedAt, &lastHeartbeat,
 		&startedAt, &finishedAt, &p.CreatedAt, &p.UpdatedAt,
@@ -243,7 +244,7 @@ func (s *SQLiteStore) ListRuns(projectID string, filter core.RunFilter) ([]core.
 }
 
 func (s *SQLiteStore) GetActiveRuns() ([]core.Run, error) {
-	rows, err := s.db.Query(`SELECT id FROM runs WHERE status IN ('running','waiting_review','waiting_review')`)
+	rows, err := s.db.Query(`SELECT id FROM runs WHERE status IN ('in_progress','action_required')`)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +284,7 @@ FROM runs
 WHERE status = ?
 ORDER BY COALESCE(queued_at, created_at) ASC, created_at ASC
 LIMIT ?`,
-		core.StatusCreated, limit,
+		core.StatusQueued, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -313,23 +314,23 @@ LIMIT ?`,
 	return out, nil
 }
 
-func (s *SQLiteStore) CountRunningRunsByProject(projectID string) (int, error) {
+func (s *SQLiteStore) CountInProgressRunsByProject(projectID string) (int, error) {
 	var count int
 	err := s.db.QueryRow(
 		`SELECT COUNT(*) FROM runs WHERE project_id=? AND status=?`,
-		projectID, core.StatusRunning,
+		projectID, core.StatusInProgress,
 	).Scan(&count)
 	return count, err
 }
 
-func (s *SQLiteStore) TryMarkRunRunning(id string, from ...core.RunStatus) (bool, error) {
+func (s *SQLiteStore) TryMarkRunInProgress(id string, from ...core.RunStatus) (bool, error) {
 	if len(from) == 0 {
-		from = []core.RunStatus{core.StatusCreated}
+		from = []core.RunStatus{core.StatusQueued}
 	}
 
 	placeholders := make([]string, len(from))
 	args := make([]any, 0, len(from)+2)
-	args = append(args, core.StatusRunning, id)
+	args = append(args, core.StatusInProgress, id)
 	for i, status := range from {
 		placeholders[i] = "?"
 		args = append(args, status)
@@ -433,48 +434,6 @@ WHERE run_id=? AND id >= (
 	WHERE run_id=? AND stage=?
 )`, core.CheckpointInvalidated, RunID, RunID, stage)
 	return err
-}
-
-func (s *SQLiteStore) AppendLog(entry core.LogEntry) error {
-	_, err := s.db.Exec(
-		`INSERT INTO logs (run_id, stage, type, agent, content, timestamp) VALUES (?,?,?,?,?,?)`,
-		entry.RunID, entry.Stage, entry.Type, entry.Agent, entry.Content, entry.Timestamp,
-	)
-	return err
-}
-
-func (s *SQLiteStore) GetLogs(RunID string, stage string, limit int, offset int) ([]core.LogEntry, int, error) {
-	var total int
-	if err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM logs WHERE run_id=? AND (? = '' OR stage=?)`,
-		RunID, stage, stage,
-	).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.db.Query(
-		`SELECT id, run_id, stage, type, agent, content, timestamp
-		 FROM logs WHERE run_id=? AND (? = '' OR stage=?)
-		 ORDER BY id LIMIT ? OFFSET ?`,
-		RunID, stage, stage, limit, offset,
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var out []core.LogEntry
-	for rows.Next() {
-		var e core.LogEntry
-		if err := rows.Scan(&e.ID, &e.RunID, &e.Stage, &e.Type, &e.Agent, &e.Content, &e.Timestamp); err != nil {
-			return nil, 0, err
-		}
-		out = append(out, e)
-	}
-	return out, total, rows.Err()
 }
 
 func (s *SQLiteStore) RecordAction(a core.HumanAction) error {

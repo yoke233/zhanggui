@@ -17,7 +17,6 @@ func TestMigration_V2Baseline_CreatesIssueRunSchema(t *testing.T) {
 		"projects",
 		"runs",
 		"checkpoints",
-		"logs",
 		"human_actions",
 		"chat_sessions",
 		"chat_run_events",

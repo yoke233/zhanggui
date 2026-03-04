@@ -10,13 +10,11 @@ const (
 	EventStageFailed       EventType = "stage_failed"
 	EventHumanRequired     EventType = "human_required"
 	EventRunDone           EventType = "run_done"
-	EventRunWaitingReview  EventType = "run_waiting_review"
+	EventRunActionRequired EventType = "run_action_required"
 	EventRunResumed        EventType = "run_resumed"
 	EventActionApplied     EventType = "action_applied"
 	EventAgentOutput       EventType = "agent_output"
 	EventRunStuck          EventType = "run_stuck"
-	EventRunwaiting_review EventType = EventRunWaitingReview // Deprecated: keep for current call sites.
-	EventRunstuck          EventType = EventRunStuck         // Deprecated: keep for current call sites.
 
 	// Team Leader and run lifecycle events.
 	EventTeamLeaderThinking     EventType = "team_leader_thinking"

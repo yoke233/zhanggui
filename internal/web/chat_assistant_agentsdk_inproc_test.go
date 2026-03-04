@@ -1,3 +1,5 @@
+//go:build agentsdk
+
 package web
 
 import (

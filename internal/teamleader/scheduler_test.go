@@ -154,11 +154,12 @@ func TestScheduler_RecoverExecutingIssuesReplaysDoneAndDispatchesNext(t *testing
 	})
 
 	if err := store.SaveRun(&core.Run{
-		ID:        "Run-recover-done",
-		ProjectID: project.ID,
-		Name:      "Run-recover-done",
-		Status:    core.StatusDone,
-		IssueID:   "issue-a",
+		ID:         "Run-recover-done",
+		ProjectID:  project.ID,
+		Name:       "Run-recover-done",
+		Status:     core.StatusCompleted,
+		Conclusion: core.ConclusionSuccess,
+		IssueID:    "issue-a",
 	}); err != nil {
 		t.Fatalf("SaveRun(done) error = %v", err)
 	}

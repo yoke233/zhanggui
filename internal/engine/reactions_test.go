@@ -105,8 +105,11 @@ func TestReactions_RetryConsumesGlobalBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusFailed {
-		t.Fatalf("expected failed status after retry budget exhaustion, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed status after retry budget exhaustion, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionFailure {
+		t.Fatalf("expected failure conclusion after retry budget exhaustion, got %s", got.Conclusion)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected only one attempt due global budget, got calls=%d", runtime.calls)

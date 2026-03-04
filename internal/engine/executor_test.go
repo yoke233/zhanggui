@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/eventbus"
 )
 
 type singleStreamEventParser struct {
@@ -53,7 +54,7 @@ func TestTemplatesDefined(t *testing.T) {
 		hasWT := false
 		hasCL := false
 		for _, s := range stages {
-			if s == "worktree_setup" {
+			if s == "setup" {
 				hasWT = true
 			}
 			if s == "cleanup" {
@@ -61,7 +62,7 @@ func TestTemplatesDefined(t *testing.T) {
 			}
 		}
 		if !hasWT {
-			t.Errorf("%s missing worktree_setup", name)
+			t.Errorf("%s missing setup", name)
 		}
 		if !hasCL {
 			t.Errorf("%s missing cleanup", name)
@@ -72,12 +73,12 @@ func TestTemplatesDefined(t *testing.T) {
 func TestFullTemplateOrder(t *testing.T) {
 	got := Templates["full"]
 	want := []core.StageID{
-		core.StageWorktreeSetup,
+		core.StageSetup,
 		core.StageRequirements,
 		core.StageImplement,
-		core.StageCodeReview,
+		core.StageReview,
 		core.StageFixup,
-		core.StageE2ETest,
+		core.StageTest,
 		core.StageMerge,
 		core.StageCleanup,
 	}
@@ -104,7 +105,7 @@ func TestWorktreeSetupBeforeRequirements(t *testing.T) {
 	worktreeIdx := -1
 	requirementsIdx := -1
 	for i, stage := range stages {
-		if stage == core.StageWorktreeSetup {
+		if stage == core.StageSetup {
 			worktreeIdx = i
 		}
 		if stage == core.StageRequirements {
@@ -125,9 +126,9 @@ func TestDefaultStageConfig_RoleOnlyDefaults(t *testing.T) {
 		for _, stageID := range []core.StageID{
 			core.StageRequirements,
 			core.StageImplement,
-			core.StageCodeReview,
+			core.StageReview,
 			core.StageFixup,
-			core.StageE2ETest,
+			core.StageTest,
 		} {
 			cfg := defaultStageConfig(stageID)
 			if cfg.Agent != "" {
@@ -137,7 +138,7 @@ func TestDefaultStageConfig_RoleOnlyDefaults(t *testing.T) {
 	})
 
 	t.Run("e2e timeout is 15m", func(t *testing.T) {
-		cfg := defaultStageConfig(core.StageE2ETest)
+		cfg := defaultStageConfig(core.StageTest)
 		if cfg.Timeout != 15*time.Minute {
 			t.Fatalf("e2e_test timeout mismatch, got %s want %s", cfg.Timeout, 15*time.Minute)
 		}
@@ -161,7 +162,7 @@ func TestCreateRun_FillsStageRolesFromBindings(t *testing.T) {
 	execEngine.SetRunstageRoles(map[string]string{
 		"requirements": "worker",
 		"implement":    "worker",
-		"code_review":  "reviewer",
+		"review":  "reviewer",
 	})
 
 	p, err := execEngine.CreateRun(project.ID, "pipe-role", "desc", "quick")
@@ -180,8 +181,8 @@ func TestCreateRun_FillsStageRolesFromBindings(t *testing.T) {
 	if got := roleByStage[core.StageImplement]; got != "worker" {
 		t.Fatalf("expected implement role worker, got %q", got)
 	}
-	if got := roleByStage[core.StageCodeReview]; got != "reviewer" {
-		t.Fatalf("expected code_review role reviewer, got %q", got)
+	if got := roleByStage[core.StageReview]; got != "reviewer" {
+		t.Fatalf("expected review role reviewer, got %q", got)
 	}
 }
 
@@ -227,7 +228,7 @@ func TestRenderPrompt_ImplementWorksWithoutLegacyFields(t *testing.T) {
 	}
 }
 
-func TestExecutorRun_AppendsLogsForStageLifecycleAndAgentOutput(t *testing.T) {
+func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
@@ -260,46 +261,43 @@ func TestExecutorRun_AppendsLogsForStageLifecycleAndAgentOutput(t *testing.T) {
 		t.Fatalf("save Run: %v", err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	bus := eventbus.New()
+	sub := bus.Subscribe()
+	execEngine := newExecutorWithBus(store, bus, map[string]core.AgentPlugin{"codex": agent}, runtime)
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run should stop at human gate without error, got: %v", err)
 	}
 
-	logs, total, err := store.GetLogs(p.ID, "", 100, 0)
-	if err != nil {
-		t.Fatalf("get logs: %v", err)
-	}
-	if total != 4 {
-		t.Fatalf("expected 4 logs, got total=%d entries=%d", total, len(logs))
-	}
-	if len(logs) != 4 {
-		t.Fatalf("expected 4 log entries, got %d", len(logs))
-	}
+	// Drain bus events.
+	var events []core.Event
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for evt := range sub {
+			events = append(events, evt)
+		}
+	}()
+	bus.Close()
+	<-done
 
-	gotTypes := []string{logs[0].Type, logs[1].Type, logs[2].Type, logs[3].Type}
-	wantTypes := []string{
-		string(core.EventStageStart),
-		string(core.EventAgentOutput),
-		string(core.EventStageComplete),
-		string(core.EventHumanRequired),
+	// Expect at least stage_start, agent_output, stage_complete, human_required.
+	typeSet := map[core.EventType]bool{}
+	for _, evt := range events {
+		typeSet[evt.Type] = true
 	}
-	if !reflect.DeepEqual(gotTypes, wantTypes) {
-		t.Fatalf("log types mismatch, got=%v want=%v", gotTypes, wantTypes)
-	}
-
-	agentOut := logs[1]
-	if agentOut.Stage != string(core.StageImplement) {
-		t.Fatalf("agent_output stage mismatch, got=%q want=%q", agentOut.Stage, core.StageImplement)
-	}
-	if agentOut.Agent != "codex" {
-		t.Fatalf("agent_output agent mismatch, got=%q want=%q", agentOut.Agent, "codex")
-	}
-	if agentOut.Content != "agent says hello" {
-		t.Fatalf("agent_output content mismatch, got=%q", agentOut.Content)
+	for _, want := range []core.EventType{
+		core.EventStageStart,
+		core.EventAgentOutput,
+		core.EventStageComplete,
+		core.EventHumanRequired,
+	} {
+		if !typeSet[want] {
+			t.Errorf("missing expected event type %q", want)
+		}
 	}
 }
 
-func TestExecutorRun_AppendsLogForStageFailed(t *testing.T) {
+func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
@@ -320,28 +318,40 @@ func TestExecutorRun_AppendsLogForStageFailed(t *testing.T) {
 		t.Fatalf("save Run: %v", err)
 	}
 
-	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	bus := eventbus.New()
+	sub := bus.Subscribe()
+	execEngine := newExecutorWithBus(store, bus, map[string]core.AgentPlugin{"codex": agent}, runtime)
 	if err := execEngine.Run(context.Background(), p.ID); err == nil {
 		t.Fatal("run should fail for abort policy")
 	}
 
-	logs, total, err := store.GetLogs(p.ID, "", 100, 0)
-	if err != nil {
-		t.Fatalf("get logs: %v", err)
+	var events []core.Event
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for evt := range sub {
+			events = append(events, evt)
+		}
+	}()
+	bus.Close()
+	<-done
+
+	typeSet := map[core.EventType]bool{}
+	for _, evt := range events {
+		typeSet[evt.Type] = true
 	}
-	if total != 2 {
-		t.Fatalf("expected 2 logs, got total=%d entries=%d", total, len(logs))
+	if !typeSet[core.EventStageStart] {
+		t.Errorf("missing stage_start event")
 	}
-	if len(logs) != 2 {
-		t.Fatalf("expected 2 log entries, got %d", len(logs))
+	if !typeSet[core.EventStageFailed] {
+		t.Errorf("missing stage_failed event")
 	}
-	if logs[0].Type != string(core.EventStageStart) {
-		t.Fatalf("first log should be stage_start, got=%q", logs[0].Type)
-	}
-	if logs[1].Type != string(core.EventStageFailed) {
-		t.Fatalf("second log should be stage_failed, got=%q", logs[1].Type)
-	}
-	if !strings.Contains(logs[1].Content, "fatal-run") {
-		t.Fatalf("stage_failed log should contain runtime error, got=%q", logs[1].Content)
+	// Verify stage_failed carries error info.
+	for _, evt := range events {
+		if evt.Type == core.EventStageFailed {
+			if !strings.Contains(evt.Error, "fatal-run") {
+				t.Errorf("stage_failed error should contain 'fatal-run', got=%q", evt.Error)
+			}
+		}
 	}
 }

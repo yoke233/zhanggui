@@ -87,7 +87,7 @@ func Defaults() Config {
 			{
 				Name:           "reviewer",
 				Agent:          "claude",
-				PromptTemplate: "code_review",
+				PromptTemplate: "review",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
 					FSWrite:  false,
@@ -131,9 +131,9 @@ func Defaults() Config {
 				StageRoles: map[string]string{
 					"requirements": "worker",
 					"implement":    "worker",
-					"code_review":  "reviewer",
+					"review":       "reviewer",
 					"fixup":        "worker",
-					"e2e_test":     "worker",
+					"test":         "worker",
 				},
 			},
 			ReviewOrchestrator: ReviewRoleBindings{

@@ -13,9 +13,9 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// prMerger abstracts PR creation and merge so AutoMergeHandler does not
+// PRMerger abstracts PR creation and merge so AutoMergeHandler does not
 // depend on the github package directly.
-type prMerger interface {
+type PRMerger interface {
 	OnImplementComplete(ctx context.Context, runID string) (string, error)
 	OnMergeApproved(ctx context.Context, runID string) error
 }
@@ -25,7 +25,7 @@ type prMerger interface {
 type AutoMergeHandler struct {
 	store      core.Store
 	bus        eventPublisher
-	merger     prMerger
+	merger     PRMerger
 	log        *slog.Logger
 	testGateFn func(ctx context.Context, repoPath string) error // nil uses default runTestGate
 }
@@ -33,7 +33,7 @@ type AutoMergeHandler struct {
 // NewAutoMergeHandler creates a handler that triggers auto-merge on RunDone.
 // merger may be nil; if nil, the handler publishes EventAutoMerged without
 // performing actual PR operations.
-func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger prMerger) *AutoMergeHandler {
+func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) *AutoMergeHandler {
 	return &AutoMergeHandler{
 		store:  store,
 		bus:    bus,

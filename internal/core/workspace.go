@@ -4,10 +4,11 @@ import "context"
 
 // WorkspaceSetupRequest defines inputs for provisioning Run workspace.
 type WorkspaceSetupRequest struct {
-	RepoPath     string `json:"repo_path"`
-	RunID        string `json:"run_id"`
-	BranchName   string `json:"branch_name"`
-	WorktreePath string `json:"worktree_path"`
+	RepoPath      string `json:"repo_path"`
+	RunID         string `json:"run_id"`
+	BranchName    string `json:"branch_name"`
+	WorktreePath  string `json:"worktree_path"`
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 // WorkspaceSetupResult captures effective workspace details after setup.

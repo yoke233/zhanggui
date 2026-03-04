@@ -18,6 +18,25 @@
 
 ## 核心领域模型
 
+### Project
+
+关键字段：
+
+- `id`
+- `name`
+- `repo_path`：本地仓库绝对路径
+- `default_branch`：主分支名（创建时自动检测，fallback `main`）
+- `github_owner` / `github_repo`（可选）
+- `created_at` / `updated_at`
+
+约束：
+
+- `repo_path` 在系统内唯一。
+- `default_branch` 在项目创建时由 `git rev-parse --abbrev-ref HEAD` 自动检测并持久化；
+  后续所有 run 的 workspace setup 和 merge stage 以此值作为 base branch，
+  不再依赖运行时主仓库 HEAD 状态。
+- API 创建时可显式指定 `default_branch`，为空则自动检测。
+
 ### Issue
 
 关键字段：
@@ -82,9 +101,11 @@
 1. `Web API`：提供项目、issue、workflow profile、run、事件查询接口。
 2. `Team Leader`：维护会话上下文，决定 issue 推进与 profile 选择。
 3. `Issue Service`：issue 生命周期与时间线写入。
-4. `Run Engine`：基于 profile 规则执行 run（非 DAG）。
-5. `Event Bus + Event Store`：解耦触发与推进，持久化 run/review 事件。
-6. `Integrations`：GitHub 等外部系统对接。
+4. `Run Engine`：基于 profile 规则执行 run（ACP 协议为主路径，CLI fallback）。
+5. `Event Bus + Event Store`：解耦触发与推进，持久化 run/review 事件。EventBus 订阅者将带 `run_id` 的事件写入 `run_events` 表。
+6. `Auto-Merge`：监听 `EventRunDone`，执行 test gate → PR 创建 → PR 合并。
+7. `A2A Bridge`：接收外部 agent 任务，自动创建 issue 并 approve。
+8. `Integrations`：GitHub 等外部系统对接。
 
 ## 标准主链路
 
@@ -101,6 +122,11 @@
 - 会话运行事件：`GET /api/v2/sessions/{sessionID}/runs/events?project_id={projectID}`
 - issue 时间线：`GET /api/v2/issues/{issueID}/timeline?project_id={projectID}`
 - run 详情：`GET /api/v2/runs/{runID}?project_id={projectID}`
+- run 事件流：`GET /api/v2/runs/{runID}/events?project_id={projectID}`
+
+新增事件类型：
+
+- `auto_merged`：auto-merge 完成后发布，`data` 含 `branch` 和 `pr_url`（可选）。
 
 ## 验收基线
 

@@ -128,11 +128,11 @@ func (s *Scheduler) Enqueue(RunID string) error {
 	}
 
 	switch p.Status {
-	case core.StatusDone, core.StatusFailed, core.StatusTimeout:
+	case core.StatusCompleted:
 		return fmt.Errorf("Run %s status %s cannot be enqueued", p.ID, p.Status)
 	}
 
-	p.Status = core.StatusCreated
+	p.Status = core.StatusQueued
 	p.QueuedAt = time.Now()
 	p.UpdatedAt = time.Now()
 	return s.store.SaveRun(p)
@@ -147,7 +147,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	runningCount := 0
 	busyWorktrees := map[string]struct{}{}
 	for _, p := range active {
-		if p.Status != core.StatusRunning {
+		if p.Status != core.StatusInProgress {
 			continue
 		}
 		runningCount++
@@ -176,7 +176,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 		}
 
 		if s.maxPerProject > 0 {
-			runningByProject, err := s.store.CountRunningRunsByProject(p.ProjectID)
+			runningByProject, err := s.store.CountInProgressRunsByProject(p.ProjectID)
 			if err != nil {
 				return err
 			}
@@ -191,7 +191,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 			}
 		}
 
-		ok, err := s.store.TryMarkRunRunning(p.ID, core.StatusCreated)
+		ok, err := s.store.TryMarkRunInProgress(p.ID, core.StatusQueued)
 		if err != nil {
 			return err
 		}

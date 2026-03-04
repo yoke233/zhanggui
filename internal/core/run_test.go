@@ -11,17 +11,12 @@ func TestValidateTransition(t *testing.T) {
 		from RunStatus
 		to   RunStatus
 	}{
-		{StatusCreated, StatusRunning},
-		{StatusRunning, StatusWaitingReview},
-		{StatusRunning, StatusFailed},
-		{StatusRunning, StatusDone},
-		{StatusRunning, StatusTimeout},
-		{StatusWaitingReview, StatusRunning},
-		{StatusWaitingReview, StatusDone},
-		{StatusWaitingReview, StatusFailed},
-		{StatusWaitingReview, StatusTimeout},
-		{StatusFailed, StatusRunning},
-		{StatusTimeout, StatusRunning},
+		{StatusQueued, StatusInProgress},
+		{StatusInProgress, StatusCompleted},
+		{StatusInProgress, StatusActionRequired},
+		{StatusActionRequired, StatusInProgress},
+		{StatusActionRequired, StatusCompleted},
+		{StatusCompleted, StatusInProgress}, // retry
 	}
 	for _, tt := range valid {
 		if err := ValidateTransition(tt.from, tt.to); err != nil {
@@ -33,10 +28,12 @@ func TestValidateTransition(t *testing.T) {
 		from RunStatus
 		to   RunStatus
 	}{
-		{StatusCreated, StatusDone},
-		{StatusDone, StatusRunning},
-		{StatusFailed, StatusDone},
-		{StatusTimeout, StatusDone},
+		{StatusQueued, StatusCompleted},
+		{StatusQueued, StatusActionRequired},
+		{StatusCompleted, StatusQueued},
+		{StatusCompleted, StatusActionRequired},
+		{StatusActionRequired, StatusQueued},
+		{StatusInProgress, StatusQueued},
 	}
 	for _, tt := range invalid {
 		if err := ValidateTransition(tt.from, tt.to); err == nil {

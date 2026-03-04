@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -67,10 +66,10 @@ func (e *Executor) ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
 func (e *Executor) applyApprove(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	if p.Status != core.StatusWaitingReview {
-		return fmt.Errorf("approve requires waiting_review status, got %s", p.Status)
+	if p.Status != core.StatusActionRequired {
+		return fmt.Errorf("approve requires action_required status, got %s", p.Status)
 	}
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.ErrorMessage = ""
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -89,7 +88,7 @@ func (e *Executor) applyReject(p *core.Run, action core.RunAction, stage core.St
 	if err := e.store.InvalidateCheckpointsFromStage(p.ID, stage); err != nil {
 		return err
 	}
-	p.Status = core.StatusWaitingReview
+	p.Status = core.StatusActionRequired
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -110,7 +109,7 @@ func (e *Executor) applyModify(ctx context.Context, p *core.Run, action core.Run
 	}
 	p.Artifacts["modify_message"] = action.Message
 	p.Config["modify_stage"] = string(stage)
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -129,7 +128,8 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 	}
 	next := currentIndex + 1
 	if next >= len(p.Stages) {
-		p.Status = core.StatusDone
+		p.Status = core.StatusCompleted
+		p.Conclusion = core.ConclusionSuccess
 		p.FinishedAt = time.Now()
 		p.UpdatedAt = time.Now()
 		if err := e.store.SaveRun(p); err != nil {
@@ -142,7 +142,7 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 	}
 
 	p.CurrentStage = p.Stages[next].Name
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
@@ -154,7 +154,7 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 }
 
 func (e *Executor) applyRerun(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
@@ -178,7 +178,7 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Run, action core
 		return fmt.Errorf("target stage %s not found", target)
 	}
 	p.Stages[targetIndex].Role = action.Role
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
@@ -188,7 +188,8 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Run, action core
 }
 
 func (e *Executor) applyAbort(p *core.Run, action core.RunAction, stage core.StageID) error {
-	p.Status = core.StatusFailed
+	p.Status = core.StatusCompleted
+	p.Conclusion = core.ConclusionCancelled
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
@@ -205,7 +206,7 @@ func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.Sta
 	if err := e.killActiveSession(p.ID); err != nil {
 		return err
 	}
-	p.Status = core.StatusWaitingReview
+	p.Status = core.StatusActionRequired
 	p.ErrorMessage = action.Message
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -215,7 +216,7 @@ func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.Sta
 		return err
 	}
 	e.bus.Publish(core.Event{
-		Type:      core.EventRunwaiting_review,
+		Type:      core.EventRunActionRequired,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,
 		Stage:     stage,
@@ -225,10 +226,10 @@ func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.Sta
 }
 
 func (e *Executor) applyResume(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	if p.Status != core.StatusWaitingReview {
-		return fmt.Errorf("resume requires waiting_review status, got %s", p.Status)
+	if p.Status != core.StatusActionRequired {
+		return fmt.Errorf("resume requires action_required status, got %s", p.Status)
 	}
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.ErrorMessage = ""
 	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
@@ -249,30 +250,6 @@ func (e *Executor) applyResume(ctx context.Context, p *core.Run, action core.Run
 
 func (e *Executor) publishActionApplied(p *core.Run, action core.RunAction, stage core.StageID) error {
 	now := time.Now()
-	logPayload := map[string]string{
-		"action": string(action.Type),
-	}
-	if action.Message != "" {
-		logPayload["message"] = action.Message
-	}
-	if action.Role != "" {
-		logPayload["role"] = action.Role
-	}
-	logContent, err := json.Marshal(logPayload)
-	if err != nil {
-		return fmt.Errorf("marshal action_applied log payload: %w", err)
-	}
-	if err := e.appendEventLog(
-		p.ID,
-		stage,
-		core.EventActionApplied,
-		"manual",
-		string(logContent),
-		now,
-	); err != nil {
-		return err
-	}
-
 	data := map[string]string{
 		"action": string(action.Type),
 	}

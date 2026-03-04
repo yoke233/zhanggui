@@ -17,14 +17,19 @@
 ```json
 {
   "name": "demo",
-  "repo_path": "D:/repo/demo"
+  "repo_path": "D:/repo/demo",
+  "default_branch": "main"
 }
 ```
+
+- `default_branch` 可选；为空时服务端自动检测仓库当前分支（fallback `main`）。
 
 ### 查询项目
 
 - `GET /projects`
 - `GET /projects/{projectID}`
+
+响应包含 `default_branch` 字段，表示该项目所有 run 使用的 base branch。
 
 ## Team Leader 会话
 
@@ -179,7 +184,20 @@
 
 - `GET /runs?project_id={projectID}`
 - `GET /runs/{runID}?project_id={projectID}`
-- `GET /runs/{runID}/events?project_id={projectID}`
+
+### Run 事件流
+
+`GET /runs/{runID}/events?project_id={projectID}`
+
+返回 `{ items: RunEvent[], total: int }`。每条 RunEvent 包含：
+
+- `run_id` / `project_id` / `issue_id`
+- `event_type`：与 EventBus 事件类型一致（如 `run_started`、`agent_output`、`auto_merged`）
+- `stage`（可空）
+- `agent`（可空）
+- `data`：`map<string, string>` 自由键值
+- `error`（可空）
+- `created_at`
 
 ### 取消 run
 

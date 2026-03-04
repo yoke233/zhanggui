@@ -11,14 +11,15 @@ PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS projects (
-    id           TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    repo_path    TEXT NOT NULL UNIQUE,
-    github_owner TEXT,
-    github_repo  TEXT,
-    config_json  TEXT,
-    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    repo_path      TEXT NOT NULL UNIQUE,
+    github_owner   TEXT,
+    github_repo    TEXT,
+    default_branch TEXT DEFAULT '',
+    config_json    TEXT,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -27,7 +28,8 @@ CREATE TABLE IF NOT EXISTS runs (
     name              TEXT NOT NULL,
     description       TEXT,
     template          TEXT NOT NULL,
-    status            TEXT NOT NULL DEFAULT 'created',
+    status            TEXT NOT NULL DEFAULT 'queued',
+    conclusion        TEXT,
     current_stage     TEXT,
     stages_json       TEXT NOT NULL,
     artifacts_json    TEXT DEFAULT '{}',
@@ -66,19 +68,6 @@ CREATE TABLE IF NOT EXISTS checkpoints (
 );
 
 CREATE INDEX IF NOT EXISTS idx_checkpoints_run ON checkpoints(run_id);
-
-CREATE TABLE IF NOT EXISTS logs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    stage       TEXT NOT NULL,
-    type        TEXT NOT NULL,
-    agent       TEXT,
-    content     TEXT NOT NULL,
-    timestamp   DATETIME NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_logs_run_stage ON logs(run_id, stage);
-CREATE INDEX IF NOT EXISTS idx_logs_id ON logs(id);
 
 CREATE TABLE IF NOT EXISTS human_actions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,12 +196,97 @@ CREATE INDEX IF NOT EXISTS idx_issue_changes_issue ON issue_changes(issue_id);
 CREATE INDEX IF NOT EXISTS idx_review_records_issue ON review_records(issue_id);
 `
 
+// schemaVersion tracks which migrations have been applied.
+// Bump this when adding new migrations.
+const schemaVersion = 2
+
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
 		return fmt.Errorf("exec schema tables: %w", err)
 	}
 	if _, err := db.Exec(schemaIndexes); err != nil {
 		return fmt.Errorf("exec schema indexes: %w", err)
+	}
+
+	currentVersion, err := getUserVersion(db)
+	if err != nil {
+		return fmt.Errorf("get user_version: %w", err)
+	}
+
+	if currentVersion < 1 {
+		if err := migrateStatusConclusion(db); err != nil {
+			return fmt.Errorf("migrate status/conclusion: %w", err)
+		}
+		if _, err := db.Exec(`DROP TABLE IF EXISTS logs`); err != nil {
+			return fmt.Errorf("drop logs table: %w", err)
+		}
+	}
+
+	if currentVersion < 2 {
+		if err := migrateAddDefaultBranch(db); err != nil {
+			return fmt.Errorf("migrate default_branch: %w", err)
+		}
+	}
+
+	if currentVersion < schemaVersion {
+		if err := setUserVersion(db, schemaVersion); err != nil {
+			return fmt.Errorf("set user_version: %w", err)
+		}
+	}
+	return nil
+}
+
+func getUserVersion(db *sql.DB) (int, error) {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
+func setUserVersion(db *sql.DB, version int) error {
+	_, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version))
+	return err
+}
+
+// migrateStatusConclusion adds the conclusion column (if missing) and converts
+// legacy status values to the new status+conclusion model.
+func migrateStatusConclusion(db *sql.DB) error {
+	has, err := hasColumn(db, "runs", "conclusion")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN conclusion TEXT`); err != nil {
+			return fmt.Errorf("add conclusion column: %w", err)
+		}
+	}
+
+	migrations := []string{
+		`UPDATE runs SET status='completed', conclusion='success' WHERE status='done'`,
+		`UPDATE runs SET status='completed', conclusion='failure' WHERE status='failed'`,
+		`UPDATE runs SET status='completed', conclusion='timed_out' WHERE status='timeout'`,
+		`UPDATE runs SET status='action_required' WHERE status='waiting_review'`,
+		`UPDATE runs SET status='queued' WHERE status='created'`,
+		`UPDATE runs SET status='in_progress' WHERE status='running'`,
+	}
+	for _, m := range migrations {
+		if _, err := db.Exec(m); err != nil {
+			return fmt.Errorf("migrate status: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateAddDefaultBranch(db *sql.DB) error {
+	has, err := hasColumn(db, "projects", "default_branch")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE projects ADD COLUMN default_branch TEXT DEFAULT ''`); err != nil {
+			return fmt.Errorf("add default_branch column: %w", err)
+		}
 	}
 	return nil
 }

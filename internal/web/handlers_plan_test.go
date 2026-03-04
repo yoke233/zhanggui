@@ -141,7 +141,7 @@ func TestV2RunAPIAvailable(t *testing.T) {
 		ProjectID:       project.ID,
 		Name:            "run-v2",
 		Template:        "standard",
-		Status:          core.StatusRunning,
+		Status:          core.StatusInProgress,
 		CurrentStage:    core.StageImplement,
 		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts:       map[string]string{},
@@ -179,8 +179,8 @@ func TestV2RunAPIAvailable(t *testing.T) {
 	if gotRun.Profile != core.WorkflowProfileStrict {
 		t.Fatalf("run profile = %q, want %q", gotRun.Profile, core.WorkflowProfileStrict)
 	}
-	if gotRun.Status != core.WorkflowRunStatusRunning {
-		t.Fatalf("run status = %q, want %q", gotRun.Status, core.WorkflowRunStatusRunning)
+	if gotRun.Status != core.StatusInProgress {
+		t.Fatalf("run status = %q, want %q", gotRun.Status, core.StatusInProgress)
 	}
 
 	listResp, err := http.Get(ts.URL + "/api/v2/runs?project_id=" + project.ID + "&limit=10&offset=0")

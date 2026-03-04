@@ -41,7 +41,7 @@ func TestStatusSyncer_HumanRequired_PostsActionComment(t *testing.T) {
 
 	err := syncer.SyncRunEvent(context.Background(), core.Event{
 		Type:  core.EventHumanRequired,
-		Stage: core.StageCodeReview,
+		Stage: core.StageReview,
 		Data: map[string]string{
 			"issue_number": "88",
 		},
@@ -57,7 +57,7 @@ func TestStatusSyncer_HumanRequired_PostsActionComment(t *testing.T) {
 	if comment.issueNumber != 88 {
 		t.Fatalf("expected issue #88, got #%d", comment.issueNumber)
 	}
-	if !strings.Contains(comment.body, "/approve") || !strings.Contains(comment.body, "code_review") {
+	if !strings.Contains(comment.body, "/approve") || !strings.Contains(comment.body, "review") {
 		t.Fatalf("unexpected human-required comment: %q", comment.body)
 	}
 }

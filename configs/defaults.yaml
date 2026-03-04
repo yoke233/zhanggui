@@ -61,7 +61,7 @@ roles:
 
   - name: reviewer
     agent: claude
-    prompt_template: code_review
+    prompt_template: review
     capabilities:
       fs_read: true
       fs_write: false
@@ -101,9 +101,9 @@ role_bindings:
     stage_roles:
       requirements: worker
       implement: worker
-      code_review: reviewer
+      review: reviewer
       fixup: worker
-      e2e_test: worker
+      test: worker
   review_orchestrator:
     reviewers:
       completeness: reviewer
@@ -113,8 +113,8 @@ role_bindings:
   plan_parser:
     role: plan_parser
 
-# 默认 Pipeline 行为
-pipeline:
+# 默认 Run 行为
+run:
   default_template: standard
   global_timeout: 2h
   auto_infer_template: true        # 是否启用 AI 推断模板
@@ -131,7 +131,7 @@ pipeline:
 # 并发控制
 scheduler:
   max_global_agents: 3             # 全局最多同时运行几个 Agent
-  max_project_pipelines: 2         # 每个项目最多几条活跃 Pipeline
+  max_project_pipelines: 2         # 每个项目最多几条活跃 Run
 
 # Team Leader 配置（P2a 新增）
 team_leader:
@@ -146,7 +146,7 @@ team_leader:
   # Multi-Agent 审核配置（P2b 新增）
   review_orchestrator:
     enabled: true
-    max_rounds: 2                  # 审核-修正最大循环次数（超限进入 waiting_human）
+    max_rounds: 2                  # 审核-修正最大循环次数（超限进入 action_required）
     min_score: 70                  # 通过最低分
     roles:                         # 引用 role_bindings.review_orchestrator，可在项目级覆写
       completeness: reviewer

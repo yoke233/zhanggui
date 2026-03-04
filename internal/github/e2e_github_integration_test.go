@@ -32,7 +32,7 @@ func TestE2E_GitHub_ScenarioA_IssueOpened_RunCreate_StatusSync(t *testing.T) {
 			Name:            name,
 			Description:     description,
 			Template:        template,
-			Status:          core.StatusCreated,
+			Status:          core.StatusQueued,
 			Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 			Artifacts:       map[string]string{},
 			Config:          map[string]any{},
@@ -84,11 +84,11 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyRunAction(t *testing.T) {
 	Run := seedGitHubE2ERun(t, store, projectID, "pipe-e2e-b", map[string]any{
 		"issue_number": 201,
 	})
-	Run.Status = core.StatusWaitingReview
+	Run.Status = core.StatusActionRequired
 	Run.CurrentStage = core.StageImplement
 	Run.Stages = []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex"},
-		{Name: core.StageCodeReview, Agent: "claude"},
+		{Name: core.StageReview, Agent: "claude"},
 	}
 	if err := store.SaveRun(Run); err != nil {
 		t.Fatalf("SaveRun() error = %v", err)
@@ -106,12 +106,12 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyRunAction(t *testing.T) {
 	}
 	if err := store.SaveCheckpoint(&core.Checkpoint{
 		RunID:      Run.ID,
-		StageName:  core.StageCodeReview,
+		StageName:  core.StageReview,
 		Status:     core.CheckpointSuccess,
 		StartedAt:  now,
 		FinishedAt: now,
 	}); err != nil {
-		t.Fatalf("SaveCheckpoint(code_review) error = %v", err)
+		t.Fatalf("SaveCheckpoint(review) error = %v", err)
 	}
 
 	payload := readGitHubFixture(t, "issue_comment_created.json")
@@ -144,7 +144,7 @@ func TestE2E_GitHub_ScenarioB_SlashReject_ApplyRunAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if after.Status != core.StatusWaitingReview {
+	if after.Status != core.StatusActionRequired {
 		t.Fatalf("expected waiting_review after slash reject, got %s", after.Status)
 	}
 	if after.ErrorMessage == "" {
@@ -160,7 +160,7 @@ func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedRunDone(t *testing
 	Run := seedGitHubE2ERun(t, store, projectID, "pipe-e2e-c", map[string]any{
 		"base_branch": "main",
 	})
-	Run.Status = core.StatusRunning
+	Run.Status = core.StatusInProgress
 	Run.BranchName = "ai-flow/pipe-e2e-c"
 	if err := store.SaveRun(Run); err != nil {
 		t.Fatalf("SaveRun() error = %v", err)
@@ -182,8 +182,11 @@ func TestE2E_GitHub_ScenarioC_ImplementComplete_DraftPR_MergedRunDone(t *testing
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if updated.Status != core.StatusDone {
-		t.Fatalf("expected done after merged webhook, got %s", updated.Status)
+	if updated.Status != core.StatusCompleted {
+		t.Fatalf("expected completed after merged webhook, got %s", updated.Status)
+	}
+	if updated.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected conclusion success, got %s", updated.Conclusion)
 	}
 }
 
@@ -323,7 +326,7 @@ func seedGitHubE2ERun(t *testing.T, store core.Store, projectID, RunID string, c
 		Name:            RunID,
 		Description:     "github e2e Run",
 		Template:        "standard",
-		Status:          core.StatusCreated,
+		Status:          core.StatusQueued,
 		CurrentStage:    core.StageImplement,
 		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
 		Artifacts:       map[string]string{},

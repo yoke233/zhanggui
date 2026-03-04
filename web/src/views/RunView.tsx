@@ -13,25 +13,23 @@ interface RunViewProps {
 const Run_STAGE_ORDER: Record<string, string[]> = {
   standard: [
     "requirements",
-    "spec_gen",
-    "spec_review",
-    "worktree_setup",
+    "setup",
     "implement",
-    "code_review",
+    "review",
     "fixup",
-    "e2e_test",
+    "test",
     "merge",
     "cleanup",
   ],
   quick: [
     "requirements",
-    "worktree_setup",
+    "setup",
     "implement",
-    "code_review",
+    "review",
     "merge",
     "cleanup",
   ],
-  hotfix: ["requirements", "worktree_setup", "implement", "merge", "cleanup"],
+  hotfix: ["requirements", "setup", "implement", "merge", "cleanup"],
 };
 
 const getErrorMessage = (error: unknown): string => {

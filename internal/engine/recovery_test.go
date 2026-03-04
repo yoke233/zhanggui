@@ -18,7 +18,7 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort},
 	})
-	p.Status = core.StatusWaitingReview
+	p.Status = core.StatusActionRequired
 	p.CurrentStage = core.StageImplement
 	if err := store.SaveRun(p); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestRecovery_RestoreWaitingHuman(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusWaitingReview {
+	if got.Status != core.StatusActionRequired {
 		t.Fatalf("expected waiting_review to remain unchanged, got %s", got.Status)
 	}
 	if runtime.calls != 0 {
@@ -57,7 +57,7 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 	p := setupProjectAndRun(t, store, workDir, []core.StageConfig{
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.CurrentStage = core.StageImplement
 	p.WorktreePath = workDir
 	if err := store.SaveRun(p); err != nil {
@@ -87,8 +87,11 @@ func TestRecovery_ReRunInProgressCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
-		t.Fatalf("expected recovered Run to finish done, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected recovered Run to finish completed, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected success conclusion after recovery, got %s", got.Conclusion)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected one rerun attempt after recovery, calls=%d", runtime.calls)
@@ -125,7 +128,7 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 		{Name: core.StageFixup, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.CurrentStage = core.StageImplement
 	p.WorktreePath = workDir
 	if err := store.SaveRun(p); err != nil {
@@ -155,8 +158,11 @@ func TestRecovery_ResumeFromNextAfterSuccessCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
-		t.Fatalf("expected done after resume-from-next recovery, got %s", got.Status)
+	if got.Status != core.StatusCompleted {
+		t.Fatalf("expected completed after resume-from-next recovery, got %s", got.Status)
+	}
+	if got.Conclusion != core.ConclusionSuccess {
+		t.Fatalf("expected success conclusion after resume-from-next recovery, got %s", got.Conclusion)
 	}
 	if runtime.calls != 1 {
 		t.Fatalf("expected only next stage to run after success checkpoint, calls=%d", runtime.calls)

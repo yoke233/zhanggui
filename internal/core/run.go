@@ -5,40 +5,41 @@ import (
 	"time"
 )
 
-// RunStatus represents the lifecycle state of a run.
+// RunStatus represents the lifecycle state of a run (GitHub Actions model).
 type RunStatus string
 
 const (
-	StatusCreated       RunStatus = "created"
-	StatusRunning       RunStatus = "running"
-	StatusWaitingReview RunStatus = "waiting_review"
-	StatusDone          RunStatus = "done"
-	StatusFailed        RunStatus = "failed"
-	StatusTimeout       RunStatus = "timeout"
+	StatusQueued         RunStatus = "queued"
+	StatusInProgress     RunStatus = "in_progress"
+	StatusCompleted      RunStatus = "completed"
+	StatusActionRequired RunStatus = "action_required"
+)
+
+// RunConclusion represents the outcome of a completed run.
+type RunConclusion string
+
+const (
+	ConclusionSuccess   RunConclusion = "success"
+	ConclusionFailure   RunConclusion = "failure"
+	ConclusionTimedOut  RunConclusion = "timed_out"
+	ConclusionCancelled RunConclusion = "cancelled"
 )
 
 // validTransitions encodes the state machine: from -> set of legal targets.
 var validTransitions = map[RunStatus]map[RunStatus]bool{
-	StatusCreated: {
-		StatusRunning: true,
+	StatusQueued: {
+		StatusInProgress: true,
 	},
-	StatusRunning: {
-		StatusWaitingReview: true,
-		StatusDone:          true,
-		StatusFailed:        true,
-		StatusTimeout:       true,
+	StatusInProgress: {
+		StatusCompleted:      true,
+		StatusActionRequired: true,
 	},
-	StatusWaitingReview: {
-		StatusRunning: true,
-		StatusDone:    true,
-		StatusFailed:  true,
-		StatusTimeout: true,
+	StatusActionRequired: {
+		StatusInProgress: true,
+		StatusCompleted:  true,
 	},
-	StatusFailed: {
-		StatusRunning: true,
-	},
-	StatusTimeout: {
-		StatusRunning: true,
+	StatusCompleted: {
+		StatusInProgress: true, // retry from failure
 	},
 }
 
@@ -64,6 +65,7 @@ type Run struct {
 	Template    string    `json:"template"`
 	Status      RunStatus `json:"status"`
 
+	Conclusion   RunConclusion     `json:"conclusion,omitempty"`
 	CurrentStage StageID           `json:"current_stage"`
 	Stages       []StageConfig     `json:"stages"`
 	Artifacts    map[string]string `json:"artifacts"`

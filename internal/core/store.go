@@ -37,16 +37,6 @@ type IssueChange struct {
 	CreatedAt string `json:"created_at"`
 }
 
-type LogEntry struct {
-	ID        int64  `json:"id"`
-	RunID     string `json:"run_id"`
-	Stage     string `json:"stage"`
-	Type      string `json:"type"`
-	Agent     string `json:"agent"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
-}
-
 type HumanAction struct {
 	ID        int64  `json:"id"`
 	RunID     string `json:"run_id"`
@@ -70,16 +60,13 @@ type Store interface {
 	SaveRun(p *Run) error
 	GetActiveRuns() ([]Run, error)
 	ListRunnableRuns(limit int) ([]Run, error)
-	CountRunningRunsByProject(projectID string) (int, error)
-	TryMarkRunRunning(id string, from ...RunStatus) (bool, error)
+	CountInProgressRunsByProject(projectID string) (int, error)
+	TryMarkRunInProgress(id string, from ...RunStatus) (bool, error)
 
 	SaveCheckpoint(cp *Checkpoint) error
 	GetCheckpoints(RunID string) ([]Checkpoint, error)
 	GetLastSuccessCheckpoint(RunID string) (*Checkpoint, error)
 	InvalidateCheckpointsFromStage(RunID string, stage StageID) error
-
-	AppendLog(entry LogEntry) error
-	GetLogs(RunID string, stage string, limit int, offset int) ([]LogEntry, int, error)
 
 	RecordAction(action HumanAction) error
 	GetActions(RunID string) ([]HumanAction, error)

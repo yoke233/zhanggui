@@ -140,10 +140,12 @@ func (l *PRLifecycle) OnPullRequestClosed(
 	}
 
 	if merged {
-		Run.Status = core.StatusDone
+		Run.Status = core.StatusCompleted
+		Run.Conclusion = core.ConclusionSuccess
 		Run.ErrorMessage = ""
 	} else {
-		Run.Status = core.StatusFailed
+		Run.Status = core.StatusCompleted
+		Run.Conclusion = core.ConclusionFailure
 		Run.ErrorMessage = "pull request closed without merge"
 	}
 	Run.FinishedAt = l.now()

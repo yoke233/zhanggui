@@ -112,7 +112,7 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 		{Name: core.StageImplement, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 		{Name: core.StageFixup, Agent: "codex", OnFailure: core.OnFailureAbort, MaxRetries: 0},
 	})
-	p.Status = core.StatusRunning
+	p.Status = core.StatusInProgress
 	p.CurrentStage = core.StageFixup
 	p.WorktreePath = workDir
 	if err := store.SaveRun(p); err != nil {
@@ -151,7 +151,7 @@ func TestIntegrationP1_RecoveryAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != core.StatusDone {
+	if got.Status != core.StatusCompleted {
 		t.Fatalf("expected recovered Run status done, got %s", got.Status)
 	}
 	if runtime.calls != 1 {
@@ -181,7 +181,7 @@ func markRunDoneErr(store core.Store, RunID string) error {
 	if err != nil {
 		return err
 	}
-	p.Status = core.StatusDone
+	p.Status = core.StatusCompleted
 	p.FinishedAt = time.Now()
 	p.UpdatedAt = time.Now()
 	return store.SaveRun(p)
@@ -203,7 +203,7 @@ func waitRunsDoneOrError(t *testing.T, store core.Store, ids []string, errCh <-c
 			if err != nil {
 				t.Fatalf("get Run %s: %v", id, err)
 			}
-			if p.Status != core.StatusDone {
+			if p.Status != core.StatusCompleted {
 				allDone = false
 				break
 			}

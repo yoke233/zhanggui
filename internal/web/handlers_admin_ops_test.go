@@ -163,7 +163,7 @@ func seedAdminIssueFixture(t *testing.T, store core.Store, RunID string, status 
 		Name:            "Run",
 		Description:     "Run for admin ops",
 		Template:        "standard",
-		Status:          core.StatusCreated,
+		Status:          core.StatusQueued,
 		Stages:          []core.StageConfig{},
 		Artifacts:       map[string]string{},
 		Config:          map[string]any{},
