@@ -707,7 +707,8 @@ func (s *DepScheduler) applyBlockPolicyLocked(rs *runningSession, failedIssueID 
 			continue
 		}
 		issue := rs.IssueByID[issueID]
-		if issue == nil || isIssueTerminal(issue.Status) || issue.Status == core.IssueStatusExecuting {
+		if issue == nil || isIssueTerminal(issue.Status) ||
+			issue.Status == core.IssueStatusExecuting || issue.Status == core.IssueStatusMerging {
 			continue
 		}
 		issue.Status = core.IssueStatusFailed

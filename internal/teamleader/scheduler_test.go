@@ -301,6 +301,51 @@ func TestScheduler_IssueMergeRetryReleasesOldRunAndRedispatches(t *testing.T) {
 	}
 }
 
+func TestScheduler_FailPolicyBlockSkipsMergingIssue(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateSchedulerProject(t, store, "proj-scheduler-block-skip-merging")
+	autoMerge := newIssueWithProfile("issue-merge", "merge", core.WorkflowProfileStrict, nil)
+	autoMerge.AutoMerge = true
+	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-block-skip-merging", core.FailBlock, []core.Issue{
+		autoMerge,
+		newIssueWithProfile("issue-fail", "fail", core.WorkflowProfileNormal, nil),
+	})
+
+	s := NewDepScheduler(store, nil, (&schedulerRunner{}).Run, nil, 2)
+	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
+		t.Fatalf("ScheduleIssues() error = %v", err)
+	}
+
+	mergeIssue := waitIssueStatus(t, store, "issue-merge", core.IssueStatusExecuting, 2*time.Second)
+	failIssue := waitIssueStatus(t, store, "issue-fail", core.IssueStatusExecuting, 2*time.Second)
+
+	if err := s.OnEvent(context.Background(), core.Event{
+		Type:      core.EventRunDone,
+		RunID:     mergeIssue.RunID,
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("OnEvent(run_done merge) error = %v", err)
+	}
+	merging := waitIssueStatus(t, store, "issue-merge", core.IssueStatusMerging, 2*time.Second)
+
+	if err := s.OnEvent(context.Background(), core.Event{
+		Type:      core.EventRunFailed,
+		RunID:     failIssue.RunID,
+		Error:     "boom",
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("OnEvent(run_failed fail) error = %v", err)
+	}
+	waitIssueStatus(t, store, "issue-fail", core.IssueStatusFailed, 2*time.Second)
+
+	after := waitIssueStatus(t, store, "issue-merge", core.IssueStatusMerging, 2*time.Second)
+	if after.RunID == "" || after.RunID != merging.RunID {
+		t.Fatalf("merging issue should keep RunID after block policy, got %q", after.RunID)
+	}
+}
+
 func TestScheduler_RecoverExecutingIssuesKeepsMergingAsRunning(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()

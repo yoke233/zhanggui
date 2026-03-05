@@ -72,6 +72,7 @@ func baseFixtures() (*mockStore, *mockBus, *mockMerger) {
 			ID:        "issue-1",
 			AutoMerge: true,
 			RunID:     "run-1",
+			Status:    core.IssueStatusMerging,
 		},
 		run: &core.Run{
 			ID:         "run-1",
@@ -94,6 +95,14 @@ func issueMergingEvent() core.Event {
 	return core.Event{
 		Type:      core.EventIssueMerging,
 		IssueID:   "issue-1",
+		Timestamp: time.Now(),
+	}
+}
+
+func runDoneEvent() core.Event {
+	return core.Event{
+		Type:      core.EventRunDone,
+		RunID:     "run-1",
 		Timestamp: time.Now(),
 	}
 }
@@ -125,6 +134,43 @@ func TestAutoMerge_HappyPath(t *testing.T) {
 	}
 	if evt.Data["branch"] != "feat/x" {
 		t.Fatalf("unexpected branch: %s", evt.Data["branch"])
+	}
+}
+
+func TestAutoMerge_RunDoneFallbackPath(t *testing.T) {
+	store, bus, merger := baseFixtures()
+	store.issue.Status = core.IssueStatusExecuting
+	h := NewAutoMergeHandler(store, bus, merger)
+	h.testGateFn = noopTestGate
+
+	h.OnEvent(context.Background(), runDoneEvent())
+
+	if !merger.called.create {
+		t.Fatal("expected OnImplementComplete to be called on run_done fallback")
+	}
+	if !merger.called.merge {
+		t.Fatal("expected OnMergeApproved to be called on run_done fallback")
+	}
+	if len(bus.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(bus.events))
+	}
+	if bus.events[0].Type != core.EventIssueMerged {
+		t.Fatalf("expected EventIssueMerged, got %s", bus.events[0].Type)
+	}
+}
+
+func TestAutoMerge_DeduplicateRunDoneAndIssueMerging(t *testing.T) {
+	store, bus, merger := baseFixtures()
+	store.issue.Status = core.IssueStatusExecuting
+	h := NewAutoMergeHandler(store, bus, merger)
+	h.testGateFn = noopTestGate
+
+	h.OnEvent(context.Background(), runDoneEvent())
+	store.issue.Status = core.IssueStatusMerging
+	h.OnEvent(context.Background(), issueMergingEvent())
+
+	if len(bus.events) != 1 {
+		t.Fatalf("expected one merge terminal event after dedupe, got %d", len(bus.events))
 	}
 }
 

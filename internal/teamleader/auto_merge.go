@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -20,14 +21,16 @@ type PRMerger interface {
 	OnMergeApproved(ctx context.Context, runID string) error
 }
 
-// AutoMergeHandler listens for RunDone events and auto-merges when
-// Issue.AutoMerge is true and the test gate passes.
+// AutoMergeHandler listens for merge lifecycle events and triggers auto-merge
+// when Issue.AutoMerge is true and the test gate passes.
 type AutoMergeHandler struct {
 	store      core.Store
 	bus        eventPublisher
 	merger     PRMerger
 	log        *slog.Logger
 	testGateFn func(ctx context.Context, repoPath string) error // nil uses default runTestGate
+	mu         sync.Mutex
+	handledRun map[string]struct{}
 }
 
 // NewAutoMergeHandler creates a handler that triggers auto-merge on issue_merging.
@@ -35,28 +38,55 @@ type AutoMergeHandler struct {
 // performing actual PR operations.
 func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) *AutoMergeHandler {
 	return &AutoMergeHandler{
-		store:  store,
-		bus:    bus,
-		merger: merger,
-		log:    slog.Default(),
+		store:      store,
+		bus:        bus,
+		merger:     merger,
+		log:        slog.Default(),
+		handledRun: make(map[string]struct{}),
 	}
 }
 
-// OnEvent handles a single event. Only reacts to EventIssueMerging.
+// OnEvent handles a single event.
+// Primary trigger is EventIssueMerging; EventRunDone remains as a fallback in
+// case issue_merging delivery is dropped.
 func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
-	if evt.Type != core.EventIssueMerging {
+	var (
+		issue *core.Issue
+		err   error
+	)
+	switch evt.Type {
+	case core.EventIssueMerging:
+		issueID := strings.TrimSpace(evt.IssueID)
+		if issueID == "" {
+			return
+		}
+		issue, err = h.store.GetIssue(issueID)
+		if err != nil || issue == nil {
+			return
+		}
+		if issue.Status != core.IssueStatusMerging {
+			return
+		}
+	case core.EventRunDone:
+		runID := strings.TrimSpace(evt.RunID)
+		if runID == "" {
+			return
+		}
+		issue, err = h.store.GetIssueByRun(runID)
+		if err != nil || issue == nil {
+			return
+		}
+		if issue.Status != core.IssueStatusExecuting && issue.Status != core.IssueStatusMerging {
+			return
+		}
+	default:
 		return
 	}
-	issueID := strings.TrimSpace(evt.IssueID)
-	if issueID == "" {
-		return
-	}
+	h.tryAutoMerge(ctx, issue)
+}
 
-	issue, err := h.store.GetIssue(issueID)
-	if err != nil || issue == nil {
-		return
-	}
-	if !issue.AutoMerge {
+func (h *AutoMergeHandler) tryAutoMerge(ctx context.Context, issue *core.Issue) {
+	if issue == nil || !issue.AutoMerge {
 		return
 	}
 	runID := strings.TrimSpace(issue.RunID)
@@ -64,9 +94,11 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		h.log.Warn("auto-merge: issue has empty run_id", "issue_id", issue.ID)
 		return
 	}
-
 	run, err := h.store.GetRun(runID)
 	if err != nil || run == nil {
+		return
+	}
+	if !h.markRunHandled(runID) {
 		return
 	}
 
@@ -153,6 +185,20 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		Data:      data,
 		Timestamp: time.Now(),
 	})
+}
+
+func (h *AutoMergeHandler) markRunHandled(runID string) bool {
+	trimmed := strings.TrimSpace(runID)
+	if trimmed == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, exists := h.handledRun[trimmed]; exists {
+		return false
+	}
+	h.handledRun[trimmed] = struct{}{}
+	return true
 }
 
 func isConflictError(err error) bool {
