@@ -30,12 +30,12 @@ const createApiClientMock = (): ApiClient =>
     listRuns: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn(),
-    createPlan: vi.fn(),
-    submitPlanReview: vi.fn(),
-    applyPlanAction: vi.fn(),
+    createIssue: vi.fn(),
+    submitIssueReview: vi.fn(),
+    applyIssueAction: vi.fn(),
     applyTaskAction: vi.fn(),
-    listPlans: vi.fn(),
-    getPlanDag: vi.fn(),
+    listIssues: vi.fn(),
+    getIssueDag: vi.fn(),
     getRun: vi.fn(),
   }) as unknown as ApiClient;
 

@@ -52,7 +52,7 @@ const createMockApiClient = (): ApiClient => {
     createChat: vi.fn(),
     cancelChat: vi.fn(),
     getChat: vi.fn(),
-    createPlan: vi.fn(),
+    createIssue: vi.fn(),
     submitIssueReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
     applyIssueAction: vi.fn().mockResolvedValue({ status: "executing" }),
     applyTaskAction: vi.fn(),
@@ -61,9 +61,9 @@ const createMockApiClient = (): ApiClient => {
       total: 1,
       offset: 0,
     }),
-    getPlanDag: vi.fn(),
-    listPlanReviews: vi.fn(),
-    listPlanChanges: vi.fn(),
+    getIssueDag: vi.fn(),
+    listIssueReviews: vi.fn(),
+    listIssueChanges: vi.fn(),
     listIssueTimeline: vi.fn().mockResolvedValue({
       items: [],
       total: 0,
@@ -86,11 +86,11 @@ const createDeferred = <T,>() => {
 };
 
 describe("BoardView helpers", () => {
-  it("toBoardStatus 兼容 issue/task 状态映射", () => {
+  it("toBoardStatus 映射当前 issue 状态", () => {
     expect(toBoardStatus("queued")).toBe("ready");
     expect(toBoardStatus("executing")).toBe("running");
-    expect(toBoardStatus("blocked_by_failure")).toBe("failed");
-    expect(toBoardStatus("skipped")).toBe("done");
+    expect(toBoardStatus("merging")).toBe("running");
+    expect(toBoardStatus("superseded")).toBe("failed");
   });
 
   it("groupBoardTasks 返回完整五列", () => {
@@ -121,7 +121,7 @@ describe("BoardView", () => {
     vi.useRealTimers();
   });
 
-  it("从 plans 主实体渲染 issue 列表（无 tasks 也可展示）", async () => {
+  it("从 issues 主实体渲染列表（无 tasks 也可展示）", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
@@ -560,6 +560,5 @@ describe("BoardView", () => {
     expect(interval.value).toBe("30000");
   });
 });
-
 
 

@@ -152,8 +152,8 @@ const createMockApiClient = (): ApiClient => {
     getRepoTree,
     getRepoStatus,
     getRepoDiff,
-    listPlans: vi.fn(),
-    getPlanDag: vi.fn(),
+    listIssues: vi.fn(),
+    getIssueDag: vi.fn(),
   } as unknown as ApiClient;
 };
 

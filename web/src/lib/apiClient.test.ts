@@ -401,7 +401,7 @@ describe("apiClient", () => {
     expect(issue.title).toBe("Issue From Files");
   });
 
-  it("兼容别名 listPlans/createPlanFromFiles 也不再访问 /plans", async () => {
+  it("issues 路由调用不会访问 /plans", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -448,8 +448,8 @@ describe("apiClient", () => {
       baseUrl: "http://localhost:8080/api/v1",
     });
 
-    await client.listPlans("proj-1", { limit: 1, offset: 0 });
-    await client.createPlanFromFiles("proj-1", {
+    await client.listIssues("proj-1", { limit: 1, offset: 0 });
+    await client.createIssueFromFiles("proj-1", {
       session_id: "chat-1",
       file_paths: ["README.md"],
     });

@@ -2,13 +2,7 @@ export type RunStatus =
   | "queued"
   | "in_progress"
   | "action_required"
-  | "completed"
-  | "created"
-  | "running"
-  | "waiting_review"
-  | "done"
-  | "failed"
-  | "timeout";
+  | "completed";
 
 export type IssueState = "open" | "closed";
 export type FailurePolicy = "block" | "skip" | "human";
@@ -18,6 +12,7 @@ export type IssueStatus =
   | "queued"
   | "ready"
   | "executing"
+  | "merging"
   | "done"
   | "failed"
   | "superseded"
@@ -28,13 +23,7 @@ export type WorkflowRunStatus =
   | "queued"
   | "in_progress"
   | "action_required"
-  | "completed"
-  | "created"
-  | "running"
-  | "waiting_review"
-  | "done"
-  | "failed"
-  | "timeout";
+  | "completed";
 
 export type GitHubConnectionStatus = "connected" | "degraded" | "disconnected";
 

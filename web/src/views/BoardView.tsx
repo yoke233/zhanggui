@@ -101,25 +101,17 @@ export const toBoardStatus = (status: string): BoardStatus => {
     case "pending":
       return "pending";
     case "reviewing":
-      return "ready";
     case "queued":
     case "ready":
       return "ready";
     case "executing":
-    case "running":
+    case "merging":
       return "running";
-    case "partially_done":
-      return "running";
-    case "success":
-    case "completed":
     case "done":
       return "done";
-    case "skipped":
-      return "done";
-    case "waiting_review":
     case "failed":
     case "abandoned":
-    case "blocked_by_failure":
+    case "superseded":
       return "failed";
     default:
       return "pending";
@@ -666,7 +658,6 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     if (action === "approve") {
       return (
         rawStatus === "reviewing" ||
-        rawStatus === "waiting_review" ||
         task.status === "ready" ||
         task.status === "running"
       );

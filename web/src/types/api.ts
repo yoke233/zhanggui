@@ -313,15 +313,3 @@ export type ListChatRunEventsResponse = ChatRunEvent[];
 export type GetChatResponse = ChatSession;
 export type CreateIssueResponse = ApiIssue;
 export type ListAdminAuditLogResponse = PaginatedResponse<AdminAuditLogItem>;
-
-// 兼容别名（逐步删除）
-export type CreatePlanFromFilesRequest = CreateIssueFromFilesRequest;
-export type CreatePlanRequest = CreateIssueRequest;
-export type CreatePlanResponse = CreateIssueResponse;
-export type ListPlansResponse = ListIssuesResponse;
-export type PlanDagResponse = IssueDagResponse;
-export type PlanReviewRecord = IssueReviewRecord;
-export type PlanChangeRecord = IssueChangeRecord;
-export type SubmitPlanReviewResponse = SubmitIssueReviewResponse;
-export type PlanActionRequest = IssueActionRequest;
-export type PlanActionResponse = IssueActionResponse;

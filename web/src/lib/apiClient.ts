@@ -9,7 +9,6 @@ import type {
   CreateIssueFromFilesRequest,
   CreateIssueRequest,
   CreateIssueResponse,
-  CreatePlanResponse,
   CreateProjectCreateRequest,
   CreateProjectCreateRequestResponse,
   CreateProjectRequest,
@@ -360,17 +359,6 @@ export interface ApiClient {
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   cancelChat(projectId: string, sessionId: string): Promise<CancelChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
-  createPlan(projectId: string, body: CreateIssueRequest): Promise<CreatePlanResponse>;
-  createPlanFromFiles(
-    projectId: string,
-    body: CreateIssueFromFilesRequest,
-  ): Promise<CreatePlanResponse>;
-  submitPlanReview(projectId: string, planId: string): Promise<SubmitIssueReviewResponse>;
-  applyPlanAction(
-    projectId: string,
-    planId: string,
-    body: IssueActionRequest,
-  ): Promise<IssueActionResponse>;
   setIssueAutoMerge(
     projectId: string,
     issueId: string,
@@ -382,10 +370,6 @@ export interface ApiClient {
     _taskId: string,
     body: IssueActionRequest,
   ): Promise<IssueActionResponse>;
-  listPlans(projectId: string, pagination?: PaginationParams): Promise<ListIssuesResponse>;
-  getPlanDag(projectId: string, planId: string): Promise<IssueDagResponse>;
-  listPlanReviews?(projectId: string, planId: string): Promise<IssueReviewRecord[]>;
-  listPlanChanges?(projectId: string, planId: string): Promise<IssueChangeRecord[]>;
   listIssueTimeline(
     projectId: string,
     issueId: string,
@@ -630,33 +614,6 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<GetChatResponse>({
         path: `/projects/${projectId}/chat/${sessionId}`,
       }),
-    createPlan: async (projectId, body) => {
-      const response = await request<CreateIssueResponse, CreateIssueRequest>({
-        path: `/projects/${projectId}/issues`,
-        method: "POST",
-        body,
-      });
-      return normalizeApiIssue(response);
-    },
-    createPlanFromFiles: async (projectId, body) => {
-      const response = await request<CreateIssueResponse, CreateIssueFromFilesRequest>({
-        path: `/projects/${projectId}/issues/from-files`,
-        method: "POST",
-        body,
-      });
-      return normalizeApiIssue(response);
-    },
-    submitPlanReview: (projectId, planId) =>
-      request<SubmitIssueReviewResponse>({
-        path: `/projects/${projectId}/issues/${planId}/review`,
-        method: "POST",
-      }),
-    applyPlanAction: (projectId, planId, body) =>
-      request<IssueActionResponse, IssueActionRequest>({
-        path: `/projects/${projectId}/issues/${planId}/action`,
-        method: "POST",
-        body,
-      }),
     setIssueAutoMerge: (projectId, issueId, body) =>
       request<SetIssueAutoMergeResponse, SetIssueAutoMergeRequest>({
         path: `/projects/${projectId}/issues/${issueId}/auto-merge`,
@@ -668,41 +625,6 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path: `/projects/${projectId}/issues/${issueId}/action`,
         method: "POST",
         body,
-      }),
-    listPlans: async (projectId, pagination) => {
-      const response = await request<ListIssuesResponse | ApiIssue[]>({
-        path: "/api/v2/issues",
-        query: {
-          project_id: projectId,
-          limit: pagination?.limit,
-          offset: pagination?.offset,
-        },
-      });
-      if (Array.isArray(response)) {
-        return {
-          items: response.map(normalizeApiIssue),
-          total: response.length,
-          offset: pagination?.offset ?? 0,
-        };
-      }
-      const items = Array.isArray(response.items) ? response.items : [];
-      return {
-        items: items.map(normalizeApiIssue),
-        total: typeof response.total === "number" ? response.total : items.length,
-        offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
-      };
-    },
-    getPlanDag: (projectId, planId) =>
-      request<IssueDagResponse>({
-        path: `/projects/${projectId}/issues/${planId}/dag`,
-      }),
-    listPlanReviews: (projectId, planId) =>
-      request<IssueReviewRecord[]>({
-        path: `/projects/${projectId}/issues/${planId}/reviews`,
-      }),
-    listPlanChanges: (projectId, planId) =>
-      request<IssueChangeRecord[]>({
-        path: `/projects/${projectId}/issues/${planId}/changes`,
       }),
     listIssueTimeline: async (projectId, issueId, query) => {
       const response = await request<ListIssueTimelineResponse>({
