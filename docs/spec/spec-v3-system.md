@@ -557,7 +557,82 @@ Key environment variables:
 
 ---
 
-## 12. Non-Goals & Future Reservations
+## 12. Context & Memory (OpenViking)
+
+> **Full spec:** `spec-context-memory.md`
+
+OpenViking provides two capabilities for the system:
+
+### 12.1 Project Knowledge Pre-digestion
+
+Projects are imported into OpenViking at registration. OpenViking auto-generates L0/L1 summaries for every directory and file. TL can quickly understand any project's design via `overview()` / `abstract()` without reading raw source code.
+
+```
+Project registered → AddResource(project.RepoPath)  → async L0/L1 generation
+Issue merged       → incremental update changed files
+```
+
+### 12.2 Execution Experience Accumulation
+
+All ACP sessions call `session.Commit()` on completion. OpenViking auto-extracts `cases` (problem-solution pairs) and `patterns` (behavioral patterns) into per-role memory pools (`agent/memories/`), isolated by `agent_id`.
+
+### 12.3 Primary Consumer: Team Leader
+
+TL is the only role that actively queries OpenViking via on-demand MCP tools:
+
+| Tool | Purpose |
+|------|---------|
+| `context_overview(uri)` | L1 summary of a project module |
+| `context_abstract(uri)` | L0 quick scan across directories |
+| `context_read(uri)` | Full file content |
+| `context_search(query)` | Cross-project semantic search |
+| `memory_search(query)` | Recall past execution experiences |
+| `memory_save(content, tags)` | Manually save observations (P1) |
+
+Worker/Reviewer do not query OpenViking (they work in worktrees with project files directly available). Their sessions still commit experiences via `session.Commit()`.
+
+### 12.4 Configuration
+
+```yaml
+context:
+  provider: openviking        # openviking | context-sqlite | mock
+  openviking:
+    url: "http://localhost:1933"
+    api_key: ""
+  fallback: context-sqlite
+```
+
+Fallback to SQLite: CRUD works, L0/L1/Search unavailable (returns empty).
+
+### 12.5 Core Interface
+
+```go
+type ContextStore interface {
+    Plugin
+    Read(ctx context.Context, uri string) ([]byte, error)
+    Write(ctx context.Context, uri string, content []byte) error
+    List(ctx context.Context, uri string) ([]ContextEntry, error)
+    Remove(ctx context.Context, uri string) error
+    Abstract(ctx context.Context, uri string) (string, error)
+    Overview(ctx context.Context, uri string) (string, error)
+    Find(ctx context.Context, query string, opts FindOpts) ([]ContextResult, error)
+    Search(ctx context.Context, query string, sessionID string, opts SearchOpts) ([]ContextResult, error)
+    AddResource(ctx context.Context, path string, opts AddResourceOpts) error
+    CreateSession(ctx context.Context, id string) (ContextSession, error)
+    GetSession(ctx context.Context, id string) (ContextSession, error)
+}
+```
+
+Plugin slot: `SlotContext`. Implementations: `context-openviking` (primary), `context-sqlite` (fallback), `context-mock` (test).
+
+---
+
+## 13. Non-Goals & Future Reservations
+
+**Detailed design (separate spec docs):**
+- Orchestration modes (Pipeline + Collaboration) — see `spec-orchestration-modes.md`
+- Distributed deployment (TL local + workers cloud) — see `spec-distributed-deployment.md`
+- Context & Memory (OpenViking integration) — see `spec-context-memory.md`
 
 **Not implemented (data positions reserved):**
 - `issues.triage_instructions` — pre-positioned for TL ACP triage routing

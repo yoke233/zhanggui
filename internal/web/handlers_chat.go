@@ -33,7 +33,7 @@ type chatRunEventReader interface {
 }
 
 type chatEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 type createChatSessionRequest struct {
@@ -519,7 +519,7 @@ func (h *chatHandlers) publishChatEvent(
 	for key, value := range data {
 		payload[key] = value
 	}
-	h.publisher.Publish(core.Event{
+	h.publisher.Publish(context.Background(), core.Event{
 		Type:      eventType,
 		ProjectID: strings.TrimSpace(projectID),
 		Data:      payload,

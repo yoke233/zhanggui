@@ -47,12 +47,11 @@ func (f WebhookDispatchHandlerFunc) HandleWebhook(ctx context.Context, req Webho
 }
 
 type webhookEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 type webhookRunEvents interface {
-	Subscribe() chan core.Event
-	Unsubscribe(ch chan core.Event)
+	Subscribe(opts ...core.SubOption) (*core.Subscription, error)
 }
 
 // WebhookDispatcherOptions controls dispatcher behavior.
@@ -88,7 +87,7 @@ type WebhookDispatcher struct {
 	seenDeliveries map[string]time.Time
 
 	RunEvents webhookRunEvents
-	Runsub    chan core.Event
+	runSub    *core.Subscription
 	done      chan struct{}
 	closeOnce sync.Once
 }
@@ -138,8 +137,11 @@ func NewWebhookDispatcher(opts WebhookDispatcherOptions) *WebhookDispatcher {
 	}
 
 	if d.RunEvents != nil {
-		d.Runsub = d.RunEvents.Subscribe()
-		go d.watchRunEvents()
+		sub, subErr := d.RunEvents.Subscribe(core.WithName("webhook-run-events"), core.WithTypes(core.EventRunDone))
+		if subErr == nil {
+			d.runSub = sub
+			go d.watchRunEvents()
+		}
 	}
 	return d
 }
@@ -152,8 +154,8 @@ func (d *WebhookDispatcher) Close() {
 
 	d.closeOnce.Do(func() {
 		close(d.done)
-		if d.RunEvents != nil && d.Runsub != nil {
-			d.RunEvents.Unsubscribe(d.Runsub)
+		if d.runSub != nil {
+			d.runSub.Unsubscribe()
 		}
 	})
 }
@@ -246,11 +248,14 @@ func (d *WebhookDispatcher) dispatch(ctx context.Context, req WebhookDispatchReq
 }
 
 func (d *WebhookDispatcher) watchRunEvents() {
+	if d.runSub == nil {
+		return
+	}
 	for {
 		select {
 		case <-d.done:
 			return
-		case evt, ok := <-d.Runsub:
+		case evt, ok := <-d.runSub.C:
 			if !ok {
 				return
 			}
@@ -377,7 +382,7 @@ func (d *WebhookDispatcher) publishReceivedEvent(req WebhookDispatchRequest, iss
 		data["issue_key"] = issueKey
 	}
 
-	d.publisher.Publish(core.Event{
+	d.publisher.Publish(context.Background(), core.Event{
 		Type:      core.EventGitHubWebhookReceived,
 		ProjectID: strings.TrimSpace(req.ProjectID),
 		Data:      data,

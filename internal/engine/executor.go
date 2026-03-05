@@ -2,27 +2,23 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/eventbus"
-	gitops "github.com/yoke233/ai-workflow/internal/git"
 	"github.com/yoke233/ai-workflow/internal/observability"
 )
 
 // ACPEventPublisher receives events from ACP handlers.
 type ACPEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 // ACPHandlerFactory creates ACP protocol handlers for pipeline stage execution.
@@ -31,15 +27,9 @@ type ACPHandlerFactory interface {
 	SetPermissionPolicy(handler acpproto.Client, policy []acpclient.PermissionRule)
 }
 
-// acpSessionEntry holds a live ACP client and session for cross-stage reuse.
-type acpSessionEntry struct {
-	client    *acpclient.Client
-	sessionID acpproto.SessionId
-}
-
 type Executor struct {
 	store             core.Store
-	bus               *eventbus.Bus
+	bus               core.EventBus
 	roleResolver      *acpclient.RoleResolver
 	stageRoles        map[core.StageID]string
 	workspace         core.WorkspacePlugin
@@ -58,7 +48,7 @@ type Executor struct {
 
 func NewExecutor(
 	store core.Store,
-	bus *eventbus.Bus,
+	bus core.EventBus,
 	logger *slog.Logger,
 ) *Executor {
 	return &Executor{
@@ -212,7 +202,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		stageStartedAt := time.Now()
 
 		stageStartTS := time.Now()
-		e.bus.Publish(core.Event{
+		e.bus.Publish(ctx, core.Event{
 			Type:      core.EventStageStart,
 			RunID:     p.ID,
 			ProjectID: p.ProjectID,
@@ -262,7 +252,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					return saveErr
 				}
 				stageCompleteTS := time.Now()
-				e.bus.Publish(core.Event{
+				e.bus.Publish(ctx, core.Event{
 					Type:      core.EventStageComplete,
 					RunID:     p.ID,
 					ProjectID: p.ProjectID,
@@ -297,7 +287,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				return saveErr
 			}
 			stageFailedTS := time.Now()
-			e.bus.Publish(core.Event{
+			e.bus.Publish(ctx, core.Event{
 				Type:      core.EventStageFailed,
 				RunID:     p.ID,
 				ProjectID: p.ProjectID,
@@ -363,7 +353,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					return saveErr
 				}
 				humanRequiredTS := time.Now()
-				e.bus.Publish(core.Event{
+				e.bus.Publish(ctx, core.Event{
 					Type:      core.EventHumanRequired,
 					RunID:     p.ID,
 					ProjectID: p.ProjectID,
@@ -397,7 +387,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				return err
 			}
 			humanRequiredTS := time.Now()
-			e.bus.Publish(core.Event{
+			e.bus.Publish(ctx, core.Event{
 				Type:      core.EventHumanRequired,
 				RunID:     p.ID,
 				ProjectID: p.ProjectID,
@@ -418,7 +408,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
-	e.bus.Publish(core.Event{
+	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventRunDone,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,
@@ -505,7 +495,7 @@ func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 	if prNumber := prNumberFromRunData(p); prNumber > 0 {
 		extra["pr_number"] = strconv.Itoa(prNumber)
 	}
-	e.bus.Publish(core.Event{
+	e.bus.Publish(context.Background(), core.Event{
 		Type:      core.EventRunFailed,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,
@@ -529,609 +519,4 @@ func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 		return errors.New(message)
 	}
 	return fmt.Errorf("%s: %w", message, cause)
-}
-
-func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *core.Run, stage *core.StageConfig) error {
-	switch stage.Name {
-	case core.StageSetup:
-		return e.runWorktreeSetup(project, p)
-	case core.StageMerge:
-		return e.runMerge(project, p)
-	case core.StageCleanup:
-		return e.runCleanup(project, p)
-	}
-
-	if p.WorktreePath == "" {
-		return fmt.Errorf("worktree path is empty for agent stage %s", stage.Name)
-	}
-
-	roleName := strings.TrimSpace(stage.Role)
-	if roleName == "" {
-		return fmt.Errorf("stage role is required for stage %q", stage.Name)
-	}
-	if e.roleResolver == nil {
-		return fmt.Errorf("role resolver is not configured for stage %q", stage.Name)
-	}
-	agentProfile, roleProfile, err := e.roleResolver.Resolve(roleName)
-	if err != nil {
-		return fmt.Errorf("resolve role %q for stage %q: %w", roleName, stage.Name, err)
-	}
-	agentName := strings.TrimSpace(agentProfile.ID)
-	if agentName == "" {
-		return fmt.Errorf("resolved empty agent id for stage %q role %q", stage.Name, roleName)
-	}
-
-	promptStage := stage.PromptTemplate
-	if promptStage == "" {
-		promptStage = string(stage.Name)
-	}
-	executionContext, err := buildPromptExecutionContext(p, stage.Name)
-	if err != nil {
-		return fmt.Errorf("build prompt execution context: %w", err)
-	}
-	prompt, err := RenderPrompt(promptStage, PromptVars{
-		ProjectName:       project.Name,
-		RepoPath:          project.RepoPath,
-		WorktreePath:      p.WorktreePath,
-		Requirements:      p.Description,
-		ExecutionContext:  executionContext,
-		RetryError:        p.ErrorMessage,
-		MergeConflictHint: mergeConflictHintFromConfig(p.Config),
-		RetryCount:        p.TotalRetries,
-	})
-	if err != nil {
-		return fmt.Errorf("render prompt: %w", err)
-	}
-
-	if e.testStageFunc != nil {
-		testCtx := ctx
-		if stage.IdleTimeout > 0 {
-			var lastActivity atomic.Int64
-			lastActivity.Store(time.Now().UnixNano())
-			var testCancel context.CancelFunc
-			testCtx, testCancel = startIdleChecker(ctx, &lastActivity, stage.IdleTimeout, e.logger, map[string]string{
-				"run_id": p.ID,
-				"stage":  string(stage.Name),
-			})
-			defer testCancel()
-		} else if stage.Timeout > 0 {
-			var testCancel context.CancelFunc
-			testCtx, testCancel = context.WithTimeout(ctx, stage.Timeout)
-			defer testCancel()
-		}
-		return e.testStageFunc(testCtx, p.ID, stage.Name, agentName, prompt)
-	}
-
-	return e.runACPStage(ctx, agentName, agentProfile, roleProfile, p, stage, prompt)
-}
-
-// acpPoolKey builds the session pool key for a given run and stage.
-func acpPoolKey(runID string, stage core.StageID) string {
-	return runID + ":" + string(stage)
-}
-
-// acpPoolGet retrieves a cached ACP session for the given run+stage.
-func (e *Executor) acpPoolGet(runID string, stage core.StageID) *acpSessionEntry {
-	e.acpPoolMu.Lock()
-	defer e.acpPoolMu.Unlock()
-	return e.acpPool[acpPoolKey(runID, stage)]
-}
-
-// acpPoolPut stores an ACP session in the pool for later reuse.
-func (e *Executor) acpPoolPut(runID string, stage core.StageID, entry *acpSessionEntry) {
-	e.acpPoolMu.Lock()
-	defer e.acpPoolMu.Unlock()
-	e.acpPool[acpPoolKey(runID, stage)] = entry
-}
-
-// acpPoolCleanup closes and removes all pooled sessions for a given run.
-func (e *Executor) acpPoolCleanup(runID string) {
-	e.acpPoolMu.Lock()
-	var toClose []string
-	var entries []*acpSessionEntry
-	for key, entry := range e.acpPool {
-		if strings.HasPrefix(key, runID+":") {
-			toClose = append(toClose, key)
-			entries = append(entries, entry)
-			delete(e.acpPool, key)
-		}
-	}
-	e.acpPoolMu.Unlock()
-
-	if len(entries) > 0 && e.logger != nil {
-		e.logger.Info("acp pool cleanup", "run_id", runID, "sessions", len(entries))
-	}
-	for i, entry := range entries {
-		if entry.client == nil {
-			continue
-		}
-		if e.logger != nil {
-			e.logger.Info("acp pool closing session", "key", toClose[i])
-		}
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = entry.client.Close(closeCtx)
-		cancel()
-	}
-}
-
-// runACPStage executes a pipeline stage via ACP protocol.
-// If stage.ReuseSessionFrom is set, it reuses the ACP client+session from that source stage.
-func (e *Executor) runACPStage(
-	ctx context.Context,
-	agentName string,
-	agentProfile acpclient.AgentProfile,
-	roleProfile acpclient.RoleProfile,
-	p *core.Run,
-	stage *core.StageConfig,
-	prompt string,
-) error {
-	bridge := &stageEventBridge{
-		executor:  e,
-		runID:     p.ID,
-		stage:     stage.Name,
-		agentName: agentName,
-	}
-	bridge.lastActivity.Store(time.Now().UnixNano())
-
-	stageCtx := ctx
-	var cancel context.CancelFunc
-
-	if stage.IdleTimeout > 0 {
-		stageCtx, cancel = startIdleChecker(ctx, &bridge.lastActivity, stage.IdleTimeout, e.logger, map[string]string{
-			"run_id": p.ID,
-			"stage":  string(stage.Name),
-		})
-		defer cancel()
-	} else if stage.Timeout > 0 {
-		stageCtx, cancel = context.WithTimeout(ctx, stage.Timeout)
-		defer cancel()
-	}
-
-	// Try to reuse a pooled session from a previous stage.
-	if source := stage.ReuseSessionFrom; source != "" {
-		entry := e.acpPoolGet(p.ID, source)
-		if entry != nil {
-			if e.logger != nil {
-				e.logger.Info("acp session reuse",
-					"run_id", p.ID, "stage", stage.Name, "source_stage", source,
-					"session_id", string(entry.sessionID))
-			}
-			return e.promptACPSession(stageCtx, entry, p, stage, agentName, prompt, bridge)
-		}
-		// Source session not found — fall through to create a new one.
-		if e.logger != nil {
-			e.logger.Warn("acp session pool miss, creating new session",
-				"run_id", p.ID, "stage", stage.Name, "source", source)
-		}
-	}
-
-	// Create a new ACP client + session.
-	if e.acpHandlerFactory == nil {
-		return fmt.Errorf("acp handler factory is not configured for stage %s", stage.Name)
-	}
-
-	launchCfg := acpclient.LaunchConfig{
-		Command: strings.TrimSpace(agentProfile.LaunchCommand),
-		Args:    append([]string(nil), agentProfile.LaunchArgs...),
-		WorkDir: p.WorktreePath,
-		Env:     cloneStringMapForEngine(agentProfile.Env),
-	}
-	handler := e.acpHandlerFactory.NewHandler(p.WorktreePath, e.bus)
-	e.acpHandlerFactory.SetPermissionPolicy(handler, roleProfile.PermissionPolicy)
-
-	acpOpts := []acpclient.Option{
-		acpclient.WithEventHandler(bridge),
-	}
-	client, err := acpclient.New(launchCfg, handler, acpOpts...)
-	if err != nil {
-		return fmt.Errorf("create acp client for stage %s: %w", stage.Name, err)
-	}
-
-	if err := client.Initialize(stageCtx, roleProfile.Capabilities); err != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = client.Close(closeCtx)
-		cancel()
-		return fmt.Errorf("acp initialize for stage %s: %w", stage.Name, err)
-	}
-
-	var effectiveMCPServers []acpproto.McpServer
-	if e.mcpServerResolver != nil {
-		effectiveMCPServers = e.mcpServerResolver(roleProfile)
-	}
-	session, err := client.NewSession(stageCtx, acpproto.NewSessionRequest{
-		Cwd:        p.WorktreePath,
-		McpServers: effectiveMCPServers,
-	})
-	if err != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = client.Close(closeCtx)
-		cancel()
-		return fmt.Errorf("acp new session for stage %s: %w", stage.Name, err)
-	}
-
-	entry := &acpSessionEntry{client: client, sessionID: session}
-
-	// Always pool the session — it will be cleaned up at run end or reused by a later stage.
-	e.acpPoolPut(p.ID, stage.Name, entry)
-	if e.logger != nil {
-		e.logger.Info("acp session created and pooled",
-			"run_id", p.ID, "stage", stage.Name, "session_id", string(session))
-	}
-
-	return e.promptACPSession(stageCtx, entry, p, stage, agentName, prompt, bridge)
-}
-
-// promptACPSession sends a prompt to an existing ACP session and publishes the result.
-func (e *Executor) promptACPSession(
-	ctx context.Context,
-	entry *acpSessionEntry,
-	p *core.Run,
-	stage *core.StageConfig,
-	agentName string,
-	prompt string,
-	bridge *stageEventBridge,
-) error {
-	// Update the event bridge for the current stage.
-	bridge.stage = stage.Name
-
-	result, err := entry.client.Prompt(ctx, acpproto.PromptRequest{
-		SessionId: entry.sessionID,
-		Prompt: []acpproto.ContentBlock{
-			{Text: &acpproto.ContentBlockText{Text: prompt}},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("acp prompt for stage %s: %w", stage.Name, err)
-	}
-
-	replyText := ""
-	if result != nil {
-		replyText = strings.TrimSpace(result.Text)
-	}
-	e.bus.Publish(core.Event{
-		Type:  core.EventAgentOutput,
-		RunID: p.ID,
-		Stage: stage.Name,
-		Agent: agentName,
-		Data: map[string]string{
-			"content": replyText,
-			"type":    "done",
-		},
-		Timestamp: time.Now(),
-	})
-	return nil
-}
-
-// stageEventBridge converts ACP session updates to EventAgentOutput events.
-type stageEventBridge struct {
-	executor     *Executor
-	runID        string
-	stage        core.StageID
-	agentName    string
-	lastActivity atomic.Int64 // unix nano, updated on every HandleSessionUpdate
-}
-
-func (b *stageEventBridge) HandleSessionUpdate(_ context.Context, update acpclient.SessionUpdate) error {
-	b.lastActivity.Store(time.Now().UnixNano())
-	if update.Text == "" {
-		return nil
-	}
-	b.executor.bus.Publish(core.Event{
-		Type:  core.EventAgentOutput,
-		RunID: b.runID,
-		Stage: b.stage,
-		Agent: b.agentName,
-		Data: map[string]string{
-			"content": update.Text,
-			"type":    update.Type,
-		},
-		Timestamp: time.Now(),
-	})
-	return nil
-}
-
-// startIdleChecker starts a background goroutine that cancels the returned context
-// when lastActivity has not been updated for longer than idleTimeout.
-func startIdleChecker(
-	parent context.Context,
-	lastActivity *atomic.Int64,
-	idleTimeout time.Duration,
-	logger *slog.Logger,
-	logMeta map[string]string,
-) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
-
-	checkInterval := idleTimeout / 5
-	if checkInterval < 10*time.Millisecond {
-		checkInterval = 10 * time.Millisecond
-	}
-	if checkInterval > 30*time.Second {
-		checkInterval = 30 * time.Second
-	}
-
-	go func() {
-		ticker := time.NewTicker(checkInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				last := time.Unix(0, lastActivity.Load())
-				if time.Since(last) > idleTimeout {
-					if logger != nil {
-						logger.Warn("acp stage idle timeout",
-							"idle_duration", time.Since(last),
-							"run_id", logMeta["run_id"],
-							"stage", logMeta["stage"])
-					}
-					cancel()
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return ctx, cancel
-}
-
-func cloneStringMapForEngine(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
-
-func (e *Executor) resolveStageAgentName(stage *core.StageConfig) (string, acpclient.ClientCapabilities, error) {
-	if stage == nil {
-		return "", acpclient.ClientCapabilities{}, errors.New("stage config is nil")
-	}
-	if !stageRequiresRole(stage.Name) {
-		return "", acpclient.ClientCapabilities{}, nil
-	}
-
-	roleName := strings.TrimSpace(stage.Role)
-	if roleName == "" {
-		return "", acpclient.ClientCapabilities{}, fmt.Errorf("stage role is required for stage %q", stage.Name)
-	}
-	if e.roleResolver == nil {
-		return "", acpclient.ClientCapabilities{}, fmt.Errorf("stage role resolver is not configured for stage %q (role=%q)", stage.Name, roleName)
-	}
-
-	resolvedAgent, roleProfile, err := e.roleResolver.Resolve(roleName)
-	if err != nil {
-		return "", acpclient.ClientCapabilities{}, fmt.Errorf("stage role not resolved for stage %q (role=%q): %w", stage.Name, roleName, err)
-	}
-	agentName := strings.TrimSpace(resolvedAgent.ID)
-	if agentName == "" {
-		return "", acpclient.ClientCapabilities{}, fmt.Errorf("stage role not resolved for stage %q (role=%q): resolved empty agent id", stage.Name, roleName)
-	}
-	return agentName, roleProfile.Capabilities, nil
-}
-
-func stageRequiresRole(stage core.StageID) bool {
-	switch stage {
-	case core.StageSetup, core.StageMerge, core.StageCleanup:
-		return false
-	default:
-		return true
-	}
-}
-
-func buildPromptExecutionContext(p *core.Run, stage core.StageID) (string, error) {
-	ctx := map[string]string{
-		"run_id":      p.ID,
-		"run_name":    p.Name,
-		"stage":       string(stage),
-		"template":    p.Template,
-		"branch_name": p.BranchName,
-	}
-	payload, err := json.Marshal(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(payload), nil
-}
-
-func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Run) error {
-	if p.Config == nil {
-		p.Config = map[string]any{}
-	}
-	if e.workspace == nil {
-		return errors.New("workspace plugin is not configured")
-	}
-
-	result, err := e.workspace.Setup(context.Background(), core.WorkspaceSetupRequest{
-		RepoPath:      project.RepoPath,
-		RunID:         p.ID,
-		BranchName:    p.BranchName,
-		WorktreePath:  p.WorktreePath,
-		DefaultBranch: project.DefaultBranch,
-	})
-	if err != nil {
-		return err
-	}
-	p.BranchName = result.BranchName
-	p.WorktreePath = result.WorktreePath
-	if result.BaseBranch != "" {
-		p.Config["base_branch"] = result.BaseBranch
-	}
-
-	return e.store.SaveRun(p)
-}
-
-func (e *Executor) runMerge(project *core.Project, p *core.Run) error {
-	if p.BranchName == "" {
-		return errors.New("branch name is empty")
-	}
-	runner := gitops.NewRunner(project.RepoPath)
-
-	baseBranch := ""
-	if p.Config != nil {
-		baseBranch, _ = p.Config["base_branch"].(string)
-	}
-	if baseBranch == "" {
-		var err error
-		baseBranch, err = runner.CurrentBranch()
-		if err != nil {
-			return err
-		}
-	}
-
-	if err := runner.Checkout(baseBranch); err != nil {
-		return err
-	}
-	_, err := runner.Merge(p.BranchName)
-	return err
-}
-
-func (e *Executor) runCleanup(project *core.Project, p *core.Run) error {
-	if p.WorktreePath == "" {
-		return nil
-	}
-	if e.workspace == nil {
-		return errors.New("workspace plugin is not configured")
-	}
-	return e.workspace.Cleanup(context.Background(), core.WorkspaceCleanupRequest{
-		RepoPath:     project.RepoPath,
-		WorktreePath: p.WorktreePath,
-	})
-}
-
-func defaultStageConfig(id core.StageID) core.StageConfig {
-	cfg := core.StageConfig{
-		Name:        id,
-		Timeout:     0,
-		IdleTimeout: 5 * time.Minute,
-		MaxRetries:  1,
-		OnFailure:   core.OnFailureHuman,
-	}
-	switch id {
-	case core.StageRequirements, core.StageReview:
-		cfg.Agent = ""
-	case core.StageImplement:
-		cfg.Agent = ""
-	case core.StageFixup:
-		cfg.Agent = ""
-		cfg.ReuseSessionFrom = core.StageImplement
-	case core.StageTest:
-		cfg.Agent = ""
-		cfg.IdleTimeout = 3 * time.Minute
-	case core.StageSetup, core.StageMerge, core.StageCleanup:
-		cfg.Agent = ""
-		cfg.IdleTimeout = 1 * time.Minute
-	}
-	cfg.PromptTemplate = string(id)
-	return cfg
-}
-
-func RunEventData(traceID string, issueNumber int, op string, extra map[string]string) map[string]string {
-	data := make(map[string]string, len(extra)+2)
-	for k, v := range extra {
-		data[k] = v
-	}
-	if issueNumber > 0 {
-		data["issue_number"] = strconv.Itoa(issueNumber)
-	}
-	if strings.TrimSpace(op) != "" {
-		data["op"] = strings.TrimSpace(op)
-	}
-	return observability.EventDataWithTrace(data, traceID)
-}
-
-func issueNumberFromRun(p *core.Run) int {
-	if p == nil {
-		return 0
-	}
-	if p.Config != nil {
-		for _, key := range []string{"issue_number", "github_issue_number"} {
-			if n := parseIssueNumberConfigValue(p.Config[key]); n > 0 {
-				return n
-			}
-		}
-	}
-	if p.Artifacts != nil {
-		for _, key := range []string{"issue_number", "github_issue_number"} {
-			if n := parseIssueNumberConfigValue(p.Artifacts[key]); n > 0 {
-				return n
-			}
-		}
-	}
-	return 0
-}
-
-func prNumberFromRunData(p *core.Run) int {
-	if p == nil {
-		return 0
-	}
-	if p.Config != nil {
-		for _, key := range []string{"pr_number", "github_pr_number"} {
-			if n := parseIssueNumberConfigValue(p.Config[key]); n > 0 {
-				return n
-			}
-		}
-	}
-	if p.Artifacts != nil {
-		for _, key := range []string{"pr_number", "github_pr_number"} {
-			if n := parseIssueNumberConfigValue(p.Artifacts[key]); n > 0 {
-				return n
-			}
-		}
-	}
-	return 0
-}
-
-func mergeConflictHintFromConfig(config map[string]any) string {
-	if len(config) == 0 {
-		return ""
-	}
-	raw, ok := config["merge_conflict_hint"]
-	if !ok || raw == nil {
-		return ""
-	}
-	switch v := raw.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	default:
-		return strings.TrimSpace(fmt.Sprintf("%v", v))
-	}
-}
-
-func parseIssueNumberConfigValue(raw any) int {
-	switch v := raw.(type) {
-	case int:
-		if v > 0 {
-			return v
-		}
-	case int32:
-		if v > 0 {
-			return int(v)
-		}
-	case int64:
-		if v > 0 {
-			return int(v)
-		}
-	case float64:
-		if v > 0 {
-			return int(v)
-		}
-	case string:
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err == nil && n > 0 {
-			return n
-		}
-	}
-	return 0
-}
-
-func RunTraceID(p *core.Run) string {
-	if p == nil || p.Config == nil {
-		return ""
-	}
-	traceID, _ := p.Config["trace_id"].(string)
-	return strings.TrimSpace(traceID)
 }

@@ -40,7 +40,7 @@ type ChatACPClientFactory interface {
 
 // ChatEventPublisher receives assistant callback events (e.g. file writes).
 type ChatEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 // ACPChatAssistantDeps contains injectable dependencies for ACP chat assistant.

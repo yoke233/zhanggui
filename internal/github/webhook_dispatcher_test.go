@@ -235,8 +235,11 @@ func TestWebhookDispatcher_PublishesEventGitHubWebhookReceived(t *testing.T) {
 	bus := eventbus.New()
 	defer bus.Close()
 
-	sub := bus.Subscribe()
-	defer bus.Unsubscribe(sub)
+	sub, err := bus.Subscribe()
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
 
 	dispatcher := NewWebhookDispatcher(WebhookDispatcherOptions{
 		Publisher: bus,
@@ -252,7 +255,7 @@ func TestWebhookDispatcher_PublishesEventGitHubWebhookReceived(t *testing.T) {
 	}
 
 	select {
-	case evt := <-sub:
+	case evt := <-sub.C:
 		if evt.Type != core.EventGitHubWebhookReceived {
 			t.Fatalf("expected event type %s, got %s", core.EventGitHubWebhookReceived, evt.Type)
 		}
@@ -319,7 +322,7 @@ func TestWebhookDispatcher_CleansIssueMutexAfterCloseOrRunDone(t *testing.T) {
 			t.Fatal("expected issue lock to exist after opened event")
 		}
 
-		bus.Publish(core.Event{
+		bus.Publish(context.Background(), core.Event{
 			Type: core.EventRunDone,
 			Data: map[string]string{
 				"github_owner": "acme",

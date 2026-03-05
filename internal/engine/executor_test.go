@@ -261,7 +261,10 @@ func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T
 	}
 
 	bus := eventbus.New()
-	sub := bus.Subscribe()
+	sub, subErr := bus.Subscribe()
+	if subErr != nil {
+		t.Fatalf("subscribe: %v", subErr)
+	}
 	execEngine := newExecutorWithBus(store, bus, []error{nil})
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run should stop at human gate without error, got: %v", err)
@@ -271,7 +274,7 @@ func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for evt := range sub {
+		for evt := range sub.C {
 			events = append(events, evt)
 		}
 	}()
@@ -312,7 +315,10 @@ func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 	}
 
 	bus := eventbus.New()
-	sub := bus.Subscribe()
+	sub, subErr := bus.Subscribe()
+	if subErr != nil {
+		t.Fatalf("subscribe: %v", subErr)
+	}
 	execEngine := newExecutorWithBus(store, bus, []error{errors.New("fatal-run")})
 	if err := execEngine.Run(context.Background(), p.ID); err == nil {
 		t.Fatal("run should fail for abort policy")
@@ -322,7 +328,7 @@ func TestExecutorRun_PublishesEventForStageFailed(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for evt := range sub {
+		for evt := range sub.C {
 			events = append(events, evt)
 		}
 	}()

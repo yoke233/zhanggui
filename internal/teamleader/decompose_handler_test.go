@@ -341,8 +341,17 @@ type capturePublisher struct {
 	events *[]core.Event
 }
 
-func (p *capturePublisher) Publish(evt core.Event) {
+func (p *capturePublisher) Publish(_ context.Context, evt core.Event) error {
 	*p.events = append(*p.events, evt)
+	return nil
+}
+
+func (p *capturePublisher) Subscribe(_ ...core.SubOption) (*core.Subscription, error) {
+	return &core.Subscription{}, nil
+}
+
+func (p *capturePublisher) Close() error {
+	return nil
 }
 
 type fakeDecomposeReviewer struct {

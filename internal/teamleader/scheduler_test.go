@@ -533,15 +533,19 @@ type recordingSchedulerBus struct {
 	events []core.Event
 }
 
-func (b *recordingSchedulerBus) Subscribe() chan core.Event {
-	return make(chan core.Event, 1)
+func (b *recordingSchedulerBus) Subscribe(_ ...core.SubOption) (*core.Subscription, error) {
+	ch := make(chan core.Event, 1)
+	return &core.Subscription{
+		C:        ch,
+		CancelFn: func() { close(ch) },
+	}, nil
 }
 
-func (b *recordingSchedulerBus) Unsubscribe(ch chan core.Event) {
-	close(ch)
+func (b *recordingSchedulerBus) Close() error {
+	return nil
 }
 
-func (b *recordingSchedulerBus) Publish(evt core.Event) {
+func (b *recordingSchedulerBus) Publish(_ context.Context, evt core.Event) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -553,6 +557,7 @@ func (b *recordingSchedulerBus) Publish(evt core.Event) {
 		}
 	}
 	b.events = append(b.events, clone)
+	return nil
 }
 
 func (b *recordingSchedulerBus) FirstEvent(eventType core.EventType, issueID string) (core.Event, bool) {

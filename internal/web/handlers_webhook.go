@@ -66,7 +66,9 @@ type githubWebhookEnvelope struct {
 }
 
 func registerWebhookRoutes(r chi.Router, store core.Store, executor RunExecutor, secret string, stageRoleBindings map[string]string, scm webhookSCM) WebhookDeliveryReplayer {
-	var publisher interface{ Publish(evt core.Event) }
+	var publisher interface {
+		Publish(ctx context.Context, evt core.Event) error
+	}
 	if bus := eventbus.Default(); bus != nil {
 		publisher = bus
 	}

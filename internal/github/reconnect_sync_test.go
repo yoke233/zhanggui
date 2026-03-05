@@ -83,8 +83,9 @@ type fakeReconnectPublisher struct {
 	events []core.Event
 }
 
-func (f *fakeReconnectPublisher) Publish(evt core.Event) {
+func (f *fakeReconnectPublisher) Publish(_ context.Context, evt core.Event) error {
 	f.events = append(f.events, evt)
+	return nil
 }
 
 type fakeRunEventSyncer struct {

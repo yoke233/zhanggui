@@ -405,10 +405,11 @@ type recordingEventPublisher struct {
 	events []core.Event
 }
 
-func (p *recordingEventPublisher) Publish(evt core.Event) {
+func (p *recordingEventPublisher) Publish(_ context.Context, evt core.Event) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.events = append(p.events, evt)
+	return nil
 }
 
 func (p *recordingEventPublisher) Events() []core.Event {

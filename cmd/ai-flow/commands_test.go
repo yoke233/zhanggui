@@ -14,7 +14,6 @@ import (
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
-	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
@@ -174,7 +173,7 @@ func TestRunServer_PortPriority(t *testing.T) {
 			newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 				return fakeScheduler, nil
 			}
-			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
+			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 				return fakeIssueManager, nil
 			}
 			newAPIServer = func(cfg web.Config) apiServer {
@@ -222,7 +221,7 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 		return fakeIssueManager, nil
 	}
 	newAPIServer = func(_ web.Config) apiServer {
@@ -270,7 +269,7 @@ func TestRunServer_IssueManagerReceivesReviewRoleBindings(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
 		capturedRoleBinds = roleBinds
 		return fakeIssueManager, nil
 	}

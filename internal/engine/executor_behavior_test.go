@@ -63,7 +63,7 @@ func newExecutor(store core.Store, stageResults []error) *Executor {
 	return newExecutorWithBus(store, eventbus.New(), stageResults)
 }
 
-func newExecutorWithBus(store core.Store, bus *eventbus.Bus, stageResults []error) *Executor {
+func newExecutorWithBus(store core.Store, bus *eventbus.MemoryBus, stageResults []error) *Executor {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	e := NewExecutor(store, bus, logger)
 	e.SetRoleResolver(acpclient.NewRoleResolver(

@@ -25,18 +25,20 @@ type PRMerger interface {
 // when Issue.AutoMerge is true and the test gate passes.
 type AutoMergeHandler struct {
 	store      core.Store
-	bus        eventPublisher
+	bus        core.EventBus
 	merger     PRMerger
 	log        *slog.Logger
 	testGateFn func(ctx context.Context, repoPath string) error // nil uses default runTestGate
 	mu         sync.Mutex
 	handledRun map[string]struct{}
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 // NewAutoMergeHandler creates a handler that triggers auto-merge on issue_merging.
 // merger may be nil; if nil, the handler publishes EventIssueMerged without
 // performing actual PR operations.
-func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) *AutoMergeHandler {
+func NewAutoMergeHandler(store core.Store, bus core.EventBus, merger PRMerger) *AutoMergeHandler {
 	return &AutoMergeHandler{
 		store:      store,
 		bus:        bus,
@@ -44,6 +46,45 @@ func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) 
 		log:        slog.Default(),
 		handledRun: make(map[string]struct{}),
 	}
+}
+
+// Start subscribes to the event bus and processes merge events in a goroutine.
+func (h *AutoMergeHandler) Start(ctx context.Context) error {
+	sub, err := h.bus.Subscribe(
+		core.WithName("auto-merger"),
+		core.WithTypes(core.EventIssueMerging, core.EventRunDone),
+	)
+	if err != nil {
+		return fmt.Errorf("auto-merger subscribe: %w", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case evt, ok := <-sub.C:
+				if !ok {
+					return
+				}
+				h.OnEvent(runCtx, evt)
+			}
+		}
+	}()
+	return nil
+}
+
+// Stop cancels the subscription goroutine and waits for it to exit.
+func (h *AutoMergeHandler) Stop(_ context.Context) error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	h.wg.Wait()
+	return nil
 }
 
 // OnEvent handles a single event.
@@ -122,7 +163,7 @@ func (h *AutoMergeHandler) tryAutoMerge(ctx context.Context, issue *core.Issue) 
 	h.log.Info("auto-merge: running test gate", "run_id", runID, "repo", repoPath)
 	if err := testGate(ctx, repoPath); err != nil {
 		h.log.Error("auto-merge: test gate failed", "run_id", runID, "error", err)
-		h.bus.Publish(core.Event{
+		h.bus.Publish(ctx, core.Event{
 			Type:      core.EventMergeFailed,
 			RunID:     runID,
 			ProjectID: project.ID,
@@ -142,7 +183,7 @@ func (h *AutoMergeHandler) tryAutoMerge(ctx context.Context, issue *core.Issue) 
 		prURL, createErr = h.merger.OnImplementComplete(ctx, runID)
 		if createErr != nil {
 			h.log.Error("auto-merge: create PR failed", "run_id", runID, "error", createErr)
-			h.bus.Publish(core.Event{
+			h.bus.Publish(ctx, core.Event{
 				Type:      core.EventMergeFailed,
 				RunID:     runID,
 				ProjectID: project.ID,
@@ -159,7 +200,7 @@ func (h *AutoMergeHandler) tryAutoMerge(ctx context.Context, issue *core.Issue) 
 			if isConflictError(mergeErr) {
 				eventType = core.EventIssueMergeConflict
 			}
-			h.bus.Publish(core.Event{
+			h.bus.Publish(ctx, core.Event{
 				Type:      eventType,
 				RunID:     runID,
 				ProjectID: project.ID,
@@ -177,7 +218,7 @@ func (h *AutoMergeHandler) tryAutoMerge(ctx context.Context, issue *core.Issue) 
 		data["pr_url"] = prURL
 	}
 	h.log.Info("auto-merge: merge complete", "run_id", runID, "pr_url", prURL)
-	h.bus.Publish(core.Event{
+	h.bus.Publish(ctx, core.Event{
 		Type:      core.EventIssueMerged,
 		RunID:     runID,
 		ProjectID: project.ID,

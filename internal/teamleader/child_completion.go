@@ -2,8 +2,10 @@ package teamleader
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -13,32 +15,61 @@ import (
 // checks whether all siblings of the completed child are finished.  When every
 // child is done the parent issue is closed automatically.
 type ChildCompletionHandler struct {
-	store core.Store
-	pub   eventPublisher
-	log   *slog.Logger
+	store  core.Store
+	bus    core.EventBus
+	pub    eventPublisher
+	log    *slog.Logger
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewChildCompletionHandler creates a handler that tracks child issue completion.
-func NewChildCompletionHandler(store core.Store, pub eventPublisher) *ChildCompletionHandler {
+func NewChildCompletionHandler(store core.Store, bus core.EventBus) *ChildCompletionHandler {
 	return &ChildCompletionHandler{
 		store: store,
-		pub:   pub,
+		bus:   bus,
+		pub:   bus,
 		log:   slog.Default(),
 	}
 }
 
-// Start subscribes to the event bus and processes completion events.
-func (h *ChildCompletionHandler) Start(ctx context.Context, bus eventSubscriber) {
-	ch := bus.Subscribe()
-	defer bus.Unsubscribe(ch)
-	for {
-		select {
-		case evt := <-ch:
-			h.OnEvent(ctx, evt)
-		case <-ctx.Done():
-			return
-		}
+// Start subscribes to the event bus and processes completion events in a goroutine.
+func (h *ChildCompletionHandler) Start(ctx context.Context) error {
+	sub, err := h.bus.Subscribe(
+		core.WithName("child-completion"),
+		core.WithTypes(core.EventIssueDone, core.EventIssueFailed),
+	)
+	if err != nil {
+		return fmt.Errorf("child-completion subscribe: %w", err)
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case evt, ok := <-sub.C:
+				if !ok {
+					return
+				}
+				h.OnEvent(runCtx, evt)
+			}
+		}
+	}()
+	return nil
+}
+
+// Stop cancels the subscription goroutine and waits for it to exit.
+func (h *ChildCompletionHandler) Stop(_ context.Context) error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	h.wg.Wait()
+	return nil
 }
 
 // OnEvent handles a single event.  Reacts to EventIssueDone and EventIssueFailed.
@@ -110,7 +141,7 @@ func (h *ChildCompletionHandler) resolveParentSuccess(parent *core.Issue) {
 		h.log.Error("child_completion: save parent done", "parent_id", parent.ID, "error", err)
 		return
 	}
-	h.pub.Publish(core.Event{
+	h.pub.Publish(context.Background(), core.Event{
 		Type:      core.EventIssueDone,
 		IssueID:   parent.ID,
 		ProjectID: parent.ProjectID,
@@ -125,7 +156,7 @@ func (h *ChildCompletionHandler) resolveParentWithFailures(parent *core.Issue) {
 		// Treat as success if non-failed children are all done.
 		h.resolveParentSuccess(parent)
 	case core.FailHuman:
-		h.pub.Publish(core.Event{
+		h.pub.Publish(context.Background(), core.Event{
 			Type:      core.EventIssueFailed,
 			IssueID:   parent.ID,
 			ProjectID: parent.ProjectID,
@@ -141,7 +172,7 @@ func (h *ChildCompletionHandler) resolveParentWithFailures(parent *core.Issue) {
 			h.log.Error("child_completion: save parent failed", "parent_id", parent.ID, "error", err)
 			return
 		}
-		h.pub.Publish(core.Event{
+		h.pub.Publish(context.Background(), core.Event{
 			Type:      core.EventIssueFailed,
 			IssueID:   parent.ID,
 			ProjectID: parent.ProjectID,

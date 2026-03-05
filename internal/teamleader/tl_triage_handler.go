@@ -2,9 +2,11 @@ package teamleader
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -15,12 +17,14 @@ const defaultMergeConflictMaxRetries = 3
 // TLTriageHandler handles merge conflict events and decides retry vs fail.
 type TLTriageHandler struct {
 	store      core.Store
-	bus        eventPublisher
+	bus        core.EventBus
 	maxRetries int
 	log        *slog.Logger
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
-func NewTLTriageHandler(store core.Store, bus eventPublisher, maxRetries int) *TLTriageHandler {
+func NewTLTriageHandler(store core.Store, bus core.EventBus, maxRetries int) *TLTriageHandler {
 	if maxRetries <= 0 {
 		maxRetries = defaultMergeConflictMaxRetries
 	}
@@ -30,6 +34,45 @@ func NewTLTriageHandler(store core.Store, bus eventPublisher, maxRetries int) *T
 		maxRetries: maxRetries,
 		log:        slog.Default(),
 	}
+}
+
+// Start subscribes to the event bus and processes triage events in a goroutine.
+func (h *TLTriageHandler) Start(ctx context.Context) error {
+	sub, err := h.bus.Subscribe(
+		core.WithName("tl-triage"),
+		core.WithTypes(core.EventIssueMergeConflict),
+	)
+	if err != nil {
+		return fmt.Errorf("tl-triage subscribe: %w", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case evt, ok := <-sub.C:
+				if !ok {
+					return
+				}
+				h.OnEvent(runCtx, evt)
+			}
+		}
+	}()
+	return nil
+}
+
+// Stop cancels the subscription goroutine and waits for it to exit.
+func (h *TLTriageHandler) Stop(_ context.Context) error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	h.wg.Wait()
+	return nil
 }
 
 func (h *TLTriageHandler) OnEvent(_ context.Context, evt core.Event) {
@@ -110,5 +153,5 @@ func (h *TLTriageHandler) publish(evt core.Event) {
 	if evt.Timestamp.IsZero() {
 		evt.Timestamp = time.Now()
 	}
-	h.bus.Publish(evt)
+	h.bus.Publish(context.Background(), evt)
 }

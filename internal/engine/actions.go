@@ -219,7 +219,7 @@ func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.Sta
 	if err := e.publishActionApplied(p, action, stage); err != nil {
 		return err
 	}
-	e.bus.Publish(core.Event{
+	e.bus.Publish(context.Background(), core.Event{
 		Type:      core.EventRunActionRequired,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,
@@ -240,7 +240,7 @@ func (e *Executor) applyResume(ctx context.Context, p *core.Run, action core.Run
 	if err := e.publishActionApplied(p, action, stage); err != nil {
 		return err
 	}
-	e.bus.Publish(core.Event{
+	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventRunResumed,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,
@@ -265,7 +265,7 @@ func (e *Executor) publishActionApplied(p *core.Run, action core.RunAction, stag
 		data["trace_id"] = traceID
 	}
 
-	e.bus.Publish(core.Event{
+	e.bus.Publish(context.Background(), core.Event{
 		Type:      core.EventActionApplied,
 		RunID:     p.ID,
 		ProjectID: p.ProjectID,

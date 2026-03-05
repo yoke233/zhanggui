@@ -22,7 +22,7 @@ import (
 )
 
 type acpEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 type ChatRunEventRecorder interface {
@@ -364,7 +364,7 @@ func (h *ACPHandler) SessionContext() ACPHandlerSessionContext {
 	}
 }
 
-func (h *ACPHandler) HandleSessionUpdate(_ context.Context, update acpclient.SessionUpdate) error {
+func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.SessionUpdate) error {
 	if h == nil {
 		return nil
 	}
@@ -423,7 +423,7 @@ func (h *ACPHandler) HandleSessionUpdate(_ context.Context, update acpclient.Ses
 	}
 
 	if h.publisher != nil {
-		h.publisher.Publish(core.Event{
+		h.publisher.Publish(ctx, core.Event{
 			Type:      core.EventRunUpdate,
 			ProjectID: projectID,
 			Data:      data,
@@ -505,7 +505,7 @@ func (h *ACPHandler) publishFilesChanged(filePaths []string) {
 	}
 	h.mu.Unlock()
 
-	h.publisher.Publish(core.Event{
+	h.publisher.Publish(context.Background(), core.Event{
 		Type:      core.EventTeamLeaderFilesChanged,
 		ProjectID: projectID,
 		Data: map[string]string{

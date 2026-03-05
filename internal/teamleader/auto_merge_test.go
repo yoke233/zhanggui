@@ -43,8 +43,17 @@ type mockBus struct {
 	events []core.Event
 }
 
-func (m *mockBus) Publish(evt core.Event) {
+func (m *mockBus) Publish(_ context.Context, evt core.Event) error {
 	m.events = append(m.events, evt)
+	return nil
+}
+
+func (m *mockBus) Subscribe(_ ...core.SubOption) (*core.Subscription, error) {
+	return &core.Subscription{}, nil
+}
+
+func (m *mockBus) Close() error {
+	return nil
 }
 
 type mockMerger struct {

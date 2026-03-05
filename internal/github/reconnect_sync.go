@@ -10,7 +10,7 @@ import (
 )
 
 type reconnectEventPublisher interface {
-	Publish(evt core.Event)
+	Publish(ctx context.Context, evt core.Event) error
 }
 
 type RunEventSyncer interface {
@@ -70,7 +70,7 @@ func (r *ReconnectSync) OnRecovered(ctx context.Context, events []core.Event) er
 	r.mu.Unlock()
 
 	if r.publisher != nil {
-		r.publisher.Publish(core.Event{
+		r.publisher.Publish(ctx, core.Event{
 			Type:      core.EventGitHubReconnected,
 			Timestamp: r.now(),
 		})

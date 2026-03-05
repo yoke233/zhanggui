@@ -20,10 +20,11 @@ type recordingACPEventPublisher struct {
 	events []core.Event
 }
 
-func (r *recordingACPEventPublisher) Publish(evt core.Event) {
+func (r *recordingACPEventPublisher) Publish(_ context.Context, evt core.Event) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, evt)
+	return nil
 }
 
 func (r *recordingACPEventPublisher) Events() []core.Event {

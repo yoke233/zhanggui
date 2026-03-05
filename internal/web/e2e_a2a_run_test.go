@@ -90,7 +90,7 @@ type e2aStack struct {
 	ts       *httptest.Server
 	store    *storesqlite.SQLiteStore
 	executor *engine.Executor
-	bus      *eventbus.Bus
+	bus      *eventbus.MemoryBus
 }
 
 func setupE2AA2AStack(t *testing.T, stageResults *e2eStageResults) e2aStack {
@@ -171,20 +171,23 @@ func setupE2AA2AStack(t *testing.T, stageResults *e2eStageResults) e2aStack {
 	}
 
 	// Simulate merge completion: when issue enters merging state, publish EventIssueMerged.
-	mergeCh := bus.Subscribe()
+	mergeSub, subErr := bus.Subscribe()
+	if subErr != nil {
+		t.Fatal(subErr)
+	}
 	mergeCtx, mergeCancel := context.WithCancel(context.Background())
 	go func() {
-		defer bus.Unsubscribe(mergeCh)
+		defer mergeSub.Unsubscribe()
 		for {
 			select {
 			case <-mergeCtx.Done():
 				return
-			case evt, ok := <-mergeCh:
+			case evt, ok := <-mergeSub.C:
 				if !ok {
 					return
 				}
 				if evt.Type == core.EventIssueMerging {
-					bus.Publish(core.Event{
+					bus.Publish(context.Background(), core.Event{
 						Type:      core.EventIssueMerged,
 						IssueID:   evt.IssueID,
 						RunID:     evt.RunID,

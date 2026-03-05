@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -41,19 +42,23 @@ type decomposeReviewSubmitter interface {
 type DecomposeHandler struct {
 	store     decomposeIssueCreator
 	fullStore core.Store
+	bus       core.EventBus
 	pub       eventPublisher
 	decompose DecomposeFunc
 	reviewer  decomposeReviewSubmitter
 	log       *slog.Logger
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // NewDecomposeHandler creates a handler that decomposes epic issues into children.
 // reviewer may be nil; if non-nil, child issues are auto-submitted for review.
-func NewDecomposeHandler(store core.Store, pub eventPublisher, fn DecomposeFunc) *DecomposeHandler {
+func NewDecomposeHandler(store core.Store, bus core.EventBus, fn DecomposeFunc) *DecomposeHandler {
 	return &DecomposeHandler{
 		store:     store,
 		fullStore: store,
-		pub:       pub,
+		bus:       bus,
+		pub:       bus,
 		decompose: fn,
 		log:       slog.Default(),
 	}
@@ -65,18 +70,43 @@ func (h *DecomposeHandler) SetReviewSubmitter(r decomposeReviewSubmitter) {
 	h.reviewer = r
 }
 
-// Start subscribes to the event bus and processes decompose events.
-func (h *DecomposeHandler) Start(ctx context.Context, bus eventSubscriber) {
-	ch := bus.Subscribe()
-	defer bus.Unsubscribe(ch)
-	for {
-		select {
-		case evt := <-ch:
-			h.OnEvent(ctx, evt)
-		case <-ctx.Done():
-			return
-		}
+// Start subscribes to the event bus and processes decompose events in a goroutine.
+func (h *DecomposeHandler) Start(ctx context.Context) error {
+	sub, err := h.bus.Subscribe(
+		core.WithName("decompose"),
+		core.WithTypes(core.EventIssueDecomposing),
+	)
+	if err != nil {
+		return fmt.Errorf("decompose subscribe: %w", err)
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case evt, ok := <-sub.C:
+				if !ok {
+					return
+				}
+				h.OnEvent(runCtx, evt)
+			}
+		}
+	}()
+	return nil
+}
+
+// Stop cancels the subscription goroutine and waits for it to exit.
+func (h *DecomposeHandler) Stop(_ context.Context) error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	h.wg.Wait()
+	return nil
 }
 
 // OnEvent handles a single event. Only reacts to EventIssueDecomposing.
@@ -150,7 +180,7 @@ func (h *DecomposeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		h.log.Error("decompose: save parent failed", "issue_id", issueID, "error", err)
 		return
 	}
-	h.pub.Publish(core.Event{
+	h.pub.Publish(ctx, core.Event{
 		Type:      core.EventIssueDecomposed,
 		IssueID:   parent.ID,
 		ProjectID: parent.ProjectID,
@@ -183,7 +213,7 @@ func (h *DecomposeHandler) markParentFailed(parent *core.Issue, errMsg string) {
 	if err := h.fullStore.SaveIssue(parent); err != nil {
 		h.log.Error("decompose: mark parent failed", "issue_id", parent.ID, "error", err)
 	}
-	h.pub.Publish(core.Event{
+	h.pub.Publish(context.Background(), core.Event{
 		Type:      core.EventIssueFailed,
 		IssueID:   parent.ID,
 		ProjectID: parent.ProjectID,

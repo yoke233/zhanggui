@@ -350,7 +350,7 @@ func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feed
 			return nil, err
 		}
 		if m.pub != nil {
-			m.pub.Publish(core.Event{
+			m.pub.Publish(ctx, core.Event{
 				Type:      core.EventIssueDecomposing,
 				IssueID:   updated.ID,
 				ProjectID: updated.ProjectID,
