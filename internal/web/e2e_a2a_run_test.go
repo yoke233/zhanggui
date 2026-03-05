@@ -170,6 +170,33 @@ func setupE2AA2AStack(t *testing.T, stageResults *e2eStageResults) e2aStack {
 		t.Fatal(err)
 	}
 
+	// Simulate merge completion: when issue enters merging state, publish EventIssueMerged.
+	mergeCh := bus.Subscribe()
+	mergeCtx, mergeCancel := context.WithCancel(context.Background())
+	go func() {
+		defer bus.Unsubscribe(mergeCh)
+		for {
+			select {
+			case <-mergeCtx.Done():
+				return
+			case evt, ok := <-mergeCh:
+				if !ok {
+					return
+				}
+				if evt.Type == core.EventIssueMerging {
+					bus.Publish(core.Event{
+						Type:      core.EventIssueMerged,
+						IssueID:   evt.IssueID,
+						RunID:     evt.RunID,
+						ProjectID: evt.ProjectID,
+						Timestamp: time.Now(),
+					})
+				}
+			}
+		}
+	}()
+	t.Cleanup(func() { mergeCancel() })
+
 	bridge, err := teamleader.NewA2ABridge(store, manager)
 	if err != nil {
 		t.Fatal(err)

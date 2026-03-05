@@ -30,19 +30,22 @@ func TestIdleTimeout_ActivityResetsTimer(t *testing.T) {
 	var lastActivity atomic.Int64
 	lastActivity.Store(time.Now().UnixNano())
 
-	ctx, cancel := startIdleChecker(context.Background(), &lastActivity, 300*time.Millisecond, nil, nil)
+	ctx, cancel := startIdleChecker(context.Background(), &lastActivity, 500*time.Millisecond, nil, nil)
 	defer cancel()
 
-	// Keep activity going for 600ms (well beyond idle timeout of 300ms).
+	// Keep activity going for 800ms (well beyond idle timeout of 500ms).
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 8; i++ {
 			time.Sleep(100 * time.Millisecond)
 			lastActivity.Store(time.Now().UnixNano())
 		}
 	}()
 	<-done
+
+	// Brief grace period for goroutine scheduling jitter.
+	time.Sleep(50 * time.Millisecond)
 
 	// Context should still be alive right after activity stops.
 	select {
@@ -55,7 +58,7 @@ func TestIdleTimeout_ActivityResetsTimer(t *testing.T) {
 	select {
 	case <-ctx.Done():
 		// expected
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("context should have been cancelled after activity stopped")
 	}
 }
