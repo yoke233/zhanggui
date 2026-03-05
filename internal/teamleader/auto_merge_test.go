@@ -17,13 +17,18 @@ type mockStore struct {
 	run     *core.Run
 	project *core.Project
 
-	issueErr   error
-	runErr     error
-	projectErr error
+	issueErr    error
+	getIssueErr error
+	runErr      error
+	projectErr  error
 }
 
 func (m *mockStore) GetIssueByRun(runID string) (*core.Issue, error) {
 	return m.issue, m.issueErr
+}
+
+func (m *mockStore) GetIssue(id string) (*core.Issue, error) {
+	return m.issue, m.getIssueErr
 }
 
 func (m *mockStore) GetRun(id string) (*core.Run, error) {
@@ -66,6 +71,7 @@ func baseFixtures() (*mockStore, *mockBus, *mockMerger) {
 		issue: &core.Issue{
 			ID:        "issue-1",
 			AutoMerge: true,
+			RunID:     "run-1",
 		},
 		run: &core.Run{
 			ID:         "run-1",
@@ -84,10 +90,10 @@ func baseFixtures() (*mockStore, *mockBus, *mockMerger) {
 
 func noopTestGate(_ context.Context, _ string) error { return nil }
 
-func runDoneEvent() core.Event {
+func issueMergingEvent() core.Event {
 	return core.Event{
-		Type:      core.EventRunDone,
-		RunID:     "run-1",
+		Type:      core.EventIssueMerging,
+		IssueID:   "issue-1",
 		Timestamp: time.Now(),
 	}
 }
@@ -99,7 +105,7 @@ func TestAutoMerge_HappyPath(t *testing.T) {
 	h := NewAutoMergeHandler(store, bus, merger)
 	h.testGateFn = noopTestGate
 
-	h.OnEvent(context.Background(), runDoneEvent())
+	h.OnEvent(context.Background(), issueMergingEvent())
 
 	if !merger.called.create {
 		t.Fatal("expected OnImplementComplete to be called")
@@ -111,8 +117,8 @@ func TestAutoMerge_HappyPath(t *testing.T) {
 		t.Fatalf("expected 1 event, got %d", len(bus.events))
 	}
 	evt := bus.events[0]
-	if evt.Type != core.EventAutoMerged {
-		t.Fatalf("expected EventAutoMerged, got %s", evt.Type)
+	if evt.Type != core.EventIssueMerged {
+		t.Fatalf("expected EventIssueMerged, got %s", evt.Type)
 	}
 	if evt.Data["pr_url"] != "https://github.com/org/repo/pull/42" {
 		t.Fatalf("unexpected pr_url: %s", evt.Data["pr_url"])
@@ -128,7 +134,7 @@ func TestAutoMerge_NonAutoMerge(t *testing.T) {
 	h := NewAutoMergeHandler(store, bus, merger)
 	h.testGateFn = noopTestGate
 
-	h.OnEvent(context.Background(), runDoneEvent())
+	h.OnEvent(context.Background(), issueMergingEvent())
 
 	if len(bus.events) != 0 {
 		t.Fatalf("expected no events, got %d", len(bus.events))
@@ -138,7 +144,7 @@ func TestAutoMerge_NonAutoMerge(t *testing.T) {
 	}
 }
 
-func TestAutoMerge_NonRunDoneEvent(t *testing.T) {
+func TestAutoMerge_NonIssueMergingEvent(t *testing.T) {
 	store, bus, merger := baseFixtures()
 	h := NewAutoMergeHandler(store, bus, merger)
 	h.testGateFn = noopTestGate
@@ -150,7 +156,7 @@ func TestAutoMerge_NonRunDoneEvent(t *testing.T) {
 	})
 
 	if len(bus.events) != 0 {
-		t.Fatalf("expected no events for non-RunDone, got %d", len(bus.events))
+		t.Fatalf("expected no events for non-issue_merging, got %d", len(bus.events))
 	}
 }
 
@@ -159,14 +165,14 @@ func TestAutoMerge_MergerNil(t *testing.T) {
 	h := NewAutoMergeHandler(store, bus, nil)
 	h.testGateFn = noopTestGate
 
-	h.OnEvent(context.Background(), runDoneEvent())
+	h.OnEvent(context.Background(), issueMergingEvent())
 
 	if len(bus.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(bus.events))
 	}
 	evt := bus.events[0]
-	if evt.Type != core.EventAutoMerged {
-		t.Fatalf("expected EventAutoMerged, got %s", evt.Type)
+	if evt.Type != core.EventIssueMerged {
+		t.Fatalf("expected EventIssueMerged, got %s", evt.Type)
 	}
 	if _, ok := evt.Data["pr_url"]; ok {
 		t.Fatal("pr_url should not be set when merger is nil")
@@ -179,14 +185,14 @@ func TestAutoMerge_PRCreateFailure(t *testing.T) {
 	h := NewAutoMergeHandler(store, bus, merger)
 	h.testGateFn = noopTestGate
 
-	h.OnEvent(context.Background(), runDoneEvent())
+	h.OnEvent(context.Background(), issueMergingEvent())
 
 	if len(bus.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(bus.events))
 	}
 	evt := bus.events[0]
-	if evt.Type != core.EventRunFailed {
-		t.Fatalf("expected EventRunFailed, got %s", evt.Type)
+	if evt.Type != core.EventMergeFailed {
+		t.Fatalf("expected EventMergeFailed, got %s", evt.Type)
 	}
 	if evt.Data["phase"] != "auto_merge_create_pr" {
 		t.Fatalf("expected phase auto_merge_create_pr, got %s", evt.Data["phase"])
@@ -205,14 +211,14 @@ func TestAutoMerge_PRMergeFailure(t *testing.T) {
 	h := NewAutoMergeHandler(store, bus, merger)
 	h.testGateFn = noopTestGate
 
-	h.OnEvent(context.Background(), runDoneEvent())
+	h.OnEvent(context.Background(), issueMergingEvent())
 
 	if len(bus.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(bus.events))
 	}
 	evt := bus.events[0]
-	if evt.Type != core.EventRunFailed {
-		t.Fatalf("expected EventRunFailed, got %s", evt.Type)
+	if evt.Type != core.EventIssueMergeConflict {
+		t.Fatalf("expected EventIssueMergeConflict, got %s", evt.Type)
 	}
 	if evt.Data["phase"] != "auto_merge_merge_pr" {
 		t.Fatalf("expected phase auto_merge_merge_pr, got %s", evt.Data["phase"])
@@ -222,5 +228,46 @@ func TestAutoMerge_PRMergeFailure(t *testing.T) {
 	}
 	if !merger.called.merge {
 		t.Fatal("expected OnMergeApproved to be called")
+	}
+}
+
+func TestAutoMerge_PRMergeNonConflictFailure(t *testing.T) {
+	store, bus, merger := baseFixtures()
+	merger.mergeErr = errors.New("github 500 while merge")
+	h := NewAutoMergeHandler(store, bus, merger)
+	h.testGateFn = noopTestGate
+
+	h.OnEvent(context.Background(), issueMergingEvent())
+
+	if len(bus.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(bus.events))
+	}
+	evt := bus.events[0]
+	if evt.Type != core.EventMergeFailed {
+		t.Fatalf("expected EventMergeFailed, got %s", evt.Type)
+	}
+	if evt.Data["phase"] != "auto_merge_merge_pr" {
+		t.Fatalf("expected phase auto_merge_merge_pr, got %s", evt.Data["phase"])
+	}
+}
+
+func TestAutoMerge_TestGateFailurePublishesMergeFailed(t *testing.T) {
+	store, bus, merger := baseFixtures()
+	h := NewAutoMergeHandler(store, bus, merger)
+	h.testGateFn = func(_ context.Context, _ string) error {
+		return errors.New("go test failed")
+	}
+
+	h.OnEvent(context.Background(), issueMergingEvent())
+
+	if len(bus.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(bus.events))
+	}
+	evt := bus.events[0]
+	if evt.Type != core.EventMergeFailed {
+		t.Fatalf("expected EventMergeFailed, got %s", evt.Type)
+	}
+	if evt.Data["phase"] != "auto_merge_test_gate" {
+		t.Fatalf("expected phase auto_merge_test_gate, got %s", evt.Data["phase"])
 	}
 }

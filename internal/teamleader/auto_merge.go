@@ -30,8 +30,8 @@ type AutoMergeHandler struct {
 	testGateFn func(ctx context.Context, repoPath string) error // nil uses default runTestGate
 }
 
-// NewAutoMergeHandler creates a handler that triggers auto-merge on RunDone.
-// merger may be nil; if nil, the handler publishes EventAutoMerged without
+// NewAutoMergeHandler creates a handler that triggers auto-merge on issue_merging.
+// merger may be nil; if nil, the handler publishes EventIssueMerged without
 // performing actual PR operations.
 func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) *AutoMergeHandler {
 	return &AutoMergeHandler{
@@ -42,21 +42,26 @@ func NewAutoMergeHandler(store core.Store, bus eventPublisher, merger PRMerger) 
 	}
 }
 
-// OnEvent handles a single event. Only reacts to EventRunDone.
+// OnEvent handles a single event. Only reacts to EventIssueMerging.
 func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
-	if evt.Type != core.EventRunDone {
+	if evt.Type != core.EventIssueMerging {
 		return
 	}
-	runID := strings.TrimSpace(evt.RunID)
-	if runID == "" {
+	issueID := strings.TrimSpace(evt.IssueID)
+	if issueID == "" {
 		return
 	}
 
-	issue, err := h.store.GetIssueByRun(runID)
+	issue, err := h.store.GetIssue(issueID)
 	if err != nil || issue == nil {
 		return
 	}
 	if !issue.AutoMerge {
+		return
+	}
+	runID := strings.TrimSpace(issue.RunID)
+	if runID == "" {
+		h.log.Warn("auto-merge: issue has empty run_id", "issue_id", issue.ID)
 		return
 	}
 
@@ -86,7 +91,7 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 	if err := testGate(ctx, repoPath); err != nil {
 		h.log.Error("auto-merge: test gate failed", "run_id", runID, "error", err)
 		h.bus.Publish(core.Event{
-			Type:      core.EventRunFailed,
+			Type:      core.EventMergeFailed,
 			RunID:     runID,
 			ProjectID: project.ID,
 			IssueID:   issue.ID,
@@ -106,7 +111,7 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		if createErr != nil {
 			h.log.Error("auto-merge: create PR failed", "run_id", runID, "error", createErr)
 			h.bus.Publish(core.Event{
-				Type:      core.EventRunFailed,
+				Type:      core.EventMergeFailed,
 				RunID:     runID,
 				ProjectID: project.ID,
 				IssueID:   issue.ID,
@@ -118,8 +123,12 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		}
 		if mergeErr := h.merger.OnMergeApproved(ctx, runID); mergeErr != nil {
 			h.log.Error("auto-merge: merge PR failed", "run_id", runID, "error", mergeErr)
+			eventType := core.EventMergeFailed
+			if isConflictError(mergeErr) {
+				eventType = core.EventIssueMergeConflict
+			}
 			h.bus.Publish(core.Event{
-				Type:      core.EventRunFailed,
+				Type:      eventType,
 				RunID:     runID,
 				ProjectID: project.ID,
 				IssueID:   issue.ID,
@@ -137,13 +146,21 @@ func (h *AutoMergeHandler) OnEvent(ctx context.Context, evt core.Event) {
 	}
 	h.log.Info("auto-merge: merge complete", "run_id", runID, "pr_url", prURL)
 	h.bus.Publish(core.Event{
-		Type:      core.EventAutoMerged,
+		Type:      core.EventIssueMerged,
 		RunID:     runID,
 		ProjectID: project.ID,
 		IssueID:   issue.ID,
 		Data:      data,
 		Timestamp: time.Now(),
 	})
+}
+
+func isConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "conflict") || strings.Contains(msg, "409")
 }
 
 // runTestGate runs `go test` only on packages with changed .go files (vs main branch).
