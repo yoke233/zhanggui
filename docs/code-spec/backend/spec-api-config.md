@@ -4,11 +4,23 @@
 
 ## 1. 路由分层
 
+- `/`：系统健康检查入口
 - `/api/v1`：写操作与控制面
 - `/api/v2`：只读查询面（issue/run/profile）
 - `/webhook`：GitHub webhook 入口
 
-## 2. `/api/v1`（主写路径）
+## 2. 系统与发现接口
+
+- `GET /health`
+- `GET /api/v1/health`
+- `GET /api/v1/stats`
+- `GET /.well-known/agent-card.json`
+- `POST /api/v1/a2a`
+
+说明：
+- `POST /api/v1/a2a` 由 A2A token 独立鉴权，不等同于 `server.auth_enabled` 的 Bearer 鉴权开关。
+
+## 3. `/api/v1`（主写路径）
 
 ### Project
 - `GET /api/v1/projects`
@@ -52,7 +64,7 @@
 ### WS
 - `GET /api/v1/ws`
 
-## 3. `/api/v2`（当前读路径）
+## 4. `/api/v2`（当前读路径）
 
 - `GET /api/v2/issues?project_id=...`
 - `GET /api/v2/issues/{id}`
@@ -62,19 +74,22 @@
 - `GET /api/v2/runs/{id}`
 - `GET /api/v2/runs/{id}/events`
 
-## 4. 前端调用现状（后端视角）
+## 5. 前端调用现状（后端视角）
 
-前端 `apiClient` 的实际可用主路径：
+前端当前调用面：
 - issue/run 查询：走 `/api/v2/*`
-- issue 写入、chat、repo：admin：走 `/api/v1/*`
+- issue/chat/repo/admin 写调用：走 `/api/v1/*`
+- A2A：走 `/api/v1/a2a`
+- 实时事件：走 `/api/v1/ws`
 
-前端中存在历史方法别名（`createPlan/listPlans`），但本质调用 issue 接口。
+前端中仍存在历史方法别名（`createPlan/listPlans`），但本质调用 issue 接口。
 
-## 5. 明确不纳入（当前未落地或无路由）
+## 6. 明确不纳入（当前未落地或无路由）
 
 - `/api/v2/sessions/*`（不存在）
 - `POST /api/v2/issues` / `POST /api/v2/runs`（不存在）
-- `/api/v1/projects/{projectID}/Runs/{runID}/*`（前端有遗留调用签名，后端未注册对应路由）
+- `POST /api/v1/projects/{projectID}/issues/{id}/actions`（错误复数路径）
+- `PATCH /api/v1/projects/{projectID}/issues/{id}/auto-merge`（错误方法）
 
 说明：
 - 上述接口可在未来重构时重新设计，但当前不得写入“已实现规范”。

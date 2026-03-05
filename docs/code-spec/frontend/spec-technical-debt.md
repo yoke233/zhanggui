@@ -4,25 +4,26 @@
 
 ## 1. 类型系统漂移
 
-- `web/src/types/workflow.ts` 的 `RunStatus/WorkflowRunStatus` 仍是旧状态集合。
-- 与后端 `core.RunStatus/core.RunConclusion` 不一致。
+- `web/src/types/workflow.ts` 的 `RunStatus/WorkflowRunStatus` 仍含旧状态语义。
+- 与后端 `core.RunStatus/core.RunConclusion` 双轴模型不一致。
 
 处理建议：
-- 新增统一的前端适配层，把后端双轴状态映射到 UI 徽标，而非在 domain type 中伪造状态。
+- 增加统一的前端适配层，把后端双轴状态映射到 UI 徽标，不在 domain type 中伪造单轴状态。
 
-## 2. API Client 漂移
+## 2. 命名与兼容层收敛
 
-- `apiClient` 中含未落地接口（`/Runs` 大写路径相关）。
-- 仍保留 `plan` 命名别名（迁移期可接受，长期应收敛）。
+- `apiClient` 仍保留 `plan` 命名别名（迁移期可接受，长期应收敛）。
+- `runsStore` 仍使用 `RunsByProjectId` / `RunId` 这类大写风格标识，和其余 TS 命名风格不一致。
 
 处理建议：
-- 拆分 client 方法标签：`stable/legacy/stale`，并在 CI 做调用检查。
+- 继续将新能力收敛到 issue 命名主路径。
+- 对 store 层进行一次命名标准化重构（保持行为不变）。
 
 ## 3. 规范归一建议
 
 建议后续按两步走：
-1. 先按本目录标注清理 `stale_unimplemented` 调用入口。
-2. 再把 `legacy_alias` 收敛为 issue 命名的单一路径。
+1. 先冻结现有 `legacy_alias`，禁止新增同类兼容入口。
+2. 再把 `legacy_alias` 逐步收敛为 issue 命名的单一路径。
 
 ## 4. 不做的事（当前阶段）
 

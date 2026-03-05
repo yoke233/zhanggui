@@ -9,6 +9,7 @@ artifacts/
 /data.db-shm
 /data.db-wal
 /docs/.write-test.tmp
+.ai-workflow/
 
 # Go
 *.exe
