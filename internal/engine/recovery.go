@@ -65,8 +65,9 @@ func (e *Executor) recoverRunningRun(ctx context.Context, p *core.Run) error {
 		}
 	}
 
-	p.Status = core.StatusInProgress
-	p.UpdatedAt = time.Now()
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return err
+	}
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}

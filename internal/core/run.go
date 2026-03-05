@@ -29,14 +29,17 @@ const (
 var validTransitions = map[RunStatus]map[RunStatus]bool{
 	StatusQueued: {
 		StatusInProgress: true,
+		StatusCompleted:  true, // abort
 	},
 	StatusInProgress: {
 		StatusCompleted:      true,
 		StatusActionRequired: true,
+		StatusQueued:         true, // re-enqueue
 	},
 	StatusActionRequired: {
 		StatusInProgress: true,
 		StatusCompleted:  true,
+		StatusQueued:     true, // re-enqueue
 	},
 	StatusCompleted: {
 		StatusInProgress: true, // retry from failure
@@ -46,6 +49,9 @@ var validTransitions = map[RunStatus]map[RunStatus]bool{
 // ValidateTransition checks whether a status change is legal.
 // Returns nil on success or an error describing why the transition is invalid.
 func ValidateTransition(from, to RunStatus) error {
+	if from == to {
+		return nil // idempotent
+	}
 	targets, ok := validTransitions[from]
 	if !ok {
 		return fmt.Errorf("no transitions allowed from %q", from)
@@ -53,6 +59,17 @@ func ValidateTransition(from, to RunStatus) error {
 	if !targets[to] {
 		return fmt.Errorf("invalid transition: %q -> %q", from, to)
 	}
+	return nil
+}
+
+// TransitionStatus validates and applies a status change on the Run.
+// Idempotent transitions (from == to) are always allowed.
+func (r *Run) TransitionStatus(to RunStatus) error {
+	if err := ValidateTransition(r.Status, to); err != nil {
+		return err
+	}
+	r.Status = to
+	r.UpdatedAt = time.Now()
 	return nil
 }
 

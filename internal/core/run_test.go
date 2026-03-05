@@ -12,11 +12,14 @@ func TestValidateTransition(t *testing.T) {
 		to   RunStatus
 	}{
 		{StatusQueued, StatusInProgress},
+		{StatusQueued, StatusCompleted},          // abort
 		{StatusInProgress, StatusCompleted},
 		{StatusInProgress, StatusActionRequired},
+		{StatusInProgress, StatusQueued},          // re-enqueue
 		{StatusActionRequired, StatusInProgress},
 		{StatusActionRequired, StatusCompleted},
-		{StatusCompleted, StatusInProgress}, // retry
+		{StatusActionRequired, StatusQueued},      // re-enqueue
+		{StatusCompleted, StatusInProgress},        // retry
 	}
 	for _, tt := range valid {
 		if err := ValidateTransition(tt.from, tt.to); err != nil {
@@ -28,17 +31,54 @@ func TestValidateTransition(t *testing.T) {
 		from RunStatus
 		to   RunStatus
 	}{
-		{StatusQueued, StatusCompleted},
 		{StatusQueued, StatusActionRequired},
 		{StatusCompleted, StatusQueued},
 		{StatusCompleted, StatusActionRequired},
-		{StatusActionRequired, StatusQueued},
-		{StatusInProgress, StatusQueued},
 	}
 	for _, tt := range invalid {
 		if err := ValidateTransition(tt.from, tt.to); err == nil {
 			t.Errorf("expected invalid: %s -> %s, got nil", tt.from, tt.to)
 		}
+	}
+}
+
+func TestValidateTransition_Idempotent(t *testing.T) {
+	for _, s := range []RunStatus{StatusQueued, StatusInProgress, StatusCompleted, StatusActionRequired} {
+		if err := ValidateTransition(s, s); err != nil {
+			t.Errorf("idempotent %s -> %s should be valid, got: %v", s, s, err)
+		}
+	}
+}
+
+func TestRun_TransitionStatus(t *testing.T) {
+	r := &Run{Status: StatusQueued}
+
+	if err := r.TransitionStatus(StatusInProgress); err != nil {
+		t.Fatalf("queued -> in_progress: %v", err)
+	}
+	if r.Status != StatusInProgress {
+		t.Fatalf("status = %s, want in_progress", r.Status)
+	}
+	if r.UpdatedAt.IsZero() {
+		t.Fatal("UpdatedAt should be set")
+	}
+
+	// invalid transition
+	if err := r.TransitionStatus(StatusQueued); err != nil {
+		// in_progress -> queued is now valid (re-enqueue)
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// idempotent
+	r.Status = StatusCompleted
+	if err := r.TransitionStatus(StatusCompleted); err != nil {
+		t.Fatalf("idempotent completed -> completed: %v", err)
+	}
+
+	// truly invalid
+	r.Status = StatusCompleted
+	if err := r.TransitionStatus(StatusActionRequired); err == nil {
+		t.Fatal("completed -> action_required should be invalid")
 	}
 }
 

@@ -127,14 +127,10 @@ func (s *Scheduler) Enqueue(RunID string) error {
 		return err
 	}
 
-	switch p.Status {
-	case core.StatusCompleted:
-		return fmt.Errorf("Run %s status %s cannot be enqueued", p.ID, p.Status)
+	if err := p.TransitionStatus(core.StatusQueued); err != nil {
+		return fmt.Errorf("enqueue Run %s: %w", p.ID, err)
 	}
-
-	p.Status = core.StatusQueued
 	p.QueuedAt = time.Now()
-	p.UpdatedAt = time.Now()
 	return s.store.SaveRun(p)
 }
 

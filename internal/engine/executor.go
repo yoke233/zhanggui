@@ -188,10 +188,9 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 			}
 		}
 	} else {
-		if err := core.ValidateTransition(p.Status, core.StatusInProgress); err != nil {
+		if err := p.TransitionStatus(core.StatusInProgress); err != nil {
 			return err
 		}
-		p.Status = core.StatusInProgress
 		p.StartedAt = time.Now()
 		if err := e.store.SaveRun(p); err != nil {
 			return err
@@ -351,7 +350,9 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 					return saveErr
 				}
 			case ReactionEscalateHuman:
-				p.Status = core.StatusActionRequired
+				if transErr := p.TransitionStatus(core.StatusActionRequired); transErr != nil {
+					return transErr
+				}
 				p.ErrorMessage = err.Error()
 				if saveErr := e.store.SaveRun(p); saveErr != nil {
 					return saveErr
@@ -384,7 +385,9 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		}
 
 		if stage.RequireHuman {
-			p.Status = core.StatusActionRequired
+			if err := p.TransitionStatus(core.StatusActionRequired); err != nil {
+				return err
+			}
 			if err := e.store.SaveRun(p); err != nil {
 				return err
 			}
@@ -401,7 +404,9 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		}
 	}
 
-	p.Status = core.StatusCompleted
+	if err := p.TransitionStatus(core.StatusCompleted); err != nil {
+		return err
+	}
 	p.Conclusion = core.ConclusionSuccess
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = ""
@@ -480,7 +485,9 @@ func (e *Executor) isRunActionRequired(RunID string) (bool, error) {
 }
 
 func (e *Executor) failRun(p *core.Run, message string, cause error) error {
-	p.Status = core.StatusCompleted
+	if err := p.TransitionStatus(core.StatusCompleted); err != nil {
+		return err
+	}
 	p.Conclusion = core.ConclusionFailure
 	p.ErrorMessage = message
 	p.FinishedAt = time.Now()

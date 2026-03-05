@@ -66,12 +66,10 @@ func (e *Executor) ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
 func (e *Executor) applyApprove(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	if p.Status != core.StatusActionRequired {
-		return fmt.Errorf("approve requires action_required status, got %s", p.Status)
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("approve: %w", err)
 	}
-	p.Status = core.StatusInProgress
 	p.ErrorMessage = ""
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -88,9 +86,10 @@ func (e *Executor) applyReject(p *core.Run, action core.RunAction, stage core.St
 	if err := e.store.InvalidateCheckpointsFromStage(p.ID, stage); err != nil {
 		return err
 	}
-	p.Status = core.StatusActionRequired
+	if err := p.TransitionStatus(core.StatusActionRequired); err != nil {
+		return fmt.Errorf("reject: %w", err)
+	}
 	p.ErrorMessage = action.Message
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -109,9 +108,10 @@ func (e *Executor) applyModify(ctx context.Context, p *core.Run, action core.Run
 	}
 	p.Artifacts["modify_message"] = action.Message
 	p.Config["modify_stage"] = string(stage)
-	p.Status = core.StatusInProgress
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("modify: %w", err)
+	}
 	p.ErrorMessage = action.Message
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -128,10 +128,11 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 	}
 	next := currentIndex + 1
 	if next >= len(p.Stages) {
-		p.Status = core.StatusCompleted
+		if err := p.TransitionStatus(core.StatusCompleted); err != nil {
+			return fmt.Errorf("skip (complete): %w", err)
+		}
 		p.Conclusion = core.ConclusionSuccess
 		p.FinishedAt = time.Now()
-		p.UpdatedAt = time.Now()
 		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
@@ -142,8 +143,9 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 	}
 
 	p.CurrentStage = p.Stages[next].Name
-	p.Status = core.StatusInProgress
-	p.UpdatedAt = time.Now()
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("skip (continue): %w", err)
+	}
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -154,8 +156,9 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Run, action core.RunAc
 }
 
 func (e *Executor) applyRerun(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	p.Status = core.StatusInProgress
-	p.UpdatedAt = time.Now()
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("rerun: %w", err)
+	}
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -178,8 +181,9 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Run, action core
 		return fmt.Errorf("target stage %s not found", target)
 	}
 	p.Stages[targetIndex].Role = action.Role
-	p.Status = core.StatusInProgress
-	p.UpdatedAt = time.Now()
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("change_role: %w", err)
+	}
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -188,11 +192,12 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Run, action core
 }
 
 func (e *Executor) applyAbort(p *core.Run, action core.RunAction, stage core.StageID) error {
-	p.Status = core.StatusCompleted
+	if err := p.TransitionStatus(core.StatusCompleted); err != nil {
+		return fmt.Errorf("abort: %w", err)
+	}
 	p.Conclusion = core.ConclusionCancelled
 	p.FinishedAt = time.Now()
 	p.ErrorMessage = action.Message
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -204,9 +209,10 @@ func (e *Executor) applyAbort(p *core.Run, action core.RunAction, stage core.Sta
 
 func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.StageID) error {
 	e.acpPoolCleanup(p.ID)
-	p.Status = core.StatusActionRequired
+	if err := p.TransitionStatus(core.StatusActionRequired); err != nil {
+		return fmt.Errorf("pause: %w", err)
+	}
 	p.ErrorMessage = action.Message
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
@@ -224,12 +230,10 @@ func (e *Executor) applyPause(p *core.Run, action core.RunAction, stage core.Sta
 }
 
 func (e *Executor) applyResume(ctx context.Context, p *core.Run, action core.RunAction, stage core.StageID) error {
-	if p.Status != core.StatusActionRequired {
-		return fmt.Errorf("resume requires action_required status, got %s", p.Status)
+	if err := p.TransitionStatus(core.StatusInProgress); err != nil {
+		return fmt.Errorf("resume: %w", err)
 	}
-	p.Status = core.StatusInProgress
 	p.ErrorMessage = ""
-	p.UpdatedAt = time.Now()
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
