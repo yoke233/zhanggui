@@ -24,7 +24,7 @@ func TestWSRequiresAuthWhenEnabled(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
@@ -62,7 +62,7 @@ func TestWSBroadcastAndRunsubscriptionFlow(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -128,7 +128,7 @@ func TestWSIssueSubscriptionReceivesCoreEventsByIssueID(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -190,7 +190,7 @@ func TestWSIssueCreatedAlwaysBroadcastEvenWhenIssueIDPresent(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -223,7 +223,7 @@ func TestWSBroadcastCoreEventFallsBackIssueIDFromData(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -273,7 +273,7 @@ func TestWSBroadcastCoreEventParsesACPUpdateJSON(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -338,7 +338,7 @@ func TestWSChatSessionSubscriptionRoutesChatEventsBySessionID(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws client A: %v", err)
@@ -416,7 +416,7 @@ func TestWSChatSessionSubscriptionCleansUpOnDisconnect(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws client A: %v", err)
@@ -478,7 +478,7 @@ func TestWSChatSessionSubscriptionBroadcastsToMultipleSubscribers(t *testing.T) 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws client A: %v", err)
@@ -582,7 +582,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws client: %v", err)

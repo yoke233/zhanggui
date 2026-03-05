@@ -49,32 +49,6 @@ type workflowRunListResponse struct {
 	Offset int                   `json:"offset"`
 }
 
-func registerV2Routes(
-	r chi.Router,
-	store core.Store,
-	issueManager IssueManager,
-	issueParserRoleID string,
-	executor RunExecutor,
-	stageRoleBindings map[string]string,
-) {
-	_ = issueManager
-	_ = issueParserRoleID
-	_ = executor
-	_ = stageRoleBindings
-
-	issueHandlers := &v2IssueHandlers{store: store}
-	runHandlers := &v2RunHandlers{store: store}
-
-	r.Get("/issues", issueHandlers.listIssues)
-	r.Get("/issues/{id}", issueHandlers.getIssue)
-
-	r.Get("/workflow-profiles", handleListWorkflowProfiles)
-	r.Get("/workflow-profiles/{type}", handleGetWorkflowProfile)
-
-	r.Get("/runs", runHandlers.listRuns)
-	r.Get("/runs/{id}", runHandlers.getRun)
-	r.Get("/runs/{id}/events", runHandlers.listRunEvents)
-}
 
 func (h *v2IssueHandlers) listIssues(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {

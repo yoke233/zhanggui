@@ -46,12 +46,12 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 	}
 
 	createResp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-api/chat",
+		ts.URL+"/api/v3/projects/proj-chat-api/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer createResp.Body.Close()
 	if createResp.StatusCode != http.StatusAccepted {
@@ -84,9 +84,9 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-api/chat/" + created.SessionID)
+	getResp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-api/chat/" + created.SessionID)
 	if err != nil {
-		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}: %v", err)
+		t.Fatalf("GET /api/v3/projects/{pid}/chat/{sid}: %v", err)
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
@@ -169,9 +169,9 @@ func TestListChatSessions(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list/chat")
+	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-list/chat")
 	if err != nil {
-		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("GET /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -212,9 +212,9 @@ func TestListChatSessionsProjectNotFound(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list-missing/chat")
+	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-list-missing/chat")
 	if err != nil {
-		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("GET /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -278,9 +278,9 @@ func TestListChatSessionEvents(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events/chat/" + session.ID + "/events")
+	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-events/chat/" + session.ID + "/events")
 	if err != nil {
-		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
+		t.Fatalf("GET /api/v3/projects/{pid}/chat/{sid}/events: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -325,12 +325,12 @@ func TestCreateChatSessionRequiresMessage(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-required/chat",
+		ts.URL+"/api/v3/projects/proj-chat-required/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -374,7 +374,7 @@ func TestDeleteChatSession(t *testing.T) {
 
 	req, err := http.NewRequest(
 		http.MethodDelete,
-		ts.URL+"/api/v1/projects/proj-chat-delete/chat/"+session.ID,
+		ts.URL+"/api/v3/projects/proj-chat-delete/chat/"+session.ID,
 		nil,
 	)
 	if err != nil {
@@ -382,14 +382,14 @@ func TestDeleteChatSession(t *testing.T) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE /api/v1/projects/{pid}/chat/{sid}: %v", err)
+		t.Fatalf("DELETE /api/v3/projects/{pid}/chat/{sid}: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", resp.StatusCode)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-delete/chat/" + session.ID)
+	getResp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-delete/chat/" + session.ID)
 	if err != nil {
 		t.Fatalf("GET deleted session: %v", err)
 	}
@@ -431,12 +431,12 @@ func TestCreateChatSessionRejectsLegacyAutoCreatePlanParam(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-issue-draft/chat",
+		ts.URL+"/api/v3/projects/proj-chat-issue-draft/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -496,12 +496,12 @@ func TestCreateChatSessionDoesNotAutoCreateIssueByDefault(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-issue-default-off/chat",
+		ts.URL+"/api/v3/projects/proj-chat-issue-default-off/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
@@ -548,7 +548,7 @@ func TestChatSessionCreateWithRole(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-role/chat",
+		ts.URL+"/api/v3/projects/proj-chat-role/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -626,7 +626,7 @@ func TestCreateChatSessionRejectsInvalidRole(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-invalid-role/chat",
+		ts.URL+"/api/v3/projects/proj-chat-invalid-role/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -692,7 +692,7 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-continue/chat",
+		ts.URL+"/api/v3/projects/proj-chat-continue/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -776,7 +776,7 @@ func TestCreateChatSessionAssistantFailureReturnsBadGateway(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-assistant-fail/chat",
+		ts.URL+"/api/v3/projects/proj-chat-assistant-fail/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -811,7 +811,7 @@ func TestCreateChatSessionAssistantUnavailableReturnsServiceUnavailable(t *testi
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v1/projects/proj-chat-assistant-missing/chat",
+		ts.URL+"/api/v3/projects/proj-chat-assistant-missing/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)

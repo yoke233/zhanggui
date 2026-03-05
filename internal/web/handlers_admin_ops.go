@@ -120,6 +120,8 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 		return
 	}
 
+	// Admin force operations intentionally bypass the normal state machine
+	// to provide an escape hatch for stuck issues.
 	issue.Status = targetStatus
 	if err := h.store.SaveIssue(issue); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to update issue", "SAVE_ISSUE_FAILED")

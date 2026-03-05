@@ -74,6 +74,7 @@ type A2ABridge interface {
 	SendMessage(ctx context.Context, input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error)
 	GetTask(ctx context.Context, input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error)
 	CancelTask(ctx context.Context, input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error)
+	ListTasks(ctx context.Context, input teamleader.A2AListTasksInput) (*teamleader.A2ATaskList, error)
 }
 
 // WebhookDeliveryReplayer replays failed webhook deliveries by delivery id.
@@ -91,6 +92,7 @@ type Config struct {
 	A2AEnabled             bool
 	A2AToken               string
 	A2AVersion             string
+	A2AAuth                *A2AAuthConfig
 	A2ABridge              A2ABridge
 	Frontend               fs.FS
 	Store                  core.Store
@@ -158,23 +160,12 @@ func NewServer(cfg Config) *Server {
 	}
 	issueManager := cfg.IssueManager
 	issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
-	r.Route("/api/v1", func(r chi.Router) {
+	r.Route("/api/v3", func(r chi.Router) {
 		if cfg.AuthEnabled {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
 		}
-		r.Get("/stats", handleStats)
-		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
-		registerRepoRoutes(r, cfg.Store)
-		registerChatRoutes(r, cfg.Store, cfg.ChatAssistant, cfg.EventPublisher)
-		registerIssueRoutes(r, cfg.Store, issueManager, issueParserRoleID)
-		registerAdminOpsRoutes(r, cfg.Store, cfg.BearerToken, webhookReplayer)
-		r.Get("/ws", hub.HandleWS)
-	})
-	r.Route("/api/v2", func(r chi.Router) {
-		if cfg.AuthEnabled {
-			r.Use(BearerAuthMiddleware(cfg.BearerToken))
-		}
-		registerV2Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles)
+		registerV3Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles,
+			hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, cfg.BearerToken, webhookReplayer)
 	})
 	if frontendFS != nil {
 		spa := newSPAFallbackHandler(frontendFS)
