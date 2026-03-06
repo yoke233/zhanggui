@@ -1,0 +1,1129 @@
+{
+  "captured_at": "2026-03-06T12:01:37Z",
+  "agent": "codex-acp",
+  "scenarios": {
+    "load_session_replay": {
+      "description": "LoadSession on new process — replays historical conversation events",
+      "session_id": "019cc306-5967-7961-b58d-787d171c0661",
+      "events": [
+        {
+          "offset_ms": 1947,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "Reply with exactly: HELLO_ACP_TEST",
+                "type": "text"
+              },
+              "sessionUpdate": "user_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 1947,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "HELLO_ACP_TEST",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 1953,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "availableCommands": [
+                {
+                  "description": "Review my current changes and find issues",
+                  "input": {
+                    "hint": "optional custom review instructions"
+                  },
+                  "name": "review"
+                },
+                {
+                  "description": "Review the code changes against a specific branch",
+                  "input": {
+                    "hint": "branch name"
+                  },
+                  "name": "review-branch"
+                },
+                {
+                  "description": "Review the code changes introduced by a commit",
+                  "input": {
+                    "hint": "commit sha"
+                  },
+                  "name": "review-commit"
+                },
+                {
+                  "description": "create an AGENTS.md file with instructions for Codex",
+                  "name": "init"
+                },
+                {
+                  "description": "summarize conversation to prevent hitting the context limit",
+                  "name": "compact"
+                },
+                {
+                  "description": "undo Codex’s most recent turn",
+                  "name": "undo"
+                },
+                {
+                  "description": "logout of Codex",
+                  "name": "logout"
+                },
+                {
+                  "description": "",
+                  "name": "learn"
+                },
+                {
+                  "description": "Implement tasks from an OpenSpec change (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-apply"
+                },
+                {
+                  "description": "Archive a completed change in the experimental workflow",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-archive"
+                },
+                {
+                  "description": "Archive multiple completed changes at once",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-bulk-archive"
+                },
+                {
+                  "description": "Continue working on a change - create the next artifact (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-continue"
+                },
+                {
+                  "description": "Enter explore mode - think through ideas, investigate problems, clarify requirements",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-explore"
+                },
+                {
+                  "description": "Create a change and generate all artifacts needed for implementation in one go",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-ff"
+                },
+                {
+                  "description": "Start a new change using the experimental artifact workflow (OPSX)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-new"
+                },
+                {
+                  "description": "Guided onboarding - walk through a complete OpenSpec workflow cycle with narration",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-onboard"
+                },
+                {
+                  "description": "Sync delta specs from a change to main specs",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-sync"
+                },
+                {
+                  "description": "Verify implementation matches change artifacts before archiving",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-verify"
+                }
+              ],
+              "sessionUpdate": "available_commands_update"
+            }
+          }
+        }
+      ]
+    },
+    "load_session_then_prompt": {
+      "description": "Prompt sent after LoadSession on resumed session",
+      "session_id": "019cc306-5967-7961-b58d-787d171c0661",
+      "events": [
+        {
+          "offset_ms": 964,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 28945
+            }
+          }
+        },
+        {
+          "offset_ms": 2214,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "SECOND",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 2216,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "_T",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 2216,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "URN",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 2216,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "_OK",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 2306,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 28951
+            }
+          }
+        }
+      ],
+      "result": {
+        "text": "SECOND_TURN_OK",
+        "stop_reason": "end_turn"
+      }
+    },
+    "new_session_simple_prompt": {
+      "description": "NewSession then simple prompt asking for exact reply",
+      "session_id": "019cc306-5967-7961-b58d-787d171c0661",
+      "events": [
+        {
+          "offset_ms": 1917,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "availableCommands": [
+                {
+                  "description": "Review my current changes and find issues",
+                  "input": {
+                    "hint": "optional custom review instructions"
+                  },
+                  "name": "review"
+                },
+                {
+                  "description": "Review the code changes against a specific branch",
+                  "input": {
+                    "hint": "branch name"
+                  },
+                  "name": "review-branch"
+                },
+                {
+                  "description": "Review the code changes introduced by a commit",
+                  "input": {
+                    "hint": "commit sha"
+                  },
+                  "name": "review-commit"
+                },
+                {
+                  "description": "create an AGENTS.md file with instructions for Codex",
+                  "name": "init"
+                },
+                {
+                  "description": "summarize conversation to prevent hitting the context limit",
+                  "name": "compact"
+                },
+                {
+                  "description": "undo Codex’s most recent turn",
+                  "name": "undo"
+                },
+                {
+                  "description": "logout of Codex",
+                  "name": "logout"
+                },
+                {
+                  "description": "",
+                  "name": "learn"
+                },
+                {
+                  "description": "Implement tasks from an OpenSpec change (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-apply"
+                },
+                {
+                  "description": "Archive a completed change in the experimental workflow",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-archive"
+                },
+                {
+                  "description": "Archive multiple completed changes at once",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-bulk-archive"
+                },
+                {
+                  "description": "Continue working on a change - create the next artifact (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-continue"
+                },
+                {
+                  "description": "Enter explore mode - think through ideas, investigate problems, clarify requirements",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-explore"
+                },
+                {
+                  "description": "Create a change and generate all artifacts needed for implementation in one go",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-ff"
+                },
+                {
+                  "description": "Start a new change using the experimental artifact workflow (OPSX)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-new"
+                },
+                {
+                  "description": "Guided onboarding - walk through a complete OpenSpec workflow cycle with narration",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-onboard"
+                },
+                {
+                  "description": "Sync delta specs from a change to main specs",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-sync"
+                },
+                {
+                  "description": "Verify implementation matches change artifacts before archiving",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-verify"
+                }
+              ],
+              "sessionUpdate": "available_commands_update"
+            }
+          }
+        },
+        {
+          "offset_ms": 13003,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "HEL",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 13004,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "LO",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 13006,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "_AC",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 13007,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "P",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 13009,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "content": {
+                "text": "_TEST",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 13108,
+          "raw": {
+            "sessionId": "019cc306-5967-7961-b58d-787d171c0661",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 28945
+            }
+          }
+        }
+      ],
+      "result": {
+        "text": "HELLO_ACP_TEST",
+        "stop_reason": "end_turn"
+      }
+    },
+    "new_session_tool_use": {
+      "description": "NewSession then prompt that triggers tool calls (file write)",
+      "session_id": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+      "events": [
+        {
+          "offset_ms": 2308,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "availableCommands": [
+                {
+                  "description": "Review my current changes and find issues",
+                  "input": {
+                    "hint": "optional custom review instructions"
+                  },
+                  "name": "review"
+                },
+                {
+                  "description": "Review the code changes against a specific branch",
+                  "input": {
+                    "hint": "branch name"
+                  },
+                  "name": "review-branch"
+                },
+                {
+                  "description": "Review the code changes introduced by a commit",
+                  "input": {
+                    "hint": "commit sha"
+                  },
+                  "name": "review-commit"
+                },
+                {
+                  "description": "create an AGENTS.md file with instructions for Codex",
+                  "name": "init"
+                },
+                {
+                  "description": "summarize conversation to prevent hitting the context limit",
+                  "name": "compact"
+                },
+                {
+                  "description": "undo Codex’s most recent turn",
+                  "name": "undo"
+                },
+                {
+                  "description": "logout of Codex",
+                  "name": "logout"
+                },
+                {
+                  "description": "",
+                  "name": "learn"
+                },
+                {
+                  "description": "Implement tasks from an OpenSpec change (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-apply"
+                },
+                {
+                  "description": "Archive a completed change in the experimental workflow",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-archive"
+                },
+                {
+                  "description": "Archive multiple completed changes at once",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-bulk-archive"
+                },
+                {
+                  "description": "Continue working on a change - create the next artifact (Experimental)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-continue"
+                },
+                {
+                  "description": "Enter explore mode - think through ideas, investigate problems, clarify requirements",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-explore"
+                },
+                {
+                  "description": "Create a change and generate all artifacts needed for implementation in one go",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-ff"
+                },
+                {
+                  "description": "Start a new change using the experimental artifact workflow (OPSX)",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-new"
+                },
+                {
+                  "description": "Guided onboarding - walk through a complete OpenSpec workflow cycle with narration",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-onboard"
+                },
+                {
+                  "description": "Sync delta specs from a change to main specs",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-sync"
+                },
+                {
+                  "description": "Verify implementation matches change artifacts before archiving",
+                  "input": {
+                    "hint": "command arguments"
+                  },
+                  "name": "opsx-verify"
+                }
+              ],
+              "sessionUpdate": "available_commands_update"
+            }
+          }
+        },
+        {
+          "offset_ms": 14822,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "我",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14824,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "来",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14824,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "直接",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14825,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "创建",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14825,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "文件",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14827,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "，并",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14833,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "写",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14835,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "入",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14840,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "指定",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14843,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "内容",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 14850,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "。",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 15235,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": [
+                {
+                  "newText": "captured by acp-probe\n",
+                  "path": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt",
+                  "type": "diff"
+                }
+              ],
+              "kind": "edit",
+              "locations": [
+                {
+                  "path": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt"
+                }
+              ],
+              "rawInput": {
+                "auto_approved": true,
+                "call_id": "call_PVd7uFelBcr0swDb1WkLLa7n",
+                "changes": {
+                  "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt": {
+                    "content": "captured by acp-probe\n",
+                    "type": "add"
+                  }
+                },
+                "turn_id": "019cc306-aa98-7e03-bd3a-8bdd6226bb01"
+              },
+              "sessionUpdate": "tool_call",
+              "status": "in_progress",
+              "title": "Edit C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt",
+              "toolCallId": "call_PVd7uFelBcr0swDb1WkLLa7n"
+            }
+          }
+        },
+        {
+          "offset_ms": 15235,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": [
+                {
+                  "newText": "captured by acp-probe\n",
+                  "path": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt",
+                  "type": "diff"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt"
+                }
+              ],
+              "rawOutput": {
+                "call_id": "call_PVd7uFelBcr0swDb1WkLLa7n",
+                "changes": {
+                  "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt": {
+                    "content": "captured by acp-probe\n",
+                    "type": "add"
+                  }
+                },
+                "status": "completed",
+                "stderr": "",
+                "stdout": "Success. Updated the following files:\nA test_capture.txt\n",
+                "success": true,
+                "turn_id": "019cc306-aa98-7e03-bd3a-8bdd6226bb01"
+              },
+              "sessionUpdate": "tool_call_update",
+              "status": "completed",
+              "title": "Edit C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-capture-3039743964\\test_capture.txt",
+              "toolCallId": "call_PVd7uFelBcr0swDb1WkLLa7n"
+            }
+          }
+        },
+        {
+          "offset_ms": 15244,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 29101
+            }
+          }
+        },
+        {
+          "offset_ms": 16215,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 29101
+            }
+          }
+        },
+        {
+          "offset_ms": 17076,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "已",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17093,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "创建",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17113,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "文件",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17132,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": " `",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17152,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "test",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17171,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "_capture",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17190,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": ".txt",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17210,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": ":",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17230,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "1",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17249,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "`",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17270,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "，",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17270,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "内容",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17289,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "为",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17308,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": " `",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17328,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "capt",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17348,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "ured",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17369,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": " by",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17388,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": " ac",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17407,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "p",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17428,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "-pro",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17447,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "be",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17467,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "`",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17468,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "content": {
+                "text": "。",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          }
+        },
+        {
+          "offset_ms": 17607,
+          "raw": {
+            "sessionId": "019cc306-aa83-73c3-b4ac-c30d8e5c689e",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "size": 950000,
+              "used": 29166
+            }
+          }
+        }
+      ]
+    }
+  }
+}
