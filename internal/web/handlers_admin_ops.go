@@ -21,6 +21,7 @@ type adminOpsHandlers struct {
 	store       core.Store
 	replayer    WebhookDeliveryReplayer
 	restartFunc func() // called to trigger graceful server restart; nil = not supported
+	hub         *Hub   // WS hub for broadcasting system events
 }
 
 type adminIssueOperationRequest struct {
@@ -60,16 +61,18 @@ type auditRunMeta struct {
 	IssueID   string
 }
 
-func registerAdminOpsRoutes(r chi.Router, store core.Store, replayer WebhookDeliveryReplayer, restartFunc func()) {
+func registerAdminOpsRoutes(r chi.Router, store core.Store, replayer WebhookDeliveryReplayer, restartFunc func(), hub *Hub) {
 	h := &adminOpsHandlers{
 		store:       store,
 		replayer:    replayer,
 		restartFunc: restartFunc,
+		hub:         hub,
 	}
 	r.Post("/admin/ops/force-ready", h.handleForceReady)
 	r.Post("/admin/ops/force-unblock", h.handleForceUnblock)
 	r.Post("/admin/ops/replay-delivery", h.handleReplayDelivery)
 	r.Post("/admin/ops/restart", h.handleRestart)
+	r.Post("/admin/ops/system-event", h.handleSystemEvent)
 	r.Get("/admin/audit-log", h.handleListAuditLog)
 }
 
@@ -156,8 +159,52 @@ func (h *adminOpsHandlers) handleRestart(w http.ResponseWriter, r *http.Request)
 		"status":  "restarting",
 		"message": "server restart initiated",
 	})
-	// Trigger restart after response is flushed.
-	go h.restartFunc()
+	// Countdown + restart after response is flushed.
+	go func() {
+		for i := 3; i >= 1; i-- {
+			h.broadcastSystemEvent("restart_countdown", map[string]any{
+				"seconds": i,
+				"message": fmt.Sprintf("Server restarting in %d...", i),
+			})
+			time.Sleep(1 * time.Second)
+		}
+		h.broadcastSystemEvent("restart", map[string]any{
+			"message": "Server restarting now",
+		})
+		h.restartFunc()
+	}()
+}
+
+func (h *adminOpsHandlers) handleSystemEvent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Event string         `json:"event"`
+		Data  map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid json", "INVALID_JSON")
+		return
+	}
+	event := strings.TrimSpace(req.Event)
+	if event == "" {
+		writeAPIError(w, http.StatusBadRequest, "event is required", "EVENT_REQUIRED")
+		return
+	}
+	h.broadcastSystemEvent(event, req.Data)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (h *adminOpsHandlers) broadcastSystemEvent(event string, data map[string]any) {
+	if h.hub == nil {
+		return
+	}
+	h.hub.Broadcast(WSMessage{
+		Type: "system_event",
+		Data: map[string]any{
+			"event":     event,
+			"data":      data,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
 }
 
 func (h *adminOpsHandlers) handleReplayDelivery(w http.ResponseWriter, r *http.Request) {

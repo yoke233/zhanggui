@@ -98,6 +98,36 @@ export interface ProjectCreateEventEnvelope
   type: ProjectCreateEventType;
 }
 
+// System-wide events (preflight, restart countdown, etc.)
+export type SystemEventName =
+  | "preflight_start"
+  | "preflight_step"
+  | "preflight_pass"
+  | "preflight_fail"
+  | "restart_countdown"
+  | "restart";
+
+export interface SystemEventPayload {
+  event: SystemEventName;
+  timestamp: string;
+  data: {
+    message?: string;
+    step?: number;
+    total?: number;
+    name?: string;
+    status?: string;
+    duration?: string;
+    seconds?: number;
+    success?: boolean;
+    commit_sha?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface SystemEventEnvelope extends WsEnvelope<SystemEventPayload> {
+  type: "system_event";
+}
+
 export interface WsClientMessage {
   type:
     | "subscribe_run"

@@ -2,8 +2,6 @@ package acpclient
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,25 +16,19 @@ import (
 // given fixture file and default scenario.
 func fixtureAgentConfig(t *testing.T, scenario string) LaunchConfig {
 	t.Helper()
-	fixtureAgent, fixtureJSON, repoRoot := fixturePaths(t)
-	return LaunchConfig{
-		Command: "go",
-		Args:    []string{"run", fixtureAgent, fixtureJSON, scenario},
-		WorkDir: repoRoot,
-	}
-}
-
-func fixturePaths(t *testing.T) (fixtureAgent string, fixtureJSON string, repoRoot string) {
-	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
 	pkgDir := filepath.Dir(thisFile)
-	repoRoot = filepath.Clean(filepath.Join(pkgDir, "..", ".."))
-	fixtureAgent = filepath.Join(pkgDir, "testdata", "fixture_agent.go")
-	fixtureJSON = filepath.Join(pkgDir, "testdata", "codex_fixtures.json")
-	return fixtureAgent, fixtureJSON, repoRoot
+	repoRoot := filepath.Clean(filepath.Join(pkgDir, "..", ".."))
+	fixtureAgent := filepath.Join(pkgDir, "testdata", "fixture_agent.go")
+	fixtureJSON := filepath.Join(pkgDir, "testdata", "codex_fixtures.json")
+	return LaunchConfig{
+		Command: "go",
+		Args:    []string{"run", fixtureAgent, fixtureJSON, scenario},
+		WorkDir: repoRoot,
+	}
 }
 
 // eventCounter counts session updates by type.
@@ -390,37 +382,6 @@ func TestFixtureToolUseScenario(t *testing.T) {
 	// Fixture has tool_call and tool_call_update events.
 	if types["tool_call"] == 0 {
 		t.Error("expected tool_call events in tool_use scenario")
-	}
-}
-
-func TestFixtureFileUsesRawNotificationFormat(t *testing.T) {
-	_, fixtureJSON, _ := fixturePaths(t)
-	data, err := os.ReadFile(fixtureJSON)
-	if err != nil {
-		t.Fatalf("read fixture json: %v", err)
-	}
-
-	var fixture struct {
-		Scenarios map[string]struct {
-			Events []map[string]json.RawMessage `json:"events"`
-		} `json:"scenarios"`
-	}
-	if err := json.Unmarshal(data, &fixture); err != nil {
-		t.Fatalf("unmarshal fixture json: %v", err)
-	}
-
-	for scenarioName, scenario := range fixture.Scenarios {
-		if len(scenario.Events) == 0 {
-			continue
-		}
-		for index, event := range scenario.Events {
-			if raw, ok := event["raw"]; !ok || len(raw) == 0 {
-				t.Fatalf("scenario %q event %d missing raw notification payload", scenarioName, index)
-			}
-			if _, ok := event["update"]; ok {
-				t.Fatalf("scenario %q event %d still uses legacy update field", scenarioName, index)
-			}
-		}
 	}
 }
 

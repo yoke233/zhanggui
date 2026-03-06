@@ -22,7 +22,7 @@ import (
 
 type fixtureEvent struct {
 	OffsetMs int64           `json:"offset_ms"`
-	Raw      json.RawMessage `json:"raw"`
+	Update   json.RawMessage `json:"update"`
 }
 
 type fixtureScenario struct {
@@ -235,23 +235,32 @@ func (s *server) replayEvents(sessionID string, sc fixtureScenario) error {
 		}
 		lastOffset = evt.OffsetMs
 
-		var notification map[string]json.RawMessage
-		if err := json.Unmarshal(evt.Raw, &notification); err != nil {
+		// Parse the raw update to extract the sessionUpdate type.
+		var rawUpdate map[string]any
+		if err := json.Unmarshal(evt.Update, &rawUpdate); err != nil {
 			continue
 		}
-		updateRaw, ok := notification["update"]
-		if !ok || len(updateRaw) == 0 {
+
+		// Get rawUpdateJson to build the ACP notification format.
+		rawUpdateJSON, _ := rawUpdate["rawUpdateJson"].(string)
+		if rawUpdateJSON == "" {
 			continue
 		}
-		msg := map[string]any{
+
+		var updatePayload map[string]any
+		if err := json.Unmarshal([]byte(rawUpdateJSON), &updatePayload); err != nil {
+			continue
+		}
+
+		notification := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "session/update",
 			"params": map[string]any{
 				"sessionId": sessionID,
-				"update":    json.RawMessage(updateRaw),
+				"update":    updatePayload,
 			},
 		}
-		if err := s.write(msg); err != nil {
+		if err := s.write(notification); err != nil {
 			return err
 		}
 	}

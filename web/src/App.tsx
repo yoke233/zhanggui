@@ -3,6 +3,7 @@ import ChatView from "./views/ChatView";
 import A2AChatView from "./views/A2AChatView";
 import BoardView from "./views/BoardView";
 import ProjectAdminPanel from "./components/ProjectAdminPanel";
+import SystemEventBanner from "./components/SystemEventBanner";
 import { createApiClient, type ApiClient } from "./lib/apiClient";
 import { createA2AClient, type A2AClient } from "./lib/a2aClient";
 import { createWsClient, type WsClient } from "./lib/wsClient";
@@ -235,6 +236,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 md:px-6">
+      <SystemEventBanner wsClient={wsClient} />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
         <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">

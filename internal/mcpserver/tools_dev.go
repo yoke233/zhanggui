@@ -14,6 +14,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// gate is the shared preflight gate instance for dev tools.
+var gate = NewPreflightGate()
+
 func registerDevTools(server *mcp.Server, opts Options) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_build",
@@ -21,9 +24,19 @@ func registerDevTools(server *mcp.Server, opts Options) {
 	}, selfBuildHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "self_preflight",
+		Description: "Run full quality gate (vet, test, frontend build) before restart. Must pass for the current HEAD commit before self_restart is allowed.",
+	}, selfPreflightHandler(opts))
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_restart",
-		Description: "Restart the ai-flow server via admin endpoint (dev mode only)",
+		Description: "Restart the ai-flow server. REQUIRES a successful self_preflight for the current HEAD commit.",
 	}, selfRestartHandler(opts))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "self_preflight_status",
+		Description: "Check the current preflight gate status without running checks.",
+	}, selfPreflightStatusHandler(opts))
 }
 
 type SelfBuildInput struct {
@@ -79,14 +92,136 @@ func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, 
 	}
 }
 
+// --- self_preflight ---
+
+type SelfPreflightInput struct {
+	SkipFrontend bool `json:"skip_frontend,omitempty" jsonschema:"Skip frontend typecheck and build steps"`
+}
+
+type SelfPreflightOutput struct {
+	Success   bool         `json:"success"`
+	CommitSHA string       `json:"commit_sha"`
+	Duration  string       `json:"duration"`
+	Steps     []StepResult `json:"steps"`
+	Message   string       `json:"message"`
+}
+
+func selfPreflightHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfPreflightInput) (*mcp.CallToolResult, any, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfPreflightInput) (*mcp.CallToolResult, any, error) {
+		if opts.SourceRoot == "" {
+			return errorResult("source_root not configured")
+		}
+
+		// Broadcast preflight start.
+		postSystemEvent(opts.ServerAddr, "preflight_start", map[string]any{
+			"message": "Preflight quality gate started",
+		})
+
+		progress := func(step StepResult, idx, total int) {
+			status := "PASS"
+			if !step.Success {
+				status = "FAIL"
+			}
+			postSystemEvent(opts.ServerAddr, "preflight_step", map[string]any{
+				"step":     idx + 1,
+				"total":    total,
+				"name":     step.Name,
+				"status":   status,
+				"duration": step.Duration,
+				"message":  fmt.Sprintf("[%d/%d] %s: %s (%s)", idx+1, total, step.Name, status, step.Duration),
+			})
+		}
+
+		result, err := gate.Run(ctx, opts.SourceRoot, in.SkipFrontend, progress)
+		if err != nil {
+			return errorResult(fmt.Sprintf("preflight error: %v", err))
+		}
+
+		msg := "PASS — self_restart is now allowed"
+		event := "preflight_pass"
+		if !result.Success {
+			msg = "FAIL — self_restart is blocked until all checks pass"
+			event = "preflight_fail"
+		}
+
+		postSystemEvent(opts.ServerAddr, event, map[string]any{
+			"success":    result.Success,
+			"commit_sha": result.CommitSHA,
+			"duration":   result.Duration.String(),
+			"message":    msg,
+		})
+
+		return jsonResult(SelfPreflightOutput{
+			Success:   result.Success,
+			CommitSHA: result.CommitSHA,
+			Duration:  result.Duration.String(),
+			Steps:     result.Steps,
+			Message:   msg,
+		})
+	}
+}
+
+// --- self_preflight_status ---
+
+type SelfPreflightStatusInput struct{}
+
+func selfPreflightStatusHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfPreflightStatusInput) (*mcp.CallToolResult, any, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfPreflightStatusInput) (*mcp.CallToolResult, any, error) {
+		last := gate.LastResult()
+		if last == nil {
+			return jsonResult(map[string]any{
+				"status":  "no_preflight",
+				"message": "no preflight has been run yet",
+			})
+		}
+
+		// Check against current HEAD.
+		currentSHA := ""
+		if opts.SourceRoot != "" {
+			sha, err := gitHeadSHA(ctx, opts.SourceRoot)
+			if err == nil {
+				currentSHA = sha
+			}
+		}
+
+		canRestart, reason := gate.CanRestart(currentSHA)
+		return jsonResult(map[string]any{
+			"last_success":   last.Success,
+			"last_commit":    last.CommitSHA,
+			"last_timestamp": last.Timestamp.Format(time.RFC3339),
+			"current_commit": currentSHA,
+			"can_restart":    canRestart,
+			"reason":         reason,
+		})
+	}
+}
+
+// --- self_restart (gated) ---
+
 type SelfRestartInput struct {
-	GracefulTimeoutSec int `json:"graceful_timeout_sec,omitempty" jsonschema:"Graceful shutdown timeout in seconds"`
+	GracefulTimeoutSec int  `json:"graceful_timeout_sec,omitempty" jsonschema:"Graceful shutdown timeout in seconds"`
+	Force              bool `json:"force,omitempty" jsonschema:"Bypass preflight gate (emergency only)"`
 }
 
 func selfRestartHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfRestartInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfRestartInput) (*mcp.CallToolResult, any, error) {
 		if opts.ServerAddr == "" {
 			return errorResult("server_addr not configured")
+		}
+
+		// Preflight gate check.
+		if !in.Force {
+			currentSHA := ""
+			if opts.SourceRoot != "" {
+				sha, err := gitHeadSHA(ctx, opts.SourceRoot)
+				if err == nil {
+					currentSHA = sha
+				}
+			}
+			ok, reason := gate.CanRestart(currentSHA)
+			if !ok {
+				return errorResult(fmt.Sprintf("restart BLOCKED: %s", reason))
+			}
 		}
 
 		timeout := 10 * time.Second
@@ -117,7 +252,7 @@ func selfRestartHandler(opts Options) func(context.Context, *mcp.CallToolRequest
 
 		return jsonResult(map[string]any{
 			"status":  "restarting",
-			"message": "server restart initiated",
+			"message": "server restart initiated (preflight passed)",
 		})
 	}
 }

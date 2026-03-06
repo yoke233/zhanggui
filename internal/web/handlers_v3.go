@@ -77,7 +77,7 @@ func registerV1Routes(
 	registerChatRoutes(r, store, chatAssistant, eventPublisher)
 	r.Group(func(r chi.Router) {
 		r.Use(RequireScope(ScopeAdmin))
-		registerAdminOpsRoutes(r, store, webhookReplayer, restartFunc)
+		registerAdminOpsRoutes(r, store, webhookReplayer, restartFunc, hub)
 	})
 
 	issueHandlers := &v2IssueHandlers{store: store}

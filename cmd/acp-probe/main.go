@@ -69,8 +69,8 @@ func main() {
 			Command: "npx",
 			Args:    []string{"-y", "@zed-industries/codex-acp"},
 			WorkDir: workDir,
-			Env: map[string]string{
-				"CODEX_HOME": `D:\project\ai-workflow\.ai-workflow\codex-home`,
+			Env:     map[string]string{
+				// "CODEX_HOME": `D:\project\ai-workflow\.ai-workflow\codex-home`,
 			},
 		}
 	}

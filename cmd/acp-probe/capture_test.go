@@ -1,7 +1,9 @@
+//go:build probe
+
 // Capture tool: runs real codex ACP in multiple scenarios and dumps all events
 // to a JSON fixture file for offline mock testing.
 //
-// Run manually:  go test ./cmd/acp-probe/ -run TestCaptureACPEvents -v -timeout 300s
+// Run manually:  go test -tags probe ./cmd/acp-probe/ -run TestCaptureACPEvents -v -timeout 300s
 // The output goes to internal/acpclient/testdata/codex_fixtures.json
 package main
 
@@ -22,8 +24,8 @@ import (
 // --- fixture data model ---
 
 type FixtureEvent struct {
-	OffsetMs int64           `json:"offset_ms"`
-	Raw      json.RawMessage `json:"raw"`
+	OffsetMs int64                   `json:"offset_ms"`
+	Update   acpclient.SessionUpdate `json:"update"`
 }
 
 type FixturePromptResult struct {
@@ -57,18 +59,11 @@ func newCaptureRecorder() *captureRecorder {
 }
 
 func (r *captureRecorder) HandleSessionUpdate(_ context.Context, u acpclient.SessionUpdate) error {
-	raw, err := json.Marshal(map[string]any{
-		"sessionId": u.SessionID,
-		"update":    json.RawMessage(u.RawJSON),
-	})
-	if err != nil {
-		return err
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, FixtureEvent{
 		OffsetMs: time.Since(r.start).Milliseconds(),
-		Raw:      json.RawMessage(raw),
+		Update:   u,
 	})
 	return nil
 }
@@ -99,7 +94,7 @@ func TestCaptureACPEvents(t *testing.T) {
 	}
 	defer os.RemoveAll(workDir)
 
-	cfg := captureCodexLaunchConfig(workDir)
+	cfg := codexLaunchConfig(workDir)
 	fixtures := &FixtureFile{
 		CapturedAt: time.Now().UTC().Format(time.RFC3339),
 		Agent:      "codex-acp",
@@ -248,37 +243,4 @@ func captureNewSessionAndPrompt(
 		t.Fatalf("prompt: %v", err)
 	}
 	return client, sessionID
-}
-
-func captureCodexLaunchConfig(workDir string) acpclient.LaunchConfig {
-	return acpclient.LaunchConfig{
-		Command: "npx",
-		Args:    []string{"-y", "@zed-industries/codex-acp"},
-		WorkDir: workDir,
-	}
-}
-
-func initClient(t *testing.T, cfg acpclient.LaunchConfig, handler acpproto.Client, recorder acpclient.EventHandler) *acpclient.Client {
-	t.Helper()
-	client, err := acpclient.New(cfg, handler, acpclient.WithEventHandler(recorder))
-	if err != nil {
-		t.Fatalf("create client: %v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := client.Initialize(ctx, acpclient.ClientCapabilities{
-		FSRead:   true,
-		FSWrite:  true,
-		Terminal: true,
-	}); err != nil {
-		client.Close(context.Background())
-		t.Fatalf("initialize: %v", err)
-	}
-	return client
-}
-
-func closeClient(client *acpclient.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = client.Close(ctx)
 }
