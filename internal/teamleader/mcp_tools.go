@@ -20,7 +20,7 @@ type MCPEnvConfig struct {
 // If ServerAddr is set and agentSupportsSSE is true, it returns an SSE transport
 // pointing to the server's MCP endpoint. Otherwise it falls back to stdio subprocess.
 func MCPToolsFromRoleConfig(role acpclient.RoleProfile, mcpEnv MCPEnvConfig, agentSupportsSSE bool) []acpproto.McpServer {
-	if len(role.MCPTools) == 0 {
+	if !role.MCPEnabled {
 		return nil
 	}
 

@@ -98,7 +98,7 @@ func TestFactoryBuildsRoleResolver(t *testing.T) {
 	}
 }
 
-func TestFactoryBuildsRoleResolver_TeamLeaderMCPTools(t *testing.T) {
+func TestFactoryBuildsRoleResolver_TeamLeaderMCPEnabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
@@ -113,25 +113,8 @@ func TestFactoryBuildsRoleResolver_TeamLeaderMCPTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve team_leader failed: %v", err)
 	}
-	if len(role.MCPTools) == 0 {
-		t.Fatal("expected team_leader role to have MCPTools configured from Defaults()")
-	}
-	// Verify key tools are present.
-	wantTools := map[string]bool{
-		"query_projects":       false,
-		"query_project_detail": false,
-		"query_issues":         false,
-		"query_issue_detail":   false,
-	}
-	for _, tool := range role.MCPTools {
-		if _, ok := wantTools[tool]; ok {
-			wantTools[tool] = true
-		}
-	}
-	for tool, found := range wantTools {
-		if !found {
-			t.Errorf("expected MCPTools to contain %q, got %v", tool, role.MCPTools)
-		}
+	if !role.MCPEnabled {
+		t.Fatal("expected team_leader role to have MCPEnabled=true from Defaults()")
 	}
 
 	// Verify MCPToolsFromRoleConfig produces non-nil servers.

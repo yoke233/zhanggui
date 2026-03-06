@@ -198,8 +198,8 @@ func TestE2E_ACP_MCP_TeamLeaderFlow(t *testing.T) {
 
 	// 2. Generate MCP config exactly as startWebChatSession does
 	role := acpclient.RoleProfile{
-		ID:       "team-leader",
-		MCPTools: []string{"query_projects", "query_project_detail", "query_runs", "query_run_detail", "query_run_events", "query_project_stats", "query_issues", "query_issue_detail"},
+		ID:         "team-leader",
+		MCPEnabled: true,
 	}
 	mcpEnv := teamleader.MCPEnvConfig{
 		DBPath:     "/tmp/test.db",
@@ -353,7 +353,7 @@ func textContent(t *testing.T, res *mcp.CallToolResult) string {
 func testMCPToolsSSE(t *testing.T, serverURL string) acpproto.McpServer {
 	t.Helper()
 	role := acpclient.RoleProfile{
-		MCPTools: []string{"query_projects", "query_runs"},
+		MCPEnabled: true,
 	}
 	env := teamleader.MCPEnvConfig{
 		DBPath:     "/tmp/test.db",

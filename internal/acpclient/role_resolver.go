@@ -44,6 +44,7 @@ type RoleProfile struct {
 	SessionPolicy    SessionPolicy
 	Capabilities     ClientCapabilities
 	PermissionPolicy []PermissionRule
+	MCPEnabled       bool
 	MCPTools         []string
 }
 

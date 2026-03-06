@@ -457,6 +457,7 @@ func buildRoleResolver(cfg config.Config) (*acpclient.RoleResolver, error) {
 				Terminal: role.Capabilities.Terminal,
 			},
 			PermissionPolicy: toACPPermissionRules(role.PermissionPolicy),
+			MCPEnabled:       role.MCP.Enabled,
 			MCPTools:         append([]string(nil), role.MCP.Tools...),
 		})
 	}

@@ -38,12 +38,6 @@ prompt_template  = "team_leader"
   prefer_load_session = true
   [roles.mcp]
   enabled = true
-  tools   = [
-    "query_projects", "query_project_detail",
-    "query_issues", "query_issue_detail",
-    "query_runs", "query_run_detail",
-    "query_run_events", "query_project_stats",
-  ]
 
 [[roles]]
 name             = "worker"
