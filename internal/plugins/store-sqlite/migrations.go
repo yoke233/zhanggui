@@ -230,7 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_issue_edges_to ON issue_edges(to_id);
 
 // schemaVersion tracks which migrations have been applied.
 // Bump this when adding new migrations.
-const schemaVersion = 6
+const schemaVersion = 7
 
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
@@ -278,6 +278,11 @@ func applyMigrations(db *sql.DB) error {
 		}
 		if err := migrateEventsFromLegacy(db); err != nil {
 			return fmt.Errorf("migrate events from legacy: %w", err)
+		}
+	}
+	if currentVersion < 7 {
+		if err := migrateAddCheckpointAgentSessionID(db); err != nil {
+			return fmt.Errorf("migrate checkpoint agent_session_id: %w", err)
 		}
 	}
 	if err := migrateBackfillLegacyColumns(db); err != nil {
@@ -404,6 +409,7 @@ func migrateBackfillLegacyColumns(db *sql.DB) error {
 		{name: "issues.merge_retries", run: migrateAddMergeRetries},
 		{name: "issues.triage_instructions", run: migrateAddIssueTriageInstructions},
 		{name: "issues.submitted_by", run: migrateAddSubmittedBy},
+		{name: "checkpoints.agent_session_id", run: migrateAddCheckpointAgentSessionID},
 	}
 
 	for _, backfill := range backfills {
@@ -507,6 +513,20 @@ func migrateEventsFromLegacy(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("copy chat_run_events to events: %w", err)
 		}
+	}
+	return nil
+}
+
+func migrateAddCheckpointAgentSessionID(db *sql.DB) error {
+	has, err := hasColumn(db, "checkpoints", "agent_session_id")
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE checkpoints ADD COLUMN agent_session_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add checkpoints.agent_session_id column: %w", err)
 	}
 	return nil
 }

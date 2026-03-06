@@ -47,6 +47,8 @@ type Client struct {
 
 	promptMu   sync.Mutex
 	activeText map[string]*strings.Builder
+
+	agentCaps acpproto.AgentCapabilities
 }
 
 func New(cfg LaunchConfig, h acpproto.Client, opts ...Option) (*Client, error) {
@@ -141,8 +143,22 @@ func (c *Client) Initialize(ctx context.Context, caps ClientCapabilities) error 
 			Version: "0.1.0",
 		},
 	}
-	_, err := c.transport.Call(ctx, "initialize", params)
-	return err
+	raw, err := c.transport.Call(ctx, "initialize", params)
+	if err != nil {
+		return err
+	}
+	var resp acpproto.InitializeResponse
+	if raw != nil {
+		if jsonErr := json.Unmarshal(raw, &resp); jsonErr == nil {
+			c.agentCaps = resp.AgentCapabilities
+		}
+	}
+	return nil
+}
+
+// SupportsSSEMCP reports whether the agent advertised SSE MCP capability.
+func (c *Client) SupportsSSEMCP() bool {
+	return c.agentCaps.McpCapabilities.Sse
 }
 
 func (c *Client) NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
@@ -529,8 +545,20 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		}
 	case notification.Update.AgentThoughtChunk != nil:
 		updateType = "agent_thought_chunk"
+		if tb := notification.Update.AgentThoughtChunk.Content.Text; tb != nil {
+			text = tb.Text
+			if raw, err := json.Marshal(notification.Update.AgentThoughtChunk.Content); err == nil {
+				rawContent = strings.TrimSpace(string(raw))
+			}
+		}
 	case notification.Update.UserMessageChunk != nil:
 		updateType = "user_message_chunk"
+		if tb := notification.Update.UserMessageChunk.Content.Text; tb != nil {
+			text = tb.Text
+			if raw, err := json.Marshal(notification.Update.UserMessageChunk.Content); err == nil {
+				rawContent = strings.TrimSpace(string(raw))
+			}
+		}
 	case notification.Update.ToolCall != nil:
 		updateType = "tool_call"
 		status = string(notification.Update.ToolCall.Status)

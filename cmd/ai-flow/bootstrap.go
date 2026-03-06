@@ -20,10 +20,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
-var (
-	recoveryOnce          sync.Once
-	missingConfigHintOnce sync.Once
-)
+var recoveryOnce sync.Once
 
 func bootstrap() (*engine.Executor, core.Store, error) {
 	exec, bootstrapSet, _, err := bootstrapWithEventBus()
@@ -57,8 +54,8 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	mcpEnv := teamleader.MCPEnvConfig{
 		DBPath: expandStorePath(cfg.Store.Path),
 	}
-	exec.SetMCPServerResolver(func(role acpclient.RoleProfile) []acpproto.McpServer {
-		return teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
+	exec.SetMCPServerResolver(func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer {
+		return teamleader.MCPToolsFromRoleConfig(role, mcpEnv, sseSupported)
 	})
 
 	recoveryOnce.Do(func() {
@@ -81,21 +78,55 @@ func loadBootstrapConfig() (*config.Config, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	cfgPath := filepath.Join(dataDir, "config.yaml")
-	if _, statErr := os.Stat(cfgPath); statErr == nil {
-		return config.LoadGlobal(cfgPath)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return nil, statErr
-	}
-	missingConfigHintOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "config not found at %s, using built-in defaults (run `ai-flow config init` to create it)\n", cfgPath)
-	})
+	cfgPath := filepath.Join(dataDir, "config.toml")
+	secretsPath := secretsFilePath(dataDir)
 
-	cfg := config.Defaults()
-	if err := config.ApplyEnvOverrides(&cfg); err != nil {
+	// Ensure secrets exist (auto-generate tokens if needed).
+	secrets, err := config.LoadSecrets(secretsPath)
+	if err != nil {
 		return nil, err
 	}
-	return &cfg, nil
+	if config.EnsureSecrets(secrets) {
+		if saveErr := config.SaveSecrets(secretsPath, secrets); saveErr != nil {
+			return nil, fmt.Errorf("save bootstrap secrets: %w", saveErr)
+		}
+	}
+
+	// Auto-generate config if missing (equivalent to `config init`).
+	if _, statErr := os.Stat(cfgPath); errors.Is(statErr, os.ErrNotExist) {
+		content, genErr := loadDefaultConfigTemplate()
+		if genErr != nil {
+			return nil, fmt.Errorf("generate default config: %w", genErr)
+		}
+		if writeErr := os.WriteFile(cfgPath, content, 0o644); writeErr != nil {
+			return nil, fmt.Errorf("write default config: %w", writeErr)
+		}
+		fmt.Fprintf(os.Stderr, "config auto-initialized: %s\n", cfgPath)
+	} else if statErr != nil {
+		return nil, statErr
+	}
+
+	cfg, err := config.LoadGlobal(cfgPath, secretsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-generate missing required secrets and persist.
+	if config.EnsureSecrets(secrets) {
+		config.ApplySecrets(cfg, secrets)
+		if saveErr := config.SaveSecrets(secretsPath, secrets); saveErr != nil {
+			slog.Warn("failed to save secrets", "error", saveErr)
+		} else {
+			slog.Info("generated secrets saved", "path", secretsPath, "admin_token", secrets.AdminToken())
+		}
+	}
+
+	// Re-validate after secrets are applied.
+	if err := config.Validate(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
 }
 
 func mergeBootstrapProjectConfig(base *config.Config, repoPath string) (*config.Config, error) {

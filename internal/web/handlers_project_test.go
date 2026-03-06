@@ -30,22 +30,21 @@ func TestProjectsRequiresAuthWhenEnabled(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:       store,
-		AuthEnabled: true,
-		BearerToken: "secret-token",
+		Token: "secret-token",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects")
+	resp, err := http.Get(ts.URL + "/api/v1/projects")
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects without token: %v", err)
+		t.Fatalf("GET /api/v1/projects without token: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 without token, got %d", resp.StatusCode)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v3/projects", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/projects", nil)
 	if err != nil {
 		t.Fatalf("create auth request: %v", err)
 	}
@@ -53,7 +52,7 @@ func TestProjectsRequiresAuthWhenEnabled(t *testing.T) {
 
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects with token: %v", err)
+		t.Fatalf("GET /api/v1/projects with token: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -80,9 +79,9 @@ func TestCreateProjectThenGetProject(t *testing.T) {
 		t.Fatalf("marshal body: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/api/v3/projects", "application/json", bytes.NewReader(rawBody))
+	resp, err := http.Post(ts.URL+"/api/v1/projects", "application/json", bytes.NewReader(rawBody))
 	if err != nil {
-		t.Fatalf("POST /api/v3/projects: %v", err)
+		t.Fatalf("POST /api/v1/projects: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -100,9 +99,9 @@ func TestCreateProjectThenGetProject(t *testing.T) {
 		t.Fatalf("expected name demo-project, got %s", created.Name)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v3/projects/" + created.ID)
+	getResp, err := http.Get(ts.URL + "/api/v1/projects/" + created.ID)
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects/{id}: %v", err)
+		t.Fatalf("GET /api/v1/projects/{id}: %v", err)
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
@@ -179,7 +178,7 @@ func TestCreateProjectRequestValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal body: %v", err)
 			}
-			resp, err := http.Post(ts.URL+"/api/v3/projects/create-requests", "application/json", bytes.NewReader(raw))
+			resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
 			if err != nil {
 				t.Fatalf("POST create request: %v", err)
 			}
@@ -220,7 +219,7 @@ func TestCreateProjectRequestLifecycleSucceeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	resp, err := http.Post(ts.URL+"/api/v3/projects/create-requests", "application/json", bytes.NewReader(raw))
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("POST create request: %v", err)
 	}
@@ -259,7 +258,7 @@ func TestCreateProjectRequestLifecycleSucceeded(t *testing.T) {
 		t.Fatalf("expected repo_path %s, got %s", repoPath, finalState.RepoPath)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v3/projects/" + finalState.ProjectID)
+	getResp, err := http.Get(ts.URL + "/api/v1/projects/" + finalState.ProjectID)
 	if err != nil {
 		t.Fatalf("GET project: %v", err)
 	}
@@ -316,7 +315,7 @@ func TestCreateProjectRequestGitHubCloneUsesRemoteURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	resp, err := http.Post(ts.URL+"/api/v3/projects/create-requests", "application/json", bytes.NewReader(raw))
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("POST create request: %v", err)
 	}
@@ -384,7 +383,7 @@ func TestCreateProjectRequestLifecycleFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	resp, err := http.Post(ts.URL+"/api/v3/projects/create-requests", "application/json", bytes.NewReader(raw))
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("POST create request: %v", err)
 	}
@@ -423,7 +422,7 @@ func TestGetProjectCreateRequestNotFound(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/create-requests/not-exists")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/create-requests/not-exists")
 	if err != nil {
 		t.Fatalf("GET create request by id: %v", err)
 	}
@@ -454,7 +453,7 @@ func TestCreateProjectRequestBroadcastsProgressEvents(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v3/ws"
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
@@ -474,7 +473,7 @@ func TestCreateProjectRequestBroadcastsProgressEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	resp, err := http.Post(ts.URL+"/api/v3/projects/create-requests", "application/json", bytes.NewReader(raw))
+	resp, err := http.Post(ts.URL+"/api/v1/projects/create-requests", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("POST create request: %v", err)
 	}
@@ -552,7 +551,7 @@ func waitForCreateRequestTerminalState(
 	seenStatuses := map[string]struct{}{}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(baseURL + "/api/v3/projects/create-requests/" + requestID)
+		resp, err := http.Get(baseURL + "/api/v1/projects/create-requests/" + requestID)
 		if err != nil {
 			t.Fatalf("GET create request state: %v", err)
 		}

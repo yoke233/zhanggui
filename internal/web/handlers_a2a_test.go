@@ -72,7 +72,7 @@ func TestA2ADisabled_RoutesReturn404WithoutSPAFallback(t *testing.T) {
 func TestA2AEnabled_RequiresToken(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -100,7 +100,7 @@ func TestA2AEnabled_RequiresToken(t *testing.T) {
 func TestA2AEnabled_MethodNotFoundReturns32601(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -164,7 +164,7 @@ func TestA2AMessageSend_ReturnsTaskSnapshot(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -217,7 +217,7 @@ func TestA2ATasksGet_ReturnsConsistentState(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -260,7 +260,7 @@ func TestA2ATasksCancel_SuccessStatusTransition(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -305,7 +305,7 @@ func TestA2AMessageSend_FollowUpPassesTaskID(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -365,7 +365,7 @@ func TestA2ATasksList_ReturnsTaskList(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -408,7 +408,7 @@ func TestA2ATasksList_EmptyParamsSucceeds(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -430,7 +430,7 @@ func TestA2ATasksList_NilParamsSucceeds(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -452,7 +452,7 @@ func TestA2ATasksList_BridgeErrorReturnsRPCError(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -486,7 +486,7 @@ func TestA2ATasksList_Pagination(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -521,7 +521,7 @@ func TestA2ATasksGet_ReturnsArtifactsInResponse(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -596,7 +596,7 @@ func TestA2ATasksGet_NoArtifactsWhenEmpty(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -626,7 +626,7 @@ func TestA2ATasksGet_NoArtifactsWhenEmpty(t *testing.T) {
 func TestA2AInvalidParams_Returns32602(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  &fakeA2ABridge{},
 	})
@@ -669,7 +669,7 @@ func TestA2AInvalidParams_Returns32602(t *testing.T) {
 func TestA2ATasksGet_ProjectScopeReturnsBusinessError(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge: &fakeA2ABridge{
 			getFn: func(input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error) {
@@ -699,7 +699,7 @@ func TestA2ATasksGet_ProjectScopeReturnsBusinessError(t *testing.T) {
 func TestA2AEnabled_InvalidRequestReturns32600(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -763,7 +763,7 @@ func TestA2AEnabled_InvalidRequestReturns32600(t *testing.T) {
 func TestA2AEnabled_MalformedJSONReturns32600WithNullID(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -804,7 +804,7 @@ func TestA2AEnabled_MalformedJSONReturns32600WithNullID(t *testing.T) {
 func TestA2AEnabled_AgentCardReturnsJSON(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -842,7 +842,7 @@ func TestA2AEnabled_AgentCardReturnsJSON(t *testing.T) {
 func TestA2AEnabled_AgentCardUsesForwardedHostAndProto(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	rec := httptest.NewRecorder()

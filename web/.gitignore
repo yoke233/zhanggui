@@ -8,6 +8,7 @@ coverage/
 .cache/
 .parcel-cache/
 .next/
+.env
 
 # Local env files
 .env.local

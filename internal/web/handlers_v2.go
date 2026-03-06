@@ -365,6 +365,30 @@ func (h *v2RunHandlers) runStageSummary(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (h *v2RunHandlers) listCheckpoints(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+	runID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "run id is required", "RUN_ID_REQUIRED")
+		return
+	}
+	checkpoints, err := h.store.GetCheckpoints(runID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to get checkpoints", "GET_CHECKPOINTS_FAILED")
+		return
+	}
+	if checkpoints == nil {
+		checkpoints = []core.Checkpoint{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": checkpoints,
+		"total": len(checkpoints),
+	})
+}
+
 func toWorkflowRunResponse(p core.Run) workflowRunResponse {
 	profile := core.WorkflowProfileNormal
 	if raw, ok := p.Config["workflow_profile"]; ok {

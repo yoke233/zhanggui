@@ -85,6 +85,67 @@ func TestClientCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDecodeACPNotificationExtractsChunkText(t *testing.T) {
+	cases := []struct {
+		name     string
+		wantType string
+		wantText string
+		update   acpproto.SessionUpdate
+	}{
+		{
+			name:     "agent_message_chunk",
+			wantType: "agent_message_chunk",
+			wantText: "hello",
+			update: acpproto.SessionUpdate{
+				AgentMessageChunk: &acpproto.SessionUpdateAgentMessageChunk{
+					Content: acpproto.ContentBlock{Text: &acpproto.ContentBlockText{Text: "hello"}},
+				},
+			},
+		},
+		{
+			name:     "agent_thought_chunk",
+			wantType: "agent_thought_chunk",
+			wantText: "think",
+			update: acpproto.SessionUpdate{
+				AgentThoughtChunk: &acpproto.SessionUpdateAgentThoughtChunk{
+					Content: acpproto.ContentBlock{Text: &acpproto.ContentBlockText{Text: "think"}},
+				},
+			},
+		},
+		{
+			name:     "user_message_chunk",
+			wantType: "user_message_chunk",
+			wantText: "user says",
+			update: acpproto.SessionUpdate{
+				UserMessageChunk: &acpproto.SessionUpdateUserMessageChunk{
+					Content: acpproto.ContentBlock{Text: &acpproto.ContentBlockText{Text: "user says"}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			update, ok := decodeACPNotificationFromStruct(acpproto.SessionNotification{
+				SessionId: "session-1",
+				Update:    tc.update,
+			})
+			if !ok {
+				t.Fatal("expected decode to succeed")
+			}
+			if update.Type != tc.wantType {
+				t.Fatalf("update.Type = %q, want %q", update.Type, tc.wantType)
+			}
+			if update.Text != tc.wantText {
+				t.Fatalf("update.Text = %q, want %q", update.Text, tc.wantText)
+			}
+			if update.RawContentJSON == "" {
+				t.Fatal("expected RawContentJSON to be populated")
+			}
+		})
+	}
+}
+
 func TestClientNewWithIOCloseHook(t *testing.T) {
 	serverRead, clientWrite := io.Pipe()
 	clientRead, serverWrite := io.Pipe()

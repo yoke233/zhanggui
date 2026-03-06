@@ -151,8 +151,8 @@ func TestA2ADefaults_EnabledByDefault(t *testing.T) {
 	if !cfg.A2A.Enabled {
 		t.Fatal("expected a2a.enabled default true, got false")
 	}
-	if cfg.A2A.Token != "default" {
-		t.Fatalf("expected a2a.token default \"default\", got %q", cfg.A2A.Token)
+	if cfg.A2A.Token != "" {
+		t.Fatalf("expected a2a.token default empty, got %q", cfg.A2A.Token)
 	}
 	if cfg.A2A.Version != "0.3" {
 		t.Fatalf("expected a2a.version default 0.3, got %q", cfg.A2A.Version)
@@ -161,8 +161,8 @@ func TestA2ADefaults_EnabledByDefault(t *testing.T) {
 
 func TestA2AToken_CanBeReadFromConfig(t *testing.T) {
 	cfg, err := loadAndValidate(t, `
-a2a:
-  token: "a2a-token"
+[a2a]
+token = "a2a-token"
 `)
 	if err != nil {
 		t.Fatalf("loadAndValidate failed: %v", err)
@@ -172,62 +172,95 @@ a2a:
 	}
 }
 
-func TestA2AEnabledWithoutToken_FailFast(t *testing.T) {
-	_, err := loadAndValidate(t, `
-a2a:
-  enabled: true
-  token: ""
+func TestA2AEnabledWithoutToken_PassesValidation(t *testing.T) {
+	cfg, err := loadAndValidate(t, `
+[a2a]
+enabled = true
+token = ""
 `)
-	if err == nil {
-		t.Fatal("expected enabled a2a with empty token to fail")
+	if err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+	if !cfg.A2A.Enabled {
+		t.Fatal("expected a2a.enabled=true")
 	}
 }
 
-func TestA2AEnabledWithoutToken_NoServerAuthFallback(t *testing.T) {
-	_, err := loadAndValidate(t, `
-server:
-  auth_token: "legacy-token"
-a2a:
-  enabled: true
-  token: ""
-`)
-	if err == nil {
-		t.Fatal("expected enabled a2a with empty token to fail even when server.auth_token is set")
+func TestEnsureSecrets_AutoGeneratesAdminToken(t *testing.T) {
+	s := &Secrets{Tokens: map[string]TokenEntry{}}
+	changed := EnsureSecrets(s)
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	token := s.AdminToken()
+	if token == "" || len(token) != 32 {
+		t.Fatalf("expected 32-char hex admin token, got %q", token)
+	}
+	entry := s.Tokens["admin"]
+	if len(entry.Scopes) != 1 || entry.Scopes[0] != "*" {
+		t.Fatalf("expected admin scopes=[*], got %v", entry.Scopes)
+	}
+}
+
+func TestEnsureSecrets_DoesNotOverwriteExisting(t *testing.T) {
+	s := &Secrets{Tokens: map[string]TokenEntry{
+		"admin": {Token: "existing-token", Scopes: []string{"*"}},
+	}}
+	changed := EnsureSecrets(s)
+	if changed {
+		t.Fatal("expected changed=false when admin token already set")
+	}
+	if s.AdminToken() != "existing-token" {
+		t.Fatalf("expected token unchanged, got %q", s.AdminToken())
+	}
+}
+
+func TestApplySecrets_GitHubSecretsToConfig(t *testing.T) {
+	cfg := Defaults()
+	s := &Secrets{
+		Tokens: map[string]TokenEntry{
+			"admin": {Token: "my-token", Scopes: []string{"*"}},
+		},
+		GitHub: GitHubSecrets{Token: "gh-token"},
+	}
+	ApplySecrets(&cfg, s)
+	if cfg.GitHub.Token != "gh-token" {
+		t.Fatalf("expected github.token = gh-token, got %q", cfg.GitHub.Token)
 	}
 }
 
 func TestRoleDrivenConfigLoadTeamLeaderBinding(t *testing.T) {
 	cfg := loadTestConfig(t, `
-agents:
-  - name: claude
-    launch_command: claude-agent-acp
-    launch_args: []
-    env: {}
-    capabilities_max:
-      fs_read: true
-      fs_write: true
-      terminal: true
-roles:
-  - name: worker
-    agent: claude
-    prompt_template: implement
-    capabilities:
-      fs_read: true
-      fs_write: true
-      terminal: true
-    session:
-      reuse: true
-role_bindings:
-  team_leader:
-    role: worker
-  Run:
-    stage_roles:
-      implement: worker
-  review_orchestrator:
-    reviewers: {}
-    aggregator: worker
-  plan_parser:
-    role: worker
+[[agents.profiles]]
+name = "claude"
+launch_command = "claude-agent-acp"
+launch_args = []
+[agents.profiles.env]
+[agents.profiles.capabilities_max]
+fs_read = true
+fs_write = true
+terminal = true
+
+[[roles]]
+name = "worker"
+agent = "claude"
+prompt_template = "implement"
+[roles.capabilities]
+fs_read = true
+fs_write = true
+terminal = true
+[roles.session]
+reuse = true
+
+[role_bindings.team_leader]
+role = "worker"
+[role_bindings.run.stage_roles]
+implement = "worker"
+[role_bindings.review_orchestrator]
+aggregator = "worker"
+[role_bindings.review_orchestrator.reviewers]
+[role_bindings.plan_parser]
+role = "worker"
 `)
 
 	agents := cfg.EffectiveAgentProfiles()
@@ -247,11 +280,11 @@ role_bindings:
 
 func TestRoleDrivenConfigUnknownFieldFailFast(t *testing.T) {
 	const raw = `
-agents:
-  - name: claude
-    launch_command: claude-agent-acp
-    capabilities_maxx:
-      fs_read: true
+[[agents.profiles]]
+name = "claude"
+launch_command = "claude-agent-acp"
+[agents.profiles.capabilities_maxx]
+fs_read = true
 `
 	layer, err := loadLayerFromBytes([]byte(raw))
 	if err == nil || layer != nil {
@@ -261,20 +294,21 @@ agents:
 
 func TestRoleDrivenConfigCapabilityOverflowFailFast(t *testing.T) {
 	_, err := loadAndValidate(t, `
-agents:
-  - name: claude
-    launch_command: claude-agent-acp
-    capabilities_max:
-      fs_read: true
-      fs_write: false
-      terminal: false
-roles:
-  - name: worker
-    agent: claude
-    capabilities:
-      fs_read: true
-      fs_write: true
-      terminal: false
+[[agents.profiles]]
+name = "claude"
+launch_command = "claude-agent-acp"
+[agents.profiles.capabilities_max]
+fs_read = true
+fs_write = false
+terminal = false
+
+[[roles]]
+name = "worker"
+agent = "claude"
+[roles.capabilities]
+fs_read = true
+fs_write = true
+terminal = false
 `)
 	if err == nil {
 		t.Fatal("expected capability overflow error, got nil")
@@ -284,10 +318,8 @@ roles:
 func TestApplyConfigLayer_RoleBindingsPartialOverrideKeepsOtherBindings(t *testing.T) {
 	cfg := Defaults()
 	layer, err := loadLayerFromBytes([]byte(`
-role_bindings:
-  Run:
-    stage_roles:
-      implement: reviewer
+[role_bindings.run.stage_roles]
+implement = "reviewer"
 `))
 	if err != nil {
 		t.Fatalf("load layer failed: %v", err)
@@ -309,11 +341,10 @@ role_bindings:
 	}
 }
 
-func TestRoleDrivenConfigLegacySecretaryBindingFailFast(t *testing.T) {
+func TestRoleDrivenConfigLegacyUnknownFieldFailFast(t *testing.T) {
 	const raw = `
-role_bindings:
-  TeamLeader:
-    role: worker
+[role_bindings.TeamLeader]
+role = "worker"
 `
 	layer, err := loadLayerFromBytes([]byte(raw))
 	if err == nil || layer != nil {
@@ -333,6 +364,11 @@ func loadTestConfig(t *testing.T, raw string) Config {
 func loadAndValidate(t *testing.T, raw string) (Config, error) {
 	t.Helper()
 	cfg := Defaults()
+	// Provide a default token so tests don't fail on the a2a.token check
+	// unless they explicitly test that scenario.
+	if cfg.A2A.Token == "" {
+		cfg.A2A.Token = "test-default-token"
+	}
 	layer, err := loadLayerFromBytes([]byte(raw))
 	if err != nil {
 		return Config{}, err

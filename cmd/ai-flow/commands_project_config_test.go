@@ -10,21 +10,23 @@ import (
 
 func TestMergeBootstrapProjectConfig_UsesProjectOverrides(t *testing.T) {
 	repoPath := t.TempDir()
-	projectConfigPath := filepath.Join(repoPath, ".ai-workflow", "config.yaml")
+	projectConfigPath := filepath.Join(repoPath, ".ai-workflow", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(projectConfigPath), 0o755); err != nil {
 		t.Fatalf("mkdir project config dir: %v", err)
 	}
 	if err := os.WriteFile(projectConfigPath, []byte(`
-Run:
-  default_template: quick
-  max_total_retries: 9
-server:
-  port: 19191
+[run]
+default_template = "quick"
+max_total_retries = 9
+
+[server]
+port = 19191
 `), 0o644); err != nil {
 		t.Fatalf("write project config: %v", err)
 	}
 
 	base := config.Defaults()
+	base.A2A.Token = "test-token"
 	base.Run.DefaultTemplate = "standard"
 	base.Run.MaxTotalRetries = 5
 	base.Server.Port = 8080
@@ -48,18 +50,19 @@ func TestMergeBootstrapProjectConfig_EnvOverridesProject(t *testing.T) {
 	t.Setenv("AI_WORKFLOW_SERVER_PORT", "28080")
 
 	repoPath := t.TempDir()
-	projectConfigPath := filepath.Join(repoPath, ".ai-workflow", "config.yaml")
+	projectConfigPath := filepath.Join(repoPath, ".ai-workflow", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(projectConfigPath), 0o755); err != nil {
 		t.Fatalf("mkdir project config dir: %v", err)
 	}
 	if err := os.WriteFile(projectConfigPath, []byte(`
-server:
-  port: 19090
+[server]
+port = 19090
 `), 0o644); err != nil {
 		t.Fatalf("write project config: %v", err)
 	}
 
 	base := config.Defaults()
+	base.A2A.Token = "test-token"
 	base.Server.Port = 8080
 
 	merged, err := mergeBootstrapProjectConfig(&base, repoPath)
@@ -73,6 +76,7 @@ server:
 
 func TestMergeBootstrapProjectConfig_WithoutProjectPathUsesBase(t *testing.T) {
 	base := config.Defaults()
+	base.A2A.Token = "test-token"
 	base.Server.Port = 38080
 
 	merged, err := mergeBootstrapProjectConfig(&base, "")

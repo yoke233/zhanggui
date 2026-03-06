@@ -67,16 +67,23 @@ const (
 	CheckpointInvalidated CheckpointStatus = "invalidated"
 )
 
+// StageSessionStatus describes the liveness and session ID for a stage's ACP session.
+type StageSessionStatus struct {
+	Alive     bool   `json:"alive"`
+	SessionID string `json:"session_id"`
+}
+
 // Checkpoint records the execution state of a completed (or in-flight) stage.
 type Checkpoint struct {
-	RunID      string            `json:"run_id"`
-	StageName  StageID           `json:"stage_name"`
-	Status     CheckpointStatus  `json:"status"`
-	Artifacts  map[string]string `json:"artifacts"`
-	StartedAt  time.Time         `json:"started_at"`
-	FinishedAt time.Time         `json:"finished_at"`
-	AgentUsed  string            `json:"agent_used"`
-	TokensUsed int               `json:"tokens_used"`
-	RetryCount int               `json:"retry_count"`
-	Error      string            `json:"error,omitempty"`
+	RunID          string            `json:"run_id"`
+	StageName      StageID           `json:"stage_name"`
+	Status         CheckpointStatus  `json:"status"`
+	Artifacts      map[string]string `json:"artifacts"`
+	StartedAt      time.Time         `json:"started_at"`
+	FinishedAt     time.Time         `json:"finished_at"`
+	AgentUsed      string            `json:"agent_used"`
+	AgentSessionID string            `json:"agent_session_id,omitempty"`
+	TokensUsed     int               `json:"tokens_used"`
+	RetryCount     int               `json:"retry_count"`
+	Error          string            `json:"error,omitempty"`
 }

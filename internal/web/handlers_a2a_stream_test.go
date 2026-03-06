@@ -28,7 +28,7 @@ func TestA2AStream_ReturnsIncrementalEvents(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})
@@ -92,7 +92,7 @@ func TestA2AStream_ReturnsIncrementalEvents(t *testing.T) {
 func TestA2AUnauthorized_StreamReturns401(t *testing.T) {
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -143,7 +143,7 @@ func TestA2AStream_RequestContextCanceledDoesNotHang(t *testing.T) {
 	}
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "a2a-token",
+		Token:      "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 	})

@@ -18,7 +18,7 @@ func TestMCPToolsFromRoleConfig(t *testing.T) {
 	}
 	env := MCPEnvConfig{DBPath: "/tmp/test.db"}
 
-	got := MCPToolsFromRoleConfig(role, env)
+	got := MCPToolsFromRoleConfig(role, env, false)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 mcp server, got %d", len(got))
 	}
@@ -49,7 +49,7 @@ func TestMCPToolsFromRoleConfig(t *testing.T) {
 
 func TestMCPToolsFromRoleConfig_EmptyTools(t *testing.T) {
 	role := acpclient.RoleProfile{MCPTools: nil}
-	got := MCPToolsFromRoleConfig(role, MCPEnvConfig{DBPath: "/tmp/test.db"})
+	got := MCPToolsFromRoleConfig(role, MCPEnvConfig{DBPath: "/tmp/test.db"}, false)
 	if got != nil {
 		t.Fatalf("expected nil, got %v", got)
 	}
@@ -57,7 +57,7 @@ func TestMCPToolsFromRoleConfig_EmptyTools(t *testing.T) {
 
 func TestMCPToolsFromRoleConfig_EmptyDBPath(t *testing.T) {
 	role := acpclient.RoleProfile{MCPTools: []string{"query_issues"}}
-	got := MCPToolsFromRoleConfig(role, MCPEnvConfig{})
+	got := MCPToolsFromRoleConfig(role, MCPEnvConfig{}, false)
 	if got != nil {
 		t.Fatalf("expected nil for empty DBPath, got %v", got)
 	}
@@ -70,7 +70,8 @@ func TestMCPToolsFromRoleConfig_SSEMode(t *testing.T) {
 		ServerAddr: "http://localhost:8080",
 	}
 
-	got := MCPToolsFromRoleConfig(role, env)
+	// SSE supported: should return SSE config.
+	got := MCPToolsFromRoleConfig(role, env, true)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(got))
 	}
@@ -81,11 +82,40 @@ func TestMCPToolsFromRoleConfig_SSEMode(t *testing.T) {
 	if srv.Sse.Name != "ai-workflow-query" {
 		t.Errorf("name = %q, want %q", srv.Sse.Name, "ai-workflow-query")
 	}
-	if srv.Sse.Url != "http://localhost:8080/mcp" {
-		t.Errorf("url = %q, want %q", srv.Sse.Url, "http://localhost:8080/mcp")
+	if srv.Sse.Url != "http://localhost:8080/api/v1/mcp" {
+		t.Errorf("url = %q, want %q", srv.Sse.Url, "http://localhost:8080/api/v1/mcp")
 	}
 	if srv.Stdio != nil {
 		t.Error("expected no stdio config in SSE mode")
+	}
+}
+
+func TestMCPToolsFromRoleConfig_SSEModeUnsupported(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	role := acpclient.RoleProfile{MCPTools: []string{"query_issues"}}
+	env := MCPEnvConfig{
+		DBPath:     "/tmp/test.db",
+		ServerAddr: "http://localhost:8080",
+	}
+
+	// SSE NOT supported: should fallback to stdio even with ServerAddr set.
+	got := MCPToolsFromRoleConfig(role, env, false)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(got))
+	}
+	srv := got[0]
+	if srv.Stdio == nil {
+		t.Fatal("expected stdio fallback when agent does not support SSE")
+	}
+	if srv.Stdio.Command != self {
+		t.Errorf("command = %q, want %q", srv.Stdio.Command, self)
+	}
+	if srv.Sse != nil {
+		t.Error("expected no SSE config when agent does not support SSE")
 	}
 }
 
@@ -97,7 +127,7 @@ func TestMCPToolsFromRoleConfig_DevMode(t *testing.T) {
 		SourceRoot: "/src",
 	}
 
-	got := MCPToolsFromRoleConfig(role, env)
+	got := MCPToolsFromRoleConfig(role, env, false)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(got))
 	}

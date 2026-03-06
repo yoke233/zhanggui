@@ -1,195 +1,27 @@
 package config
 
-import "time"
+import (
+	_ "embed"
+	"fmt"
 
+	toml "github.com/pelletier/go-toml/v2"
+)
+
+//go:embed defaults.toml
+var defaultsTOML []byte
+
+// DefaultsTOML returns the raw embedded default config TOML bytes.
+func DefaultsTOML() []byte {
+	return append([]byte(nil), defaultsTOML...)
+}
+
+// Defaults parses the embedded defaults.toml into a Config.
 func Defaults() Config {
-	return Config{
-		Agents: AgentsConfig{
-			Claude: &AgentConfig{
-				Plugin:   ptrValue("claude"),
-				Binary:   ptrValue("claude"),
-				MaxTurns: ptrValue(30),
-				CapabilitiesMax: &CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-			Codex: &AgentConfig{
-				Plugin:    ptrValue("codex"),
-				Binary:    ptrValue("codex"),
-				Model:     ptrValue("gpt-5.3-codex"),
-				Reasoning: ptrValue("high"),
-				Sandbox:   ptrValue("workspace-write"),
-				Approval:  ptrValue("never"),
-				CapabilitiesMax: &CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-			},
-			OpenSpec: &AgentConfig{
-				Binary: ptrValue("openspec"),
-			},
-			Profiles: []AgentProfileConfig{
-				{
-					Name:          "claude",
-					LaunchCommand: "npx",
-					LaunchArgs:    []string{"-y", "@zed-industries/claude-agent-acp"},
-					Env:           map[string]string{},
-					CapabilitiesMax: CapabilitiesConfig{
-						FSRead:   true,
-						FSWrite:  true,
-						Terminal: true,
-					},
-				},
-				{
-					Name:          "codex",
-					LaunchCommand: "npx",
-					LaunchArgs:    []string{"-y", "@zed-industries/codex-acp"},
-					Env:           map[string]string{},
-					CapabilitiesMax: CapabilitiesConfig{
-						FSRead:   true,
-						FSWrite:  true,
-						Terminal: true,
-					},
-				},
-			},
-		},
-		Roles: []RoleConfig{
-			{
-				Name:           "team_leader",
-				Agent:          "claude",
-				PromptTemplate: "team_leader",
-				Capabilities: CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-				Session: SessionConfig{
-					Reuse:             true,
-					PreferLoadSession: true,
-				},
-			},
-			{
-				Name:           "worker",
-				Agent:          "codex",
-				PromptTemplate: "implement",
-				Capabilities: CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  true,
-					Terminal: true,
-				},
-				Session: SessionConfig{
-					Reuse: true,
-				},
-			},
-			{
-				Name:           "reviewer",
-				Agent:          "claude",
-				PromptTemplate: "review",
-				Capabilities: CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  false,
-					Terminal: false,
-				},
-				Session: SessionConfig{
-					Reuse:       true,
-					ResetPrompt: true,
-				},
-			},
-			{
-				Name:           "aggregator",
-				Agent:          "claude",
-				PromptTemplate: "review_aggregator",
-				Capabilities: CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  false,
-					Terminal: false,
-				},
-				Session: SessionConfig{
-					Reuse:       true,
-					ResetPrompt: true,
-				},
-			},
-			{
-				Name:           "plan_parser",
-				Agent:          "claude",
-				PromptTemplate: "plan_parser",
-				Capabilities: CapabilitiesConfig{
-					FSRead:   true,
-					FSWrite:  false,
-					Terminal: false,
-				},
-			},
-		},
-		RoleBinds: RoleBindings{
-			TeamLeader: SingleRoleBinding{
-				Role: "team_leader",
-			},
-			Run: RunRoleBindings{
-				StageRoles: map[string]string{
-					"requirements": "worker",
-					"implement":    "worker",
-					"review":       "reviewer",
-					"fixup":        "worker",
-					"test":         "worker",
-				},
-			},
-			ReviewOrchestrator: ReviewRoleBindings{
-				Reviewers: map[string]string{
-					"completeness": "reviewer",
-					"dependency":   "reviewer",
-					"feasibility":  "reviewer",
-				},
-				Aggregator: "aggregator",
-			},
-			PlanParser: SingleRoleBinding{
-				Role: "plan_parser",
-			},
-		},
-		Run: RunConfig{
-			DefaultTemplate:   "standard",
-			GlobalTimeout:     2 * time.Hour,
-			AutoInferTemplate: true,
-			MaxTotalRetries:   5,
-		},
-		Scheduler: SchedulerConfig{
-			MaxGlobalAgents: 3,
-			MaxProjectRuns:  2,
-		},
-		TeamLeader: TeamLeaderConfig{
-			ReviewGatePlugin: "review-ai-panel",
-			ReviewOrchestrator: ReviewOrchestratorConfig{
-				MaxRounds: 2,
-			},
-			DAGScheduler: DAGSchedulerConfig{
-				MaxConcurrentTasks: 2,
-			},
-		},
-		A2A: A2AConfig{
-			Enabled: true,
-			Token:   "default",
-			Version: "0.3",
-		},
-		Server: ServerConfig{
-			Host: "127.0.0.1",
-			Port: 8080,
-		},
-		GitHub: GitHubConfig{
-			Enabled: false,
-		},
-		Store: StoreConfig{
-			Driver: "sqlite",
-			Path:   ".ai-workflow/data.db",
-		},
-		Log: LogConfig{
-			Level:      "info",
-			File:       ".ai-workflow/logs/app.log",
-			MaxSizeMB:  100,
-			MaxAgeDays: 30,
-		},
+	var cfg Config
+	if err := toml.Unmarshal(defaultsTOML, &cfg); err != nil {
+		panic(fmt.Sprintf("BUG: embedded defaults.toml is invalid: %v", err))
 	}
+	return cfg
 }
 
 func ptrValue[T any](v T) *T { return &v }

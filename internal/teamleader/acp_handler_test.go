@@ -498,3 +498,138 @@ func TestHandleSessionUpdateSkipsChunkPersistence(t *testing.T) {
 		t.Fatalf("persisted chunk events = %d, want 0", got)
 	}
 }
+
+func TestHandleSessionUpdateAggregatesChunkPersistence(t *testing.T) {
+	cases := []struct {
+		name           string
+		updateType     string
+		wantUpdateType string
+		text1          string
+		text2          string
+		wantText       string
+		rawJSON1       string
+		rawJSON2       string
+	}{
+		{
+			name:           "agent_message_chunk",
+			updateType:     "agent_message_chunk",
+			wantUpdateType: "agent_message",
+			text1:          "hello",
+			text2:          " world",
+			wantText:       "hello world",
+			rawJSON1:       `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}`,
+			rawJSON2:       `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" world"}}`,
+		},
+		{
+			name:           "agent_thought_chunk",
+			updateType:     "agent_thought_chunk",
+			wantUpdateType: "agent_thought",
+			text1:          "think",
+			text2:          " more",
+			wantText:       "think more",
+			rawJSON1:       `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"think"}}`,
+			rawJSON2:       `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" more"}}`,
+		},
+		{
+			name:           "user_message_chunk",
+			updateType:     "user_message_chunk",
+			wantUpdateType: "user_message",
+			text1:          "user",
+			text2:          " says",
+			wantText:       "user says",
+			rawJSON1:       `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"user"}}`,
+			rawJSON2:       `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":" says"}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &recordingACPEventPublisher{}
+			recorder := &recordingChatRunEventRecorder{}
+			handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+			handler.SetProjectID("proj-1")
+			handler.SetChatSessionID("chat-session-1")
+			handler.SetRunEventRecorder(recorder)
+
+			if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+				SessionID:     "acp-session-fallback",
+				Type:          tc.updateType,
+				Text:          tc.text1,
+				RawUpdateJSON: tc.rawJSON1,
+			}); err != nil {
+				t.Fatalf("HandleSessionUpdate(first chunk) error = %v", err)
+			}
+			if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+				SessionID:     "acp-session-fallback",
+				Type:          tc.updateType,
+				Text:          tc.text2,
+				RawUpdateJSON: tc.rawJSON2,
+			}); err != nil {
+				t.Fatalf("HandleSessionUpdate(second chunk) error = %v", err)
+			}
+
+			if got := len(recorder.Events()); got != 0 {
+				t.Fatalf("persisted events before flush = %d, want 0", got)
+			}
+			if err := handler.FlushPendingChatRunEvents(); err != nil {
+				t.Fatalf("FlushPendingChatRunEvents() error = %v", err)
+			}
+
+			events := recorder.Events()
+			if len(events) != 1 {
+				t.Fatalf("persisted events = %d, want 1", len(events))
+			}
+			if events[0].UpdateType != tc.wantUpdateType {
+				t.Fatalf("persisted update_type = %q, want %q", events[0].UpdateType, tc.wantUpdateType)
+			}
+			if got := events[0].Payload["text"]; got != tc.wantText {
+				t.Fatalf("payload.text = %#v, want %q", got, tc.wantText)
+			}
+			acp, ok := events[0].Payload["acp"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected payload.acp map, got %#v", events[0].Payload["acp"])
+			}
+			if acp["sessionUpdate"] != tc.wantUpdateType {
+				t.Fatalf("payload.acp.sessionUpdate = %#v, want %q", acp["sessionUpdate"], tc.wantUpdateType)
+			}
+		})
+	}
+}
+
+func TestHandleSessionUpdateFlushesPendingChunksBeforeNonChunkEvent(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	recorder := &recordingChatRunEventRecorder{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+	handler.SetRunEventRecorder(recorder)
+
+	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID:     "acp-session-fallback",
+		Type:          "agent_thought_chunk",
+		Text:          "thinking",
+		RawUpdateJSON: `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking"}}`,
+	}); err != nil {
+		t.Fatalf("HandleSessionUpdate(agent_thought_chunk) error = %v", err)
+	}
+
+	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID:     "acp-session-fallback",
+		Type:          "tool_call",
+		Status:        "pending",
+		RawUpdateJSON: `{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`,
+	}); err != nil {
+		t.Fatalf("HandleSessionUpdate(tool_call) error = %v", err)
+	}
+
+	events := recorder.Events()
+	if len(events) != 2 {
+		t.Fatalf("persisted events = %d, want 2", len(events))
+	}
+	if events[0].UpdateType != "agent_thought" {
+		t.Fatalf("first update_type = %q, want %q", events[0].UpdateType, "agent_thought")
+	}
+	if events[1].UpdateType != "tool_call" {
+		t.Fatalf("second update_type = %q, want %q", events[1].UpdateType, "tool_call")
+	}
+}

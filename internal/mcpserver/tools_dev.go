@@ -94,7 +94,7 @@ func selfRestartHandler(opts Options) func(context.Context, *mcp.CallToolRequest
 			timeout = time.Duration(in.GracefulTimeoutSec) * time.Second
 		}
 
-		url := opts.ServerAddr + "/api/v3/admin/ops/restart"
+		url := opts.ServerAddr + "/api/v1/admin/ops/restart"
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create restart request: %w", err)

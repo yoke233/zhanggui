@@ -17,21 +17,22 @@ type MCPEnvConfig struct {
 }
 
 // MCPToolsFromRoleConfig returns an McpServer config for the ACP session.
-// If ServerAddr is set, it returns an SSE transport pointing to the server's
-// /mcp endpoint (no subprocess). Otherwise it falls back to stdio subprocess.
-func MCPToolsFromRoleConfig(role acpclient.RoleProfile, mcpEnv MCPEnvConfig) []acpproto.McpServer {
+// If ServerAddr is set and agentSupportsSSE is true, it returns an SSE transport
+// pointing to the server's MCP endpoint. Otherwise it falls back to stdio subprocess.
+func MCPToolsFromRoleConfig(role acpclient.RoleProfile, mcpEnv MCPEnvConfig, agentSupportsSSE bool) []acpproto.McpServer {
 	if len(role.MCPTools) == 0 {
 		return nil
 	}
 
 	// SSE mode: connect to the running web server's MCP endpoint directly.
-	if addr := strings.TrimSpace(mcpEnv.ServerAddr); addr != "" {
-		url := strings.TrimRight(addr, "/") + "/mcp"
+	if addr := strings.TrimSpace(mcpEnv.ServerAddr); addr != "" && agentSupportsSSE {
+		url := strings.TrimRight(addr, "/") + "/api/v1/mcp"
 		return []acpproto.McpServer{{
 			Sse: &acpproto.McpServerSseInline{
-				Name: "ai-workflow-query",
-				Type: "sse",
-				Url:  url,
+				Name:    "ai-workflow-query",
+				Type:    "sse",
+				Url:     url,
+				Headers: []acpproto.HttpHeader{},
 			},
 		}}
 	}

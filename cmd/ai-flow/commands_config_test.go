@@ -17,7 +17,7 @@ func TestCmdConfigInitCreatesLoadableConfig(t *testing.T) {
 		t.Fatalf("cmdConfigInit() error = %v", err)
 	}
 
-	cfgPath := filepath.Join(wd, ".ai-workflow", "config.yaml")
+	cfgPath := filepath.Join(wd, ".ai-workflow", "config.toml")
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("read generated config: %v", err)
@@ -26,12 +26,19 @@ func TestCmdConfigInitCreatesLoadableConfig(t *testing.T) {
 		t.Fatal("generated config should not be empty")
 	}
 
-	loaded, err := config.LoadGlobal(cfgPath)
+	loaded, err := config.LoadGlobal(cfgPath, filepath.Join(filepath.Dir(cfgPath), "secrets.toml"))
 	if err != nil {
 		t.Fatalf("generated config must be loadable by strict loader: %v", err)
 	}
 	if loaded.Run.DefaultTemplate == "" {
 		t.Fatal("loaded config should preserve run.default_template")
+	}
+	secrets, err := config.LoadSecrets(filepath.Join(filepath.Dir(cfgPath), "secrets.toml"))
+	if err != nil {
+		t.Fatalf("load generated secrets: %v", err)
+	}
+	if secrets.AdminToken() == "" {
+		t.Fatal("expected generated admin token in secrets.toml")
 	}
 }
 
@@ -39,11 +46,11 @@ func TestCmdConfigInitReturnsErrorWhenConfigExists(t *testing.T) {
 	wd := t.TempDir()
 	t.Chdir(wd)
 
-	cfgPath := filepath.Join(wd, ".ai-workflow", "config.yaml")
+	cfgPath := filepath.Join(wd, ".ai-workflow", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir data dir: %v", err)
 	}
-	if err := os.WriteFile(cfgPath, []byte("existing: true\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("existing = true\n"), 0o644); err != nil {
 		t.Fatalf("write existing config: %v", err)
 	}
 
@@ -60,7 +67,7 @@ func TestCmdConfigInitForceOverwritesConfig(t *testing.T) {
 	wd := t.TempDir()
 	t.Chdir(wd)
 
-	cfgPath := filepath.Join(wd, ".ai-workflow", "config.yaml")
+	cfgPath := filepath.Join(wd, ".ai-workflow", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir data dir: %v", err)
 	}
@@ -72,7 +79,7 @@ func TestCmdConfigInitForceOverwritesConfig(t *testing.T) {
 		t.Fatalf("cmdConfigInit(--force) error = %v", err)
 	}
 
-	loaded, err := config.LoadGlobal(cfgPath)
+	loaded, err := config.LoadGlobal(cfgPath, filepath.Join(filepath.Dir(cfgPath), "secrets.toml"))
 	if err != nil {
 		t.Fatalf("forced overwritten config should be loadable: %v", err)
 	}
@@ -98,6 +105,32 @@ func TestCmdConfigInitThenLoadBootstrapConfig(t *testing.T) {
 	}
 }
 
+func TestLoadBootstrapConfigAutoInitializesSecrets(t *testing.T) {
+	wd := t.TempDir()
+	t.Chdir(wd)
+
+	cfg, err := loadBootstrapConfig()
+	if err != nil {
+		t.Fatalf("loadBootstrapConfig() error = %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("loadBootstrapConfig() returned nil config")
+	}
+
+	secretsPath := secretsFilePath(filepath.Join(wd, ".ai-workflow"))
+	secrets, err := config.LoadSecrets(secretsPath)
+	if err != nil {
+		t.Fatalf("load generated secrets: %v", err)
+	}
+	if secrets.AdminToken() == "" {
+		t.Fatal("expected generated secrets to contain admin token")
+	}
+	entry := secrets.Tokens["admin"]
+	if len(entry.Scopes) == 0 || entry.Scopes[0] != "*" {
+		t.Fatalf("expected admin scopes=[*], got %v", entry.Scopes)
+	}
+}
+
 func TestCLIConfigCommandUsageError(t *testing.T) {
 	err := runWithArgs([]string{"config"})
 	if err == nil {
@@ -116,8 +149,8 @@ func TestCLIConfigInitCommandRoute(t *testing.T) {
 		t.Fatalf("runWithArgs(config init) error = %v", err)
 	}
 
-	cfgPath := filepath.Join(wd, ".ai-workflow", "config.yaml")
-	if _, err := config.LoadGlobal(cfgPath); err != nil {
+	cfgPath := filepath.Join(wd, ".ai-workflow", "config.toml")
+	if _, err := config.LoadGlobal(cfgPath, filepath.Join(filepath.Dir(cfgPath), "secrets.toml")); err != nil {
 		t.Fatalf("generated config from CLI route should be loadable: %v", err)
 	}
 }

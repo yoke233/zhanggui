@@ -1,0 +1,159 @@
+# AI Workflow — 默认配置（单一数据源）
+# 此文件嵌入到二进制中，用户未创建 config.toml 时自动使用。
+
+# ─── Agent Profiles ───────────────────────────────────────────────
+[agents]
+
+  [[agents.profiles]]
+  name            = "claude"
+  launch_command  = "npx"
+  launch_args     = ["-y", "@zed-industries/claude-agent-acp"]
+  [agents.profiles.env]
+  [agents.profiles.capabilities_max]
+  fs_read  = true
+  fs_write = true
+  terminal = true
+
+  [[agents.profiles]]
+  name            = "codex"
+  launch_command  = "npx"
+  launch_args     = ["-y", "@zed-industries/codex-acp"]
+  [agents.profiles.env]
+  [agents.profiles.capabilities_max]
+  fs_read  = true
+  fs_write = true
+  terminal = true
+
+# ─── Roles ────────────────────────────────────────────────────────
+[[roles]]
+name             = "team_leader"
+agent            = "claude"
+prompt_template  = "team_leader"
+  [roles.capabilities]
+  fs_read  = true
+  fs_write = true
+  terminal = true
+  [roles.session]
+  reuse              = true
+  prefer_load_session = true
+  [roles.mcp]
+  enabled = true
+  tools   = [
+    "query_projects", "query_project_detail",
+    "query_issues", "query_issue_detail",
+    "query_runs", "query_run_detail",
+    "query_run_events", "query_project_stats",
+  ]
+
+[[roles]]
+name             = "worker"
+agent            = "codex"
+prompt_template  = "implement"
+  [roles.capabilities]
+  fs_read  = true
+  fs_write = true
+  terminal = true
+  [roles.session]
+  reuse = true
+
+[[roles]]
+name             = "reviewer"
+agent            = "claude"
+prompt_template  = "review"
+  [roles.capabilities]
+  fs_read  = true
+  fs_write = false
+  terminal = false
+  [roles.session]
+  reuse        = true
+  reset_prompt = true
+
+[[roles]]
+name             = "aggregator"
+agent            = "claude"
+prompt_template  = "review_aggregator"
+  [roles.capabilities]
+  fs_read  = true
+  fs_write = false
+  terminal = false
+  [roles.session]
+  reuse        = true
+  reset_prompt = true
+
+[[roles]]
+name             = "plan_parser"
+agent            = "claude"
+prompt_template  = "plan_parser"
+  [roles.capabilities]
+  fs_read  = true
+  fs_write = false
+  terminal = false
+
+# ─── Role Bindings ────────────────────────────────────────────────
+[role_bindings.team_leader]
+role = "team_leader"
+
+[role_bindings.run.stage_roles]
+requirements = "worker"
+implement    = "worker"
+review       = "reviewer"
+fixup        = "worker"
+test         = "worker"
+
+[role_bindings.review_orchestrator]
+aggregator = "aggregator"
+  [role_bindings.review_orchestrator.reviewers]
+  completeness = "reviewer"
+  dependency   = "reviewer"
+  feasibility  = "reviewer"
+
+[role_bindings.plan_parser]
+role = "plan_parser"
+
+# ─── Run ──────────────────────────────────────────────────────────
+[run]
+default_template   = "standard"
+global_timeout     = "2h"
+auto_infer_template = true
+max_total_retries  = 5
+
+# ─── Scheduler ───────────────────────────────────────────────────
+[scheduler]
+max_global_agents = 3
+max_project_runs  = 2
+
+# ─── Team Leader ─────────────────────────────────────────────────
+[team_leader]
+review_gate_plugin = "review-ai-panel"
+  [team_leader.review_orchestrator]
+  max_rounds = 2
+  [team_leader.dag_scheduler]
+  max_concurrent_tasks = 2
+
+# ─── A2A ─────────────────────────────────────────────────────────
+[a2a]
+enabled = true
+token   = ""
+version = "0.3"
+
+# ─── Server ──────────────────────────────────────────────────────
+# Auth token 统一由 secrets.yaml 管理，所有端点强制认证。
+[server]
+host = "127.0.0.1"
+port = 8080
+
+# ─── GitHub ──────────────────────────────────────────────────────
+[github]
+enabled = false
+
+# ─── Store ───────────────────────────────────────────────────────
+[store]
+driver = "sqlite"
+path   = ".ai-workflow/data.db"
+
+# ─── Log ─────────────────────────────────────────────────────────
+[log]
+level        = "info"
+file         = ".ai-workflow/logs/app.log"
+max_size_mb  = 100
+max_age_days = 30

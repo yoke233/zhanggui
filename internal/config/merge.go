@@ -155,18 +155,18 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
-	if Run := layer.Run; Run != nil {
-		if Run.DefaultTemplate != nil {
-			cfg.Run.DefaultTemplate = *Run.DefaultTemplate
+	if run := layer.Run; run != nil {
+		if run.DefaultTemplate != nil {
+			cfg.Run.DefaultTemplate = *run.DefaultTemplate
 		}
-		if Run.GlobalTimeout != nil {
-			cfg.Run.GlobalTimeout = *Run.GlobalTimeout
+		if run.GlobalTimeout != nil {
+			cfg.Run.GlobalTimeout = *run.GlobalTimeout
 		}
-		if Run.AutoInferTemplate != nil {
-			cfg.Run.AutoInferTemplate = *Run.AutoInferTemplate
+		if run.AutoInferTemplate != nil {
+			cfg.Run.AutoInferTemplate = *run.AutoInferTemplate
 		}
-		if Run.MaxTotalRetries != nil {
-			cfg.Run.MaxTotalRetries = *Run.MaxTotalRetries
+		if run.MaxTotalRetries != nil {
+			cfg.Run.MaxTotalRetries = *run.MaxTotalRetries
 		}
 	}
 
@@ -213,12 +213,6 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 		if server.Port != nil {
 			cfg.Server.Port = *server.Port
-		}
-		if server.AuthEnabled != nil {
-			cfg.Server.AuthEnabled = *server.AuthEnabled
-		}
-		if server.AuthToken != nil {
-			cfg.Server.AuthToken = *server.AuthToken
 		}
 	}
 

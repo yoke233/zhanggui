@@ -400,6 +400,10 @@ func (c *stubACPClient) Cancel(_ context.Context, _ acpproto.CancelNotification)
 	return nil
 }
 
+func (c *stubACPClient) SupportsSSEMCP() bool {
+	return false
+}
+
 type recordingEventPublisher struct {
 	mu     sync.Mutex
 	events []core.Event

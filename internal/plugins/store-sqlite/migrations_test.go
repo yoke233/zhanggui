@@ -295,8 +295,8 @@ func TestMigration_V6ColdStart_CreatesUnifiedEventsAndIssueEdges(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 6 {
-		t.Fatalf("user_version=%d, want 6", version)
+	if version != schemaVersion {
+		t.Fatalf("user_version=%d, want %d", version, schemaVersion)
 	}
 }
 
@@ -424,8 +424,8 @@ CREATE TABLE IF NOT EXISTS issues (
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 6 {
-		t.Fatalf("user_version=%d, want 6", version)
+	if version != schemaVersion {
+		t.Fatalf("user_version=%d, want %d", version, schemaVersion)
 	}
 }
 

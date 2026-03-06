@@ -2,7 +2,6 @@ package web
 
 import (
 	"bufio"
-	"crypto/subtle"
 	"fmt"
 	"io"
 	"log"
@@ -60,35 +59,6 @@ func (r *statusRecorder) Push(target string, opts *http.PushOptions) error {
 		return http.ErrNotSupported
 	}
 	return pusher.Push(target, opts)
-}
-
-// BearerAuthMiddleware validates Authorization: Bearer <token>.
-func BearerAuthMiddleware(token string) func(http.Handler) http.Handler {
-	trimmedToken := strings.TrimSpace(token)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if trimmedToken == "" {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-				return
-			}
-
-			providedToken := strings.TrimSpace(r.URL.Query().Get("token"))
-			if providedToken == "" {
-				authHeader := r.Header.Get("Authorization")
-				if !strings.HasPrefix(authHeader, "Bearer ") {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-					return
-				}
-				providedToken = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-			}
-			if subtle.ConstantTimeCompare([]byte(providedToken), []byte(trimmedToken)) != 1 {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }
 
 // CORSMiddleware adds simple CORS headers and handles preflight requests.

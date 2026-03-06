@@ -1,0 +1,107 @@
+agents:
+  - name: codex
+    launch_command: "npx"
+    launch_args: ["-y", "@zed-industries/codex-acp"]
+    env:
+      CODEX_HOME: "D:\\project\\ai-workflow\\.ai-workflow\\codex-home"
+    capabilities_max:
+      fs_read: true
+      fs_write: true
+      terminal: true
+
+a2a:
+  enabled: true
+  token: ""
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+scheduler:
+  max_global_agents: 1
+
+roles:
+  - name: team_leader
+    agent: codex
+    prompt_template: secretary_system
+    capabilities:
+      fs_read: true
+      fs_write: true
+      terminal: true
+    permission_policy:
+      - pattern: "fs/write_text_file"
+        scope: "cwd"
+        action: "allow_always"
+      - pattern: "terminal/create"
+        action: "allow_always"
+    mcp:
+      enabled: true
+      tools: [query_projects, query_project_detail, query_issues, query_issue_detail, query_runs, query_run_detail, query_run_events, query_project_stats]
+    session:
+      reuse: true
+      prefer_load_session: true
+
+  - name: worker
+    agent: codex
+    prompt_template: implement
+    capabilities:
+      fs_read: true
+      fs_write: true
+      terminal: true
+    permission_policy:
+      - pattern: "fs/write_text_file"
+        scope: "cwd"
+        action: "allow_always"
+      - pattern: "terminal/create"
+        action: "allow_always"
+    session:
+      reuse: true
+      max_turns: 12
+
+  - name: reviewer
+    agent: codex
+    prompt_template: review
+    capabilities:
+      fs_read: true
+      fs_write: false
+      terminal: false
+    session:
+      reuse: true
+      max_turns: 6
+      reset_prompt: true
+
+  - name: aggregator
+    agent: codex
+    prompt_template: review_aggregator
+    capabilities:
+      fs_read: true
+      fs_write: false
+      terminal: false
+    session:
+      reuse: true
+      max_turns: 6
+      reset_prompt: true
+
+  - name: decomposer
+    agent: codex
+    prompt_template: decompose
+    capabilities:
+      fs_read: true
+      fs_write: false
+      terminal: false
+    mcp:
+      enabled: true
+      tools: [query_projects, query_project_detail, query_issues, query_issue_detail]
+    session:
+      reuse: true
+      max_turns: 8
+
+  - name: plan_parser
+    agent: codex
+    prompt_template: plan_parser
+    capabilities:
+      fs_read: true
+      fs_write: false
+      terminal: false
+    session:
+      reuse: false

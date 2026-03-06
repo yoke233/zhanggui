@@ -110,11 +110,11 @@ func registerProjectRoutes(r chi.Router, store core.Store, hub *Hub, provisioner
 		repoProvisioner: provisioner,
 		createRequests:  newProjectCreateRequestStore(),
 	}
-	r.Get("/projects", h.listProjects)
-	r.Post("/projects", h.createProject)
-	r.Post("/projects/create-requests", h.createProjectRequestAsync)
-	r.Get("/projects/create-requests/{id}", h.getProjectCreateRequest)
-	r.Get("/projects/{id}", h.getProject)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects", h.listProjects)
+	r.With(RequireScope(ScopeProjectsWrite)).Post("/projects", h.createProject)
+	r.With(RequireScope(ScopeProjectsWrite)).Post("/projects/create-requests", h.createProjectRequestAsync)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects/create-requests/{id}", h.getProjectCreateRequest)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects/{id}", h.getProject)
 }
 
 func (h *projectHandlers) listProjects(w http.ResponseWriter, r *http.Request) {

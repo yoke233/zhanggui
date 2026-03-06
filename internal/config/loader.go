@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,7 +16,9 @@ func LoadFile(path string) (*Config, error) {
 	return LoadGlobal(path)
 }
 
-func LoadGlobal(path string) (*Config, error) {
+// LoadGlobal loads config from a file (TOML or YAML), applies env overrides, and validates.
+// secretsPath is optional — if non-empty, secrets are loaded and merged before validation.
+func LoadGlobal(path string, secretsPaths ...string) (*Config, error) {
 	cfg := Defaults()
 
 	if path != "" {
@@ -22,6 +27,15 @@ func LoadGlobal(path string) (*Config, error) {
 			return nil, err
 		}
 		ApplyConfigLayer(&cfg, layer)
+	}
+
+	// Apply secrets file if provided.
+	if len(secretsPaths) > 0 && secretsPaths[0] != "" {
+		secrets, err := LoadSecrets(secretsPaths[0])
+		if err != nil {
+			return nil, err
+		}
+		ApplySecrets(&cfg, secrets)
 	}
 
 	if err := ApplyEnvOverrides(&cfg); err != nil {
@@ -50,7 +64,15 @@ func loadLayerFromFile(path string) (*ConfigLayer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadLayerFromBytes(data)
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".toml":
+		return loadLayerFromTOML(data)
+	case ".yaml", ".yml":
+		return loadLayerFromYAML(data)
+	default:
+		return loadLayerFromTOML(data)
+	}
 }
 
 func decodeLayerFromMap(raw map[string]any) (*ConfigLayer, error) {
@@ -58,14 +80,29 @@ func decodeLayerFromMap(raw map[string]any) (*ConfigLayer, error) {
 		return &ConfigLayer{}, nil
 	}
 
-	data, err := yaml.Marshal(raw)
+	data, err := toml.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("marshal override map: %w", err)
 	}
-	return loadLayerFromBytes(data)
+	return loadLayerFromTOML(data)
 }
 
+// loadLayerFromBytes parses config layer from TOML bytes (default format).
 func loadLayerFromBytes(data []byte) (*ConfigLayer, error) {
+	return loadLayerFromTOML(data)
+}
+
+func loadLayerFromTOML(data []byte) (*ConfigLayer, error) {
+	layer := &ConfigLayer{}
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(layer); err != nil {
+		return nil, err
+	}
+	return layer, nil
+}
+
+func loadLayerFromYAML(data []byte) (*ConfigLayer, error) {
 	layer := &ConfigLayer{}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)

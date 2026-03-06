@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,35 @@ type cancelChatSessionResponse struct {
 	Status    string `json:"status"`
 }
 
+type listChatSessionEventsResponse struct {
+	SessionID  string              `json:"session_id"`
+	ProjectID  string              `json:"project_id"`
+	UpdatedAt  time.Time           `json:"updated_at"`
+	Messages   []core.ChatMessage  `json:"messages"`
+	Events     []core.ChatRunEvent `json:"events"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
+type getChatEventGroupResponse struct {
+	SessionID string              `json:"session_id"`
+	ProjectID string              `json:"project_id"`
+	GroupID   string              `json:"group_id"`
+	Events    []core.ChatRunEvent `json:"events"`
+}
+
+type chatSessionTimelineItem struct {
+	token        string
+	time         time.Time
+	messageIndex int
+	eventIndex   int
+	isMessage    bool
+}
+
+const (
+	defaultChatSessionEventsLimit = 50
+	maxChatSessionEventsLimit     = 200
+)
+
 func registerChatRoutes(r chi.Router, store core.Store, assistant ChatAssistant, publisher chatEventPublisher) {
 	h := &chatHandlers{
 		store:     store,
@@ -59,12 +89,14 @@ func registerChatRoutes(r chi.Router, store core.Store, assistant ChatAssistant,
 		publisher: publisher,
 		activeRun: make(map[string]context.CancelFunc),
 	}
-	r.Get("/projects/{projectID}/chat", h.listSessions)
-	r.Post("/projects/{projectID}/chat", h.createSession)
-	r.Post("/projects/{projectID}/chat/{sessionID}/cancel", h.cancelSession)
-	r.Get("/projects/{projectID}/chat/{sessionID}/events", h.listSessionEvents)
-	r.Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
-	r.Delete("/projects/{projectID}/chat/{sessionID}", h.deleteSession)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat", h.listSessions)
+	r.With(RequireScope(ScopeChatWrite)).Post("/projects/{projectID}/chat", h.createSession)
+	r.With(RequireScope(ScopeChatWrite)).Post("/projects/{projectID}/chat/{sessionID}/cancel", h.cancelSession)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/events", h.listSessionEvents)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/event-groups/{groupID}", h.getSessionEventGroup)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/status", h.getSessionStatus)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
+	r.With(RequireScope(ScopeChatWrite)).Delete("/projects/{projectID}/chat/{sessionID}", h.deleteSession)
 }
 
 func (h *chatHandlers) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -377,6 +409,36 @@ func (h *chatHandlers) getSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, session)
 }
 
+func (h *chatHandlers) getSessionStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if projectID == "" || sessionID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id and session id are required", "INVALID_PATH_PARAM")
+		return
+	}
+
+	alive := false
+	running := false
+
+	// Check running via handler-level activeRun.
+	h.runMu.Lock()
+	_, running = h.activeRun[sessionID]
+	h.runMu.Unlock()
+
+	// Check alive via pooled ACP session.
+	if provider, ok := h.assistant.(ChatSessionStatusProvider); ok {
+		alive = provider.IsChatSessionAlive(sessionID)
+		if !running {
+			running = provider.IsChatSessionRunning(sessionID)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"alive":   alive,
+		"running": running,
+	})
+}
+
 func (h *chatHandlers) listSessionEvents(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
@@ -405,8 +467,71 @@ func (h *chatHandlers) listSessionEvents(w http.ResponseWriter, r *http.Request)
 	}
 
 	reader, ok := h.store.(chatRunEventReader)
+	events := []core.ChatRunEvent{}
+	if ok {
+		var err error
+		events, err = reader.ListChatRunEvents(sessionID)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to list chat run events", "LIST_CHAT_RUN_EVENTS_FAILED")
+			return
+		}
+	}
+
+	limit, cursor, err := parseChatSessionEventsPaginationParams(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_PAGINATION")
+		return
+	}
+
+	normalizedEvents := normalizeStoredChatRunEvents(events)
+	groupedEvents, _ := groupChatRunEventsForList(normalizedEvents)
+	messagesPage, eventsPage, nextCursor, err := paginateChatSessionTimeline(session.Messages, groupedEvents, cursor, limit)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_CURSOR")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, listChatSessionEventsResponse{
+		SessionID:  session.ID,
+		ProjectID:  session.ProjectID,
+		UpdatedAt:  session.UpdatedAt,
+		Messages:   messagesPage,
+		Events:     eventsPage,
+		NextCursor: nextCursor,
+	})
+}
+
+func (h *chatHandlers) getSessionEventGroup(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	groupID := strings.TrimSpace(chi.URLParam(r, "groupID"))
+	if projectID == "" || sessionID == "" || groupID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id, session id and group id are required", "INVALID_PATH_PARAM")
+		return
+	}
+
+	session, err := h.store.GetChatSession(sessionID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load chat session", "GET_CHAT_SESSION_FAILED")
+		return
+	}
+	if session.ProjectID != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found in project %s", sessionID, projectID), "CHAT_SESSION_NOT_FOUND")
+		return
+	}
+
+	reader, ok := h.store.(chatRunEventReader)
 	if !ok {
-		writeJSON(w, http.StatusOK, []core.ChatRunEvent{})
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("event group %s not found", groupID), "CHAT_EVENT_GROUP_NOT_FOUND")
 		return
 	}
 	events, err := reader.ListChatRunEvents(sessionID)
@@ -414,7 +539,355 @@ func (h *chatHandlers) listSessionEvents(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusInternalServerError, "failed to list chat run events", "LIST_CHAT_RUN_EVENTS_FAILED")
 		return
 	}
-	writeJSON(w, http.StatusOK, events)
+
+	normalizedEvents := normalizeStoredChatRunEvents(events)
+	_, groupMap := groupChatRunEventsForList(normalizedEvents)
+	groupItems, ok := groupMap[groupID]
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("event group %s not found", groupID), "CHAT_EVENT_GROUP_NOT_FOUND")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, getChatEventGroupResponse{
+		SessionID: session.ID,
+		ProjectID: session.ProjectID,
+		GroupID:   groupID,
+		Events:    groupItems,
+	})
+}
+
+func parseChatSessionEventsPaginationParams(r *http.Request) (int, string, error) {
+	limit := defaultChatSessionEventsLimit
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed <= 0 {
+			return 0, "", fmt.Errorf("limit must be a positive integer")
+		}
+		if parsed > maxChatSessionEventsLimit {
+			parsed = maxChatSessionEventsLimit
+		}
+		limit = parsed
+	}
+	return limit, strings.TrimSpace(r.URL.Query().Get("cursor")), nil
+}
+
+func paginateChatSessionTimeline(
+	messages []core.ChatMessage,
+	events []core.ChatRunEvent,
+	cursor string,
+	limit int,
+) ([]core.ChatMessage, []core.ChatRunEvent, string, error) {
+	timeline := buildChatSessionTimeline(messages, events)
+	if len(timeline) == 0 {
+		return []core.ChatMessage{}, []core.ChatRunEvent{}, "", nil
+	}
+
+	end := len(timeline)
+	if cursor == "" {
+		start := end - limit
+		if start < 0 {
+			start = 0
+		}
+		selected := timeline[start:end]
+		pageMessages, pageEvents := splitChatSessionTimelinePage(messages, events, selected)
+		return pageMessages, pageEvents, nextChatSessionCursor(timeline, start), nil
+	}
+
+	cursorIndex := -1
+	for index, item := range timeline {
+		if item.token == cursor {
+			cursorIndex = index
+			break
+		}
+	}
+	if cursorIndex < 0 {
+		return nil, nil, "", fmt.Errorf("cursor not found")
+	}
+	if cursorIndex == 0 {
+		return []core.ChatMessage{}, []core.ChatRunEvent{}, "", nil
+	}
+
+	start := cursorIndex - limit
+	if start < 0 {
+		start = 0
+	}
+	selected := timeline[start:cursorIndex]
+	pageMessages, pageEvents := splitChatSessionTimelinePage(messages, events, selected)
+	return pageMessages, pageEvents, nextChatSessionCursor(timeline, start), nil
+}
+
+func buildChatSessionTimeline(messages []core.ChatMessage, events []core.ChatRunEvent) []chatSessionTimelineItem {
+	timeline := make([]chatSessionTimelineItem, 0, len(messages)+len(events))
+	messageIndex := 0
+	eventIndex := 0
+	for messageIndex < len(messages) && eventIndex < len(events) {
+		messageTime := messages[messageIndex].Time.UTC()
+		eventTime := events[eventIndex].CreatedAt.UTC()
+		if messageTime.Before(eventTime) || messageTime.Equal(eventTime) {
+			timeline = append(timeline, chatSessionTimelineItem{
+				token:        fmt.Sprintf("m:%d", messageIndex),
+				time:         messageTime,
+				messageIndex: messageIndex,
+				isMessage:    true,
+			})
+			messageIndex += 1
+			continue
+		}
+		timeline = append(timeline, chatSessionTimelineItem{
+			token:      fmt.Sprintf("e:%d", events[eventIndex].ID),
+			time:       eventTime,
+			eventIndex: eventIndex,
+		})
+		eventIndex += 1
+	}
+	for messageIndex < len(messages) {
+		timeline = append(timeline, chatSessionTimelineItem{
+			token:        fmt.Sprintf("m:%d", messageIndex),
+			time:         messages[messageIndex].Time.UTC(),
+			messageIndex: messageIndex,
+			isMessage:    true,
+		})
+		messageIndex += 1
+	}
+	for eventIndex < len(events) {
+		timeline = append(timeline, chatSessionTimelineItem{
+			token:      fmt.Sprintf("e:%d", events[eventIndex].ID),
+			time:       events[eventIndex].CreatedAt.UTC(),
+			eventIndex: eventIndex,
+		})
+		eventIndex += 1
+	}
+	return timeline
+}
+
+func splitChatSessionTimelinePage(
+	messages []core.ChatMessage,
+	events []core.ChatRunEvent,
+	selected []chatSessionTimelineItem,
+) ([]core.ChatMessage, []core.ChatRunEvent) {
+	pageMessages := make([]core.ChatMessage, 0)
+	pageEvents := make([]core.ChatRunEvent, 0)
+	for _, item := range selected {
+		if item.isMessage {
+			pageMessages = append(pageMessages, messages[item.messageIndex])
+			continue
+		}
+		pageEvents = append(pageEvents, events[item.eventIndex])
+	}
+	return pageMessages, pageEvents
+}
+
+func nextChatSessionCursor(timeline []chatSessionTimelineItem, start int) string {
+	if start <= 0 || start >= len(timeline) {
+		return ""
+	}
+	return timeline[start].token
+}
+
+func normalizeStoredChatRunEvents(events []core.ChatRunEvent) []core.ChatRunEvent {
+	if len(events) == 0 {
+		return []core.ChatRunEvent{}
+	}
+
+	normalized := make([]core.ChatRunEvent, 0, len(events))
+	var pending *core.ChatRunEvent
+	pendingText := ""
+
+	flushPending := func() {
+		if pending == nil {
+			return
+		}
+		pending.Payload = buildAggregatedChatRunEventPayload(pending.Payload, pending.UpdateType, pendingText)
+		normalized = append(normalized, *pending)
+		pending = nil
+		pendingText = ""
+	}
+
+	for _, event := range events {
+		aggregatedType := aggregatedStoredChatRunEventType(event.UpdateType)
+		if aggregatedType == "" {
+			flushPending()
+			normalized = append(normalized, event)
+			continue
+		}
+
+		text := extractStoredChatRunEventText(event.Payload)
+		if text == "" {
+			continue
+		}
+		if pending != nil && pending.SessionID == event.SessionID && pending.ProjectID == event.ProjectID && pending.UpdateType == aggregatedType {
+			pending.ID = event.ID
+			pending.CreatedAt = event.CreatedAt
+			pendingText += text
+			continue
+		}
+
+		flushPending()
+		clone := event
+		clone.UpdateType = aggregatedType
+		pending = &clone
+		pendingText = text
+	}
+
+	flushPending()
+	return normalized
+}
+
+func groupChatRunEventsForList(events []core.ChatRunEvent) ([]core.ChatRunEvent, map[string][]core.ChatRunEvent) {
+	if len(events) == 0 {
+		return []core.ChatRunEvent{}, map[string][]core.ChatRunEvent{}
+	}
+
+	grouped := make([]core.ChatRunEvent, 0, len(events))
+	groupMap := make(map[string][]core.ChatRunEvent)
+	pending := make([]core.ChatRunEvent, 0)
+
+	flushPending := func() {
+		if len(pending) == 0 {
+			return
+		}
+		if len(pending) == 1 {
+			grouped = append(grouped, pending[0])
+			pending = pending[:0]
+			return
+		}
+
+		first := pending[0]
+		last := pending[len(pending)-1]
+		groupID := buildToolCallGroupID(first.ID, last.ID)
+		groupMap[groupID] = append([]core.ChatRunEvent(nil), pending...)
+		grouped = append(grouped, core.ChatRunEvent{
+			ID:         last.ID,
+			SessionID:  last.SessionID,
+			ProjectID:  last.ProjectID,
+			EventType:  last.EventType,
+			UpdateType: "tool_call_group",
+			Payload: map[string]any{
+				"session_id": last.SessionID,
+				"group_id":   groupID,
+				"item_count": len(pending),
+				"preview":    buildToolCallGroupPreview(pending),
+			},
+			CreatedAt: last.CreatedAt,
+		})
+		pending = pending[:0]
+	}
+
+	for _, event := range events {
+		if isToolCallRunEventType(event.UpdateType) {
+			pending = append(pending, event)
+			continue
+		}
+		flushPending()
+		grouped = append(grouped, event)
+	}
+	flushPending()
+	return grouped, groupMap
+}
+
+func isToolCallRunEventType(updateType string) bool {
+	switch strings.TrimSpace(updateType) {
+	case "tool_call", "tool_call_update", "tool_call_completed":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildToolCallGroupID(firstID, lastID int64) string {
+	return fmt.Sprintf("tool-call-group:%d:%d", firstID, lastID)
+}
+
+func buildToolCallGroupPreview(events []core.ChatRunEvent) string {
+	if len(events) == 0 {
+		return ""
+	}
+	title := "工具调用"
+	if payload := events[0].Payload; payload != nil {
+		if acp := toStringAnyMap(payload["acp"]); acp != nil {
+			if rawTitle, ok := acp["title"].(string); ok && strings.TrimSpace(rawTitle) != "" {
+				title = strings.TrimSpace(rawTitle)
+			}
+		}
+	}
+	return fmt.Sprintf("%s 等 %d 个工具调用", title, len(events))
+}
+
+func aggregatedStoredChatRunEventType(updateType string) string {
+	switch strings.TrimSpace(updateType) {
+	case "agent_message_chunk", "assistant_message_chunk", "message_chunk":
+		return "agent_message"
+	case "agent_thought_chunk":
+		return "agent_thought"
+	case "user_message_chunk":
+		return "user_message"
+	default:
+		return ""
+	}
+}
+
+func buildAggregatedChatRunEventPayload(payload map[string]any, updateType string, text string) map[string]any {
+	next := cloneJSONMap(payload)
+	next["text"] = text
+	acp := cloneJSONMap(toStringAnyMap(next["acp"]))
+	acp["sessionUpdate"] = updateType
+	acp["content"] = map[string]any{
+		"type": "text",
+		"text": text,
+	}
+	next["acp"] = acp
+	return next
+}
+
+func cloneJSONMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		if nested, ok := value.(map[string]any); ok {
+			out[key] = cloneJSONMap(nested)
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func toStringAnyMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	record, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return record
+}
+
+func extractStoredChatRunEventText(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	if text, ok := payload["text"].(string); ok && strings.TrimSpace(text) != "" {
+		return text
+	}
+	acp := toStringAnyMap(payload["acp"])
+	if acp == nil {
+		return ""
+	}
+	content := acp["content"]
+	if text, ok := content.(string); ok && strings.TrimSpace(text) != "" {
+		return text
+	}
+	contentMap := toStringAnyMap(content)
+	if contentMap == nil {
+		return ""
+	}
+	if text, ok := contentMap["text"].(string); ok {
+		return text
+	}
+	return ""
 }
 
 func (h *chatHandlers) deleteSession(w http.ResponseWriter, r *http.Request) {

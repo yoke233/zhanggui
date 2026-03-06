@@ -35,8 +35,7 @@ func TestWebhook_VerifySignature_Success(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:         store,
-		AuthEnabled:   true,
-		BearerToken:   "api-token",
+		Token:         "api-token",
 		WebhookSecret: "webhook-secret",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -67,8 +66,7 @@ func TestWebhook_VerifySignature_Invalid_Returns401(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:         store,
-		AuthEnabled:   true,
-		BearerToken:   "api-token",
+		Token:         "api-token",
 		WebhookSecret: "webhook-secret",
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -477,7 +475,7 @@ func TestWebhook_PullRequestClosedNotMerged_MarksRunFailed(t *testing.T) {
 func doWebhookRequest(t *testing.T, ts *httptest.Server, payload []byte, event, signature string) *http.Response {
 	t.Helper()
 
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/webhook", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/webhook", bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("create webhook request: %v", err)
 	}

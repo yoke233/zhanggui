@@ -207,7 +207,7 @@ func setupE2AA2AStack(t *testing.T, stageResults *e2eStageResults) e2aStack {
 
 	srv := NewServer(Config{
 		A2AEnabled: true,
-		A2AToken:   "test-token",
+		Token:      "test-token",
 		A2AVersion: "0.3",
 		A2ABridge:  bridge,
 		Store:      store,

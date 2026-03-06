@@ -8,8 +8,8 @@ import (
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
 )
 
-// registerMCPRoutes mounts the MCP Streamable HTTP endpoint on the router.
-// Requires Bearer token when auth is enabled.
+// registerMCPRoutes mounts the MCP Streamable HTTP endpoint.
+// Called inside /api/v1 group which already has TokenAuthMiddleware.
 func registerMCPRoutes(r chi.Router, cfg Config) {
 	if cfg.Store == nil {
 		return
@@ -31,9 +31,7 @@ func registerMCPRoutes(r chi.Router, cfg Config) {
 	}, nil)
 
 	mcpRouter := chi.NewRouter()
-	if cfg.AuthEnabled && cfg.BearerToken != "" {
-		mcpRouter.Use(BearerAuthMiddleware(cfg.BearerToken))
-	}
+	mcpRouter.Use(RequireScope(ScopeMCP))
 	mcpRouter.Handle("/*", handler)
 
 	r.Mount("/mcp", mcpRouter)

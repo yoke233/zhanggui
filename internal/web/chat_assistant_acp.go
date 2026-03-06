@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +16,9 @@ import (
 )
 
 const (
-	defaultWebChatRoleID  = "team_leader"
-	defaultWebChatTimeout = 90 * time.Second
+	defaultWebChatRoleID   = "team_leader"
+	defaultWebChatTimeout  = 90 * time.Second
+	chatSessionIdleTimeout = 30 * time.Minute
 )
 
 // ChatRoleResolver resolves a role id into ACP launch metadata.
@@ -31,6 +33,7 @@ type ChatACPClient interface {
 	Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error)
 	Cancel(ctx context.Context, req acpproto.CancelNotification) error
 	Close(ctx context.Context) error
+	SupportsSSEMCP() bool
 }
 
 // ChatACPClientFactory creates initialized ACP clients for one chat request.
@@ -54,18 +57,77 @@ type ACPChatAssistantDeps struct {
 	MCPEnv           teamleader.MCPEnvConfig
 }
 
-// ACPChatAssistant runs one-turn chat on ACP protocol.
+// ACPChatAssistant runs multi-turn chat on ACP protocol with long-lived session pooling.
 type ACPChatAssistant struct {
 	deps ACPChatAssistantDeps
 
 	activeMu   sync.Mutex
 	activeRuns map[string]*activeChatRun
+
+	poolMu      sync.Mutex
+	sessionPool map[string]*pooledChatSession
 }
 
 type activeChatRun struct {
 	client         ChatACPClient
 	agentSessionID string
 	cancel         context.CancelFunc
+}
+
+// pooledChatSession keeps an ACP client alive between chat turns.
+type pooledChatSession struct {
+	client    ChatACPClient
+	sessionID acpproto.SessionId
+	roleID    string
+	workDir   string
+	handler   *teamleader.ACPHandler
+
+	mu        sync.Mutex
+	idleTimer *time.Timer
+	closed    bool
+}
+
+func (p *pooledChatSession) stopIdleTimer() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.idleTimer != nil {
+		p.idleTimer.Stop()
+		p.idleTimer = nil
+	}
+}
+
+func (p *pooledChatSession) resetIdleTimer(timeout time.Duration, onExpire func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	if p.idleTimer != nil {
+		p.idleTimer.Stop()
+	}
+	p.idleTimer = time.AfterFunc(timeout, onExpire)
+}
+
+func (p *pooledChatSession) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
+
+func (p *pooledChatSession) close() {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	if p.idleTimer != nil {
+		p.idleTimer.Stop()
+		p.idleTimer = nil
+	}
+	client := p.client
+	p.mu.Unlock()
+	closeACPClient(client)
 }
 
 // NewACPChatAssistantWithDeps builds a ChatAssistant backed by ACP protocol with injectable dependencies.
@@ -84,8 +146,9 @@ func newACPChatAssistant(deps ACPChatAssistantDeps) *ACPChatAssistant {
 		deps.ClientFactory = defaultACPClientFactory{}
 	}
 	return &ACPChatAssistant{
-		deps:       deps,
-		activeRuns: make(map[string]*activeChatRun),
+		deps:        deps,
+		activeRuns:  make(map[string]*activeChatRun),
+		sessionPool: make(map[string]*pooledChatSession),
 	}
 }
 
@@ -110,86 +173,139 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		return ChatAssistantResponse{}, errors.New("chat role is required")
 	}
 
-	agent, role, err := roleResolver.Resolve(roleID)
-	if err != nil {
-		return ChatAssistantResponse{}, fmt.Errorf("resolve chat role %q: %w", roleID, err)
+	chatSessionID := strings.TrimSpace(req.ChatSessionID)
+
+	// Try reusing a pooled ACP session.
+	pooled := a.getPooledSession(chatSessionID)
+	if pooled != nil {
+		pooled.stopIdleTimer()
 	}
 
-	launchCfg := acpclient.LaunchConfig{
-		Command: strings.TrimSpace(agent.LaunchCommand),
-		Args:    cloneStrings(agent.LaunchArgs),
-		WorkDir: strings.TrimSpace(req.WorkDir),
-		Env:     cloneStringMap(agent.Env),
-	}
-	if launchCfg.Command == "" {
-		return ChatAssistantResponse{}, fmt.Errorf("chat role %q resolved empty launch command", roleID)
-	}
-	if isAgentSDKInprocLaunch(launchCfg.Command) && launchCfg.WorkDir == "" {
-		return ChatAssistantResponse{}, errors.New("workdir is required for agentsdk-inproc")
-	}
-
-	runCtx, cancel := withDefaultTimeout(ctx, a.deps.Timeout)
-	defer cancel()
-
-	handler := teamleader.NewACPHandler(launchCfg.WorkDir, strings.TrimSpace(req.AgentSessionID), a.deps.EventPublisher)
-	handler.SetProjectID(strings.TrimSpace(req.ProjectID))
-	handler.SetChatSessionID(strings.TrimSpace(req.ChatSessionID))
-	handler.SetPermissionPolicy(role.PermissionPolicy)
-	handler.SetRunEventRecorder(a.deps.RunEventRecorder)
-	client, err := a.deps.ClientFactory.New(runCtx, launchCfg, handler, role.Capabilities)
-	if err != nil {
-		return ChatAssistantResponse{}, fmt.Errorf("create acp client: %w", err)
-	}
-	defer closeACPClient(client)
-
-	session, err := startWebChatSession(
-		runCtx,
-		client,
-		roleID,
-		role,
-		strings.TrimSpace(req.AgentSessionID),
-		launchCfg.WorkDir,
-		a.deps.MCPEnv,
-	)
-	if err != nil {
-		return ChatAssistantResponse{}, err
-	}
-	handler.SetSessionID(string(session))
-	if chatSessionID := strings.TrimSpace(req.ChatSessionID); chatSessionID != "" {
-		agentSessionID := strings.TrimSpace(string(session))
-		if agentSessionID == "" {
-			agentSessionID = strings.TrimSpace(req.AgentSessionID)
+	if pooled == nil {
+		// Create a new ACP client and session.
+		agent, role, err := roleResolver.Resolve(roleID)
+		if err != nil {
+			return ChatAssistantResponse{}, fmt.Errorf("resolve chat role %q: %w", roleID, err)
 		}
+
+		launchCfg := acpclient.LaunchConfig{
+			Command: strings.TrimSpace(agent.LaunchCommand),
+			Args:    cloneStrings(agent.LaunchArgs),
+			WorkDir: strings.TrimSpace(req.WorkDir),
+			Env:     cloneStringMap(agent.Env),
+		}
+		if launchCfg.Command == "" {
+			return ChatAssistantResponse{}, fmt.Errorf("chat role %q resolved empty launch command", roleID)
+		}
+		if isAgentSDKInprocLaunch(launchCfg.Command) && launchCfg.WorkDir == "" {
+			return ChatAssistantResponse{}, errors.New("workdir is required for agentsdk-inproc")
+		}
+
+		handler := teamleader.NewACPHandler(launchCfg.WorkDir, strings.TrimSpace(req.AgentSessionID), a.deps.EventPublisher)
+		handler.SetProjectID(strings.TrimSpace(req.ProjectID))
+		handler.SetChatSessionID(chatSessionID)
+		handler.SetPermissionPolicy(role.PermissionPolicy)
+		handler.SetRunEventRecorder(a.deps.RunEventRecorder)
+
+		createCtx, createCancel := context.WithTimeout(context.Background(), a.deps.Timeout)
+		defer createCancel()
+
+		client, err := a.deps.ClientFactory.New(createCtx, launchCfg, handler, role.Capabilities)
+		if err != nil {
+			return ChatAssistantResponse{}, fmt.Errorf("create acp client: %w", err)
+		}
+
+		session, err := startWebChatSession(
+			createCtx, client, roleID, role,
+			strings.TrimSpace(req.AgentSessionID),
+			launchCfg.WorkDir, a.deps.MCPEnv,
+		)
+		if err != nil {
+			closeACPClient(client)
+			return ChatAssistantResponse{}, err
+		}
+		handler.SetSessionID(string(session))
+
+		pooled = &pooledChatSession{
+			client:    client,
+			sessionID: session,
+			roleID:    roleID,
+			workDir:   launchCfg.WorkDir,
+			handler:   handler,
+		}
+	}
+
+	// Register active run for cancel support.
+	promptCtx, promptCancel := withDefaultTimeout(ctx, a.deps.Timeout)
+	defer promptCancel()
+
+	agentSessionID := strings.TrimSpace(string(pooled.sessionID))
+	if agentSessionID == "" {
+		agentSessionID = strings.TrimSpace(req.AgentSessionID)
+	}
+	if chatSessionID != "" {
 		a.setActiveRun(chatSessionID, &activeChatRun{
-			client:         client,
+			client:         pooled.client,
 			agentSessionID: agentSessionID,
-			cancel:         cancel,
+			cancel:         promptCancel,
 		})
 		defer a.clearActiveRun(chatSessionID)
 	}
 
-	result, err := client.Prompt(runCtx, acpproto.PromptRequest{
-		SessionId: session,
+	result, err := pooled.client.Prompt(promptCtx, acpproto.PromptRequest{
+		SessionId: pooled.sessionID,
 		Prompt: []acpproto.ContentBlock{
 			{Text: &acpproto.ContentBlockText{Text: message}},
 		},
 		Meta: map[string]any{
-			"role_id": roleID,
+			"role_id": pooled.roleID,
 		},
 	})
+	if pooled.handler != nil {
+		if flushErr := pooled.handler.FlushPendingChatRunEvents(); flushErr != nil {
+			log.Printf("[chat] flush pending acp chunk events failed session_id=%s err=%v", chatSessionID, flushErr)
+		}
+	}
 	if err != nil {
+		if chatSessionID != "" {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				// Prompt was cancelled/timed out but ACP process may be fine — keep pooled.
+				a.poolSession(chatSessionID, pooled)
+			} else {
+				a.removePooledSession(chatSessionID)
+			}
+		} else {
+			pooled.close()
+		}
 		return ChatAssistantResponse{}, fmt.Errorf("acp prompt failed: %w", err)
 	}
 	if result == nil {
+		if chatSessionID != "" {
+			a.removePooledSession(chatSessionID)
+		} else {
+			pooled.close()
+		}
 		return ChatAssistantResponse{}, errors.New("acp prompt returned empty result")
 	}
 
 	reply := strings.TrimSpace(result.Text)
 	if reply == "" {
+		if chatSessionID != "" {
+			a.removePooledSession(chatSessionID)
+		} else {
+			pooled.close()
+		}
 		return ChatAssistantResponse{}, errors.New("chat assistant returned empty reply")
 	}
 
-	sessionID := strings.TrimSpace(string(session))
+	// Success — pool the session for reuse.
+	if chatSessionID != "" {
+		a.poolSession(chatSessionID, pooled)
+	} else {
+		pooled.close()
+	}
+
+	sessionID := agentSessionID
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(req.AgentSessionID)
 	}
@@ -246,7 +362,7 @@ func startWebChatSession(
 		"role_id": roleID,
 	}
 	trimmedCWD := strings.TrimSpace(cwd)
-	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
+	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, client.SupportsSSEMCP())
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
 		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(sessionID),
@@ -355,6 +471,87 @@ func (a *ACPChatAssistant) clearActiveRun(chatSessionID string) {
 	a.activeMu.Lock()
 	defer a.activeMu.Unlock()
 	delete(a.activeRuns, strings.TrimSpace(chatSessionID))
+}
+
+// --- session pool management ---
+
+func (a *ACPChatAssistant) getPooledSession(chatSessionID string) *pooledChatSession {
+	key := strings.TrimSpace(chatSessionID)
+	if key == "" {
+		return nil
+	}
+	a.poolMu.Lock()
+	defer a.poolMu.Unlock()
+	ps := a.sessionPool[key]
+	if ps != nil && ps.isClosed() {
+		delete(a.sessionPool, key)
+		return nil
+	}
+	return ps
+}
+
+func (a *ACPChatAssistant) setPooledSession(chatSessionID string, ps *pooledChatSession) {
+	key := strings.TrimSpace(chatSessionID)
+	if key == "" || ps == nil {
+		return
+	}
+	a.poolMu.Lock()
+	defer a.poolMu.Unlock()
+	if old, exists := a.sessionPool[key]; exists && old != ps {
+		old.close()
+	}
+	a.sessionPool[key] = ps
+}
+
+func (a *ACPChatAssistant) removePooledSession(chatSessionID string) {
+	key := strings.TrimSpace(chatSessionID)
+	if key == "" {
+		return
+	}
+	a.poolMu.Lock()
+	ps, exists := a.sessionPool[key]
+	if exists {
+		delete(a.sessionPool, key)
+	}
+	a.poolMu.Unlock()
+	if ps != nil {
+		ps.close()
+	}
+}
+
+func (a *ACPChatAssistant) poolSession(chatSessionID string, ps *pooledChatSession) {
+	a.setPooledSession(chatSessionID, ps)
+	ps.resetIdleTimer(chatSessionIdleTimeout, func() {
+		a.removePooledSession(chatSessionID)
+	})
+}
+
+// IsChatSessionAlive reports whether a pooled ACP session exists for the given chat session.
+func (a *ACPChatAssistant) IsChatSessionAlive(chatSessionID string) bool {
+	ps := a.getPooledSession(chatSessionID)
+	return ps != nil
+}
+
+// IsChatSessionRunning reports whether the chat session is currently processing a prompt.
+func (a *ACPChatAssistant) IsChatSessionRunning(chatSessionID string) bool {
+	return a.getActiveRun(chatSessionID) != nil
+}
+
+// ShutdownSessions closes all pooled ACP sessions.
+func (a *ACPChatAssistant) ShutdownSessions() {
+	if a == nil {
+		return
+	}
+	a.poolMu.Lock()
+	sessions := make([]*pooledChatSession, 0, len(a.sessionPool))
+	for key, ps := range a.sessionPool {
+		sessions = append(sessions, ps)
+		delete(a.sessionPool, key)
+	}
+	a.poolMu.Unlock()
+	for _, ps := range sessions {
+		ps.close()
+	}
 }
 
 func newLegacyProviderRoleResolver(

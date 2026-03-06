@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/config"
-	"gopkg.in/yaml.v3"
 )
 
 func cmdConfigInit(args []string) error {
@@ -34,7 +33,7 @@ func cmdConfigInit(args []string) error {
 		return err
 	}
 
-	cfgPath := filepath.Join(dataDir, "config.yaml")
+	cfgPath := filepath.Join(dataDir, "config.toml")
 	if !force {
 		if _, err := os.Stat(cfgPath); err == nil {
 			return fmt.Errorf("config already exists: %s (use --force to overwrite)", cfgPath)
@@ -51,15 +50,19 @@ func cmdConfigInit(args []string) error {
 		return err
 	}
 	fmt.Printf("Config initialized: %s\n", cfgPath)
+
+	// Generate secrets.toml with admin token.
+	secretsPath := filepath.Join(dataDir, "secrets.toml")
+	secrets, _ := config.LoadSecrets(secretsPath)
+	if config.EnsureSecrets(secrets) {
+		if err := config.SaveSecrets(secretsPath, secrets); err != nil {
+			return fmt.Errorf("save secrets: %w", err)
+		}
+		fmt.Printf("Secrets initialized: %s (admin token: %s)\n", secretsPath, secrets.AdminToken())
+	}
 	return nil
 }
 
 func loadDefaultConfigTemplate() ([]byte, error) {
-	cfg := config.Defaults()
-	encoded, err := yaml.Marshal(&cfg)
-	if err != nil {
-		return nil, fmt.Errorf("marshal default config: %w", err)
-	}
-	header := []byte("# Auto-generated fallback config template.\n")
-	return append(header, encoded...), nil
+	return config.DefaultsTOML(), nil
 }

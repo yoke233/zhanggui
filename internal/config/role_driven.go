@@ -14,10 +14,6 @@ func validateConfig(cfg *Config) error {
 		return nil
 	}
 
-	if cfg.A2A.Enabled && strings.TrimSpace(cfg.A2A.Token) == "" {
-		return fmt.Errorf("a2a.enabled=true requires non-empty a2a.token")
-	}
-
 	if !hasRoleDrivenData(cfg) {
 		return nil
 	}

@@ -127,25 +127,26 @@ func (h *Hub) Broadcast(msg WSMessage) {
 
 	if isChatSessionEventType(msg.Type) {
 		sessionID := resolveSessionIDFromMessage(msg)
-		if sessionID == "" {
-			return
-		}
-
-		h.mu.Lock()
-		subscribers := h.chatSessionSubs[sessionID]
-		if len(subscribers) == 0 {
-			h.appendChatSessionEventCacheLocked(sessionID, payload)
+		if sessionID != "" {
+			// Chat-initiated run event: route to session subscribers only.
+			h.mu.Lock()
+			subscribers := h.chatSessionSubs[sessionID]
+			if len(subscribers) == 0 {
+				h.appendChatSessionEventCacheLocked(sessionID, payload)
+				h.mu.Unlock()
+				return
+			}
+			for client := range subscribers {
+				select {
+				case client.send <- payload:
+				default:
+				}
+			}
 			h.mu.Unlock()
 			return
 		}
-		for client := range subscribers {
-			select {
-			case client.send <- payload:
-			default:
-			}
-		}
-		h.mu.Unlock()
-		return
+		// No session_id: fall through to normal broadcast so non-chat
+		// run events (webhook-triggered, CLI, etc.) reach all clients.
 	}
 
 	h.mu.RLock()

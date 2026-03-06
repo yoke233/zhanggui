@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
@@ -70,6 +71,13 @@ type RunExecutor interface {
 	ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
+// StageSessionManager provides stage-level ACP session lifecycle operations.
+type StageSessionManager interface {
+	GetStageSessionStatus(runID string, stage core.StageID) core.StageSessionStatus
+	WakeStageSession(ctx context.Context, runID string, stage core.StageID) (string, error)
+	PromptStageSession(ctx context.Context, runID string, stage core.StageID, message string) error
+}
+
 // A2ABridge defines A2A task bridge methods.
 type A2ABridge interface {
 	SendMessage(ctx context.Context, input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error)
@@ -86,14 +94,12 @@ type WebhookDeliveryReplayer interface {
 // Config controls web server behavior.
 type Config struct {
 	Addr                   string
-	AuthEnabled            bool
-	BearerToken            string
+	Token                  string // legacy single token; upgraded to Auth with wildcard scope
+	Auth                   *TokenRegistry // scope-based token auth for all endpoints
 	WebhookSecret          string
 	AllowedOrigins         []string
 	A2AEnabled             bool
-	A2AToken               string
 	A2AVersion             string
-	A2AAuth                *A2AAuthConfig
 	A2ABridge              A2ABridge
 	Frontend               fs.FS
 	Store                  core.Store
@@ -101,6 +107,7 @@ type Config struct {
 	ChatAssistant          ChatAssistant
 	EventPublisher         chatEventPublisher
 	RunExec                RunExecutor
+	StageSessionMgr        StageSessionManager
 	RunstageRoles          map[string]string
 	IssueParserRoleID      string
 	WebhookReplayer        WebhookDeliveryReplayer
@@ -146,6 +153,14 @@ func NewServer(cfg Config) *Server {
 	if cfg.Addr == "" {
 		cfg.Addr = ":8080"
 	}
+	if cfg.Auth == nil && strings.TrimSpace(cfg.Token) != "" {
+		cfg.Auth = NewTokenRegistry(map[string]config.TokenEntry{
+			"legacy": {
+				Token:  strings.TrimSpace(cfg.Token),
+				Scopes: []string{ScopeAll},
+			},
+		})
+	}
 	hub := cfg.Hub
 	if hub == nil {
 		hub = NewHub()
@@ -170,21 +185,41 @@ func NewServer(cfg Config) *Server {
 	r.Use(CORSMiddleware(cfg.AllowedOrigins))
 
 	r.Get("/health", handleHealth)
-	r.Get("/api/v1/health", handleHealth)
-	registerA2ARoutes(r, cfg)
-	registerMCPRoutes(r, cfg)
-	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.RunExec, strings.TrimSpace(cfg.WebhookSecret), cfg.RunstageRoles, cfg.SCM)
-	if cfg.WebhookReplayer != nil {
-		webhookReplayer = cfg.WebhookReplayer
+
+	// Public routes (no auth)
+	if cfg.A2AEnabled {
+		r.Get("/.well-known/agent-card.json", handleA2AAgentCard(cfg))
 	}
-	issueManager := cfg.IssueManager
-	issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
-	r.Route("/api/v3", func(r chi.Router) {
-		if cfg.AuthEnabled {
-			r.Use(BearerAuthMiddleware(cfg.BearerToken))
+
+	// All API routes under /api/v1 with unified auth
+	r.Route("/api/v1", func(r chi.Router) {
+		// Health — public (no auth)
+		r.Get("/health", handleHealth)
+
+		// Webhook — uses its own HMAC auth, no token auth
+		webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.RunExec, strings.TrimSpace(cfg.WebhookSecret), cfg.RunstageRoles, cfg.SCM)
+		if cfg.WebhookReplayer != nil {
+			webhookReplayer = cfg.WebhookReplayer
 		}
-		registerV3Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles,
-			hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, cfg.BearerToken, webhookReplayer, cfg.RestartFunc)
+
+		// Authenticated routes
+		r.Group(func(r chi.Router) {
+			if cfg.Auth != nil && !cfg.Auth.IsEmpty() {
+				r.Use(TokenAuthMiddleware(cfg.Auth))
+			}
+
+			// A2A endpoint
+			registerA2ARoutes(r, cfg)
+
+			// MCP endpoint
+			registerMCPRoutes(r, cfg)
+
+			// REST API
+			issueManager := cfg.IssueManager
+			issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
+			registerV1Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.StageSessionMgr, cfg.RunstageRoles,
+				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc)
+		})
 	})
 	if frontendFS != nil {
 		spa := newSPAFallbackHandler(frontendFS)

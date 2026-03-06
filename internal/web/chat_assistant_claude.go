@@ -31,6 +31,12 @@ type ChatAssistantCanceler interface {
 	CancelChat(chatSessionID string) error
 }
 
+// ChatSessionStatusProvider reports liveness of pooled ACP chat sessions.
+type ChatSessionStatusProvider interface {
+	IsChatSessionAlive(chatSessionID string) bool
+	IsChatSessionRunning(chatSessionID string) bool
+}
+
 // ClaudeChatAssistant starts ACP sessions through role-driven resolver and returns one reply turn.
 type ClaudeChatAssistant struct {
 	assistant *ACPChatAssistant

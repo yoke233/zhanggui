@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func TestFactoryNoCoreCommunicationSlotDependency(t *testing.T) {
@@ -27,6 +28,7 @@ func TestFactoryNoCoreCommunicationSlotDependency(t *testing.T) {
 
 func TestFactoryBuildKnownPlugin(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
 
 	set, err := BuildFromConfig(cfg)
@@ -75,6 +77,7 @@ func TestFactoryBuildKnownPlugin(t *testing.T) {
 
 func TestFactoryBuildsRoleResolver(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
 
 	set, err := BuildFromConfig(cfg)
@@ -95,8 +98,68 @@ func TestFactoryBuildsRoleResolver(t *testing.T) {
 	}
 }
 
+func TestFactoryBuildsRoleResolver_TeamLeaderMCPTools(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
+	cfg.Store.Path = ":memory:"
+
+	set, err := BuildFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("BuildFromConfig returned error: %v", err)
+	}
+	defer set.Store.Close()
+
+	_, role, err := set.RoleResolver.Resolve("team_leader")
+	if err != nil {
+		t.Fatalf("resolve team_leader failed: %v", err)
+	}
+	if len(role.MCPTools) == 0 {
+		t.Fatal("expected team_leader role to have MCPTools configured from Defaults()")
+	}
+	// Verify key tools are present.
+	wantTools := map[string]bool{
+		"query_projects":       false,
+		"query_project_detail": false,
+		"query_issues":         false,
+		"query_issue_detail":   false,
+	}
+	for _, tool := range role.MCPTools {
+		if _, ok := wantTools[tool]; ok {
+			wantTools[tool] = true
+		}
+	}
+	for tool, found := range wantTools {
+		if !found {
+			t.Errorf("expected MCPTools to contain %q, got %v", tool, role.MCPTools)
+		}
+	}
+
+	// Verify MCPToolsFromRoleConfig produces non-nil servers.
+	mcpEnv := teamleader.MCPEnvConfig{
+		DBPath:     "/tmp/test.db",
+		ServerAddr: "http://127.0.0.1:8080",
+	}
+	servers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, true)
+	if len(servers) == 0 {
+		t.Fatal("expected MCPToolsFromRoleConfig to return at least 1 McpServer for team_leader")
+	}
+	if servers[0].Sse == nil {
+		t.Fatal("expected SSE mode McpServer when ServerAddr is set")
+	}
+
+	// Without SSE support, should fallback to stdio.
+	stdioServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, false)
+	if len(stdioServers) == 0 {
+		t.Fatal("expected MCPToolsFromRoleConfig to return at least 1 McpServer for team_leader (stdio fallback)")
+	}
+	if stdioServers[0].Stdio == nil {
+		t.Fatal("expected stdio fallback when SSE not supported")
+	}
+}
+
 func TestFactoryBuildsRoleResolver_TrimmedNamesResolve(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
 	cfg.Roles = []config.RoleConfig{
 		{
@@ -151,6 +214,7 @@ func TestFactoryBuildsRoleResolver_TrimmedNamesResolve(t *testing.T) {
 
 func TestFactoryBuildUnknownPlugin(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Driver = "unknown-driver"
 	cfg.Store.Path = ":memory:"
 
@@ -165,6 +229,7 @@ func TestFactoryBuildUnknownPlugin(t *testing.T) {
 
 func TestFactoryBuildReviewGateCanSwitchToLocal(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
 	cfg.TeamLeader.ReviewGatePlugin = "review-local"
 
@@ -220,6 +285,7 @@ func TestFactory_GitHubDisabled_UsesLocalDefaults(t *testing.T) {
 
 func TestFactory_GitHubEnabled_BuildFromConfigSelectsTrackerAndSCMPlugins(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.A2A.Token = "test-token"
 	cfg.Store.Path = ":memory:"
 	cfg.GitHub.Enabled = true
 	cfg.GitHub.Token = "ghp_test_token"

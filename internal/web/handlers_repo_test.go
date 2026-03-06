@@ -19,7 +19,7 @@ func TestRepoHandlersProjectNotFound(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-not-found/repo/status")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-not-found/repo/status")
 	if err != nil {
 		t.Fatalf("GET /repo/status: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestRepoHandlersRepoPathRequired(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-path-required/repo/status")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-path-required/repo/status")
 	if err != nil {
 		t.Fatalf("GET /repo/status: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestRepoHandlersDiffPathValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-diff-validate/repo/diff?" + tc.query)
+			resp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-diff-validate/repo/diff?" + tc.query)
 			if err != nil {
 				t.Fatalf("GET /repo/diff: %v", err)
 			}
@@ -153,7 +153,7 @@ func TestRepoHandlersTreeRejectsGitMetadataPath(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-tree-validate/repo/tree?dir=.git")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-tree-validate/repo/tree?dir=.git")
 	if err != nil {
 		t.Fatalf("GET /repo/tree: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestRepoHandlersHappyPath(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	treeResp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-happy/repo/tree?dir=.")
+	treeResp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-happy/repo/tree?dir=.")
 	if err != nil {
 		t.Fatalf("GET /repo/tree: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestRepoHandlersHappyPath(t *testing.T) {
 		t.Fatal("expected non-empty tree items")
 	}
 
-	statusResp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-happy/repo/status")
+	statusResp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-happy/repo/status")
 	if err != nil {
 		t.Fatalf("GET /repo/status: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestRepoHandlersHappyPath(t *testing.T) {
 		t.Fatal("expected non-empty status items")
 	}
 
-	diffResp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-happy/repo/diff?file=README.md")
+	diffResp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-happy/repo/diff?file=README.md")
 	if err != nil {
 		t.Fatalf("GET /repo/diff: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestRepoHandlersDiffNoHeadStagedFile(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	diffResp, err := http.Get(ts.URL + "/api/v3/projects/proj-repo-nohead-staged/repo/diff?file=staged.txt")
+	diffResp, err := http.Get(ts.URL + "/api/v1/projects/proj-repo-nohead-staged/repo/diff?file=staged.txt")
 	if err != nil {
 		t.Fatalf("GET /repo/diff: %v", err)
 	}

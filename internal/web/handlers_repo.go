@@ -31,9 +31,9 @@ type repoDiffResponse struct {
 
 func registerRepoRoutes(r chi.Router, store core.Store) {
 	h := &repoHandlers{store: store}
-	r.Get("/projects/{projectID}/repo/tree", h.getRepoTree)
-	r.Get("/projects/{projectID}/repo/status", h.getRepoStatus)
-	r.Get("/projects/{projectID}/repo/diff", h.getRepoDiff)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects/{projectID}/repo/tree", h.getRepoTree)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects/{projectID}/repo/status", h.getRepoStatus)
+	r.With(RequireScope(ScopeProjectsRead)).Get("/projects/{projectID}/repo/diff", h.getRepoDiff)
 }
 
 func (h *repoHandlers) getRepoTree(w http.ResponseWriter, r *http.Request) {

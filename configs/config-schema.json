@@ -1,0 +1,708 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/Config",
+  "$defs": {
+    "A2AConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用 A2A 协议"
+        },
+        "token": {
+          "type": "string",
+          "description": "认证 token（自动生成到 secrets.yaml）"
+        },
+        "version": {
+          "type": "string",
+          "description": "A2A 协议版本"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "token",
+        "version"
+      ]
+    },
+    "AgentConfig": {
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "binary": {
+          "type": "string"
+        },
+        "default_max_turns": {
+          "type": "integer"
+        },
+        "default_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "sandbox": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        },
+        "capabilities_max": {
+          "$ref": "#/$defs/CapabilitiesConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "plugin",
+        "binary",
+        "default_max_turns",
+        "default_tools",
+        "model",
+        "reasoning",
+        "sandbox",
+        "approval",
+        "capabilities_max"
+      ]
+    },
+    "AgentProfileConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Agent 标识符（唯一）"
+        },
+        "launch_command": {
+          "type": "string",
+          "description": "启动命令（如 npx）"
+        },
+        "launch_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "启动参数列表"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "注入的环境变量"
+        },
+        "capabilities_max": {
+          "$ref": "#/$defs/CapabilitiesConfig",
+          "description": "能力上限（角色能力不能超出此上限）"
+        }
+      },
+      "type": "object",
+      "required": [
+        "name",
+        "launch_command",
+        "launch_args",
+        "env",
+        "capabilities_max"
+      ]
+    },
+    "AgentsConfig": {
+      "properties": {
+        "claude": {
+          "$ref": "#/$defs/AgentConfig"
+        },
+        "codex": {
+          "$ref": "#/$defs/AgentConfig"
+        },
+        "openspec": {
+          "$ref": "#/$defs/AgentConfig"
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/AgentProfileConfig"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "claude",
+        "codex",
+        "openspec",
+        "profiles"
+      ]
+    },
+    "CapabilitiesConfig": {
+      "properties": {
+        "fs_read": {
+          "type": "boolean",
+          "description": "文件系统读权限"
+        },
+        "fs_write": {
+          "type": "boolean",
+          "description": "文件系统写权限"
+        },
+        "terminal": {
+          "type": "boolean",
+          "description": "终端执行权限"
+        }
+      },
+      "type": "object",
+      "required": [
+        "fs_read",
+        "fs_write",
+        "terminal"
+      ]
+    },
+    "Config": {
+      "properties": {
+        "agents": {
+          "$ref": "#/$defs/AgentsConfig"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleConfig"
+          },
+          "type": "array"
+        },
+        "role_bindings": {
+          "$ref": "#/$defs/RoleBindings"
+        },
+        "run": {
+          "$ref": "#/$defs/RunConfig"
+        },
+        "scheduler": {
+          "$ref": "#/$defs/SchedulerConfig"
+        },
+        "team_leader": {
+          "$ref": "#/$defs/TeamLeaderConfig"
+        },
+        "a2a": {
+          "$ref": "#/$defs/A2AConfig"
+        },
+        "server": {
+          "$ref": "#/$defs/ServerConfig"
+        },
+        "github": {
+          "$ref": "#/$defs/GitHubConfig"
+        },
+        "store": {
+          "$ref": "#/$defs/StoreConfig"
+        },
+        "context": {
+          "$ref": "#/$defs/ContextConfig"
+        },
+        "log": {
+          "$ref": "#/$defs/LogConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "agents",
+        "roles",
+        "role_bindings",
+        "run",
+        "scheduler",
+        "team_leader",
+        "a2a",
+        "server",
+        "github",
+        "store",
+        "context",
+        "log"
+      ]
+    },
+    "ContextConfig": {
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "上下文提供者（context-sqlite / mock / 空=禁用）"
+        },
+        "path": {
+          "type": "string",
+          "description": "SQLite 文件路径"
+        }
+      },
+      "type": "object",
+      "required": [
+        "provider",
+        "path"
+      ]
+    },
+    "DAGSchedulerConfig": {
+      "properties": {
+        "max_concurrent_tasks": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "required": [
+        "max_concurrent_tasks"
+      ]
+    },
+    "GitHubConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用 GitHub 集成"
+        },
+        "token": {
+          "type": "string",
+          "description": "GitHub PAT（或通过 secrets.yaml）"
+        },
+        "app_id": {
+          "type": "integer",
+          "description": "GitHub App ID"
+        },
+        "private_key_path": {
+          "type": "string",
+          "description": "GitHub App 私钥路径"
+        },
+        "installation_id": {
+          "type": "integer",
+          "description": "GitHub App 安装 ID"
+        },
+        "owner": {
+          "type": "string",
+          "description": "仓库 owner"
+        },
+        "repo": {
+          "type": "string",
+          "description": "仓库名"
+        },
+        "webhook_secret": {
+          "type": "string",
+          "description": "Webhook 签名密钥"
+        },
+        "webhook_enabled": {
+          "type": "boolean",
+          "description": "是否接收 Webhook"
+        },
+        "pr_enabled": {
+          "type": "boolean",
+          "description": "是否启用 PR 管理"
+        },
+        "label_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "authorized_usernames": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "auto_trigger": {
+          "type": "boolean",
+          "description": "Issue 创建时自动触发 run"
+        },
+        "allow_pat_fallback": {
+          "type": "boolean",
+          "description": "App 认证失败时回退到 PAT"
+        },
+        "pr": {
+          "$ref": "#/$defs/GitHubPRConfig",
+          "description": "PR 自动化设置"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "token",
+        "app_id",
+        "private_key_path",
+        "installation_id",
+        "owner",
+        "repo",
+        "webhook_secret",
+        "webhook_enabled",
+        "pr_enabled",
+        "label_mapping",
+        "authorized_usernames",
+        "auto_trigger",
+        "allow_pat_fallback",
+        "pr"
+      ]
+    },
+    "GitHubPRConfig": {
+      "properties": {
+        "auto_create": {
+          "type": "boolean",
+          "description": "自动创建 PR"
+        },
+        "draft": {
+          "type": "boolean",
+          "description": "创建为草稿 PR"
+        },
+        "auto_merge": {
+          "type": "boolean",
+          "description": "自动合并"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "指定 reviewer"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "PR 标签"
+        },
+        "branch_prefix": {
+          "type": "string",
+          "description": "分支名前缀"
+        }
+      },
+      "type": "object",
+      "required": [
+        "auto_create",
+        "draft",
+        "auto_merge",
+        "reviewers",
+        "labels",
+        "branch_prefix"
+      ]
+    },
+    "LogConfig": {
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "日志级别（debug / info / warn / error）"
+        },
+        "file": {
+          "type": "string",
+          "description": "日志文件路径"
+        },
+        "max_size_mb": {
+          "type": "integer",
+          "description": "单个日志文件最大 MB"
+        },
+        "max_age_days": {
+          "type": "integer",
+          "description": "日志保留天数"
+        }
+      },
+      "type": "object",
+      "required": [
+        "level",
+        "file",
+        "max_size_mb",
+        "max_age_days"
+      ]
+    },
+    "MCPConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用 MCP 工具注入"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "注入的 MCP 工具名列表"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "tools"
+      ]
+    },
+    "PermissionRule": {
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "pattern",
+        "action",
+        "scope"
+      ]
+    },
+    "ReviewOrchestratorConfig": {
+      "properties": {
+        "max_rounds": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "required": [
+        "max_rounds"
+      ]
+    },
+    "ReviewRoleBindings": {
+      "properties": {
+        "reviewers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "aggregator": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "reviewers",
+        "aggregator"
+      ]
+    },
+    "RoleBindings": {
+      "properties": {
+        "team_leader": {
+          "$ref": "#/$defs/SingleRoleBinding"
+        },
+        "run": {
+          "$ref": "#/$defs/RunRoleBindings"
+        },
+        "review_orchestrator": {
+          "$ref": "#/$defs/ReviewRoleBindings"
+        },
+        "plan_parser": {
+          "$ref": "#/$defs/SingleRoleBinding"
+        }
+      },
+      "type": "object",
+      "required": [
+        "team_leader",
+        "run",
+        "review_orchestrator",
+        "plan_parser"
+      ]
+    },
+    "RoleConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "角色名称（唯一）"
+        },
+        "agent": {
+          "type": "string",
+          "description": "引用的 agent 名称"
+        },
+        "prompt_template": {
+          "type": "string",
+          "description": "提示词模板名（对应 prompt_templates/{name}.tmpl）"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/CapabilitiesConfig",
+          "description": "角色能力（必须 ≤ agent capabilities_max）"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionConfig",
+          "description": "ACP 会话策略"
+        },
+        "permission_policy": {
+          "items": {
+            "$ref": "#/$defs/PermissionRule"
+          },
+          "type": "array",
+          "description": "文件/终端权限规则"
+        },
+        "mcp": {
+          "$ref": "#/$defs/MCPConfig",
+          "description": "MCP 工具注入配置"
+        }
+      },
+      "type": "object",
+      "required": [
+        "name",
+        "agent",
+        "prompt_template",
+        "capabilities",
+        "session",
+        "permission_policy",
+        "mcp"
+      ]
+    },
+    "RunConfig": {
+      "properties": {
+        "default_template": {
+          "type": "string",
+          "description": "默认 run 模板（standard / fast_release 等）"
+        },
+        "global_timeout": {
+          "type": "string",
+          "description": "单次 run 全局超时",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "auto_infer_template": {
+          "type": "boolean",
+          "description": "是否自动推断模板"
+        },
+        "max_total_retries": {
+          "type": "integer",
+          "description": "最大重试次数"
+        }
+      },
+      "type": "object",
+      "required": [
+        "default_template",
+        "global_timeout",
+        "auto_infer_template",
+        "max_total_retries"
+      ]
+    },
+    "RunRoleBindings": {
+      "properties": {
+        "stage_roles": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object",
+      "required": [
+        "stage_roles"
+      ]
+    },
+    "SchedulerConfig": {
+      "properties": {
+        "max_global_agents": {
+          "type": "integer",
+          "description": "全局最多同时运行的 agent 数"
+        },
+        "max_project_runs": {
+          "type": "integer",
+          "description": "每个项目最多的并发 run 数"
+        }
+      },
+      "type": "object",
+      "required": [
+        "max_global_agents",
+        "max_project_runs"
+      ]
+    },
+    "ServerConfig": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "监听地址（127.0.0.1 = 仅本地）"
+        },
+        "port": {
+          "type": "integer",
+          "description": "监听端口"
+        },
+        "auth_enabled": {
+          "type": "boolean",
+          "description": "是否启用 API 认证"
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "API 认证 token"
+        }
+      },
+      "type": "object",
+      "required": [
+        "host",
+        "port",
+        "auth_enabled",
+        "auth_token"
+      ]
+    },
+    "SessionConfig": {
+      "properties": {
+        "reuse": {
+          "type": "boolean",
+          "description": "是否复用 ACP session"
+        },
+        "prefer_load_session": {
+          "type": "boolean",
+          "description": "崩溃恢复优先 LoadSession"
+        },
+        "reset_prompt": {
+          "type": "boolean",
+          "description": "每次重发 system prompt"
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "单 session 最大交互轮数"
+        }
+      },
+      "type": "object",
+      "required": [
+        "reuse",
+        "prefer_load_session",
+        "reset_prompt",
+        "max_turns"
+      ]
+    },
+    "SingleRoleBinding": {
+      "properties": {
+        "role": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    },
+    "StoreConfig": {
+      "properties": {
+        "driver": {
+          "type": "string",
+          "description": "存储驱动（sqlite）"
+        },
+        "path": {
+          "type": "string",
+          "description": "数据库文件路径（相对项目根目录）"
+        }
+      },
+      "type": "object",
+      "required": [
+        "driver",
+        "path"
+      ]
+    },
+    "TeamLeaderConfig": {
+      "properties": {
+        "review_gate_plugin": {
+          "type": "string",
+          "description": "审核门插件（review-ai-panel / review-local / review-github-pr）"
+        },
+        "review_orchestrator": {
+          "$ref": "#/$defs/ReviewOrchestratorConfig",
+          "description": "多 agent 审核编排设置"
+        },
+        "dag_scheduler": {
+          "$ref": "#/$defs/DAGSchedulerConfig",
+          "description": "DAG 任务调度器设置"
+        }
+      },
+      "type": "object",
+      "required": [
+        "review_gate_plugin",
+        "review_orchestrator",
+        "dag_scheduler"
+      ]
+    }
+  },
+  "title": "AI Workflow Config",
+  "description": "ai-workflow 编排器配置 (.ai-workflow/config.toml)"
+}

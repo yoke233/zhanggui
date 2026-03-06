@@ -43,22 +43,21 @@ func TestAPIV1HealthEndpointReturns200(t *testing.T) {
 	}
 }
 
-func TestStatsEndpointReturns401WithoutTokenWhenAuthEnabled(t *testing.T) {
+func TestStatsEndpointReturns401WithoutToken(t *testing.T) {
 	srv := NewServer(Config{
-		AuthEnabled: true,
-		BearerToken: "test-token",
+		Token:       "test-token",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v3/stats", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/stats", nil)
 	if err != nil {
 		t.Fatalf("create request failed: %v", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/v3/stats failed: %v", err)
+		t.Fatalf("GET /api/v1/stats failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -68,15 +67,14 @@ func TestStatsEndpointReturns401WithoutTokenWhenAuthEnabled(t *testing.T) {
 	}
 }
 
-func TestStatsEndpointReturns200WithValidTokenWhenAuthEnabled(t *testing.T) {
+func TestStatsEndpointReturns200WithValidToken(t *testing.T) {
 	srv := NewServer(Config{
-		AuthEnabled: true,
-		BearerToken: "test-token",
+		Token:       "test-token",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v3/stats", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/stats", nil)
 	if err != nil {
 		t.Fatalf("create request failed: %v", err)
 	}
@@ -84,7 +82,7 @@ func TestStatsEndpointReturns200WithValidTokenWhenAuthEnabled(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/v3/stats failed: %v", err)
+		t.Fatalf("GET /api/v1/stats failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -99,9 +97,9 @@ func TestStatsEndpointSchema(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/stats")
+	resp, err := http.Get(ts.URL + "/api/v1/stats")
 	if err != nil {
-		t.Fatalf("GET /api/v3/stats failed: %v", err)
+		t.Fatalf("GET /api/v1/stats failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -333,9 +331,9 @@ func TestAPIRouteStillReturnsJSONWhenFrontendEnabled(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/stats")
+	resp, err := http.Get(ts.URL + "/api/v1/stats")
 	if err != nil {
-		t.Fatalf("GET /api/v3/stats failed: %v", err)
+		t.Fatalf("GET /api/v1/stats failed: %v", err)
 	}
 	defer resp.Body.Close()
 

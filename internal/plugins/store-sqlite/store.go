@@ -369,15 +369,15 @@ func (s *SQLiteStore) SaveCheckpoint(cp *core.Checkpoint) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO checkpoints (run_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		cp.RunID, cp.StageName, cp.Status, cp.AgentUsed, string(artifactsJSON), cp.TokensUsed, cp.RetryCount, cp.Error, cp.StartedAt, nullableTime(cp.FinishedAt),
+		`INSERT INTO checkpoints (run_id, stage, status, agent_used, agent_session_id, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		cp.RunID, cp.StageName, cp.Status, cp.AgentUsed, cp.AgentSessionID, string(artifactsJSON), cp.TokensUsed, cp.RetryCount, cp.Error, cp.StartedAt, nullableTime(cp.FinishedAt),
 	)
 	return err
 }
 
 func (s *SQLiteStore) GetCheckpoints(RunID string) ([]core.Checkpoint, error) {
 	rows, err := s.db.Query(
-		`SELECT run_id, stage, status, agent_used, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at FROM checkpoints WHERE run_id=? ORDER BY id`,
+		`SELECT run_id, stage, status, agent_used, agent_session_id, artifacts_json, tokens_used, retry_count, error_message, started_at, finished_at FROM checkpoints WHERE run_id=? ORDER BY id`,
 		RunID,
 	)
 	if err != nil {
@@ -392,7 +392,7 @@ func (s *SQLiteStore) GetCheckpoints(RunID string) ([]core.Checkpoint, error) {
 			artifactsJSON string
 			finishedAt    sql.NullTime
 		)
-		if err := rows.Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.TokensUsed, &cp.RetryCount, &cp.Error, &cp.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &cp.AgentSessionID, &artifactsJSON, &cp.TokensUsed, &cp.RetryCount, &cp.Error, &cp.StartedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(artifactsJSON), &cp.Artifacts); err != nil {
@@ -413,10 +413,10 @@ func (s *SQLiteStore) GetLastSuccessCheckpoint(RunID string) (*core.Checkpoint, 
 		finishedAt    sql.NullTime
 	)
 	err := s.db.QueryRow(
-		`SELECT run_id, stage, status, agent_used, artifacts_json, started_at, finished_at
+		`SELECT run_id, stage, status, agent_used, agent_session_id, artifacts_json, started_at, finished_at
 		 FROM checkpoints WHERE run_id=? AND status='success' ORDER BY id DESC LIMIT 1`,
 		RunID,
-	).Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &artifactsJSON, &cp.StartedAt, &finishedAt)
+	).Scan(&cp.RunID, &cp.StageName, &cp.Status, &cp.AgentUsed, &cp.AgentSessionID, &artifactsJSON, &cp.StartedAt, &finishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

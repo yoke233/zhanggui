@@ -1,4 +1,6 @@
 import type {
+  A2AListTasksParams,
+  A2AListTasksResponse,
   A2AMessageSendParams,
   A2ARpcResponse,
   A2AStreamEvent,
@@ -7,7 +9,7 @@ import type {
   A2ATaskQueryParams,
 } from "../types/a2a";
 
-type A2ARpcMethod = "message/send" | "tasks/get" | "tasks/cancel" | "message/stream";
+type A2ARpcMethod = "message/send" | "tasks/get" | "tasks/cancel" | "tasks/list" | "message/stream";
 
 export interface A2AClientOptions {
   baseUrl: string;
@@ -26,6 +28,7 @@ export interface A2AClient {
   sendMessage(params: A2AMessageSendParams, options?: A2ARequestOptions): Promise<A2ATask>;
   getTask(params: A2ATaskQueryParams, options?: A2ARequestOptions): Promise<A2ATask>;
   cancelTask(params: A2ATaskIDParams, options?: A2ARequestOptions): Promise<A2ATask>;
+  listTasks(params: A2AListTasksParams, options?: A2ARequestOptions): Promise<A2AListTasksResponse>;
   streamMessage(
     params: A2AMessageSendParams,
     options?: A2ARequestOptions,
@@ -250,6 +253,9 @@ export const createA2AClient = (options: A2AClientOptions): A2AClient => {
     },
     cancelTask: (params, requestOptions) => {
       return postJSONRPC<A2ATask>("tasks/cancel", params, requestOptions);
+    },
+    listTasks: (params, requestOptions) => {
+      return postJSONRPC<A2AListTasksResponse>("tasks/list", params, requestOptions);
     },
     streamMessage: async (params, requestOptions) => {
       const headers = buildHeaders();

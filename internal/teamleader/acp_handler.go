@@ -49,9 +49,21 @@ type ACPHandler struct {
 	changedSet  map[string]struct{}
 	changedList []string
 
+	runEventMu        sync.Mutex
+	pendingChunkEvent *pendingChatRunChunkEvent
+
 	terminalSeq atomic.Uint64
 	terminalMu  sync.Mutex
 	terminals   map[string]*acpTerminalState
+}
+
+type pendingChatRunChunkEvent struct {
+	updateType     string
+	sessionID      string
+	projectID      string
+	agentSessionID string
+	text           string
+	createdAt      time.Time
 }
 
 type acpTerminalState struct {
@@ -391,34 +403,45 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	}
 
 	updateType := strings.TrimSpace(update.Type)
-	if recorder != nil && !isACPChunkUpdateType(updateType) && chatSessionID != "" && projectID != "" {
-		payload := map[string]any{
-			"session_id":       chatSessionID,
-			"agent_session_id": agentSessionID,
-		}
-		if text := strings.TrimSpace(update.Text); text != "" {
-			payload["text"] = text
-		}
-		if status := strings.TrimSpace(update.Status); status != "" {
-			payload["status"] = status
-		}
-		if rawUpdate := strings.TrimSpace(update.RawUpdateJSON); rawUpdate != "" {
-			var acpPayload any
-			if err := json.Unmarshal([]byte(rawUpdate), &acpPayload); err == nil {
-				payload["acp"] = acpPayload
-			} else {
-				payload["acp_raw"] = rawUpdate
+	if recorder != nil && chatSessionID != "" && projectID != "" {
+		if isAggregatedACPChunkUpdateType(updateType) {
+			if err := h.appendPendingChatRunChunk(projectID, chatSessionID, agentSessionID, update); err != nil {
+				log.Printf("[acp] aggregate chat run chunk failed project_id=%s session_id=%s update_type=%s err=%v", projectID, chatSessionID, updateType, err)
 			}
-		}
-		if err := recorder.AppendChatRunEvent(core.ChatRunEvent{
-			SessionID:  chatSessionID,
-			ProjectID:  projectID,
-			EventType:  string(core.EventRunUpdate),
-			UpdateType: updateType,
-			Payload:    payload,
-			CreatedAt:  time.Now().UTC(),
-		}); err != nil {
-			log.Printf("[acp] persist chat run event failed project_id=%s session_id=%s update_type=%s err=%v", projectID, chatSessionID, updateType, err)
+		} else {
+			if err := h.FlushPendingChatRunEvents(); err != nil {
+				log.Printf("[acp] flush pending chat run chunks failed project_id=%s session_id=%s err=%v", projectID, chatSessionID, err)
+			}
+			if !isACPChunkUpdateType(updateType) {
+				payload := map[string]any{
+					"session_id":       chatSessionID,
+					"agent_session_id": agentSessionID,
+				}
+				if text := strings.TrimSpace(update.Text); text != "" {
+					payload["text"] = text
+				}
+				if status := strings.TrimSpace(update.Status); status != "" {
+					payload["status"] = status
+				}
+				if rawUpdate := strings.TrimSpace(update.RawUpdateJSON); rawUpdate != "" {
+					var acpPayload any
+					if err := json.Unmarshal([]byte(rawUpdate), &acpPayload); err == nil {
+						payload["acp"] = acpPayload
+					} else {
+						payload["acp_raw"] = rawUpdate
+					}
+				}
+				if err := recorder.AppendChatRunEvent(core.ChatRunEvent{
+					SessionID:  chatSessionID,
+					ProjectID:  projectID,
+					EventType:  string(core.EventRunUpdate),
+					UpdateType: updateType,
+					Payload:    payload,
+					CreatedAt:  time.Now().UTC(),
+				}); err != nil {
+					log.Printf("[acp] persist chat run event failed project_id=%s session_id=%s update_type=%s err=%v", projectID, chatSessionID, updateType, err)
+				}
+			}
 		}
 	}
 
@@ -433,9 +456,148 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	return nil
 }
 
+func (h *ACPHandler) FlushPendingChatRunEvents() error {
+	if h == nil {
+		return nil
+	}
+
+	h.mu.Lock()
+	recorder := h.recorder
+	h.mu.Unlock()
+	if recorder == nil {
+		return nil
+	}
+
+	h.runEventMu.Lock()
+	defer h.runEventMu.Unlock()
+	return h.flushPendingChatRunEventsLocked(recorder)
+}
+
+func (h *ACPHandler) appendPendingChatRunChunk(
+	projectID string,
+	chatSessionID string,
+	agentSessionID string,
+	update acpclient.SessionUpdate,
+) error {
+	if h == nil {
+		return nil
+	}
+
+	h.mu.Lock()
+	recorder := h.recorder
+	h.mu.Unlock()
+	if recorder == nil {
+		return nil
+	}
+
+	chunkText := update.Text
+	if chunkText == "" {
+		chunkText = extractACPChunkText(update.RawUpdateJSON)
+	}
+	if chunkText == "" {
+		return nil
+	}
+
+	updateType := strings.TrimSpace(update.Type)
+	now := time.Now().UTC()
+
+	h.runEventMu.Lock()
+	defer h.runEventMu.Unlock()
+
+	if h.pendingChunkEvent != nil && (h.pendingChunkEvent.updateType != updateType ||
+		h.pendingChunkEvent.sessionID != chatSessionID ||
+		h.pendingChunkEvent.projectID != projectID ||
+		h.pendingChunkEvent.agentSessionID != agentSessionID) {
+		if err := h.flushPendingChatRunEventsLocked(recorder); err != nil {
+			return err
+		}
+	}
+	if h.pendingChunkEvent == nil {
+		h.pendingChunkEvent = &pendingChatRunChunkEvent{
+			updateType:     updateType,
+			sessionID:      chatSessionID,
+			projectID:      projectID,
+			agentSessionID: agentSessionID,
+			createdAt:      now,
+		}
+	}
+	h.pendingChunkEvent.text += chunkText
+	h.pendingChunkEvent.createdAt = now
+	return nil
+}
+
+func (h *ACPHandler) flushPendingChatRunEventsLocked(recorder ChatRunEventRecorder) error {
+	if h == nil || recorder == nil || h.pendingChunkEvent == nil {
+		return nil
+	}
+
+	pending := h.pendingChunkEvent
+	h.pendingChunkEvent = nil
+
+	aggregatedType := aggregatedACPChunkUpdateType(pending.updateType)
+	if aggregatedType == "" || pending.text == "" {
+		return nil
+	}
+
+	payload := map[string]any{
+		"session_id":       pending.sessionID,
+		"agent_session_id": pending.agentSessionID,
+		"text":             pending.text,
+		"acp": map[string]any{
+			"sessionUpdate": aggregatedType,
+			"content": map[string]any{
+				"type": "text",
+				"text": pending.text,
+			},
+		},
+	}
+	return recorder.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  pending.sessionID,
+		ProjectID:  pending.projectID,
+		EventType:  string(core.EventRunUpdate),
+		UpdateType: aggregatedType,
+		Payload:    payload,
+		CreatedAt:  pending.createdAt,
+	})
+}
+
+func extractACPChunkText(rawUpdateJSON string) string {
+	trimmed := strings.TrimSpace(rawUpdateJSON)
+	if trimmed == "" {
+		return ""
+	}
+
+	var parsed struct {
+		Content struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return ""
+	}
+	return parsed.Content.Text
+}
+
+func aggregatedACPChunkUpdateType(updateType string) string {
+	switch strings.TrimSpace(updateType) {
+	case "agent_message_chunk":
+		return "agent_message"
+	case "agent_thought_chunk":
+		return "agent_thought"
+	case "user_message_chunk":
+		return "user_message"
+	default:
+		return ""
+	}
+}
+
+func isAggregatedACPChunkUpdateType(updateType string) bool {
+	return aggregatedACPChunkUpdateType(updateType) != ""
+}
+
 func isACPChunkUpdateType(updateType string) bool {
 	switch strings.TrimSpace(updateType) {
-	case "agent_message_chunk", "assistant_message_chunk", "message_chunk":
+	case "agent_message_chunk", "assistant_message_chunk", "message_chunk", "agent_thought_chunk", "user_message_chunk":
 		return true
 	default:
 		return false

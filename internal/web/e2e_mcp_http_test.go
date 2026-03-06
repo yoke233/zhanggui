@@ -37,7 +37,7 @@ func TestE2E_MCP_HTTP_FullChain(t *testing.T) {
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e-test", Version: "0.1.0"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
-		Endpoint: ts.URL + "/mcp",
+		Endpoint: ts.URL + "/api/v1/mcp",
 	}, nil)
 	if err != nil {
 		t.Fatalf("connect to MCP SSE endpoint: %v", err)
@@ -169,8 +169,8 @@ func TestE2E_MCP_HTTP_MCPToolsConfig(t *testing.T) {
 	if from.Sse == nil {
 		t.Fatal("expected SSE config, got nil")
 	}
-	if from.Sse.Url != ts.URL+"/mcp" {
-		t.Errorf("url = %q, want %q", from.Sse.Url, ts.URL+"/mcp")
+	if from.Sse.Url != ts.URL+"/api/v1/mcp" {
+		t.Errorf("url = %q, want %q", from.Sse.Url, ts.URL+"/api/v1/mcp")
 	}
 	if from.Sse.Name != "ai-workflow-query" {
 		t.Errorf("name = %q, want %q", from.Sse.Name, "ai-workflow-query")
@@ -205,7 +205,7 @@ func TestE2E_ACP_MCP_TeamLeaderFlow(t *testing.T) {
 		DBPath:     "/tmp/test.db",
 		ServerAddr: ts.URL, // same as commands.go: "http://" + listenAddr
 	}
-	acpMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
+	acpMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, true)
 
 	// Verify: ACP would receive exactly 1 SSE-mode McpServer
 	if len(acpMCPServers) != 1 {
@@ -359,7 +359,7 @@ func testMCPToolsSSE(t *testing.T, serverURL string) acpproto.McpServer {
 		DBPath:     "/tmp/test.db",
 		ServerAddr: serverURL,
 	}
-	got := teamleader.MCPToolsFromRoleConfig(role, env)
+	got := teamleader.MCPToolsFromRoleConfig(role, env, true)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 McpServer, got %d", len(got))
 	}

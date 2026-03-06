@@ -56,6 +56,20 @@ export interface A2ATaskQueryParams {
 
 export interface A2ATaskIDParams extends A2ATaskQueryParams {}
 
+export interface A2AListTasksParams {
+  contextId?: string;
+  status?: A2ATaskState;
+  pageSize?: number;
+  pageToken?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2AListTasksResponse {
+  tasks: A2ATask[];
+  totalSize?: number;
+  nextPageToken?: string;
+}
+
 export interface A2AStreamEvent {
   event: string;
   data: unknown;

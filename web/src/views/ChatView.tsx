@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ApiError, type ApiClient } from "../lib/apiClient";
 import type { ChatMessage } from "../types/workflow";
-import type { ChatRunEvent } from "../types/api";
+import type {
+  ApiIssue,
+  ChatRunEvent,
+  ChatSessionStatus,
+  RunCheckpoint,
+} from "../types/api";
 import type { WsClient } from "../lib/wsClient";
 import type {
   ACPSessionUpdate,
@@ -37,11 +49,44 @@ interface RunEventItem {
   type: string;
   detail: string;
   time: string;
+  groupKey?: string;
+  groupId?: string;
+}
+
+type ChatTimelineItem =
+  | {
+      id: string;
+      kind: "message";
+      time: string;
+      role: ChatMessage["role"];
+      content: string;
+    }
+  | {
+      id: string;
+      kind: "activity";
+      time: string;
+      activityType: string;
+      detail: string;
+      groupKey?: string;
+      groupId?: string;
+    };
+
+interface ToolCallGroupState {
+  loading: boolean;
+  error?: string;
+  items: RunEventItem[];
 }
 
 const MAX_RUN_EVENTS = 60;
-const CROSS_TERMINAL_RUN_NOTICE = "当前会话正在其他终端运行，界面已进入同步监听。";
+const CROSS_TERMINAL_RUN_NOTICE =
+  "当前会话正在其他终端运行，界面已进入同步监听。";
 const CHAT_SESSION_BUSY_NOTICE = "该会话正在其他终端运行，已自动同步最新状态。";
+const CHAT_TIMELINE_ACTIVITY_TYPES = new Set([
+  "agent_thought",
+  "tool_call",
+  "tool_call_group",
+  "plan",
+]);
 
 const CHAT_RUN_EVENT_TYPES = new Set<ChatEventType>([
   "run_started",
@@ -56,9 +101,9 @@ const CHAT_RUN_EVENT_TYPES = new Set<ChatEventType>([
 type ChatUpdateParser = (acp: ACPSessionUpdate) => string;
 
 const CHAT_UPDATE_PARSERS: Record<string, ChatUpdateParser> = {
-  agent_message_chunk: (acp) => toStringValue(acp.content?.text),
-  assistant_message_chunk: (acp) => toStringValue(acp.content?.text),
-  message_chunk: (acp) => toStringValue(acp.content?.text),
+  agent_message_chunk: (acp) => toChunkValue(acp.content?.text),
+  assistant_message_chunk: (acp) => toChunkValue(acp.content?.text),
+  message_chunk: (acp) => toChunkValue(acp.content?.text),
 };
 
 const roleLabel: Record<ChatMessage["role"], string> = {
@@ -115,11 +160,49 @@ const toStringValue = (value: unknown): string => {
   return value.trim();
 };
 
+const toChunkValue = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value;
+};
+
+const sanitizeAgentThoughtDetail = (value: string): string => {
+  let next = value;
+  const prefixes = ["agent_thought_chunk", "agent_thought"];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const trimmed = next.trimStart();
+    for (const prefix of prefixes) {
+      if (!trimmed.startsWith(prefix)) {
+        continue;
+      }
+      const suffix = trimmed.slice(prefix.length);
+      if (suffix.length === 0 || /^[\s:：-]|[A-Z\u4e00-\u9fff]/.test(suffix)) {
+        next = suffix.trimStart();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return next;
+};
+
 const toRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   return value as Record<string, unknown>;
+};
+
+const toRecordList = (value: unknown): Record<string, unknown>[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => toRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== null);
 };
 
 const getLatestMessagePreview = (rawMessages: unknown): string => {
@@ -136,13 +219,34 @@ const getLatestMessagePreview = (rawMessages: unknown): string => {
   return "";
 };
 
+const extractACPContentBlocks = (rawContent: unknown): string[] => {
+  if (Array.isArray(rawContent)) {
+    return toRecordList(rawContent)
+      .map((item) => {
+        const nested = toRecord(item.content);
+        return (
+          toChunkValue(item.text) ||
+          toChunkValue(nested?.text) ||
+          toChunkValue(item.content)
+        );
+      })
+      .filter((text) => text.length > 0);
+  }
+  const nested = toRecord(rawContent);
+  const text = toChunkValue(nested?.text) || toChunkValue(rawContent);
+  return text ? [text] : [];
+};
+
 const toChatSessionSummary = (raw: unknown): ChatSessionSummary | null => {
   const session = toRecord(raw) as ChatSessionLike | null;
   const id = toStringValue(session?.id);
   if (!id) {
     return null;
   }
-  const updatedAt = toStringValue(session?.updated_at) || toStringValue(session?.created_at) || nowIso();
+  const updatedAt =
+    toStringValue(session?.updated_at) ||
+    toStringValue(session?.created_at) ||
+    nowIso();
   return {
     id,
     updatedAt,
@@ -159,24 +263,114 @@ const extractChatSessions = (raw: unknown): ChatSessionSummary[] => {
   return listSource
     .map((item) => toChatSessionSummary(item))
     .filter((item): item is ChatSessionSummary => item !== null)
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
 };
 
 const buildRunEventDetail = (data: ChatEventPayload): string => {
-  const updateType = toStringValue(data.acp?.sessionUpdate);
+  const acp = toRecord(data.acp);
+  const updateType = toStringValue(acp?.sessionUpdate);
   if (!updateType) {
     return "收到增量更新";
   }
-  const title = toStringValue(data.acp?.title);
-  const status = toStringValue(data.acp?.status);
-  const kind = toStringValue(data.acp?.kind);
-  const toolCallID = toStringValue(data.acp?.toolCallId);
-  const entries = Array.isArray(data.acp?.entries)
-    ? data.acp.entries
-        .map((entry) => toStringValue(toRecord(entry)?.content))
-        .filter((entryText) => entryText.length > 0)
-        .slice(0, 2)
-    : [];
+  if (isAgentThoughtUpdateType(updateType)) {
+    return sanitizeAgentThoughtDetail(getAgentThoughtDelta(data));
+  }
+
+  const title = toStringValue(acp?.title);
+  const status = toStringValue(acp?.status);
+  const kind = toStringValue(acp?.kind);
+  const toolCallID = toStringValue(acp?.toolCallId);
+  const entries = toRecordList(acp?.entries)
+    .map((entry) => {
+      const content = toStringValue(entry.content);
+      const entryStatus = toStringValue(entry.status);
+      const priority = toStringValue(entry.priority);
+      const parts = [content];
+      if (entryStatus) {
+        parts.push(`status=${entryStatus}`);
+      }
+      if (priority) {
+        parts.push(`priority=${priority}`);
+      }
+      return parts.filter((part) => part.length > 0).join(" · ");
+    })
+    .filter((entryText) => entryText.length > 0);
+  const rawContent = acp?.content;
+  const contentBlocks = extractACPContentBlocks(rawContent);
+  const locations = toRecordList(acp?.locations)
+    .map((item) => toStringValue(item.path) || toStringValue(item.uri))
+    .filter((value) => value.length > 0);
+  const rawInput = acp?.rawInput ? JSON.stringify(acp.rawInput, null, 2) : "";
+  const rawOutput = acp?.rawOutput
+    ? JSON.stringify(acp.rawOutput, null, 2)
+    : "";
+
+  if (updateType === "plan") {
+    if (entries.length > 0) {
+      return entries.map((entry) => `- ${entry}`).join("\n");
+    }
+    return "plan";
+  }
+
+  if (updateType === "usage_update") {
+    const size = toStringValue(acp?.size);
+    const used = toStringValue(acp?.used);
+    const parts = ["usage_update"];
+    if (size) {
+      parts.push(`size=${size}`);
+    }
+    if (used) {
+      parts.push(`used=${used}`);
+    }
+    return parts.join(" · ");
+  }
+
+  if (updateType === "tool_call_group") {
+    const preview = toStringValue(data.preview) || toStringValue(acp?.preview);
+    const itemCount =
+      toStringValue(data.item_count) ||
+      toStringValue(acp?.itemCount) ||
+      toStringValue(acp?.item_count);
+    const parts = [preview || "工具调用组"];
+    if (itemCount) {
+      parts.push(`${itemCount} 项`);
+    }
+    return parts.join(" · ");
+  }
+
+  if (isToolCallUpdateType(updateType)) {
+    const lines: string[] = [];
+    const headlineParts = [
+      title || updateType,
+      kind && `kind=${kind}`,
+      status && `status=${status}`,
+    ].filter(
+      (part): part is string => typeof part === "string" && part.length > 0,
+    );
+    if (headlineParts.length > 0) {
+      lines.push(headlineParts.join(" · "));
+    }
+    if (toolCallID) {
+      lines.push(`toolCallId=${toolCallID}`);
+    }
+    if (contentBlocks.length > 0) {
+      lines.push(...contentBlocks);
+    }
+    if (locations.length > 0) {
+      lines.push(`locations=${locations.join(", ")}`);
+    }
+    if (rawInput) {
+      lines.push(`rawInput:\n${rawInput}`);
+    }
+    if (rawOutput) {
+      lines.push(`rawOutput:\n${rawOutput}`);
+    }
+    return lines.join("\n");
+  }
+
   const fragments = [updateType];
   if (title) {
     fragments.push(`title=${title}`);
@@ -193,28 +387,258 @@ const buildRunEventDetail = (data: ChatEventPayload): string => {
   if (entries.length > 0) {
     fragments.push(`entries=${entries.join(" | ")}`);
   }
+  if (contentBlocks.length > 0) {
+    fragments.push(`content=${contentBlocks.join(" | ")}`);
+  }
   return fragments.join(" · ");
+};
+
+const isAgentThoughtUpdateType = (updateType: string): boolean => {
+  return updateType === "agent_thought_chunk" || updateType === "agent_thought";
+};
+
+const isToolCallUpdateType = (updateType: string): boolean => {
+  return (
+    updateType === "tool_call" ||
+    updateType === "tool_call_update" ||
+    updateType === "tool_call_completed"
+  );
+};
+
+const normalizeRunEventType = (
+  rawEventType: unknown,
+  payload?: ChatEventPayload | null,
+  rawUpdateType?: unknown,
+): string => {
+  const updateType =
+    toStringValue(rawUpdateType) ||
+    (payload ? toStringValue(payload.acp?.sessionUpdate) : "");
+  if (isAgentThoughtUpdateType(updateType)) {
+    return "agent_thought";
+  }
+  if (isToolCallUpdateType(updateType)) {
+    return "tool_call";
+  }
+  if (updateType) {
+    return updateType;
+  }
+  return toStringValue(rawEventType) || "run_update";
+};
+
+const resolveRunEventGroupKey = (
+  normalizedType: string,
+  payload?: ChatEventPayload | null,
+): string | undefined => {
+  if (normalizedType !== "tool_call" || !payload) {
+    return undefined;
+  }
+  const toolCallID = toStringValue(payload.acp?.toolCallId);
+  return toolCallID ? `tool_call:${toolCallID}` : undefined;
+};
+
+const resolveEventGroupId = (
+  normalizedType: string,
+  payload?: ChatEventPayload | null,
+): string | undefined => {
+  if (normalizedType !== "tool_call_group" || !payload) {
+    return undefined;
+  }
+  return toStringValue(payload.group_id) || toStringValue(payload.acp?.groupId);
+};
+
+const getAgentThoughtDelta = (payload: ChatEventPayload): string => {
+  const updateType = toStringValue(payload.acp?.sessionUpdate);
+  if (!isAgentThoughtUpdateType(updateType)) {
+    return "";
+  }
+  const contentBlocks = extractACPContentBlocks(payload.acp?.content);
+  const delta =
+    contentBlocks.join("") ||
+    toChunkValue(payload.text) ||
+    toChunkValue(payload.reply);
+  const normalizedDelta = sanitizeAgentThoughtDetail(delta);
+  return normalizedDelta.trim().length > 0 ? normalizedDelta : "";
 };
 
 const toStoredRunEventItem = (event: ChatRunEvent): RunEventItem => {
   const payload = toRecord(event.payload) as ChatEventPayload | null;
+  const normalizedType = normalizeRunEventType(
+    event.event_type,
+    payload,
+    event.update_type,
+  );
+  const thoughtDelta = payload ? getAgentThoughtDelta(payload) : "";
   let detail = "";
-  if (payload) {
-    detail = buildRunEventDetail(payload);
-    if (!detail || detail === "收到增量更新") {
+  if (thoughtDelta) {
+    detail = thoughtDelta;
+  } else if (payload) {
+    if (normalizedType === "tool_call_group") {
+      const preview = toStringValue(payload.preview);
+      const itemCount = toStringValue(payload.item_count);
+      detail = [preview || "工具调用组", itemCount ? `${itemCount} 项` : ""]
+        .filter((part) => part.length > 0)
+        .join(" · ");
+    } else {
+      detail = buildRunEventDetail(payload);
+    }
+    if (normalizedType === "agent_thought") {
+      detail = sanitizeAgentThoughtDetail(detail);
+    }
+    if (
+      (!detail || detail === "收到增量更新") &&
+      normalizedType !== "agent_thought"
+    ) {
       detail = toStringValue(payload.text) || toStringValue(payload.error);
     }
   }
-  if (!detail) {
-    detail = toStringValue(event.update_type) || toStringValue(event.event_type) || "历史运行事件";
+  if (!detail && normalizedType !== "agent_thought") {
+    detail =
+      toStringValue(event.update_type) ||
+      toStringValue(event.event_type) ||
+      "历史运行事件";
   }
   return {
     id: `stored-${event.id}`,
     sessionId: event.session_id,
-    type: toStringValue(event.event_type) || "run_update",
+    type: normalizedType,
     detail,
     time: toStringValue(event.created_at) || nowIso(),
+    groupKey: resolveRunEventGroupKey(normalizedType, payload),
+    groupId: resolveEventGroupId(normalizedType, payload),
   };
+};
+
+const mergeAdjacentAgentThoughtItems = (
+  items: RunEventItem[],
+): RunEventItem[] => {
+  const merged: RunEventItem[] = [];
+  items.forEach((item) => {
+    if (item.type === "agent_thought" && item.detail.trim().length === 0) {
+      return;
+    }
+    if (item.groupKey) {
+      const existingIndex = merged.findIndex(
+        (candidate) =>
+          candidate.sessionId === item.sessionId &&
+          candidate.groupKey === item.groupKey,
+      );
+      if (existingIndex >= 0) {
+        const existing = merged[existingIndex];
+        merged[existingIndex] = {
+          ...existing,
+          detail:
+            existing.detail === item.detail || item.detail.length === 0
+              ? existing.detail
+              : `${existing.detail}\n${item.detail}`,
+          time: item.time || existing.time,
+        };
+        return;
+      }
+    }
+    if (item.type !== "agent_thought") {
+      merged.push(item);
+      return;
+    }
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      previous.type === "agent_thought" &&
+      previous.sessionId === item.sessionId
+    ) {
+      merged[merged.length - 1] = {
+        ...previous,
+        detail: `${previous.detail}${item.detail}`,
+        time: item.time || previous.time,
+      };
+      return;
+    }
+    merged.push(item);
+  });
+  return merged;
+};
+
+const toStoredRunEventItems = (events: ChatRunEvent[]): RunEventItem[] => {
+  return mergeAdjacentAgentThoughtItems(events.map(toStoredRunEventItem));
+};
+
+const areRunEventListsEqual = (
+  left: RunEventItem[],
+  right: RunEventItem[],
+): boolean => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((item, index) => {
+    const candidate = right[index];
+    return (
+      candidate &&
+      item.id === candidate.id &&
+      item.sessionId === candidate.sessionId &&
+      item.type === candidate.type &&
+      item.detail === candidate.detail &&
+      item.time === candidate.time &&
+      item.groupKey === candidate.groupKey
+    );
+  });
+};
+
+const messageIdentityKey = (message: ChatMessage): string => {
+  return `${message.role}|${message.time}|${message.content}`;
+};
+
+const mergeChatMessages = (
+  current: ChatMessage[],
+  incoming: ChatMessage[],
+  mode: "replace" | "prepend",
+): ChatMessage[] => {
+  if (mode === "replace") {
+    return incoming;
+  }
+  const seen = new Set<string>();
+  const merged: ChatMessage[] = [];
+  [...incoming, ...current].forEach((message) => {
+    const key = messageIdentityKey(message);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    merged.push(message);
+  });
+  return merged;
+};
+
+const mergeRunEventPages = (
+  current: RunEventItem[],
+  incoming: RunEventItem[],
+  sessionId: string,
+  mode: "replace" | "prepend",
+): RunEventItem[] => {
+  if (mode === "replace") {
+    const otherSessionEvents = current.filter(
+      (event) => event.sessionId !== sessionId,
+    );
+    return [...otherSessionEvents, ...mergeAdjacentAgentThoughtItems(incoming)];
+  }
+
+  const otherSessionEvents = current.filter(
+    (event) => event.sessionId !== sessionId,
+  );
+  const currentSessionEvents = current.filter(
+    (event) => event.sessionId === sessionId,
+  );
+  const seen = new Set<string>();
+  const mergedSessionEvents: RunEventItem[] = [];
+  [...incoming, ...currentSessionEvents].forEach((event) => {
+    if (seen.has(event.id)) {
+      return;
+    }
+    seen.add(event.id);
+    mergedSessionEvents.push(event);
+  });
+  return [
+    ...otherSessionEvents,
+    ...mergeAdjacentAgentThoughtItems(mergedSessionEvents),
+  ];
 };
 
 const nowIso = (): string => new Date().toISOString();
@@ -249,7 +673,8 @@ const getStreamingDelta = (payload: ChatEventPayload): string => {
 
 const parseInlineMarkdown = (text: string, keyPrefix: string) => {
   const nodes: Array<string | JSX.Element> = [];
-  const pattern = /`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|(\*[^*]+\*)/g;
+  const pattern =
+    /`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|(\*[^*]+\*)/g;
   let lastIndex = 0;
   let matchIndex = 0;
   let match = pattern.exec(text);
@@ -282,7 +707,10 @@ const parseInlineMarkdown = (text: string, keyPrefix: string) => {
       );
     } else if (match[4]) {
       nodes.push(
-        <strong key={`${keyPrefix}-strong-${matchIndex}`} className="font-semibold">
+        <strong
+          key={`${keyPrefix}-strong-${matchIndex}`}
+          className="font-semibold"
+        >
           {match[4]}
         </strong>,
       );
@@ -308,7 +736,10 @@ const parseInlineMarkdown = (text: string, keyPrefix: string) => {
   return nodes;
 };
 
-const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] => {
+const renderBasicMarkdown = (
+  content: string,
+  keyPrefix: string,
+): JSX.Element[] => {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const elements: JSX.Element[] = [];
   let index = 0;
@@ -324,7 +755,10 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
     if (line.startsWith("```")) {
       const codeLines: string[] = [];
       index += 1;
-      while (index < lines.length && !(lines[index] ?? "").trim().startsWith("```")) {
+      while (
+        index < lines.length &&
+        !(lines[index] ?? "").trim().startsWith("```")
+      ) {
         codeLines.push(lines[index] ?? "");
         index += 1;
       }
@@ -346,7 +780,10 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
       const headingText = headingMatch[2];
       const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
       elements.push(
-        <HeadingTag key={`${keyPrefix}-heading-${index}`} className="font-semibold leading-snug">
+        <HeadingTag
+          key={`${keyPrefix}-heading-${index}`}
+          className="font-semibold leading-snug"
+        >
           {parseInlineMarkdown(headingText, `${keyPrefix}-heading-${index}`)}
         </HeadingTag>,
       );
@@ -366,10 +803,16 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
         index += 1;
       }
       elements.push(
-        <ul key={`${keyPrefix}-list-${index}`} className="list-disc space-y-1 pl-5">
+        <ul
+          key={`${keyPrefix}-list-${index}`}
+          className="list-disc space-y-1 pl-5"
+        >
           {items.map((item, itemIndex) => (
             <li key={`${keyPrefix}-item-${index}-${itemIndex}`}>
-              {parseInlineMarkdown(item, `${keyPrefix}-item-${index}-${itemIndex}`)}
+              {parseInlineMarkdown(
+                item,
+                `${keyPrefix}-item-${index}-${itemIndex}`,
+              )}
             </li>
           ))}
         </ul>,
@@ -381,7 +824,12 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
     index += 1;
     while (index < lines.length) {
       const nextLine = (lines[index] ?? "").trim();
-      if (!nextLine || /^#{1,6}\s+/.test(nextLine) || /^[-*]\s+/.test(nextLine) || nextLine.startsWith("```")) {
+      if (
+        !nextLine ||
+        /^#{1,6}\s+/.test(nextLine) ||
+        /^[-*]\s+/.test(nextLine) ||
+        nextLine.startsWith("```")
+      ) {
         break;
       }
       paragraphLines.push(nextLine);
@@ -389,7 +837,10 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
     }
     const paragraph = paragraphLines.join(" ");
     elements.push(
-      <p key={`${keyPrefix}-paragraph-${index}`} className="whitespace-pre-wrap">
+      <p
+        key={`${keyPrefix}-paragraph-${index}`}
+        className="whitespace-pre-wrap"
+      >
         {parseInlineMarkdown(paragraph, `${keyPrefix}-paragraph-${index}`)}
       </p>,
     );
@@ -405,11 +856,49 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
   return elements;
 };
 
+const getCollapsedPreview = (content: string, maxLength = 160): string => {
+  const firstLine =
+    content
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+  const compact = firstLine.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) {
+    return compact;
+  }
+  return `${compact.slice(0, maxLength)}...`;
+};
+
+const ExpandCollapseIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    className="h-4 w-4"
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    {expanded ? (
+      <path
+        fillRule="evenodd"
+        d="M5.23 12.79a.75.75 0 001.06-.02L10 8.832l3.71 3.938a.75.75 0 001.092-1.028l-4.255-4.52a.75.75 0 00-1.094 0l-4.255 4.52a.75.75 0 00.032 1.06z"
+        clipRule="evenodd"
+      />
+    ) : (
+      <path
+        fillRule="evenodd"
+        d="M14.77 7.21a.75.75 0 00-1.06.02L10 11.168 6.29 7.23a.75.75 0 00-1.092 1.028l4.255 4.52a.75.75 0 001.094 0l4.255-4.52a.75.75 0 00-.032-1.06z"
+        clipRule="evenodd"
+      />
+    )}
+  </svg>
+);
+
 const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [draft, setDraft] = useState("");
   const [filePathsDraft, setFilePathsDraft] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [leftPanelTab, setLeftPanelTab] = useState<"tree" | "git">("tree");
+  const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
@@ -419,19 +908,42 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [issueFromFilesLoading, setIssueFromFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issueNotice, setIssueNotice] = useState<string | null>(null);
-  const [crossTerminalRunNotice, setCrossTerminalRunNotice] = useState<string | null>(null);
+  const [crossTerminalRunNotice, setCrossTerminalRunNotice] = useState<
+    string | null
+  >(null);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatsLoading, setChatsLoading] = useState(false);
   const [chatsError, setChatsError] = useState<string | null>(null);
+  const [sessionStatuses, setSessionStatuses] = useState<
+    Record<string, ChatSessionStatus>
+  >({});
   const [runEvents, setRunEvents] = useState<RunEventItem[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [toolCallGroupStates, setToolCallGroupStates] = useState<
+    Record<string, ToolCallGroupState>
+  >({});
+  const [issueList, setIssueList] = useState<ApiIssue[]>([]);
+  const [issueListLoading, setIssueListLoading] = useState(false);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [issueCheckpoints, setIssueCheckpoints] = useState<RunCheckpoint[]>([]);
+  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
+  const [expandedActivityCards, setExpandedActivityCards] = useState<
+    Record<string, boolean>
+  >({});
+  const [wakingStage, setWakingStage] = useState<string | null>(null);
   const chatRequestIdRef = useRef(0);
   const issueFromFilesRequestIdRef = useRef(0);
-  const sessionRefreshRequestIdRef = useRef(0);
   const chatListRequestIdRef = useRef(0);
   const runEventsRequestIdRef = useRef(0);
   const activeRunStartedAtRef = useRef(0);
   const localRunStartPendingRef = useRef(false);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRestoreRef = useRef<{
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
 
   useEffect(() => {
     chatRequestIdRef.current += 1;
@@ -451,10 +963,16 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setChatsLoading(false);
     setChatsError(null);
     setRunEvents([]);
+    setHistoryCursor(null);
+    setHistoryLoadingMore(false);
+    setToolCallGroupStates({});
+    setIssueList([]);
+    setSelectedIssueId(null);
+    setIssueCheckpoints([]);
+    setExpandedActivityCards({});
     setChatLoading(false);
     setChatCancelling(false);
     setIssueFromFilesLoading(false);
-    sessionRefreshRequestIdRef.current += 1;
     chatListRequestIdRef.current += 1;
     runEventsRequestIdRef.current += 1;
     activeRunStartedAtRef.current = 0;
@@ -465,9 +983,15 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const canSubmit = chatLoading
     ? !!sessionId && !chatCancelling && !syncingFromOtherTerminal
     : draft.trim().length > 0;
-  const filePaths = useMemo(() => parseFilePathsDraft(filePathsDraft), [filePathsDraft]);
+  const filePaths = useMemo(
+    () => parseFilePathsDraft(filePathsDraft),
+    [filePathsDraft],
+  );
   const canCreateIssueFromFiles =
-    !!sessionId && filePaths.length > 0 && !issueFromFilesLoading && !chatLoading;
+    !!sessionId &&
+    filePaths.length > 0 &&
+    !issueFromFilesLoading &&
+    !chatLoading;
 
   const sortedMessages = useMemo(
     () =>
@@ -476,37 +1000,141 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
       }),
     [messages],
   );
-  const hasMessages = sortedMessages.length > 0 || isStreaming;
+  const timelineItems = useMemo<ChatTimelineItem[]>(() => {
+    const sessionScopedRunEvents = sessionId
+      ? runEvents.filter(
+          (event) =>
+            event.sessionId === sessionId &&
+            CHAT_TIMELINE_ACTIVITY_TYPES.has(event.type),
+        )
+      : [];
+
+    const messageItems: ChatTimelineItem[] = sortedMessages.map(
+      (message, index) => ({
+        id: `message-${message.time}-${index}`,
+        kind: "message",
+        time: message.time,
+        role: message.role,
+        content: message.content,
+      }),
+    );
+    const activityItems: ChatTimelineItem[] = sessionScopedRunEvents.map(
+      (event) => ({
+        id: `activity-${event.id}`,
+        kind: "activity",
+        time: event.time,
+        activityType: event.type,
+        detail: event.detail,
+        groupKey: event.groupKey,
+        groupId: event.groupId,
+      }),
+    );
+
+    return [...messageItems, ...activityItems].sort((left, right) => {
+      const timeDiff =
+        new Date(left.time).getTime() - new Date(right.time).getTime();
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+      if (left.kind === right.kind) {
+        return left.id.localeCompare(right.id);
+      }
+      return left.kind === "message" ? -1 : 1;
+    });
+  }, [runEvents, sessionId, sortedMessages]);
+  const hasMessages = timelineItems.length > 0 || isStreaming;
 
   const listChats = apiClient.listChats;
 
-  const upsertChatSessionSummary = useCallback((session: ChatSessionSummary) => {
-    setChatSessions((prev) => {
-      const next = prev.filter((item) => item.id !== session.id);
-      next.push(session);
-      next.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      return next;
-    });
-  }, []);
+  const upsertChatSessionSummary = useCallback(
+    (session: ChatSessionSummary) => {
+      setChatSessions((prev) => {
+        const next = prev.filter((item) => item.id !== session.id);
+        next.push(session);
+        next.sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
+        return next;
+      });
+    },
+    [],
+  );
 
-  const pushRunEvent = useCallback((session: string, type: string, detail: string) => {
-    setRunEvents((prev) => {
-      const next: RunEventItem[] = [
-        ...prev,
-        {
+  const pushRunEvent = useCallback(
+    (
+      session: string,
+      type: string,
+      detail: string,
+      options?: { time?: string; groupKey?: string },
+    ) => {
+      setRunEvents((prev) => {
+        const normalizedDetail =
+          type === "agent_thought"
+            ? sanitizeAgentThoughtDetail(detail)
+            : detail;
+        const nextEvent: RunEventItem = {
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
           sessionId: session,
           type,
-          detail,
-          time: nowIso(),
-        },
-      ];
-      if (next.length <= MAX_RUN_EVENTS) {
-        return next;
-      }
-      return next.slice(next.length - MAX_RUN_EVENTS);
-    });
-  }, []);
+          detail: normalizedDetail,
+          time: options?.time || nowIso(),
+          groupKey: options?.groupKey,
+        };
+        let next: RunEventItem[];
+        if (nextEvent.groupKey) {
+          const existingIndex = prev.findIndex(
+            (item) =>
+              item.sessionId === nextEvent.sessionId &&
+              item.groupKey === nextEvent.groupKey,
+          );
+          if (existingIndex >= 0) {
+            const existing = prev[existingIndex];
+            const mergedDetail =
+              existing.detail === nextEvent.detail ||
+              nextEvent.detail.length === 0
+                ? existing.detail
+                : `${existing.detail}\n${nextEvent.detail}`;
+            next = [
+              ...prev.slice(0, existingIndex),
+              {
+                ...existing,
+                detail: mergedDetail,
+                time: nextEvent.time,
+              },
+              ...prev.slice(existingIndex + 1),
+            ];
+          } else {
+            next = [...prev, nextEvent];
+          }
+        } else {
+          const previous = prev[prev.length - 1];
+          if (
+            nextEvent.type === "agent_thought" &&
+            previous &&
+            previous.type === "agent_thought" &&
+            previous.sessionId === nextEvent.sessionId
+          ) {
+            next = [
+              ...prev.slice(0, -1),
+              {
+                ...previous,
+                detail: `${previous.detail}${nextEvent.detail}`,
+                time: nextEvent.time,
+              },
+            ];
+          } else {
+            next = [...prev, nextEvent];
+          }
+        }
+        if (next.length <= MAX_RUN_EVENTS) {
+          return next;
+        }
+        return next.slice(next.length - MAX_RUN_EVENTS);
+      });
+    },
+    [],
+  );
 
   const refreshChatSessions = useCallback(
     async (targetProjectId: string) => {
@@ -519,7 +1147,25 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         if (chatListRequestIdRef.current !== requestId) {
           return;
         }
-        setChatSessions(extractChatSessions(response));
+        const sessions = extractChatSessions(response);
+        setChatSessions(sessions);
+        // Fetch ACP session statuses in parallel.
+        const statusEntries = await Promise.all(
+          sessions.map(async (s) => {
+            try {
+              const st = await apiClient.getChatSessionStatus(
+                targetProjectId,
+                s.id,
+              );
+              return [s.id, st] as const;
+            } catch {
+              return [s.id, { alive: false, running: false }] as const;
+            }
+          }),
+        );
+        if (chatListRequestIdRef.current === requestId) {
+          setSessionStatuses(Object.fromEntries(statusEntries));
+        }
       } catch (listError) {
         if (chatListRequestIdRef.current !== requestId) {
           return;
@@ -531,61 +1177,232 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         }
       }
     },
-    [listChats],
+    [listChats, apiClient],
   );
 
   const refreshChatRunEvents = useCallback(
-    async (targetProjectId: string, targetSessionId: string) => {
+    async (
+      targetProjectId: string,
+      targetSessionId: string,
+      options?: { cursor?: string | null; mode?: "replace" | "prepend" },
+    ) => {
       const normalizedSessionID = targetSessionId.trim();
       if (!normalizedSessionID) {
         return;
       }
+      const mode = options?.mode ?? "replace";
       const requestId = runEventsRequestIdRef.current + 1;
       runEventsRequestIdRef.current = requestId;
       try {
-        const events = await apiClient.listChatRunEvents(targetProjectId, normalizedSessionID);
+        const page = await apiClient.listChatRunEvents(
+          targetProjectId,
+          normalizedSessionID,
+          {
+            limit: 50,
+            cursor: options?.cursor ?? undefined,
+          },
+        );
         if (runEventsRequestIdRef.current !== requestId) {
           return;
         }
         if (targetSessionIdRef.current !== normalizedSessionID) {
           return;
         }
-        const mapped = events.map(toStoredRunEventItem);
+        const mapped = toStoredRunEventItems(page.events);
+        setHistoryCursor(page.next_cursor ?? null);
+        setMessages((prev) => {
+          const nextMessages = mergeChatMessages(
+            prev,
+            page.messages ?? [],
+            mode,
+          );
+          if (mode === "replace") {
+            const currentMessages = [...prev].sort(
+              (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+            );
+            const nextSorted = [...nextMessages].sort(
+              (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+            );
+            const isSameLength = currentMessages.length === nextSorted.length;
+            const isSame =
+              isSameLength &&
+              currentMessages.every(
+                (message, index) =>
+                  messageIdentityKey(message) ===
+                  messageIdentityKey(nextSorted[index]!),
+              );
+            if (isSame) {
+              return prev;
+            }
+          }
+          return nextMessages;
+        });
         setRunEvents((prev) => {
-          const otherSessionEvents = prev.filter((event) => event.sessionId !== normalizedSessionID);
-          return [...otherSessionEvents, ...mapped];
+          const next = mergeRunEventPages(
+            prev,
+            mapped,
+            normalizedSessionID,
+            mode,
+          );
+          if (mode === "replace") {
+            const currentSessionEvents = prev.filter(
+              (event) => event.sessionId === normalizedSessionID,
+            );
+            if (areRunEventListsEqual(currentSessionEvents, mapped)) {
+              return prev;
+            }
+          }
+          return next;
+        });
+        upsertChatSessionSummary({
+          id: page.session_id,
+          updatedAt: page.updated_at,
+          preview: getLatestMessagePreview(page.messages),
         });
       } catch {
         // 历史事件加载失败不影响主流程，保留当前 UI 状态。
       }
     },
+    [apiClient, upsertChatSessionSummary],
+  );
+
+  const loadToolCallGroup = useCallback(
+    async (
+      targetProjectId: string,
+      targetSessionId: string,
+      groupId: string,
+    ) => {
+      const normalizedGroupId = groupId.trim();
+      if (!normalizedGroupId) {
+        return;
+      }
+      setToolCallGroupStates((prev) => {
+        const existing = prev[normalizedGroupId];
+        if (existing?.loading || existing?.items.length) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [normalizedGroupId]: {
+            loading: true,
+            items: existing?.items ?? [],
+          },
+        };
+      });
+      try {
+        const response = await apiClient.getChatEventGroup(
+          targetProjectId,
+          targetSessionId,
+          normalizedGroupId,
+        );
+        const items = toStoredRunEventItems(response.events);
+        setToolCallGroupStates((prev) => ({
+          ...prev,
+          [normalizedGroupId]: {
+            loading: false,
+            items,
+          },
+        }));
+      } catch (groupError) {
+        setToolCallGroupStates((prev) => ({
+          ...prev,
+          [normalizedGroupId]: {
+            loading: false,
+            error: getErrorMessage(groupError),
+            items: prev[normalizedGroupId]?.items ?? [],
+          },
+        }));
+      }
+    },
     [apiClient],
   );
 
-  const refreshSession = useCallback(
-    async (targetProjectId: string, targetSessionId: string) => {
-      const requestId = sessionRefreshRequestIdRef.current + 1;
-      sessionRefreshRequestIdRef.current = requestId;
+  const refreshIssueList = useCallback(
+    async (targetProjectId: string) => {
+      setIssueListLoading(true);
       try {
-        const session = await apiClient.getChat(targetProjectId, targetSessionId);
-        if (sessionRefreshRequestIdRef.current !== requestId) {
-          return;
-        }
-        if (targetSessionIdRef.current !== targetSessionId) {
-          return;
-        }
-        setMessages(session.messages);
-        upsertChatSessionSummary({
-          id: session.id,
-          updatedAt: session.updated_at,
-          preview: getLatestMessagePreview(session.messages),
+        const response = await apiClient.listIssues(targetProjectId, {
+          limit: 50,
         });
+        setIssueList(response.items ?? []);
       } catch {
-        // completed 事件后拉库失败时保持当前界面状态，避免覆盖为错误文案。
+        setIssueList([]);
+      } finally {
+        setIssueListLoading(false);
       }
     },
-    [apiClient, upsertChatSessionSummary],
+    [apiClient],
   );
+
+  const refreshIssueCheckpoints = useCallback(
+    async (runId: string) => {
+      if (!runId) {
+        setIssueCheckpoints([]);
+        return;
+      }
+      setCheckpointsLoading(true);
+      try {
+        const response = await apiClient.getRunCheckpoints(runId);
+        setIssueCheckpoints(response.items ?? []);
+      } catch {
+        setIssueCheckpoints([]);
+      } finally {
+        setCheckpointsLoading(false);
+      }
+    },
+    [apiClient],
+  );
+
+  useEffect(() => {
+    void refreshIssueList(projectId);
+  }, [projectId, refreshIssueList]);
+
+  useEffect(() => {
+    const issue = issueList.find((i) => i.id === selectedIssueId);
+    if (issue?.run_id) {
+      void refreshIssueCheckpoints(issue.run_id);
+    } else {
+      setIssueCheckpoints([]);
+    }
+  }, [selectedIssueId, issueList, refreshIssueCheckpoints]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (!sessionId || !historyCursor || historyLoadingMore) {
+      return;
+    }
+    const container = timelineScrollRef.current;
+    if (container) {
+      pendingScrollRestoreRef.current = {
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+      };
+    }
+    setHistoryLoadingMore(true);
+    try {
+      await refreshChatRunEvents(projectId, sessionId, {
+        cursor: historyCursor,
+        mode: "prepend",
+      });
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  }, [
+    historyCursor,
+    historyLoadingMore,
+    projectId,
+    refreshChatRunEvents,
+    sessionId,
+  ]);
+
+  const handleTimelineScroll = useCallback(() => {
+    const container = timelineScrollRef.current;
+    if (!container || historyLoadingMore || !historyCursor) {
+      return;
+    }
+    if (container.scrollTop <= 80) {
+      void loadOlderHistory();
+    }
+  }, [historyCursor, historyLoadingMore, loadOlderHistory]);
 
   const handleStartChat = async () => {
     if (chatLoading) {
@@ -649,8 +1466,9 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         if (currentSessionId) {
           const normalizedSessionID = currentSessionId.trim();
           if (normalizedSessionID) {
-            void refreshSession(targetProjectId, normalizedSessionID);
-            void refreshChatRunEvents(targetProjectId, normalizedSessionID);
+            void refreshChatRunEvents(targetProjectId, normalizedSessionID, {
+              mode: "replace",
+            });
             void refreshChatSessions(targetProjectId);
           }
         }
@@ -692,10 +1510,13 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     const targetProjectId = projectId;
     const targetSessionId = sessionId;
     try {
-      const createdIssue = await apiClient.createIssueFromFiles(targetProjectId, {
-        session_id: targetSessionId,
-        file_paths: filePaths,
-      });
+      const createdIssue = await apiClient.createIssueFromFiles(
+        targetProjectId,
+        {
+          session_id: targetSessionId,
+          file_paths: filePaths,
+        },
+      );
       if (issueFromFilesRequestIdRef.current !== requestId) {
         return;
       }
@@ -734,7 +1555,11 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
 
   const handleSwitchSession = async (nextSessionId: string) => {
     const normalizedSessionID = nextSessionId.trim();
-    if (!normalizedSessionID || normalizedSessionID === targetSessionIdRef.current || chatLoading) {
+    if (
+      !normalizedSessionID ||
+      normalizedSessionID === targetSessionIdRef.current ||
+      chatLoading
+    ) {
       return;
     }
     targetSessionIdRef.current = normalizedSessionID;
@@ -749,10 +1574,36 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setCrossTerminalRunNotice(null);
     setError(null);
     setRunEvents([]);
+    setHistoryCursor(null);
+    setToolCallGroupStates({});
     localRunStartPendingRef.current = false;
-    await refreshSession(projectId, normalizedSessionID);
-    await refreshChatRunEvents(projectId, normalizedSessionID);
+    await refreshChatRunEvents(projectId, normalizedSessionID, {
+      mode: "replace",
+    });
   };
+
+  const handleConnectStageSession = useCallback(
+    async (runId: string, stageName: string) => {
+      setWakingStage(stageName);
+      setError(null);
+      try {
+        const status = await apiClient.getStageSessionStatus(runId, stageName);
+        let targetSessionId = status.session_id;
+        if (!status.alive) {
+          const wakeResult = await apiClient.wakeStageSession(runId, stageName);
+          targetSessionId = wakeResult.session_id;
+        }
+        if (targetSessionId) {
+          await handleSwitchSession(targetSessionId);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "唤醒 session 失败");
+      } finally {
+        setWakingStage(null);
+      }
+    },
+    [apiClient, handleSwitchSession],
+  );
 
   const targetSessionIdRef = useRef<string | null>(sessionId);
   const subscribedSessionIdRef = useRef<string | null>(null);
@@ -761,7 +1612,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   }, [sessionId]);
 
   const sendChatSessionSubscription = useCallback(
-    (type: "subscribe_chat_session" | "unsubscribe_chat_session", rawSessionId: string | null) => {
+    (
+      type: "subscribe_chat_session" | "unsubscribe_chat_session",
+      rawSessionId: string | null,
+    ) => {
       const normalizedSessionID = (rawSessionId ?? "").trim();
       if (!normalizedSessionID) {
         return;
@@ -783,7 +1637,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     const previousSessionID = subscribedSessionIdRef.current;
 
     if (previousSessionID && previousSessionID !== nextSessionID) {
-      sendChatSessionSubscription("unsubscribe_chat_session", previousSessionID);
+      sendChatSessionSubscription(
+        "unsubscribe_chat_session",
+        previousSessionID,
+      );
     }
     if (nextSessionID && previousSessionID !== nextSessionID) {
       sendChatSessionSubscription("subscribe_chat_session", nextSessionID);
@@ -838,7 +1695,9 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         return;
       }
 
-      const data = (envelope.data ?? envelope.payload ?? {}) as ChatEventPayload;
+      const data = (envelope.data ??
+        envelope.payload ??
+        {}) as ChatEventPayload;
       const wsSessionID = toStringValue(data.session_id);
       if (!wsSessionID) {
         return;
@@ -852,7 +1711,8 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         case "run_started": {
           const startedByCurrentTerminal = localRunStartPendingRef.current;
           localRunStartPendingRef.current = false;
-          activeRunStartedAtRef.current = toEventTimestampMs(data.timestamp) || Date.now();
+          activeRunStartedAtRef.current =
+            toEventTimestampMs(data.timestamp) || Date.now();
           setChatLoading(true);
           setChatCancelling(false);
           setIsStreaming(true);
@@ -876,10 +1736,24 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
             break;
           }
           const delta = getStreamingDelta(data);
+          const thoughtDelta = getAgentThoughtDelta(data);
           if (delta.length > 0) {
             setStreamingText((prev) => `${prev}${delta}`);
+          } else if (thoughtDelta.length > 0) {
+            pushRunEvent(wsSessionID, "agent_thought", thoughtDelta, {
+              time: toStringValue(data.timestamp) || nowIso(),
+            });
           } else {
-            pushRunEvent(wsSessionID, String(envelope.type), buildRunEventDetail(data));
+            const normalizedType = normalizeRunEventType(envelope.type, data);
+            pushRunEvent(
+              wsSessionID,
+              normalizedType,
+              buildRunEventDetail(data),
+              {
+                time: toStringValue(data.timestamp) || nowIso(),
+                groupKey: resolveRunEventGroupKey(normalizedType, data),
+              },
+            );
           }
           break;
         }
@@ -892,8 +1766,9 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setStreamingText("");
           setCrossTerminalRunNotice(null);
           pushRunEvent(wsSessionID, "run_completed", "运行完成");
-          void refreshSession(projectId, wsSessionID);
-          void refreshChatRunEvents(projectId, wsSessionID);
+          void refreshChatRunEvents(projectId, wsSessionID, {
+            mode: "replace",
+          });
           void refreshChatSessions(projectId);
           break;
         }
@@ -907,7 +1782,9 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setCrossTerminalRunNotice(null);
           setError("当前请求已取消");
           pushRunEvent(wsSessionID, "run_cancelled", "运行已取消");
-          void refreshChatRunEvents(projectId, wsSessionID);
+          void refreshChatRunEvents(projectId, wsSessionID, {
+            mode: "replace",
+          });
           void refreshChatSessions(projectId);
           break;
         }
@@ -922,7 +1799,9 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           const reason = toStringValue(data.error);
           setError(reason || "chat 执行失败");
           pushRunEvent(wsSessionID, "run_failed", reason || "chat 执行失败");
-          void refreshChatRunEvents(projectId, wsSessionID);
+          void refreshChatRunEvents(projectId, wsSessionID, {
+            mode: "replace",
+          });
           void refreshChatSessions(projectId);
           break;
         }
@@ -934,9 +1813,29 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     return () => {
       unsubscribe();
     };
-  }, [projectId, pushRunEvent, refreshChatRunEvents, refreshChatSessions, refreshSession, wsClient]);
+  }, [
+    projectId,
+    pushRunEvent,
+    refreshChatRunEvents,
+    refreshChatSessions,
+    wsClient,
+  ]);
+
+  useLayoutEffect(() => {
+    const container = timelineScrollRef.current;
+    const pendingRestore = pendingScrollRestoreRef.current;
+    if (!container || !pendingRestore) {
+      return;
+    }
+    const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
+    container.scrollTop = pendingRestore.scrollTop + Math.max(heightDelta, 0);
+    pendingScrollRestoreRef.current = null;
+  }, [timelineItems]);
 
   useEffect(() => {
+    if (pendingScrollRestoreRef.current) {
+      return;
+    }
     const endNode = messagesEndRef.current;
     if (!endNode || typeof endNode.scrollIntoView !== "function") {
       return;
@@ -944,7 +1843,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     endNode.scrollIntoView({
       block: "end",
     });
-  }, [sortedMessages, streamingText]);
+  }, [timelineItems, streamingText]);
 
   const submitButtonLabel = chatLoading
     ? syncingFromOtherTerminal
@@ -957,87 +1856,301 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     if (!sessionId) {
       return runEvents.slice(-20);
     }
-    return runEvents.filter((event) => event.sessionId === sessionId).slice(-20);
+    return runEvents
+      .filter((event) => event.sessionId === sessionId)
+      .slice(-20);
   }, [runEvents, sessionId]);
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[280px_minmax(0,2fr)_320px]">
-      <aside className="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:flex lg:min-h-[680px] lg:flex-col">
-        <h3 className="text-base font-semibold text-slate-900">仓库视图</h3>
-        <p className="mt-1 text-xs text-slate-600">
-          在文件树中选择文件后，会自动同步到右侧“文件路径”输入框。
-        </p>
-        <div className="mt-3 grid grid-cols-2 rounded-md bg-slate-100 p-1 text-xs">
-          <button
-            type="button"
-            className={`rounded px-2 py-1 font-medium ${
-              leftPanelTab === "tree"
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-            onClick={() => {
-              setLeftPanelTab("tree");
-            }}
-          >
-            文件树
-          </button>
-          <button
-            type="button"
-            className={`rounded px-2 py-1 font-medium ${
-              leftPanelTab === "git"
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-            onClick={() => {
-              setLeftPanelTab("git");
-            }}
-          >
-            Git Status
-          </button>
-        </div>
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
-          {leftPanelTab === "tree" ? (
-            <FileTree
-              apiClient={apiClient}
-              projectId={projectId}
-              selectedFiles={selectedFiles}
-              onToggleFile={handleToggleFile}
-            />
-          ) : (
-            <GitStatusPanel apiClient={apiClient} projectId={projectId} />
-          )}
-        </div>
-      </aside>
+    <section
+      className={`grid gap-4 ${leftPanelOpen ? "lg:grid-cols-[280px_minmax(0,2fr)_320px]" : "lg:grid-cols-[minmax(0,2fr)_320px]"}`}
+    >
+      {leftPanelOpen && (
+        <aside className="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:flex lg:min-h-[680px] lg:flex-col">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">仓库视图</h3>
+            <button
+              type="button"
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              onClick={() => {
+                setLeftPanelOpen(false);
+              }}
+              title="收起面板"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            在文件树中选择文件后，会自动同步到右侧“文件路径”输入框。
+          </p>
+          <div className="mt-3 grid grid-cols-2 rounded-md bg-slate-100 p-1 text-xs">
+            <button
+              type="button"
+              className={`rounded px-2 py-1 font-medium ${
+                leftPanelTab === "tree"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              onClick={() => {
+                setLeftPanelTab("tree");
+              }}
+            >
+              文件树
+            </button>
+            <button
+              type="button"
+              className={`rounded px-2 py-1 font-medium ${
+                leftPanelTab === "git"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+              onClick={() => {
+                setLeftPanelTab("git");
+              }}
+            >
+              Git Status
+            </button>
+          </div>
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+            {leftPanelTab === "tree" ? (
+              <FileTree
+                apiClient={apiClient}
+                projectId={projectId}
+                selectedFiles={selectedFiles}
+                onToggleFile={handleToggleFile}
+              />
+            ) : (
+              <GitStatusPanel apiClient={apiClient} projectId={projectId} />
+            )}
+          </div>
+        </aside>
+      )}
 
       <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-xl font-bold">Chat</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          发送消息先通过 ACK 建立/续用会话，再通过 WS 流式接收状态与增量内容。
-        </p>
+        <div className="flex items-center gap-3">
+          {!leftPanelOpen && (
+            <button
+              type="button"
+              className="hidden rounded-md border border-slate-300 px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 lg:inline-flex lg:items-center lg:gap-1"
+              onClick={() => {
+                setLeftPanelOpen(true);
+              }}
+              title="展开仓库视图"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" />
+              </svg>
+              文件
+            </button>
+          )}
+          <div>
+            <h2 className="text-xl font-bold">Chat</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              发送消息先通过 ACK 建立/续用会话，再通过 WS
+              流式接收状态与增量内容。
+            </p>
+          </div>
+        </div>
 
         <div className="mt-4 h-[30rem] rounded-lg border border-slate-200 bg-slate-50 p-3">
           {hasMessages ? (
-            <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
-              {sortedMessages.map((message, index) => (
-                <article
-                  key={`${message.time}-${index}`}
-                  className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${
-                    roleStyle[message.role]
-                  } ${message.role === "user" ? "self-end" : "self-start"}`}
-                >
-                  <p className="mb-1 text-xs font-semibold opacity-80">
-                    {roleLabel[message.role]} · {formatTime(message.time)}
-                  </p>
-                  <div className="space-y-2">
-                    {renderBasicMarkdown(message.content, `${message.time}-${index}`)}
-                  </div>
-                </article>
-              ))}
+            <div
+              ref={timelineScrollRef}
+              className="flex h-full flex-col gap-3 overflow-y-auto pr-1"
+              onScroll={handleTimelineScroll}
+            >
+              {historyLoadingMore ? (
+                <p className="self-center rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow-sm">
+                  加载更早记录中...
+                </p>
+              ) : historyCursor ? (
+                <p className="self-center text-xs text-slate-400">
+                  向上滚动可加载更早记录
+                </p>
+              ) : null}
+              {timelineItems.map((item, index) => {
+                if (item.kind === "message") {
+                  return (
+                    <article
+                      key={item.id}
+                      className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${
+                        roleStyle[item.role]
+                      } ${item.role === "user" ? "self-end" : "self-start"}`}
+                    >
+                      <p className="mb-1 text-xs font-semibold opacity-80">
+                        {roleLabel[item.role]} · {formatTime(item.time)}
+                      </p>
+                      <div className="space-y-2">
+                        {renderBasicMarkdown(
+                          item.content,
+                          `${item.time}-${index}`,
+                        )}
+                      </div>
+                    </article>
+                  );
+                }
+
+                const activityStyle =
+                  item.activityType === "agent_thought"
+                    ? "self-start border border-violet-200 bg-violet-50 text-violet-950"
+                    : "self-start border border-slate-200 bg-white text-slate-900";
+                const isToolCallCard = item.activityType === "tool_call";
+                const isToolCallGroupCard =
+                  item.activityType === "tool_call_group";
+                const isToolCallLikeCard =
+                  isToolCallCard || isToolCallGroupCard;
+                const isExpanded =
+                  !isToolCallLikeCard ||
+                  expandedActivityCards[item.id] === true;
+                const longToolCall =
+                  isToolCallLikeCard && item.detail.length > 260;
+                const displayedDetail = isExpanded
+                  ? item.detail
+                  : getCollapsedPreview(item.detail);
+                const showHeaderToggle =
+                  isToolCallLikeCard && (!isExpanded || !longToolCall);
+                const groupState = item.groupId
+                  ? toolCallGroupStates[item.groupId]
+                  : undefined;
+
+                return (
+                  <article
+                    key={item.id}
+                    data-testid={`chat-activity-card-${item.activityType}`}
+                    className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${activityStyle}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="mb-1 text-xs font-semibold opacity-80">
+                        {item.activityType} · {formatTime(item.time)}
+                      </p>
+                      {showHeaderToggle ? (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded border border-slate-300 p-1 text-slate-600 hover:bg-slate-50"
+                          aria-label={
+                            isExpanded ? "收起运行事件" : "展开运行事件"
+                          }
+                          title={isExpanded ? "收起" : "展开"}
+                          onClick={() => {
+                            if (
+                              !isExpanded &&
+                              isToolCallGroupCard &&
+                              item.groupId &&
+                              sessionId
+                            ) {
+                              const existing =
+                                toolCallGroupStates[item.groupId];
+                              if (
+                                !existing ||
+                                (!existing.loading &&
+                                  existing.items.length === 0 &&
+                                  !existing.error)
+                              ) {
+                                void loadToolCallGroup(
+                                  projectId,
+                                  sessionId,
+                                  item.groupId,
+                                );
+                              }
+                            }
+                            setExpandedActivityCards((prev) => ({
+                              ...prev,
+                              [item.id]: !isExpanded,
+                            }));
+                          }}
+                        >
+                          <ExpandCollapseIcon expanded={isExpanded} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {isToolCallLikeCard && isExpanded && longToolCall ? (
+                      <div className="sticky top-2 z-10 mb-2 flex justify-end">
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-300 bg-white/95 p-1.5 text-slate-700 shadow-sm backdrop-blur hover:bg-white"
+                          aria-label="收起运行事件"
+                          title="收起"
+                          onClick={() => {
+                            setExpandedActivityCards((prev) => ({
+                              ...prev,
+                              [item.id]: false,
+                            }));
+                          }}
+                        >
+                          <ExpandCollapseIcon expanded />
+                        </button>
+                      </div>
+                    ) : null}
+                    {isToolCallGroupCard && isExpanded ? (
+                      <div className="space-y-2">
+                        <div className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                          {item.detail}
+                        </div>
+                        {groupState?.loading ? (
+                          <p className="text-xs text-slate-500">
+                            正在加载工具调用详情...
+                          </p>
+                        ) : groupState?.error ? (
+                          <p className="text-xs text-rose-600">
+                            加载失败：{groupState.error}
+                          </p>
+                        ) : groupState && groupState.items.length > 0 ? (
+                          groupState.items.map((child, childIndex) => (
+                            <div
+                              key={`${item.id}-group-child-${child.id}-${childIndex}`}
+                              className="rounded-md border border-slate-200 bg-white px-3 py-2"
+                            >
+                              <p className="mb-1 text-[11px] font-semibold text-slate-500">
+                                {child.type} · {formatTime(child.time)}
+                              </p>
+                              <div className="space-y-2">
+                                {renderBasicMarkdown(
+                                  child.detail,
+                                  `${item.id}-${child.id}-${childIndex}`,
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-slate-500">
+                            暂无可展开的工具调用详情。
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {renderBasicMarkdown(
+                          displayedDetail,
+                          `${item.id}-${index}`,
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
               {isStreaming ? (
                 <article
                   className={`max-w-[92%] self-start rounded-lg px-3 py-2 text-sm ${roleStyle.assistant}`}
                 >
-                  <p className="mb-1 text-xs font-semibold opacity-80">助手 · 输入中...</p>
+                  <p className="mb-1 text-xs font-semibold opacity-80">
+                    助手 · 输入中...
+                  </p>
                   <div className="space-y-2">
                     {renderBasicMarkdown(
                       streamingText.length > 0 ? streamingText : "...",
@@ -1054,7 +2167,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         </div>
 
         <div className="mt-4">
-          <label htmlFor="chat-message" className="mb-2 block text-sm font-medium">
+          <label
+            htmlFor="chat-message"
+            className="mb-2 block text-sm font-medium"
+          >
             新消息
           </label>
           <textarea
@@ -1113,21 +2229,44 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
             <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-slate-200">
               {chatSessions.map((session) => {
                 const active = sessionId === session.id;
+                const status = sessionStatuses[session.id];
+                const isRunning = status?.running || (active && chatLoading);
+                const isAlive = status?.alive || isRunning;
                 return (
                   <button
                     key={session.id}
                     type="button"
                     aria-label={session.id}
                     className={`w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
-                      active ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
+                      active
+                        ? "bg-slate-900 text-white"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                     onClick={() => {
                       void handleSwitchSession(session.id);
                     }}
                     disabled={chatLoading}
                   >
-                    <p className="truncate text-sm font-medium">{session.id}</p>
-                    <p className={`truncate text-xs ${active ? "text-slate-100" : "text-slate-500"}`}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                          isRunning
+                            ? "animate-pulse bg-blue-500"
+                            : isAlive
+                              ? "bg-emerald-500"
+                              : "bg-slate-300"
+                        }`}
+                        title={
+                          isRunning ? "运行中" : isAlive ? "空闲" : "已停止"
+                        }
+                      />
+                      <p className="truncate text-sm font-medium">
+                        {session.id}
+                      </p>
+                    </div>
+                    <p
+                      className={`mt-0.5 truncate pl-[18px] text-xs ${active ? "text-slate-100" : "text-slate-500"}`}
+                    >
                       {session.preview || "暂无消息预览"}
                     </p>
                   </button>
@@ -1145,16 +2284,161 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         </div>
 
         <div className="mt-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-800">
+              Issue Sessions
+            </h4>
+            <button
+              type="button"
+              className="text-xs text-sky-600 hover:text-sky-800"
+              onClick={() => void refreshIssueList(projectId)}
+              disabled={issueListLoading}
+            >
+              {issueListLoading ? "..." : "刷新"}
+            </button>
+          </div>
+          <select
+            className="mt-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
+            value={selectedIssueId ?? ""}
+            onChange={(e) => setSelectedIssueId(e.target.value || null)}
+          >
+            <option value="">选择 Issue...</option>
+            {issueList.map((issue) => (
+              <option key={issue.id} value={issue.id}>
+                {issue.title || issue.id} [{issue.status}]
+              </option>
+            ))}
+          </select>
+          {selectedIssueId && (
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-md border border-slate-200">
+              {checkpointsLoading ? (
+                <p className="px-3 py-2 text-xs text-slate-500">加载中...</p>
+              ) : issueCheckpoints.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-slate-500">
+                  暂无 stage 记录
+                </p>
+              ) : (
+                issueCheckpoints.map((cp, idx) => {
+                  const noRoleStages = new Set(["setup", "merge", "cleanup"]);
+                  const canConnect = !noRoleStages.has(cp.stage_name);
+                  const isWaking = wakingStage === cp.stage_name;
+                  const selectedIssue = issueList.find(
+                    (i) => i.id === selectedIssueId,
+                  );
+                  const runId = selectedIssue?.run_id ?? "";
+                  const statusConfig: Record<
+                    string,
+                    { label: string; color: string; dot: string }
+                  > = {
+                    in_progress: {
+                      label: "运行中",
+                      color: "text-blue-700",
+                      dot: "bg-blue-500 animate-pulse",
+                    },
+                    success: {
+                      label: "完成",
+                      color: "text-emerald-700",
+                      dot: "bg-emerald-500",
+                    },
+                    failed: {
+                      label: "失败",
+                      color: "text-rose-700",
+                      dot: "bg-rose-500",
+                    },
+                    skipped: {
+                      label: "跳过",
+                      color: "text-slate-500",
+                      dot: "bg-slate-400",
+                    },
+                    invalidated: {
+                      label: "已废弃",
+                      color: "text-amber-600",
+                      dot: "bg-amber-400",
+                    },
+                  };
+                  const cfg = statusConfig[cp.status] ?? {
+                    label: cp.status,
+                    color: "text-slate-600",
+                    dot: "bg-slate-400",
+                  };
+                  const actionLabel = cp.agent_session_id
+                    ? cp.status === "in_progress"
+                      ? "对话"
+                      : "恢复"
+                    : canConnect
+                      ? "唤醒"
+                      : "";
+                  const actionBg = cp.agent_session_id
+                    ? "bg-sky-100 text-sky-700"
+                    : "bg-amber-100 text-amber-700";
+                  return (
+                    <button
+                      key={`${cp.stage_name}-${idx}`}
+                      type="button"
+                      className={`flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
+                        canConnect
+                          ? "hover:bg-sky-50 cursor-pointer"
+                          : "cursor-default opacity-70"
+                      }`}
+                      disabled={!canConnect || chatLoading || isWaking}
+                      onClick={() => {
+                        if (canConnect && runId) {
+                          void handleConnectStageSession(runId, cp.stage_name);
+                        }
+                      }}
+                    >
+                      <span
+                        className={`inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full ${cfg.dot}`}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate text-sm font-medium text-slate-800">
+                          {cp.stage_name}
+                        </span>
+                        <span className={`block text-xs ${cfg.color}`}>
+                          {cfg.label}
+                          {cp.agent_used ? ` · ${cp.agent_used}` : ""}
+                        </span>
+                      </span>
+                      {canConnect && actionLabel && (
+                        <span
+                          className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${actionBg}`}
+                        >
+                          {isWaking ? "唤醒中..." : actionLabel}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4">
           <h4 className="text-sm font-semibold text-slate-800">运行事件</h4>
-          <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-slate-50">
+          <div
+            data-testid="run-events-sidebar"
+            className="mt-2 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-slate-50"
+          >
             {visibleRunEvents.length > 0 ? (
               <ul className="divide-y divide-slate-200">
                 {visibleRunEvents.map((event) => (
-                  <li key={event.id} className="px-3 py-2 text-xs text-slate-700">
+                  <li
+                    key={event.id}
+                    className="px-3 py-2 text-xs text-slate-700"
+                  >
                     <p className="font-medium text-slate-800">
                       [{event.type}] {formatTime(event.time)}
                     </p>
-                    <p className="mt-1 whitespace-pre-wrap break-words">{event.detail}</p>
+                    <p
+                      className="mt-1 whitespace-pre-wrap break-words"
+                      title={event.detail}
+                    >
+                      {getCollapsedPreview(
+                        event.detail,
+                        event.type === "tool_call" ? 96 : 140,
+                      )}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -1164,7 +2448,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           </div>
         </div>
 
-        <label className="mt-4 block text-xs text-slate-700" htmlFor="issue-file-paths">
+        <label
+          className="mt-4 block text-xs text-slate-700"
+          htmlFor="issue-file-paths"
+        >
           文件路径（逗号分隔）
           <input
             id="issue-file-paths"

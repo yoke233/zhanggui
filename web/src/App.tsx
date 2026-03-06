@@ -35,15 +35,12 @@ const ISSUE_RUN_EVENT_TYPES = new Set([
   "issue_dependency_changed",
 ]);
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v3";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
 
 const resolveA2AEnabledFromEnv = (): boolean => {
   const raw = String(import.meta.env.VITE_A2A_ENABLED ?? "").trim().toLowerCase();
-  if (raw === "false" || raw === "0" || raw === "off") {
-    return false;
-  }
-  return true;
+  return raw === "true" || raw === "1" || raw === "on";
 };
 
 const parseViewFromLocation = (): AppView => {
@@ -81,7 +78,7 @@ const renderView = ({ apiClient, a2aClient, wsClient, projectId, refreshToken, a
   switch (view) {
     case "chat":
       return a2aEnabled ? (
-        <A2AChatView a2aClient={a2aClient} projectId={projectId} />
+        <A2AChatView a2aClient={a2aClient} wsClient={wsClient} projectId={projectId} />
       ) : (
         <ChatView apiClient={apiClient} wsClient={wsClient} projectId={projectId} />
       );
@@ -123,7 +120,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
   const a2aClient = useMemo(
     () =>
       createA2AClient({
-        baseUrl: API_BASE_URL,
+        baseUrl: import.meta.env.VITE_A2A_BASE_URL || "/api/v1",
         getToken: () => API_TOKEN || null,
       }),
     [],
@@ -351,6 +348,3 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
 };
 
 export default App;
-
-
-

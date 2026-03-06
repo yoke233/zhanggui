@@ -18,7 +18,7 @@ func TestAdminOps_ForceReady_Audited(t *testing.T) {
 	store := newTestStore(t)
 	issue := seedAdminIssueFixture(t, store, "pipe-admin-ready", core.IssueStatusDraft)
 
-	srv := NewServer(Config{Store: store, BearerToken: "admin-token"})
+	srv := NewServer(Config{Store: store, Token: "admin-token"})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -26,7 +26,7 @@ func TestAdminOps_ForceReady_Audited(t *testing.T) {
 		"issue_id": issue.ID,
 		"trace_id": "trace-force-ready",
 	}
-	resp := postJSON(t, ts.URL+"/api/v3/admin/ops/force-ready", body)
+	resp := postJSON(t, ts.URL+"/api/v1/admin/ops/force-ready", body, "admin-token")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.StatusCode)
@@ -59,7 +59,7 @@ func TestAdminOps_ForceUnblock_Audited(t *testing.T) {
 	store := newTestStore(t)
 	issue := seedAdminIssueFixture(t, store, "pipe-admin-unblock", core.IssueStatusFailed)
 
-	srv := NewServer(Config{Store: store, BearerToken: "admin-token"})
+	srv := NewServer(Config{Store: store, Token: "admin-token"})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -67,7 +67,7 @@ func TestAdminOps_ForceUnblock_Audited(t *testing.T) {
 		"task_id":  issue.ID,
 		"trace_id": "trace-force-unblock",
 	}
-	resp := postJSON(t, ts.URL+"/api/v3/admin/ops/force-unblock", body)
+	resp := postJSON(t, ts.URL+"/api/v1/admin/ops/force-unblock", body, "admin-token")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.StatusCode)
@@ -102,7 +102,7 @@ func TestAdminOps_ReplayDelivery_TriggersDispatcher(t *testing.T) {
 
 	srv := NewServer(Config{
 		Store:           store,
-		BearerToken:     "admin-token",
+		Token:           "admin-token",
 		WebhookReplayer: fake,
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -112,7 +112,7 @@ func TestAdminOps_ReplayDelivery_TriggersDispatcher(t *testing.T) {
 		"delivery_id": "delivery-admin-1",
 		"trace_id":    "trace-replay-admin",
 	}
-	resp := postJSON(t, ts.URL+"/api/v3/admin/ops/replay-delivery", body)
+	resp := postJSON(t, ts.URL+"/api/v1/admin/ops/replay-delivery", body, "admin-token")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.StatusCode)
@@ -125,7 +125,7 @@ func TestAdminOps_ReplayDelivery_TriggersDispatcher(t *testing.T) {
 	}
 }
 
-func postJSON(t *testing.T, url string, body map[string]any) *http.Response {
+func postJSON(t *testing.T, url string, body map[string]any, bearerToken ...string) *http.Response {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -136,6 +136,9 @@ func postJSON(t *testing.T, url string, body map[string]any) *http.Response {
 		t.Fatalf("create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if len(bearerToken) > 0 && bearerToken[0] != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken[0])
+	}
 	req.RemoteAddr = "127.0.0.1:50001"
 
 	resp, err := http.DefaultClient.Do(req)
@@ -221,23 +224,24 @@ func TestAdminOps_ListAuditLog_WithFilters(t *testing.T) {
 		t.Fatalf("RecordAction() error = %v", err)
 	}
 
-	srv := NewServer(Config{Store: store, BearerToken: "admin-token"})
+	srv := NewServer(Config{Store: store, Token: "admin-token"})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
 	req, err := http.NewRequest(
 		http.MethodGet,
-		ts.URL+"/api/v3/admin/audit-log?project_id="+issue.ProjectID+"&action=force_ready&user=admin&limit=10&offset=0",
+		ts.URL+"/api/v1/admin/audit-log?project_id="+issue.ProjectID+"&action=force_ready&user=admin&limit=10&offset=0",
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
+	req.Header.Set("Authorization", "Bearer admin-token")
 	req.RemoteAddr = "127.0.0.1:50001"
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/v3/admin/audit-log: %v", err)
+		t.Fatalf("GET /api/v1/admin/audit-log: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -267,23 +271,24 @@ func TestAdminOps_ListAuditLog_RejectsInvalidSinceBoundary(t *testing.T) {
 	store := newTestStore(t)
 	seedAdminIssueFixture(t, store, "pipe-admin-audit-since", core.IssueStatusDraft)
 
-	srv := NewServer(Config{Store: store, BearerToken: "admin-token"})
+	srv := NewServer(Config{Store: store, Token: "admin-token"})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
 	req, err := http.NewRequest(
 		http.MethodGet,
-		ts.URL+"/api/v3/admin/audit-log?since=not-a-time",
+		ts.URL+"/api/v1/admin/audit-log?since=not-a-time",
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
+	req.Header.Set("Authorization", "Bearer admin-token")
 	req.RemoteAddr = "127.0.0.1:50001"
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /api/v3/admin/audit-log: %v", err)
+		t.Fatalf("GET /api/v1/admin/audit-log: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {

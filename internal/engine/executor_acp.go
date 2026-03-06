@@ -40,6 +40,170 @@ func (e *Executor) acpPoolPut(runID string, stage core.StageID, entry *acpSessio
 	e.acpPool[acpPoolKey(runID, stage)] = entry
 }
 
+// acpPoolGetSessionID returns the ACP session ID for a given run+stage, or "".
+func (e *Executor) acpPoolGetSessionID(runID string, stage core.StageID) string {
+	entry := e.acpPoolGet(runID, stage)
+	if entry != nil {
+		return string(entry.sessionID)
+	}
+	return ""
+}
+
+// GetStageSessionStatus checks whether an ACP session for the given run+stage is alive.
+func (e *Executor) GetStageSessionStatus(runID string, stage core.StageID) core.StageSessionStatus {
+	entry := e.acpPoolGet(runID, stage)
+	if entry != nil {
+		return core.StageSessionStatus{Alive: true, SessionID: string(entry.sessionID)}
+	}
+	return core.StageSessionStatus{Alive: false}
+}
+
+// WakeStageSession re-spawns an ACP agent for the given run+stage and creates a new session.
+// It returns the new session ID. The run must still have a valid worktree.
+func (e *Executor) WakeStageSession(ctx context.Context, runID string, stage core.StageID) (string, error) {
+	// Check if already alive.
+	if entry := e.acpPoolGet(runID, stage); entry != nil {
+		return string(entry.sessionID), nil
+	}
+
+	// Load run to get worktree path and stage config.
+	p, err := e.store.GetRun(runID)
+	if err != nil {
+		return "", fmt.Errorf("get run: %w", err)
+	}
+	if p == nil {
+		return "", fmt.Errorf("run %s not found", runID)
+	}
+	if p.WorktreePath == "" {
+		return "", fmt.Errorf("run %s has no worktree (may have been cleaned up)", runID)
+	}
+
+	// Find stage config.
+	var stageCfg *core.StageConfig
+	for i := range p.Stages {
+		if p.Stages[i].Name == stage {
+			stageCfg = &p.Stages[i]
+			break
+		}
+	}
+	if stageCfg == nil {
+		return "", fmt.Errorf("stage %s not found in run %s", stage, runID)
+	}
+
+	roleName := strings.TrimSpace(stageCfg.Role)
+	if roleName == "" {
+		return "", fmt.Errorf("stage %s has no role configured", stage)
+	}
+	if e.roleResolver == nil {
+		return "", fmt.Errorf("role resolver is not configured")
+	}
+	agentProfile, roleProfile, err := e.roleResolver.Resolve(roleName)
+	if err != nil {
+		return "", fmt.Errorf("resolve role %q: %w", roleName, err)
+	}
+	if e.acpHandlerFactory == nil {
+		return "", fmt.Errorf("acp handler factory is not configured")
+	}
+
+	launchCfg := acpclient.LaunchConfig{
+		Command: strings.TrimSpace(agentProfile.LaunchCommand),
+		Args:    append([]string(nil), agentProfile.LaunchArgs...),
+		WorkDir: p.WorktreePath,
+		Env:     cloneStringMapForEngine(agentProfile.Env),
+	}
+
+	bridge := &stageEventBridge{
+		executor:  e,
+		runID:     p.ID,
+		stage:     stage,
+		agentName: agentProfile.ID,
+	}
+	bridge.lastActivity.Store(time.Now().UnixNano())
+
+	handler := e.acpHandlerFactory.NewHandler(p.WorktreePath, e.bus)
+	e.acpHandlerFactory.SetPermissionPolicy(handler, roleProfile.PermissionPolicy)
+
+	acpOpts := []acpclient.Option{
+		acpclient.WithEventHandler(bridge),
+	}
+	client, err := acpclient.New(launchCfg, handler, acpOpts...)
+	if err != nil {
+		return "", fmt.Errorf("create acp client: %w", err)
+	}
+
+	if err := client.Initialize(ctx, roleProfile.Capabilities); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = client.Close(closeCtx)
+		cancel()
+		return "", fmt.Errorf("acp initialize: %w", err)
+	}
+
+	var effectiveMCPServers []acpproto.McpServer
+	if e.mcpServerResolver != nil {
+		effectiveMCPServers = e.mcpServerResolver(roleProfile, client.SupportsSSEMCP())
+	}
+	session, err := client.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        p.WorktreePath,
+		McpServers: effectiveMCPServers,
+	})
+	if err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = client.Close(closeCtx)
+		cancel()
+		return "", fmt.Errorf("acp new session: %w", err)
+	}
+
+	entry := &acpSessionEntry{client: client, sessionID: session}
+	e.acpPoolPut(p.ID, stage, entry)
+	if e.logger != nil {
+		e.logger.Info("acp stage session woken",
+			"run_id", p.ID, "stage", stage, "session_id", string(session))
+	}
+	return string(session), nil
+}
+
+// PromptStageSession sends a message to an existing ACP stage session.
+// The session must be alive in the pool (call WakeStageSession first if needed).
+func (e *Executor) PromptStageSession(ctx context.Context, runID string, stage core.StageID, message string) error {
+	entry := e.acpPoolGet(runID, stage)
+	if entry == nil {
+		return fmt.Errorf("no active session for run %s stage %s", runID, stage)
+	}
+
+	p, err := e.store.GetRun(runID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	if p == nil {
+		return fmt.Errorf("run %s not found", runID)
+	}
+
+	var stageCfg *core.StageConfig
+	agentName := ""
+	for i := range p.Stages {
+		if p.Stages[i].Name == stage {
+			stageCfg = &p.Stages[i]
+			if resolved, _, resolveErr := e.resolveStageAgentName(stageCfg); resolveErr == nil {
+				agentName = resolved
+			}
+			break
+		}
+	}
+	if stageCfg == nil {
+		return fmt.Errorf("stage %s not found in run %s", stage, runID)
+	}
+
+	bridge := &stageEventBridge{
+		executor:  e,
+		runID:     runID,
+		stage:     stage,
+		agentName: agentName,
+	}
+	bridge.lastActivity.Store(time.Now().UnixNano())
+
+	return e.promptACPSession(ctx, entry, p, stageCfg, agentName, message, bridge)
+}
+
 // acpPoolCleanup closes and removes all pooled sessions for a given run.
 func (e *Executor) acpPoolCleanup(runID string) {
 	e.acpPoolMu.Lock()
@@ -152,7 +316,7 @@ func (e *Executor) runACPStage(
 
 	var effectiveMCPServers []acpproto.McpServer
 	if e.mcpServerResolver != nil {
-		effectiveMCPServers = e.mcpServerResolver(roleProfile)
+		effectiveMCPServers = e.mcpServerResolver(roleProfile, client.SupportsSSEMCP())
 	}
 	session, err := client.NewSession(stageCtx, acpproto.NewSessionRequest{
 		Cwd:        p.WorktreePath,

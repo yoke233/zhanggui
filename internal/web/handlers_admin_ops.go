@@ -1,7 +1,6 @@
 package web
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +19,6 @@ import (
 
 type adminOpsHandlers struct {
 	store       core.Store
-	adminToken  string
 	replayer    WebhookDeliveryReplayer
 	restartFunc func() // called to trigger graceful server restart; nil = not supported
 }
@@ -62,10 +60,9 @@ type auditRunMeta struct {
 	IssueID   string
 }
 
-func registerAdminOpsRoutes(r chi.Router, store core.Store, adminToken string, replayer WebhookDeliveryReplayer, restartFunc func()) {
+func registerAdminOpsRoutes(r chi.Router, store core.Store, replayer WebhookDeliveryReplayer, restartFunc func()) {
 	h := &adminOpsHandlers{
 		store:       store,
-		adminToken:  strings.TrimSpace(adminToken),
 		replayer:    replayer,
 		restartFunc: restartFunc,
 	}
@@ -90,10 +87,6 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 	action string,
 	targetStatus core.IssueStatus,
 ) {
-	if !h.isAuthorized(r) {
-		writeAPIError(w, http.StatusUnauthorized, "admin operation unauthorized", "ADMIN_UNAUTHORIZED")
-		return
-	}
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
 		return
@@ -155,10 +148,6 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 }
 
 func (h *adminOpsHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
-	if !h.isAuthorized(r) {
-		writeAPIError(w, http.StatusUnauthorized, "admin operation unauthorized", "ADMIN_UNAUTHORIZED")
-		return
-	}
 	if h.restartFunc == nil {
 		writeAPIError(w, http.StatusNotImplemented, "restart not supported", "RESTART_NOT_SUPPORTED")
 		return
@@ -172,10 +161,6 @@ func (h *adminOpsHandlers) handleRestart(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *adminOpsHandlers) handleReplayDelivery(w http.ResponseWriter, r *http.Request) {
-	if !h.isAuthorized(r) {
-		writeAPIError(w, http.StatusUnauthorized, "admin operation unauthorized", "ADMIN_UNAUTHORIZED")
-		return
-	}
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
 		return
@@ -232,10 +217,6 @@ func (h *adminOpsHandlers) handleReplayDelivery(w http.ResponseWriter, r *http.R
 }
 
 func (h *adminOpsHandlers) handleListAuditLog(w http.ResponseWriter, r *http.Request) {
-	if !h.isAuthorized(r) {
-		writeAPIError(w, http.StatusUnauthorized, "admin operation unauthorized", "ADMIN_UNAUTHORIZED")
-		return
-	}
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
 		return
@@ -501,19 +482,6 @@ func parseAdminAuditTimestamp(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func (h *adminOpsHandlers) isAuthorized(r *http.Request) bool {
-	if h == nil {
-		return false
-	}
-	headerToken := strings.TrimSpace(r.Header.Get("X-Admin-Token"))
-	if headerToken != "" && h.adminToken != "" {
-		if subtle.ConstantTimeCompare([]byte(headerToken), []byte(h.adminToken)) == 1 {
-			return true
-		}
-	}
-	host := remoteHost(r.RemoteAddr)
-	return isLoopbackHost(host)
-}
 
 func resolveAdminTraceID(raw string, r *http.Request) string {
 	traceID := strings.TrimSpace(raw)

@@ -4,6 +4,9 @@ import type {
   ApiWorkflowProfile,
   ApiStatsResponse,
   CancelChatResponse,
+  ChatEventGroupResponse,
+  ChatEventsPageQuery,
+  ChatSessionStatus,
   CreateChatResponse,
   CreateChatRequest,
   CreateIssueFromFilesRequest,
@@ -27,7 +30,10 @@ import type {
   ListIssueTimelineQuery,
   ListIssueTimelineResponse,
   ListIssuesResponse,
+  ListRunCheckpointsResponse,
   ListRunsResponse,
+  StageSessionStatus,
+  WakeStageSessionResponse,
   ListWorkflowProfilesResponse,
   ListProjectsResponse,
   RepoDiffResponse,
@@ -88,7 +94,9 @@ const normalizeBaseUrl = (baseUrl: string): string => {
   }
 
   if (typeof window !== "undefined" && window.location?.origin) {
-    return new URL(trimmed, window.location.origin).toString().replace(/\/+$/, "");
+    return new URL(trimmed, window.location.origin)
+      .toString()
+      .replace(/\/+$/, "");
   }
 
   return new URL(trimmed, "http://localhost").toString().replace(/\/+$/, "");
@@ -117,8 +125,13 @@ const buildUrl = (
     const normalizedBasePath = base.pathname.replace(/\/+$/, "");
     const apiPrefixIndex = normalizedBasePath.toLowerCase().indexOf("/api/");
     const basePathPrefix =
-      apiPrefixIndex >= 0 ? normalizedBasePath.slice(0, apiPrefixIndex) : normalizedBasePath;
-    const resolvedPath = `${basePathPrefix}${normalizedPath}`.replace(/\/{2,}/g, "/");
+      apiPrefixIndex >= 0
+        ? normalizedBasePath.slice(0, apiPrefixIndex)
+        : normalizedBasePath;
+    const resolvedPath = `${basePathPrefix}${normalizedPath}`.replace(
+      /\/{2,}/g,
+      "/",
+    );
     const absolute = new URL(resolvedPath, `${base.protocol}//${base.host}`);
     if (query) {
       Object.entries(query).forEach(([key, value]) => {
@@ -204,7 +217,9 @@ const toSafeString = (raw: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const normalizeIssueNumberFromExternalId = (externalId: string): number | undefined => {
+const normalizeIssueNumberFromExternalId = (
+  externalId: string,
+): number | undefined => {
   const trimmed = externalId.trim();
   if (!trimmed) {
     return undefined;
@@ -242,9 +257,13 @@ const normalizeApiRun = (run: ApiRun): ApiRun => {
 const normalizeApiIssue = (issue: ApiIssue): ApiIssue => {
   const issueNumber =
     normalizeIssueNumberFromExternalId(issue.external_id ?? "") ??
-    toSafeNumber((issue as { github?: { issue_number?: unknown } }).github?.issue_number);
+    toSafeNumber(
+      (issue as { github?: { issue_number?: unknown } }).github?.issue_number,
+    );
   const issueUrl =
-    toSafeString((issue as { github?: { issue_url?: unknown } }).github?.issue_url) ??
+    toSafeString(
+      (issue as { github?: { issue_url?: unknown } }).github?.issue_url,
+    ) ??
     (toSafeString(issue.external_id)?.startsWith("http")
       ? toSafeString(issue.external_id)
       : undefined);
@@ -313,8 +332,13 @@ const normalizeIssueTimelineEntry = (
 };
 
 export interface ApiClient {
-  request<TResponse, TBody = unknown>(options: RequestOptions<TBody>): Promise<TResponse>;
-  get<TResponse>(path: string, options?: Omit<RequestOptions<never>, "path" | "method">): Promise<TResponse>;
+  request<TResponse, TBody = unknown>(
+    options: RequestOptions<TBody>,
+  ): Promise<TResponse>;
+  get<TResponse>(
+    path: string,
+    options?: Omit<RequestOptions<never>, "path" | "method">,
+  ): Promise<TResponse>;
   post<TResponse, TBody = unknown>(
     path: string,
     body?: TBody,
@@ -325,7 +349,10 @@ export interface ApiClient {
     body?: TBody,
     options?: Omit<RequestOptions<TBody>, "path" | "method" | "body">,
   ): Promise<TResponse>;
-  del<TResponse>(path: string, options?: Omit<RequestOptions<never>, "path" | "method">): Promise<TResponse>;
+  del<TResponse>(
+    path: string,
+    options?: Omit<RequestOptions<never>, "path" | "method">,
+  ): Promise<TResponse>;
 
   getStats(): Promise<ApiStatsResponse>;
   listProjects(): Promise<ListProjectsResponse>;
@@ -333,31 +360,81 @@ export interface ApiClient {
   createProjectCreateRequest(
     body: CreateProjectCreateRequest,
   ): Promise<CreateProjectCreateRequestResponse>;
-  getProjectCreateRequest(requestId: string): Promise<GetProjectCreateRequestResponse>;
-  listIssues(projectId: string, pagination?: PaginationParams): Promise<ListIssuesResponse>;
+  getProjectCreateRequest(
+    requestId: string,
+  ): Promise<GetProjectCreateRequestResponse>;
+  listIssues(
+    projectId: string,
+    pagination?: PaginationParams,
+  ): Promise<ListIssuesResponse>;
   getIssue(issueId: string): Promise<ApiIssue>;
   listWorkflowProfiles(): Promise<ListWorkflowProfilesResponse>;
   getWorkflowProfile(profileType: string): Promise<ApiWorkflowProfile>;
-  listRuns(projectId: string, pagination?: PaginationParams): Promise<ListRunsResponse>;
+  listRuns(
+    projectId: string,
+    pagination?: PaginationParams,
+  ): Promise<ListRunsResponse>;
   getRun(runId: string): Promise<ApiRun>;
-  createIssue(projectId: string, body: CreateIssueRequest): Promise<CreateIssueResponse>;
+  getRunCheckpoints(runId: string): Promise<ListRunCheckpointsResponse>;
+  getStageSessionStatus(
+    runId: string,
+    stage: string,
+  ): Promise<StageSessionStatus>;
+  wakeStageSession(
+    runId: string,
+    stage: string,
+  ): Promise<WakeStageSessionResponse>;
+  promptStageSession(
+    runId: string,
+    stage: string,
+    message: string,
+  ): Promise<void>;
+  createIssue(
+    projectId: string,
+    body: CreateIssueRequest,
+  ): Promise<CreateIssueResponse>;
   createIssueFromFiles(
     projectId: string,
     body: CreateIssueFromFilesRequest,
   ): Promise<CreateIssueResponse>;
-  submitIssueReview(projectId: string, issueId: string): Promise<SubmitIssueReviewResponse>;
+  submitIssueReview(
+    projectId: string,
+    issueId: string,
+  ): Promise<SubmitIssueReviewResponse>;
   applyIssueAction(
     projectId: string,
     issueId: string,
     body: IssueActionRequest,
   ): Promise<IssueActionResponse>;
   getIssueDag(projectId: string, issueId: string): Promise<IssueDagResponse>;
-  listIssueReviews?(projectId: string, issueId: string): Promise<IssueReviewRecord[]>;
-  listIssueChanges?(projectId: string, issueId: string): Promise<IssueChangeRecord[]>;
+  listIssueReviews?(
+    projectId: string,
+    issueId: string,
+  ): Promise<IssueReviewRecord[]>;
+  listIssueChanges?(
+    projectId: string,
+    issueId: string,
+  ): Promise<IssueChangeRecord[]>;
   listChats(projectId: string): Promise<ListChatsResponse>;
-  listChatRunEvents(projectId: string, sessionId: string): Promise<ListChatRunEventsResponse>;
-  createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
+  listChatRunEvents(
+    projectId: string,
+    sessionId: string,
+    query?: ChatEventsPageQuery,
+  ): Promise<ListChatRunEventsResponse>;
+  getChatEventGroup(
+    projectId: string,
+    sessionId: string,
+    groupId: string,
+  ): Promise<ChatEventGroupResponse>;
+  createChat(
+    projectId: string,
+    body: CreateChatRequest,
+  ): Promise<CreateChatResponse>;
   cancelChat(projectId: string, sessionId: string): Promise<CancelChatResponse>;
+  getChatSessionStatus(
+    projectId: string,
+    sessionId: string,
+  ): Promise<ChatSessionStatus>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   setIssueAutoMerge(
     projectId: string,
@@ -375,7 +452,9 @@ export interface ApiClient {
     issueId: string,
     query?: ListIssueTimelineQuery,
   ): Promise<ListIssueTimelineResponse>;
-  listAdminAuditLog?(query?: AdminAuditLogQuery): Promise<ListAdminAuditLogResponse>;
+  listAdminAuditLog?(
+    query?: AdminAuditLogQuery,
+  ): Promise<ListAdminAuditLogResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
@@ -428,7 +507,11 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
 
     const data = await readResponseData(response);
     if (!response.ok) {
-      throw new ApiError(response.status, extractErrorMessage(response.status, data), data);
+      throw new ApiError(
+        response.status,
+        extractErrorMessage(response.status, data),
+        data,
+      );
     }
     return data as TResponse;
   };
@@ -461,27 +544,28 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path,
         method: "DELETE",
       }),
-    getStats: () => request<ApiStatsResponse>({ path: "/api/v3/stats" }),
-    listProjects: () => request<ListProjectsResponse>({ path: "/api/v3/projects" }),
+    getStats: () => request<ApiStatsResponse>({ path: "/api/v1/stats" }),
+    listProjects: () =>
+      request<ListProjectsResponse>({ path: "/api/v1/projects" }),
     createProject: (body) =>
       request<Project, CreateProjectRequest>({
-        path: "/api/v3/projects",
+        path: "/api/v1/projects",
         method: "POST",
         body,
       }),
     createProjectCreateRequest: (body) =>
       request<CreateProjectCreateRequestResponse, CreateProjectCreateRequest>({
-        path: "/api/v3/projects/create-requests",
+        path: "/api/v1/projects/create-requests",
         method: "POST",
         body,
       }),
     getProjectCreateRequest: (requestId) =>
       request<GetProjectCreateRequestResponse>({
-        path: `/api/v3/projects/create-requests/${requestId}`,
+        path: `/api/v1/projects/create-requests/${requestId}`,
       }),
     listIssues: async (projectId, pagination) => {
       const response = await request<ListIssuesResponse | ApiIssue[]>({
-        path: "/api/v3/issues",
+        path: "/api/v1/issues",
         query: {
           project_id: projectId,
           limit: pagination?.limit,
@@ -498,19 +582,23 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       const items = Array.isArray(response.items) ? response.items : [];
       return {
         items: items.map(normalizeApiIssue),
-        total: typeof response.total === "number" ? response.total : items.length,
-        offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
+        total:
+          typeof response.total === "number" ? response.total : items.length,
+        offset:
+          typeof response.offset === "number"
+            ? response.offset
+            : (pagination?.offset ?? 0),
       };
     },
     getIssue: async (issueId) => {
       const response = await request<ApiIssue>({
-        path: `/api/v3/issues/${issueId}`,
+        path: `/api/v1/issues/${issueId}`,
       });
       return normalizeApiIssue(response);
     },
     listWorkflowProfiles: async () => {
       const response = await request<{ items?: ApiWorkflowProfile[] }>({
-        path: "/api/v3/workflow-profiles",
+        path: "/api/v1/workflow-profiles",
       });
       const items = Array.isArray(response.items) ? response.items : [];
       return {
@@ -521,11 +609,11 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     },
     getWorkflowProfile: (profileType) =>
       request<ApiWorkflowProfile>({
-        path: `/api/v3/workflow-profiles/${profileType}`,
+        path: `/api/v1/workflow-profiles/${profileType}`,
       }),
     listRuns: async (projectId, pagination) => {
       const response = await request<ListRunsResponse | ApiRun[]>({
-        path: "/api/v3/runs",
+        path: "/api/v1/runs",
         query: {
           project_id: projectId,
           limit: pagination?.limit,
@@ -542,27 +630,53 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       const items = Array.isArray(response.items) ? response.items : [];
       return {
         items: items.map(normalizeApiRun),
-        total: typeof response.total === "number" ? response.total : items.length,
-        offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
+        total:
+          typeof response.total === "number" ? response.total : items.length,
+        offset:
+          typeof response.offset === "number"
+            ? response.offset
+            : (pagination?.offset ?? 0),
       };
     },
     getRun: async (runId) => {
       const response = await request<ApiRun>({
-        path: `/api/v3/runs/${runId}`,
+        path: `/api/v1/runs/${runId}`,
       });
       return normalizeApiRun(response);
     },
+    getRunCheckpoints: (runId) =>
+      request<ListRunCheckpointsResponse>({
+        path: `/api/v1/runs/${runId}/checkpoints`,
+      }),
+    getStageSessionStatus: (runId, stage) =>
+      request<StageSessionStatus>({
+        path: `/api/v1/runs/${runId}/stages/${stage}/session`,
+      }),
+    wakeStageSession: (runId, stage) =>
+      request<WakeStageSessionResponse>({
+        path: `/api/v1/runs/${runId}/stages/${stage}/session/wake`,
+        method: "POST",
+      }),
+    promptStageSession: (runId, stage, message) =>
+      request<void>({
+        path: `/api/v1/runs/${runId}/stages/${stage}/session/prompt`,
+        method: "POST",
+        body: { message },
+      }),
     createIssue: async (projectId, body) => {
       const response = await request<CreateIssueResponse, CreateIssueRequest>({
-        path: `/api/v3/projects/${projectId}/issues`,
+        path: `/api/v1/projects/${projectId}/issues`,
         method: "POST",
         body,
       });
       return normalizeApiIssue(response);
     },
     createIssueFromFiles: async (projectId, body) => {
-      const response = await request<CreateIssueResponse, CreateIssueFromFilesRequest>({
-        path: `/api/v3/projects/${projectId}/issues/from-files`,
+      const response = await request<
+        CreateIssueResponse,
+        CreateIssueFromFilesRequest
+      >({
+        path: `/api/v1/projects/${projectId}/issues/from-files`,
         method: "POST",
         body,
       });
@@ -570,65 +684,79 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     },
     submitIssueReview: (projectId, issueId) =>
       request<SubmitIssueReviewResponse>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/review`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/review`,
         method: "POST",
       }),
     applyIssueAction: (projectId, issueId, body) =>
       request<IssueActionResponse, IssueActionRequest>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/action`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/action`,
         method: "POST",
         body,
       }),
     getIssueDag: (projectId, issueId) =>
       request<IssueDagResponse>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/dag`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/dag`,
       }),
     listIssueReviews: (projectId, issueId) =>
       request<IssueReviewRecord[]>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/reviews`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/reviews`,
       }),
     listIssueChanges: (projectId, issueId) =>
       request<IssueChangeRecord[]>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/changes`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/changes`,
       }),
     listChats: (projectId) =>
       request<ListChatsResponse>({
-        path: `/api/v3/projects/${projectId}/chat`,
+        path: `/api/v1/projects/${projectId}/chat`,
       }),
-    listChatRunEvents: (projectId, sessionId) =>
+    listChatRunEvents: (projectId, sessionId, query) =>
       request<ListChatRunEventsResponse>({
-        path: `/api/v3/projects/${projectId}/chat/${sessionId}/events`,
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/events`,
+        query: query
+          ? {
+              cursor: query.cursor,
+              limit: query.limit,
+            }
+          : undefined,
+      }),
+    getChatEventGroup: (projectId, sessionId, groupId) =>
+      request<ChatEventGroupResponse>({
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/event-groups/${groupId}`,
       }),
     createChat: (projectId, body) =>
       request<CreateChatResponse, CreateChatRequest>({
-        path: `/api/v3/projects/${projectId}/chat`,
+        path: `/api/v1/projects/${projectId}/chat`,
         method: "POST",
         body,
       }),
     cancelChat: (projectId, sessionId) =>
       request<CancelChatResponse>({
-        path: `/api/v3/projects/${projectId}/chat/${sessionId}/cancel`,
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/cancel`,
         method: "POST",
+      }),
+    getChatSessionStatus: (projectId, sessionId) =>
+      request<ChatSessionStatus>({
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/status`,
       }),
     getChat: (projectId, sessionId) =>
       request<GetChatResponse>({
-        path: `/api/v3/projects/${projectId}/chat/${sessionId}`,
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}`,
       }),
     setIssueAutoMerge: (projectId, issueId, body) =>
       request<SetIssueAutoMergeResponse, SetIssueAutoMergeRequest>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/auto-merge`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/auto-merge`,
         method: "POST",
         body,
       }),
     applyTaskAction: (projectId, issueId, _taskId, body) =>
       request<IssueActionResponse, IssueActionRequest>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/action`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/action`,
         method: "POST",
         body,
       }),
     listIssueTimeline: async (projectId, issueId, query) => {
       const response = await request<ListIssueTimelineResponse>({
-        path: `/api/v3/projects/${projectId}/issues/${issueId}/timeline`,
+        path: `/api/v1/projects/${projectId}/issues/${issueId}/timeline`,
         query: {
           limit: query?.limit,
           offset: query?.offset,
@@ -636,14 +764,20 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       });
       const rawItems = Array.isArray(response.items) ? response.items : [];
       return {
-        items: rawItems.map((item, index) => normalizeIssueTimelineEntry(item, index)),
-        total: typeof response.total === "number" ? response.total : rawItems.length,
-        offset: typeof response.offset === "number" ? response.offset : query?.offset ?? 0,
+        items: rawItems.map((item, index) =>
+          normalizeIssueTimelineEntry(item, index),
+        ),
+        total:
+          typeof response.total === "number" ? response.total : rawItems.length,
+        offset:
+          typeof response.offset === "number"
+            ? response.offset
+            : (query?.offset ?? 0),
       };
     },
     listAdminAuditLog: (query) =>
       request<ListAdminAuditLogResponse>({
-        path: "/api/v3/admin/audit-log",
+        path: "/api/v1/admin/audit-log",
         query: {
           project_id: query?.projectId?.trim() ? query.projectId : undefined,
           action: query?.action?.trim() ? query.action : undefined,
@@ -656,25 +790,25 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       }),
     getRepoTree: (projectId, dir) =>
       request<RepoTreeResponse>({
-        path: `/api/v3/projects/${projectId}/repo/tree`,
+        path: `/api/v1/projects/${projectId}/repo/tree`,
         query: {
           dir: dir?.trim() ? dir : undefined,
         },
       }),
     getRepoStatus: (projectId) =>
       request<RepoStatusResponse>({
-        path: `/api/v3/projects/${projectId}/repo/status`,
+        path: `/api/v1/projects/${projectId}/repo/status`,
       }),
     getRepoDiff: (projectId, filePath) =>
       request<RepoDiffResponse>({
-        path: `/api/v3/projects/${projectId}/repo/diff`,
+        path: `/api/v1/projects/${projectId}/repo/diff`,
         query: {
           file: filePath,
         },
       }),
     listRunEvents: async (runId) => {
       const response = await request<ListRunEventsResponse>({
-        path: `/api/v3/runs/${runId}/events`,
+        path: `/api/v1/runs/${runId}/events`,
       });
       return {
         items: Array.isArray(response.items) ? response.items : [],

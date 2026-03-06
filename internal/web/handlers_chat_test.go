@@ -46,12 +46,12 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 	}
 
 	createResp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-api/chat",
+		ts.URL+"/api/v1/projects/proj-chat-api/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer createResp.Body.Close()
 	if createResp.StatusCode != http.StatusAccepted {
@@ -84,9 +84,9 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-api/chat/" + created.SessionID)
+	getResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-api/chat/" + created.SessionID)
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects/{pid}/chat/{sid}: %v", err)
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}: %v", err)
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
@@ -169,9 +169,9 @@ func TestListChatSessions(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-list/chat")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list/chat")
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -212,9 +212,9 @@ func TestListChatSessionsProjectNotFound(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-list-missing/chat")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list-missing/chat")
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -244,8 +244,184 @@ func TestListChatSessionEvents(t *testing.T) {
 		ID:        "chat-20260303-events",
 		ProjectID: project.ID,
 		Messages: []core.ChatMessage{
-			{Role: "user", Content: "执行任务"},
+			{Role: "user", Content: "执行任务", Time: time.Date(2026, 3, 3, 10, 0, 0, 0, time.UTC)},
+			{Role: "assistant", Content: "开始执行", Time: time.Date(2026, 3, 3, 10, 0, 30, 0, time.UTC)},
 		},
+		UpdatedAt: time.Date(2026, 3, 3, 10, 2, 0, 0, time.UTC),
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+	runEventRecorder, ok := store.(interface {
+		AppendChatRunEvent(event core.ChatRunEvent) error
+	})
+	if !ok {
+		t.Fatal("store does not support AppendChatRunEvent")
+	}
+	if err := runEventRecorder.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "agent_thought_chunk",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "agent_thought_chunk",
+				"content": map[string]any{
+					"text": "先检查代码",
+				},
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 10, 1, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed chat thought event: %v", err)
+	}
+	if err := runEventRecorder.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call",
+				"title":         "Terminal",
+				"status":        "pending",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 10, 1, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed chat run event: %v", err)
+	}
+	if err := runEventRecorder.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call_update",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call_update",
+				"toolCallId":    "call-2",
+				"status":        "completed",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 10, 1, 40, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed chat run update event: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events/chat/" + session.ID + "/events?limit=2")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var page struct {
+		SessionID  string              `json:"session_id"`
+		ProjectID  string              `json:"project_id"`
+		Messages   []core.ChatMessage  `json:"messages"`
+		Events     []core.ChatRunEvent `json:"events"`
+		NextCursor string              `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatalf("decode events response: %v", err)
+	}
+	if page.SessionID != session.ID || page.ProjectID != project.ID {
+		t.Fatalf("unexpected page identity: %#v", page)
+	}
+	if len(page.Messages) != 0 {
+		t.Fatalf("expected first page to contain newest timeline items only, got %d messages", len(page.Messages))
+	}
+	if len(page.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(page.Events))
+	}
+	if page.Events[0].UpdateType != "agent_thought" {
+		t.Fatalf("expected aggregated agent_thought, got %q", page.Events[0].UpdateType)
+	}
+	if page.Events[1].UpdateType != "tool_call_group" {
+		t.Fatalf("unexpected latest update type: %q", page.Events[1].UpdateType)
+	}
+	groupID, _ := page.Events[1].Payload["group_id"].(string)
+	if groupID == "" {
+		t.Fatal("expected tool_call_group to include group_id")
+	}
+
+	groupResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events/chat/" + session.ID + "/event-groups/" + groupID)
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/event-groups/{gid}: %v", err)
+	}
+	defer groupResp.Body.Close()
+	if groupResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected group detail 200, got %d", groupResp.StatusCode)
+	}
+
+	var groupPage struct {
+		GroupID string              `json:"group_id"`
+		Events  []core.ChatRunEvent `json:"events"`
+	}
+	if err := json.NewDecoder(groupResp.Body).Decode(&groupPage); err != nil {
+		t.Fatalf("decode group detail response: %v", err)
+	}
+	if groupPage.GroupID != groupID {
+		t.Fatalf("expected group_id %q, got %q", groupID, groupPage.GroupID)
+	}
+	if len(groupPage.Events) != 2 {
+		t.Fatalf("expected 2 grouped tool call events, got %d", len(groupPage.Events))
+	}
+	if page.NextCursor == "" {
+		t.Fatal("expected next_cursor for older history")
+	}
+
+	cursorResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events/chat/" + session.ID + "/events?limit=2&cursor=" + page.NextCursor)
+	if err != nil {
+		t.Fatalf("GET older /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
+	}
+	defer cursorResp.Body.Close()
+	if cursorResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected older page 200, got %d", cursorResp.StatusCode)
+	}
+
+	var olderPage struct {
+		Messages   []core.ChatMessage  `json:"messages"`
+		Events     []core.ChatRunEvent `json:"events"`
+		NextCursor string              `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(cursorResp.Body).Decode(&olderPage); err != nil {
+		t.Fatalf("decode older events response: %v", err)
+	}
+	if len(olderPage.Messages) != 2 {
+		t.Fatalf("expected 2 older messages, got %d", len(olderPage.Messages))
+	}
+	if len(olderPage.Events) != 0 {
+		t.Fatalf("expected no older events, got %d", len(olderPage.Events))
+	}
+	if olderPage.NextCursor != "" {
+		t.Fatalf("expected no more cursor, got %q", olderPage.NextCursor)
+	}
+}
+
+func TestListChatSessionEventsSingleToolCallStaysUngrouped(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-events-single-tool",
+		Name:     "chat-events-single-tool",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-events-single-tool"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-20260303-events-single-tool",
+		ProjectID: project.ID,
+		UpdatedAt: time.Date(2026, 3, 3, 11, 0, 0, 0, time.UTC),
 	}
 	if err := store.CreateChatSession(session); err != nil {
 		t.Fatalf("seed chat session: %v", err)
@@ -265,40 +441,227 @@ func TestListChatSessionEvents(t *testing.T) {
 			"session_id": session.ID,
 			"acp": map[string]any{
 				"sessionUpdate": "tool_call",
-				"title":         "Terminal",
+				"title":         "Read file",
 				"status":        "pending",
 			},
 		},
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: time.Date(2026, 3, 3, 11, 0, 30, 0, time.UTC),
 	}); err != nil {
-		t.Fatalf("seed chat run event: %v", err)
+		t.Fatalf("seed single tool call event: %v", err)
 	}
 
 	srv := NewServer(Config{Store: store})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-events/chat/" + session.ID + "/events")
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events-single-tool/chat/" + session.ID + "/events?limit=10")
 	if err != nil {
-		t.Fatalf("GET /api/v3/projects/{pid}/chat/{sid}/events: %v", err)
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var events []core.ChatRunEvent
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+	var page struct {
+		Events []core.ChatRunEvent `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		t.Fatalf("decode events response: %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
+	if len(page.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(page.Events))
 	}
-	if events[0].SessionID != session.ID || events[0].ProjectID != project.ID {
-		t.Fatalf("unexpected event identity: %#v", events[0])
+	if page.Events[0].UpdateType != "tool_call" {
+		t.Fatalf("expected ungrouped tool_call, got %q", page.Events[0].UpdateType)
 	}
-	if events[0].UpdateType != "tool_call" {
-		t.Fatalf("unexpected update type: %q", events[0].UpdateType)
+
+	groupResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events-single-tool/chat/" + session.ID + "/event-groups/tool-call-group:1:1")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/event-groups/{gid}: %v", err)
+	}
+	defer groupResp.Body.Close()
+	if groupResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing group, got %d", groupResp.StatusCode)
+	}
+
+	var apiErr apiError
+	if err := json.NewDecoder(groupResp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode group error response: %v", err)
+	}
+	if apiErr.Code != "CHAT_EVENT_GROUP_NOT_FOUND" {
+		t.Fatalf("expected code CHAT_EVENT_GROUP_NOT_FOUND, got %q", apiErr.Code)
+	}
+}
+
+func TestListChatSessionEventsSplitToolCallGroupsAroundNonToolEvent(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-events-split-groups",
+		Name:     "chat-events-split-groups",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-events-split-groups"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-20260303-events-split-groups",
+		ProjectID: project.ID,
+		UpdatedAt: time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC),
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+	runEventRecorder, ok := store.(interface {
+		AppendChatRunEvent(event core.ChatRunEvent) error
+	})
+	if !ok {
+		t.Fatal("store does not support AppendChatRunEvent")
+	}
+
+	seedEvent := func(event core.ChatRunEvent) {
+		if err := runEventRecorder.AppendChatRunEvent(event); err != nil {
+			t.Fatalf("seed event %s failed: %v", event.UpdateType, err)
+		}
+	}
+
+	seedEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call",
+				"title":         "Read plan",
+				"status":        "pending",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 12, 0, 10, 0, time.UTC),
+	})
+	seedEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call_update",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call_update",
+				"toolCallId":    "call-a",
+				"status":        "completed",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 12, 0, 20, 0, time.UTC),
+	})
+	seedEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "agent_thought_chunk",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "agent_thought_chunk",
+				"content": map[string]any{
+					"text": "切换到第二阶段",
+				},
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 12, 0, 30, 0, time.UTC),
+	})
+	seedEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call",
+				"title":         "Run tests",
+				"status":        "pending",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 12, 0, 40, 0, time.UTC),
+	})
+	seedEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call_completed",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call_completed",
+				"toolCallId":    "call-b",
+				"status":        "completed",
+			},
+		},
+		CreatedAt: time.Date(2026, 3, 3, 12, 0, 50, 0, time.UTC),
+	})
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events-split-groups/chat/" + session.ID + "/events?limit=10")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var page struct {
+		Events []core.ChatRunEvent `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatalf("decode events response: %v", err)
+	}
+	if len(page.Events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(page.Events))
+	}
+	if page.Events[0].UpdateType != "tool_call_group" {
+		t.Fatalf("expected first event to be tool_call_group, got %q", page.Events[0].UpdateType)
+	}
+	if page.Events[1].UpdateType != "agent_thought" {
+		t.Fatalf("expected middle event to be agent_thought, got %q", page.Events[1].UpdateType)
+	}
+	if page.Events[2].UpdateType != "tool_call_group" {
+		t.Fatalf("expected last event to be tool_call_group, got %q", page.Events[2].UpdateType)
+	}
+
+	firstGroupID, _ := page.Events[0].Payload["group_id"].(string)
+	secondGroupID, _ := page.Events[2].Payload["group_id"].(string)
+	if firstGroupID == "" || secondGroupID == "" {
+		t.Fatalf("expected both tool call groups to include group_id, got %q and %q", firstGroupID, secondGroupID)
+	}
+	if firstGroupID == secondGroupID {
+		t.Fatalf("expected separate group ids, both were %q", firstGroupID)
+	}
+
+	for _, groupID := range []string{firstGroupID, secondGroupID} {
+		groupResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events-split-groups/chat/" + session.ID + "/event-groups/" + groupID)
+		if err != nil {
+			t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/event-groups/{gid}: %v", err)
+		}
+		defer groupResp.Body.Close()
+		if groupResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected group detail 200, got %d", groupResp.StatusCode)
+		}
+
+		var groupPage struct {
+			Events []core.ChatRunEvent `json:"events"`
+		}
+		if err := json.NewDecoder(groupResp.Body).Decode(&groupPage); err != nil {
+			t.Fatalf("decode group detail response: %v", err)
+		}
+		if len(groupPage.Events) != 2 {
+			t.Fatalf("expected 2 events in group %q, got %d", groupID, len(groupPage.Events))
+		}
 	}
 }
 
@@ -325,12 +688,12 @@ func TestCreateChatSessionRequiresMessage(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-required/chat",
+		ts.URL+"/api/v1/projects/proj-chat-required/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -374,7 +737,7 @@ func TestDeleteChatSession(t *testing.T) {
 
 	req, err := http.NewRequest(
 		http.MethodDelete,
-		ts.URL+"/api/v3/projects/proj-chat-delete/chat/"+session.ID,
+		ts.URL+"/api/v1/projects/proj-chat-delete/chat/"+session.ID,
 		nil,
 	)
 	if err != nil {
@@ -382,14 +745,14 @@ func TestDeleteChatSession(t *testing.T) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE /api/v3/projects/{pid}/chat/{sid}: %v", err)
+		t.Fatalf("DELETE /api/v1/projects/{pid}/chat/{sid}: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", resp.StatusCode)
 	}
 
-	getResp, err := http.Get(ts.URL + "/api/v3/projects/proj-chat-delete/chat/" + session.ID)
+	getResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-delete/chat/" + session.ID)
 	if err != nil {
 		t.Fatalf("GET deleted session: %v", err)
 	}
@@ -431,12 +794,12 @@ func TestCreateChatSessionRejectsLegacyAutoCreatePlanParam(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-issue-draft/chat",
+		ts.URL+"/api/v1/projects/proj-chat-issue-draft/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -496,12 +859,12 @@ func TestCreateChatSessionDoesNotAutoCreateIssueByDefault(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-issue-default-off/chat",
+		ts.URL+"/api/v1/projects/proj-chat-issue-default-off/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
 	if err != nil {
-		t.Fatalf("POST /api/v3/projects/{pid}/chat: %v", err)
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
@@ -548,7 +911,7 @@ func TestChatSessionCreateWithRole(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-role/chat",
+		ts.URL+"/api/v1/projects/proj-chat-role/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -626,7 +989,7 @@ func TestCreateChatSessionRejectsInvalidRole(t *testing.T) {
 	}
 
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-invalid-role/chat",
+		ts.URL+"/api/v1/projects/proj-chat-invalid-role/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -692,7 +1055,7 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-continue/chat",
+		ts.URL+"/api/v1/projects/proj-chat-continue/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -776,7 +1139,7 @@ func TestCreateChatSessionAssistantFailureReturnsBadGateway(t *testing.T) {
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-assistant-fail/chat",
+		ts.URL+"/api/v1/projects/proj-chat-assistant-fail/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)
@@ -811,7 +1174,7 @@ func TestCreateChatSessionAssistantUnavailableReturnsServiceUnavailable(t *testi
 		t.Fatalf("marshal request body: %v", err)
 	}
 	resp, err := http.Post(
-		ts.URL+"/api/v3/projects/proj-chat-assistant-missing/chat",
+		ts.URL+"/api/v1/projects/proj-chat-assistant-missing/chat",
 		"application/json",
 		bytes.NewReader(rawBody),
 	)

@@ -47,17 +47,34 @@ func (d *debugHandler) PrintStats() {
 }
 
 func main() {
-	codexHome := `D:\project\ai-workflow\.ai-workflow\codex-home`
+	agent := "codex"
+	if len(os.Args) > 1 {
+		agent = os.Args[1]
+	}
 	workDir, _ := os.MkdirTemp("", "acp-probe-*")
 
-	cfg := acpclient.LaunchConfig{
-		Command: "npx",
-		Args:    []string{"-y", "@zed-industries/codex-acp"},
-		WorkDir: workDir,
-		Env: map[string]string{
-			"CODEX_HOME": codexHome,
-		},
+	var cfg acpclient.LaunchConfig
+	switch agent {
+	case "claude":
+		cfg = acpclient.LaunchConfig{
+			Command: "npx",
+			Args:    []string{"-y", "@zed-industries/claude-agent-acp"},
+			WorkDir: workDir,
+			Env: map[string]string{
+				"CLAUDECODE": "",
+			},
+		}
+	default: // codex
+		cfg = acpclient.LaunchConfig{
+			Command: "npx",
+			Args:    []string{"-y", "@zed-industries/codex-acp"},
+			WorkDir: workDir,
+			Env: map[string]string{
+				"CODEX_HOME": `D:\project\ai-workflow\.ai-workflow\codex-home`,
+			},
+		}
 	}
+	fmt.Printf(">>> agent: %s\n", agent)
 
 	handler := &acpclient.NopHandler{}
 	probe := &debugHandler{}
@@ -86,11 +103,39 @@ func main() {
 		fmt.Fprintf(os.Stderr, "initialize failed: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Printf(">>> agent supports SSE MCP: %v\n", client.SupportsSSEMCP())
+
+	// Build MCP servers: SSE if agent supports it, otherwise stdio fallback.
+	var mcpServers []acpproto.McpServer
+	if client.SupportsSSEMCP() {
+		fmt.Println(">>> injecting SSE MCP server")
+		mcpServers = []acpproto.McpServer{{
+			Sse: &acpproto.McpServerSseInline{
+				Name:    "ai-workflow-query",
+				Type:    "sse",
+				Url:     "http://127.0.0.1:8080/api/v1/mcp",
+				Headers: []acpproto.HttpHeader{},
+			},
+		}}
+	} else {
+		fmt.Println(">>> agent does NOT support SSE, injecting stdio MCP server")
+		self, _ := os.Executable()
+		mcpServers = []acpproto.McpServer{{
+			Stdio: &acpproto.McpServerStdio{
+				Name:    "ai-workflow-query",
+				Command: self,
+				Args:    []string{"mcp-serve"},
+				Env: []acpproto.EnvVariable{
+					{Name: "AI_WORKFLOW_DB_PATH", Value: os.Getenv("AI_WORKFLOW_DB_PATH")},
+				},
+			},
+		}}
+	}
 
 	fmt.Println(">>> creating session...")
 	sessionID, err := client.NewSession(ctx, acpproto.NewSessionRequest{
 		Cwd:        workDir,
-		McpServers: []acpproto.McpServer{},
+		McpServers: mcpServers,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new session failed: %v\n", err)

@@ -10,15 +10,14 @@ import (
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
+// registerA2ARoutes mounts A2A JSON-RPC endpoint.
+// Called inside /api/v1 group which already has TokenAuthMiddleware.
 func registerA2ARoutes(r chi.Router, cfg Config) {
 	if !cfg.A2AEnabled {
-		r.Handle("/api/v1/a2a", http.HandlerFunc(handleA2ADisabled))
-		r.Handle("/.well-known/agent-card.json", http.HandlerFunc(handleA2ADisabled))
+		r.Handle("/a2a", http.HandlerFunc(handleA2ADisabled))
 		return
 	}
-
-	r.Get("/.well-known/agent-card.json", handleA2AAgentCard(cfg))
-	r.With(A2AAuthMiddleware(cfg.A2AToken, cfg.A2AAuth)).Post("/api/v1/a2a", handleA2AJSONRPC(cfg))
+	r.With(RequireScope(ScopeA2A)).Post("/a2a", handleA2AJSONRPC(cfg))
 }
 
 func handleA2ADisabled(w http.ResponseWriter, r *http.Request) {
@@ -73,19 +72,27 @@ func a2aSkillsForRequest(r *http.Request, cfg Config) []a2a.AgentSkill {
 	return filtered
 }
 
-// resolveOptionalA2AIdentity tries to extract identity from context or resolve via query token.
+// resolveOptionalA2AIdentity tries to extract identity from context or resolve via token registry.
 func resolveOptionalA2AIdentity(r *http.Request, cfg Config) (A2AIdentity, bool) {
 	if id, ok := A2AIdentityFromContext(r.Context()); ok {
 		return id, true
 	}
-	if cfg.A2AAuth == nil || len(cfg.A2AAuth.Tokens) == 0 {
+	if cfg.Auth == nil || cfg.Auth.IsEmpty() {
 		return A2AIdentity{}, false
 	}
-	token := extractBearerToken(r)
+	token := extractRequestToken(r)
 	if token == "" {
 		return A2AIdentity{}, false
 	}
-	return resolveA2AIdentity(token, cfg.A2AAuth)
+	info, ok := cfg.Auth.Lookup(token)
+	if !ok {
+		return A2AIdentity{}, false
+	}
+	return A2AIdentity{
+		Submitter: info.Submitter,
+		Role:      info.Role,
+		Projects:  info.Projects,
+	}, true
 }
 
 func handleA2AJSONRPC(cfg Config) http.HandlerFunc {

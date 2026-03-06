@@ -34,7 +34,7 @@ type Executor struct {
 	stageRoles        map[core.StageID]string
 	workspace         core.WorkspacePlugin
 	acpHandlerFactory  ACPHandlerFactory
-	mcpServerResolver func(role acpclient.RoleProfile) []acpproto.McpServer
+	mcpServerResolver func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer
 	logger             *slog.Logger
 
 	// testStageFunc is a test-only hook that bypasses real ACP execution.
@@ -67,7 +67,7 @@ func (e *Executor) SetACPHandlerFactory(factory ACPHandlerFactory) {
 	e.acpHandlerFactory = factory
 }
 
-func (e *Executor) SetMCPServerResolver(fn func(role acpclient.RoleProfile) []acpproto.McpServer) {
+func (e *Executor) SetMCPServerResolver(fn func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer) {
 	e.mcpServerResolver = fn
 }
 
@@ -253,6 +253,12 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 
 			err := e.executeStage(ctx, project, p, &stage)
 			cp.FinishedAt = time.Now()
+			// Capture ACP session ID from the pool (direct or reused).
+			if sid := e.acpPoolGetSessionID(p.ID, stage.Name); sid != "" {
+				cp.AgentSessionID = sid
+			} else if stage.ReuseSessionFrom != "" {
+				cp.AgentSessionID = e.acpPoolGetSessionID(p.ID, stage.ReuseSessionFrom)
+			}
 			if err == nil {
 				cp.Status = core.CheckpointSuccess
 				if saveErr := e.store.SaveCheckpoint(cp); saveErr != nil {

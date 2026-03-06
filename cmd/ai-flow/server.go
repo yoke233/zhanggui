@@ -145,6 +145,12 @@ func runServer(ctx context.Context, args []string) error {
 	cwd, _ := os.Getwd()
 	configDir := filepath.Join(cwd, ".ai-workflow")
 
+	secrets, err := config.LoadSecrets(secretsFilePath(configDir))
+	if err != nil {
+		return fmt.Errorf("load secrets: %w", err)
+	}
+	tokenRegistry := web.NewTokenRegistry(secrets.Tokens)
+
 	port = resolveServerPort(port, cfg.Server.Port)
 	listenAddr := buildServerAddress(cfg.Server.Host, port)
 
@@ -261,11 +267,9 @@ func runServer(ctx context.Context, args []string) error {
 
 	apiSrv := newAPIServer(web.Config{
 		Addr:              listenAddr,
-		AuthEnabled:       cfg.Server.AuthEnabled,
-		BearerToken:       cfg.Server.AuthToken,
+		Auth:              tokenRegistry,
 		WebhookSecret:     cfg.GitHub.WebhookSecret,
 		A2AEnabled:        cfg.A2A.Enabled,
-		A2AToken:          cfg.A2A.Token,
 		A2AVersion:        cfg.A2A.Version,
 		Store:             store,
 		A2ABridge:         a2aBridge,
@@ -273,6 +277,7 @@ func runServer(ctx context.Context, args []string) error {
 		ChatAssistant:     chatAssistant,
 		EventPublisher:    bus,
 		RunExec:           exec,
+		StageSessionMgr:   exec,
 		RunstageRoles:     cfg.RoleBinds.Run.StageRoles,
 		IssueParserRoleID: strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
 		SCM:               bootstrapSet.SCM,
@@ -412,6 +417,20 @@ func buildMCPDeps(issueManager serverIssueManager, exec *engine.Executor, store 
 		deps.RunExecutor = exec
 	}
 	return deps
+}
+
+// secretsFilePath returns the path to secrets.toml within the given data directory.
+// Falls back to secrets.yaml if the .toml file does not exist (migration support).
+func secretsFilePath(dataDir string) string {
+	tomlPath := filepath.Join(dataDir, "secrets.toml")
+	if _, err := os.Stat(tomlPath); err == nil {
+		return tomlPath
+	}
+	yamlPath := filepath.Join(dataDir, "secrets.yaml")
+	if _, err := os.Stat(yamlPath); err == nil {
+		return yamlPath
+	}
+	return tomlPath // default to .toml for new installations
 }
 
 func buildScheduler(exec *engine.Executor, store core.Store) (*engine.Scheduler, error) {

@@ -194,7 +194,7 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText("A2A Chat View Mock")).toBeTruthy();
+    expect(screen.getByText("Chat View Mock")).toBeTruthy();
 
     const projectSelect = screen.getByLabelText("当前项目") as HTMLSelectElement;
     expect(projectSelect.value).toBe("proj-1");
@@ -329,20 +329,8 @@ describe("App", () => {
     expect((screen.getByLabelText("当前项目") as HTMLSelectElement).value).toBe("");
     expect(screen.getByText("暂无可用项目。请先在后端创建项目，或点击“刷新项目”重试。")).toBeTruthy();
   });
-  it("默认开启 A2A 时走 A2AChatView 入口", async () => {
+  it("默认关闭 A2A 时走 legacy ChatView", async () => {
     render(<App />);
-
-    await waitFor(() => {
-      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
-    });
-
-    expect(screen.getByText("A2A Chat View Mock")).toBeTruthy();
-    expect(screen.queryByText("Chat View Mock")).toBeNull();
-    expect(mocks.a2aViewProps.length).toBeGreaterThan(0);
-  });
-
-  it("显式关闭 A2A 时回退 legacy ChatView", async () => {
-    render(<App a2aEnabledOverride={false} />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -352,6 +340,18 @@ describe("App", () => {
     expect(screen.queryByText("A2A Chat View Mock")).toBeNull();
     expect(mocks.chatViewProps.length).toBeGreaterThan(0);
     expect(mocks.a2aViewProps.length).toBe(0);
+  });
+
+  it("显式开启 A2A 时走 A2AChatView 入口", async () => {
+    render(<App a2aEnabledOverride={true} />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("A2A Chat View Mock")).toBeTruthy();
+    expect(screen.queryByText("Chat View Mock")).toBeNull();
+    expect(mocks.a2aViewProps.length).toBeGreaterThan(0);
   });
 
 });

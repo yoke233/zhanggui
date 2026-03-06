@@ -32,7 +32,9 @@ describe("apiClient", () => {
     const requestInit = call?.[1];
     const headers = requestInit?.headers;
     expect(headers).toBeInstanceOf(Headers);
-    expect((headers as Headers).get("Authorization")).toBe("Bearer secret-token");
+    expect((headers as Headers).get("Authorization")).toBe(
+      "Bearer secret-token",
+    );
   });
 
   it("当响应非 2xx 时抛出 ApiError", async () => {
@@ -56,7 +58,7 @@ describe("apiClient", () => {
     );
   });
 
-  it("listIssues/listRuns 会走 v2 路由并透传分页参数", async () => {
+  it("listIssues/listRuns 会走 v3 路由并透传分页参数", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => {
       return new Response(JSON.stringify({ items: [], total: 0, offset: 0 }), {
         status: 200,
@@ -73,10 +75,10 @@ describe("apiClient", () => {
     await client.listRuns("proj-1", { limit: 20, offset: 40 });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v2/issues?project_id=proj-1&limit=50&offset=100",
+      "http://localhost:8080/api/v1/issues?project_id=proj-1&limit=50&offset=100",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      "http://localhost:8080/api/v2/runs?project_id=proj-1&limit=20&offset=40",
+      "http://localhost:8080/api/v1/runs?project_id=proj-1&limit=20&offset=40",
     );
   });
 
@@ -97,11 +99,11 @@ describe("apiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/console/api/v2/runs?project_id=proj-1&limit=1&offset=2",
+      "http://localhost:8080/console/api/v1/runs?project_id=proj-1&limit=1&offset=2",
     );
   });
 
-  it("workflow profile API 会走 v2 路由", async () => {
+  it("workflow profile API 会走 v3 路由", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -134,10 +136,10 @@ describe("apiClient", () => {
     await client.getWorkflowProfile("strict");
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v2/workflow-profiles",
+      "http://localhost:8080/api/v1/workflow-profiles",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      "http://localhost:8080/api/v2/workflow-profiles/strict",
+      "http://localhost:8080/api/v1/workflow-profiles/strict",
     );
   });
 
@@ -176,7 +178,9 @@ describe("apiClient", () => {
       "http://localhost:8080/api/v1/projects/proj-1/issues/issue-1/auto-merge",
     );
 
-    const actionBody = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit)?.body));
+    const actionBody = JSON.parse(
+      String((fetchMock.mock.calls[1]?.[1] as RequestInit)?.body),
+    );
     expect(actionBody).toEqual({
       action: "reject",
       feedback: {
@@ -243,7 +247,7 @@ describe("apiClient", () => {
     );
   });
 
-  it("run events 会命中 /api/v2/runs/{id}/events", async () => {
+  it("run events 会命中 /api/v1/runs/{id}/events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -266,7 +270,7 @@ describe("apiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v2/runs/pipe-1/events",
+      "http://localhost:8080/api/v1/runs/pipe-1/events",
     );
   });
 
@@ -390,7 +394,10 @@ describe("apiClient", () => {
       "http://localhost:8080/api/v1/projects/proj-1/issues/from-files",
     );
     const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    const parsedBody = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+    const parsedBody = JSON.parse(String(requestInit.body)) as Record<
+      string,
+      unknown
+    >;
     expect(parsedBody).toEqual({
       session_id: "chat-1",
       name: "Issue From Files",
@@ -455,7 +462,7 @@ describe("apiClient", () => {
     });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v2/issues?project_id=proj-1&limit=1&offset=0",
+      "http://localhost:8080/api/v1/issues?project_id=proj-1&limit=1&offset=0",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "http://localhost:8080/api/v1/projects/proj-1/issues/from-files",
@@ -520,6 +527,59 @@ describe("apiClient", () => {
     );
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "http://localhost:8080/api/v1/projects/proj-1/repo/diff?file=src%2Fmain.ts",
+    );
+  });
+
+  it("chat events 与 event group 接口命中正确路由", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            session_id: "chat-1",
+            project_id: "proj-1",
+            updated_at: "2026-03-01T10:01:00.000Z",
+            messages: [],
+            events: [],
+            next_cursor: "cursor-1",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            session_id: "chat-1",
+            project_id: "proj-1",
+            group_id: "tool-call-group:1:2",
+            events: [],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    await client.listChatRunEvents("proj-1", "chat-1", {
+      limit: 50,
+      cursor: "cursor-older",
+    });
+    await client.getChatEventGroup("proj-1", "chat-1", "tool-call-group:1:2");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/events?cursor=cursor-older&limit=50",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/event-groups/tool-call-group:1:2",
     );
   });
 });

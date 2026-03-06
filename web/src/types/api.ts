@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   ChatSession,
   FailurePolicy,
   GitHubConnectionStatus,
@@ -67,6 +68,27 @@ export interface ChatRunEvent {
   update_type: string;
   payload: Record<string, unknown>;
   created_at: string;
+}
+
+export interface ChatEventsPageQuery {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ChatEventsPage {
+  session_id: string;
+  project_id: string;
+  updated_at: string;
+  messages: ChatMessage[];
+  events: ChatRunEvent[];
+  next_cursor?: string;
+}
+
+export interface ChatEventGroupResponse {
+  session_id: string;
+  project_id: string;
+  group_id: string;
+  events: ChatRunEvent[];
 }
 
 export interface CreateIssueRequest {
@@ -172,7 +194,8 @@ export interface ApiWorkflowProfile extends WorkflowProfile {
 
 export type ListRunsResponse = PaginatedResponse<ApiRun>;
 export type ListIssuesResponse = PaginatedResponse<ApiIssue>;
-export type ListWorkflowProfilesResponse = PaginatedResponse<ApiWorkflowProfile>;
+export type ListWorkflowProfilesResponse =
+  PaginatedResponse<ApiWorkflowProfile>;
 
 export interface IssueDagNode {
   id: string;
@@ -247,7 +270,14 @@ export interface IssueTimelineRefs {
 
 export interface IssueTimelineEntry {
   event_id: string;
-  kind: "review" | "change" | "action" | "checkpoint" | "log" | "audit" | string;
+  kind:
+    | "review"
+    | "change"
+    | "action"
+    | "checkpoint"
+    | "log"
+    | "audit"
+    | string;
   created_at: string;
   actor_type: "human" | "agent" | "system" | string;
   actor_name: string;
@@ -308,8 +338,46 @@ export interface ListRunEventsResponse {
   total: number;
 }
 
+export interface RunCheckpoint {
+  run_id: string;
+  stage_name: string;
+  status:
+    | "in_progress"
+    | "success"
+    | "failed"
+    | "skipped"
+    | "invalidated"
+    | string;
+  agent_used: string;
+  agent_session_id?: string;
+  tokens_used: number;
+  retry_count: number;
+  error?: string;
+  started_at: string;
+  finished_at: string;
+}
+
+export interface ListRunCheckpointsResponse {
+  items: RunCheckpoint[];
+  total: number;
+}
+
+export interface StageSessionStatus {
+  alive: boolean;
+  session_id: string;
+}
+
+export interface ChatSessionStatus {
+  alive: boolean;
+  running: boolean;
+}
+
+export interface WakeStageSessionResponse {
+  session_id: string;
+}
+
 export type ListChatsResponse = ChatSession[];
-export type ListChatRunEventsResponse = ChatRunEvent[];
+export type ListChatRunEventsResponse = ChatEventsPage;
 export type GetChatResponse = ChatSession;
 export type CreateIssueResponse = ApiIssue;
 export type ListAdminAuditLogResponse = PaginatedResponse<AdminAuditLogItem>;

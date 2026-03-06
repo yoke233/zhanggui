@@ -26,7 +26,11 @@ const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
     run_id: "",
     version: 1,
     superseded_by: "",
+    parent_id: "",
     external_id: "",
+    submitted_by: "",
+    merge_retries: 0,
+    triage_instructions: "",
     fail_policy: "block",
     created_at: "2026-03-01T10:00:00.000Z",
     updated_at: "2026-03-01T10:00:00.000Z",
@@ -560,5 +564,4 @@ describe("BoardView", () => {
     expect(interval.value).toBe("30000");
   });
 });
-
 
