@@ -93,11 +93,43 @@ Pipeline 执行完整，但绑死了 pipeline 策略。
 | ToolAction | 暂不独立 | `RunEvent(tool_call)` 够用，P2 再考虑 |
 | MemoryEntry | 暂不建 | P2 MemoryStore 时再加 |
 
+### 与 08 MVP 的范围差异
+
+08 建议 P0 包含 9 个对象（Actor, Thread, Message, InboxDelivery, Task, Assignment, Execution, Artifact, Decision）。09 做了降阶：
+
+| 对象 | 08 建议 | 09 安排 | 原因 |
+|------|---------|---------|------|
+| Thread / Message / Inbox | P0 | **P0** | 协作域空白，必须首波建起 |
+| Actor | P0 | **P0** (隐式) | P0 用字符串 ID 表示 actor，不建独立表 |
+| Task | P0 | **已有** | Issue 就是 Task，不需要新建 |
+| Execution | P0 | **已有** | Run 就是 Execution，不需要新建 |
+| Assignment | P0 | **P1** | 当前 Run stage role 能跑，P0 不碰工作域 |
+| Decision | P0 | **P1** | HumanAction + IssueChange 能撑住，P0 不碰工作域 |
+| Artifact | P0 | **P2** | Run.Artifacts map 够用，独立化风险高 |
+
+**原则: P0 严格收敛为"协作域落地 + session 解耦"，不顺手做工作域扩张。** 首波同时改两个域会让回归测试范围成倍增加。
+
+### ChatSession 兼容策略
+
+P0 引入 Thread/Message 后，ChatSession 不删除，进入双轨期：
+
+| 入口 | P0 行为 | 后续 |
+|------|---------|------|
+| Web Chat | 继续写 `ChatSession.Messages` JSON | P1 改为写 `agent_messages` |
+| MCP `send_message` | 写 `agent_messages` + `agent_inbox` | 新链路 |
+| WebSocket 订阅 | 继续用 `session_id` 做 key | P1 增加 `thread_id` 订阅 |
+| Issue 创建 | 继续关联 `SessionID` | 同时创建 Thread 关联 |
+
+兼容映射: 对有 `SessionID` 的 Issue，自动创建对应 Thread 并保持双向引用。Web Chat 读取 Thread 时间线（如存在），fallback 到 ChatSession.Messages。
+
+**ACP session 继续保持运行时临时态**（`acpPool` 内存缓存），不落成领域对象。Checkpoint 里的 `agent_session_id` 保留作审计引用。
+
 ---
 
 ## P0: 协作域基础 + session_id 解耦
 
 > 目标: 协作域从零建起，调度与聊天分离。~700 行新增。
+> **严格边界**: 只碰协作域 + 调度键。不碰工作域（Issue/Run/ReviewRecord）、不碰执行域（engine）。
 
 ### P0.1 新增 3 张表（协作域）
 
@@ -235,10 +267,13 @@ ALTER TABLE issues ADD COLUMN coordinator_actor_id TEXT NOT NULL DEFAULT '';
 | 风险 | 缓解 |
 |------|------|
 | session_id 改名引入回归 | SchedulingKey 默认值与旧行为一致 |
+| P0 只建表不改调度 = 假迁移 | SchedulingKey 是 P0 必做项，不是可选项 |
+| ChatSession 与 Thread 双轨并存 | P0 兼容映射，P1 统一读取，渐进替换 |
 | Store 接口膨胀 | Thread/Message/Inbox 考虑分离为 AgentStore 子接口 |
 | Issue 和 Task 语义漂移 | 不改名，只加字段 |
 | Assignment/Decision 与 HumanAction 双轨 | P1 双写，P2 统一 |
 | Artifact 多处收敛 | P2 渐进：新写新表，旧数据按需迁移 |
+| 首波同时改多域导致回归面过大 | P0 严格只碰协作域 + 调度键 |
 
 ## 文件影响矩阵
 

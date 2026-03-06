@@ -1,8 +1,9 @@
-# Thread / Message / Inbox / Bridge：Actor 协作消息模型收敛
+# Thread / Message / Inbox / Bridge：Agent 协作消息模型收敛
 
-> **补充**: [06-Actor 工作空间](06-actor-workspace.zh-CN.md) — 本文不替代 06，而是把其中最容易失真的“消息 / 线程 / 群组 / 外部桥接”部分单独收敛为可实现模型。
+> **补充**: [06-Agent 工作空间](06-agent-workspace.zh-CN.md) — 本文不替代 06，而是把其中最容易失真的”消息 / 线程 / 群组 / 外部桥接”部分单独收敛为可实现模型。
 > **目标**: 在不把系统做成完整 IM 的前提下，支持多人讨论、`@human`、Thread 上下文共享、以及 Slack / Discord / Telegram 这类外部群组桥接。
 > **参考**: [IronClaw 架构学习](ironclaw-architecture-study.zh-CN.md) — 本文额外吸收了 IronClaw 在 `ChannelManager`、`IncomingMessage` / `OutgoingResponse` / `StatusUpdate` 分层、conversation metadata、以及 thread hydration 上的已验证做法。
+> **命名约定**: 本文写于 Actor→Agent 改名之前，文中 `actor_*` 表名/字段名在实施时统一为 `agent_*`（见 [09-migration-roadmap](09-migration-roadmap.zh-CN.md)）。
 
 ## 为什么要单独收敛这一层
 
