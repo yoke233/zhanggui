@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +21,44 @@ import (
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
+
+var stdoutCaptureMu sync.Mutex
+
+func TestCLI_HiCommand(t *testing.T) {
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = runWithArgs([]string{"hi"})
+	})
+	if runErr != nil {
+		t.Fatalf("runWithArgs(hi) error = %v", runErr)
+	}
+
+	if output != "hi\n" {
+		t.Fatalf("hi command output = %q, want %q", output, "hi\n")
+	}
+}
+
+func TestCaptureStdout_RestoresStdoutAfterPanic(t *testing.T) {
+	originalStdout := os.Stdout
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected panic from captureStdout callback")
+		}
+		if recovered != "boom" {
+			t.Fatalf("panic value = %#v, want %q", recovered, "boom")
+		}
+		if os.Stdout != originalStdout {
+			t.Fatal("expected stdout to be restored after panic")
+		}
+	}()
+
+	_ = captureStdout(t, func() {
+		_, _ = os.Stdout.WriteString("partial output")
+		panic("boom")
+	})
+}
 
 func TestCLI_RunActionCommand(t *testing.T) {
 	err := runWithArgs([]string{"Run", "action"})
@@ -484,6 +525,37 @@ func reserveFreePort(t *testing.T) int {
 		t.Fatalf("unexpected listener addr type: %T", ln.Addr())
 	}
 	return addr.Port
+}
+
+func captureStdout(t *testing.T, fn func()) (output string) {
+	t.Helper()
+
+	stdoutCaptureMu.Lock()
+	defer stdoutCaptureMu.Unlock()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+
+	outputCh := make(chan string, 1)
+	go func() {
+		var buffer bytes.Buffer
+		_, _ = io.Copy(&buffer, reader)
+		outputCh <- buffer.String()
+	}()
+
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = originalStdout
+		_ = writer.Close()
+		output = <-outputCh
+		_ = reader.Close()
+	}()
+
+	fn()
+	return output
 }
 
 type testAPIServer struct {

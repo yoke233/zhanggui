@@ -23,6 +23,8 @@ func runWithArgs(args []string) error {
 	}
 
 	switch args[0] {
+	case "hi":
+		fmt.Println("hi")
 	case "version":
 		fmt.Println("ai-flow v0.1.0-dev")
 	case "project":
@@ -107,6 +109,7 @@ func printUsage() {
 	fmt.Println(`ai-flow - AI Workflow Orchestrator
 
 Usage:
+  ai-flow hi
   ai-flow version
   ai-flow project add <id> <repo-path>
   ai-flow project list
