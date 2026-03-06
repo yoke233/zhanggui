@@ -10,6 +10,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
+	"github.com/yoke233/ai-workflow/internal/mcpserver"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
@@ -213,6 +214,44 @@ func buildIssueBody(input web.IssueCreateInput) string {
 		return "Auto-created issue from chat session."
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// --- MCP IssueManager adapter ---
+
+// mcpIssueManagerAdapter bridges teamleader.Manager to mcpserver.IssueManager.
+type mcpIssueManagerAdapter struct {
+	manager teamLeaderIssueService
+}
+
+func (a *mcpIssueManagerAdapter) CreateIssues(ctx context.Context, input mcpserver.CreateIssuesInput) ([]*core.Issue, error) {
+	if a == nil || a.manager == nil {
+		return nil, errors.New("issue manager is not configured")
+	}
+	specs := make([]teamleader.CreateIssueSpec, len(input.Issues))
+	for i, s := range input.Issues {
+		specs[i] = teamleader.CreateIssueSpec{
+			Title:      s.Title,
+			Body:       s.Body,
+			Template:   s.Template,
+			AutoMerge:  s.AutoMerge,
+			Labels:     s.Labels,
+			DependsOn:  s.DependsOn,
+			Priority:   s.Priority,
+			FailPolicy: s.FailPolicy,
+		}
+	}
+	return a.manager.CreateIssues(ctx, teamleader.CreateIssuesInput{
+		ProjectID: input.ProjectID,
+		SessionID: input.SessionID,
+		Issues:    specs,
+	})
+}
+
+func (a *mcpIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {
+	if a == nil || a.manager == nil {
+		return nil, errors.New("issue manager is not configured")
+	}
+	return a.manager.ApplyIssueAction(ctx, issueID, action, feedback)
 }
 
 // --- ACP handler factory adapter ---

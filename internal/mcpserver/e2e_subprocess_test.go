@@ -40,7 +40,7 @@ func runMCPServer() {
 	}
 	defer store.Close()
 
-	server := mcpserver.NewServer(store, mcpserver.Options{})
+	server := mcpserver.NewServer(mcpserver.Deps{Store: store}, mcpserver.Options{})
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {

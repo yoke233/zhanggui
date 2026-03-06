@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 // Options controls MCP server behavior.
@@ -14,18 +13,27 @@ type Options struct {
 	DBPath     string // SQLite database path
 }
 
-// NewServer creates an MCP server exposing query tools over the given store.
+// NewServer creates an MCP server exposing query and write tools.
 // In dev mode, additional self-build/self-restart tools are registered.
-func NewServer(store core.Store, opts Options) *mcp.Server {
+func NewServer(deps Deps, opts Options) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "ai-workflow",
-			Version: "0.1.0",
+			Version: "0.2.0",
 		},
 		nil,
 	)
-	registerQueryTools(server, store)
+	if deps.Store != nil {
+		registerQueryTools(server, deps.Store)
+		registerProjectTools(server, deps.Store)
+	}
 	registerSystemInfoTool(server, opts)
+	if deps.IssueManager != nil {
+		registerIssueTools(server, deps.IssueManager)
+	}
+	if deps.RunExecutor != nil {
+		registerRunTools(server, deps.RunExecutor)
+	}
 	if opts.DevMode {
 		registerDevTools(server, opts)
 	}

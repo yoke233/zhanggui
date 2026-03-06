@@ -8,25 +8,33 @@ import (
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
 )
 
-// registerMCPRoutes mounts the MCP SSE endpoint on the router.
-// The ACP agent (team_leader) can connect to this endpoint using SSE transport
-// instead of spawning a stdio subprocess.
+// registerMCPRoutes mounts the MCP Streamable HTTP endpoint on the router.
+// Requires Bearer token when auth is enabled.
 func registerMCPRoutes(r chi.Router, cfg Config) {
 	if cfg.Store == nil {
 		return
 	}
-	server := mcpserver.NewServer(cfg.Store, mcpserver.Options{
+	deps := mcpserver.Deps{
+		Store:        cfg.Store,
+		IssueManager: cfg.MCPDeps.IssueManager,
+		RunExecutor:  cfg.MCPDeps.RunExecutor,
+	}
+	server := mcpserver.NewServer(deps, mcpserver.Options{
 		DevMode:    cfg.MCPServerOpts.DevMode,
 		SourceRoot: cfg.MCPServerOpts.SourceRoot,
 		ServerAddr: cfg.MCPServerOpts.ServerAddr,
 		ConfigDir:  cfg.MCPServerOpts.ConfigDir,
 		DBPath:     cfg.MCPServerOpts.DBPath,
 	})
-	handler := mcp.NewSSEHandler(func(_ *http.Request) *mcp.Server {
+	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return server
 	}, nil)
 
-	// SSE transport: GET creates session (SSE stream), POST sends messages.
-	// Both use the same path with different methods/query params.
-	r.Handle("/mcp", handler)
+	mcpRouter := chi.NewRouter()
+	if cfg.AuthEnabled && cfg.BearerToken != "" {
+		mcpRouter.Use(BearerAuthMiddleware(cfg.BearerToken))
+	}
+	mcpRouter.Handle("/*", handler)
+
+	r.Mount("/mcp", mcpRouter)
 }

@@ -36,7 +36,7 @@ func TestE2E_MCP_HTTP_FullChain(t *testing.T) {
 	defer cancel()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e-test", Version: "0.1.0"}, nil)
-	session, err := client.Connect(ctx, &mcp.SSEClientTransport{
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint: ts.URL + "/mcp",
 	}, nil)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestE2E_ACP_MCP_TeamLeaderFlow(t *testing.T) {
 	defer cancel()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "team-leader-sim", Version: "0.1.0"}, nil)
-	session, err := client.Connect(ctx, &mcp.SSEClientTransport{
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint: sseURL,
 	}, nil)
 	if err != nil {

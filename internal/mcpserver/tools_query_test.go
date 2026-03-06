@@ -26,7 +26,7 @@ func setupTestStore(t *testing.T) core.Store {
 func setupTestClient(t *testing.T, store core.Store) *mcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := mcpserver.NewServer(store, mcpserver.Options{})
+	server := mcpserver.NewServer(mcpserver.Deps{Store: store}, mcpserver.Options{})
 	st, ct := mcp.NewInMemoryTransports()
 	go server.Connect(ctx, st, nil)
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)

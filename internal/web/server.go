@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/mcpserver"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	webassets "github.com/yoke233/ai-workflow/web"
 )
@@ -110,9 +111,16 @@ type Config struct {
 	Logger                 *log.Logger
 	RestartFunc            func() // triggers graceful server restart; nil = not supported
 	MCPServerOpts          MCPServerOptions
+	MCPDeps                MCPDeps
 }
 
-// MCPServerOptions carries configuration for the embedded MCP server (SSE mode).
+// MCPDeps carries business-layer dependencies for MCP write tools.
+type MCPDeps struct {
+	IssueManager mcpserver.IssueManager
+	RunExecutor  mcpserver.RunExecutor
+}
+
+// MCPServerOptions carries configuration for the embedded MCP server.
 type MCPServerOptions struct {
 	DevMode    bool
 	SourceRoot string
