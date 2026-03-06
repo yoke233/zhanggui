@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WsClient } from "../lib/wsClient";
 import type { SystemEventPayload } from "../types/ws";
 
@@ -32,6 +32,18 @@ interface Props {
 
 const SystemEventBanner = ({ wsClient }: Props) => {
   const [state, setState] = useState<BannerState>(INITIAL_STATE);
+  const pendingReload = useRef(false);
+
+  // After restart event, reload page when WS reconnects.
+  useEffect(() => {
+    const unsubStatus = wsClient.onStatusChange((status) => {
+      if (status === "open" && pendingReload.current) {
+        pendingReload.current = false;
+        window.location.reload();
+      }
+    });
+    return unsubStatus;
+  }, [wsClient]);
 
   useEffect(() => {
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -118,6 +130,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
 
           case "restart":
             clearHideTimer();
+            pendingReload.current = true;
             setState({
               visible: true,
               variant: "warning",
