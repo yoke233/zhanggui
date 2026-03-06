@@ -29,7 +29,7 @@ func NewServer(deps Deps, opts Options) *mcp.Server {
 	}
 	registerSystemInfoTool(server, opts)
 	if deps.IssueManager != nil {
-		registerIssueTools(server, deps.IssueManager)
+		registerIssueTools(server, deps.IssueManager, deps.Store)
 	}
 	if deps.RunExecutor != nil {
 		registerRunTools(server, deps.RunExecutor)

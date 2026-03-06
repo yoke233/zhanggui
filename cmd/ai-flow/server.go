@@ -283,7 +283,7 @@ func runServer(ctx context.Context, args []string) error {
 			ServerAddr: "http://" + listenAddr,
 			ConfigDir:  configDir,
 		},
-		MCPDeps: buildMCPDeps(issueManager, exec),
+		MCPDeps: buildMCPDeps(issueManager, exec, store),
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -403,10 +403,10 @@ func buildServerAddress(host string, port int) string {
 	return net.JoinHostPort(trimmedHost, strconv.Itoa(port))
 }
 
-func buildMCPDeps(issueManager serverIssueManager, exec *engine.Executor) web.MCPDeps {
+func buildMCPDeps(issueManager serverIssueManager, exec *engine.Executor, store core.Store) web.MCPDeps {
 	var deps web.MCPDeps
 	if adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter); ok {
-		deps.IssueManager = &mcpIssueManagerAdapter{manager: adapter.manager}
+		deps.IssueManager = &mcpIssueManagerAdapter{manager: adapter.manager, store: store}
 	}
 	if exec != nil {
 		deps.RunExecutor = exec

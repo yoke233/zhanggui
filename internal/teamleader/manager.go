@@ -151,9 +151,6 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 	}
 
 	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return nil, errors.New("project id is required")
-	}
 	if len(input.Issues) == 0 {
 		return nil, errors.New("issues are required")
 	}

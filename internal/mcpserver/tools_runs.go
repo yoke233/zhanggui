@@ -45,7 +45,7 @@ func applyRunActionHandler(executor RunExecutor) func(context.Context, *mcp.Call
 			return errorResult("invalid action: " + err.Error())
 		}
 		if err := executor.ApplyAction(ctx, runAction); err != nil {
-			return nil, nil, fmt.Errorf("apply run action: %w", err)
+			return errorResult(fmt.Sprintf("apply run action: %v", err))
 		}
 		return jsonResult(map[string]string{
 			"run_id": runAction.RunID,

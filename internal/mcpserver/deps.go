@@ -16,12 +16,16 @@ type Deps struct {
 
 // IssueManager defines issue lifecycle operations exposed via MCP tools.
 type IssueManager interface {
-	CreateIssues(ctx context.Context, input CreateIssuesInput) ([]*core.Issue, error)
+	CreateIssue(ctx context.Context, input CreateIssueInput) (*core.Issue, error)
+	UpdateIssue(ctx context.Context, input UpdateIssueInput) (*core.Issue, error)
 	ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
-// CreateIssueSpec mirrors teamleader.CreateIssueSpec to avoid import cycle.
-type CreateIssueSpec struct {
+// CreateIssueInput contains all fields needed to create an issue.
+// ProjectID is optional — the issue can be assigned to a project later via UpdateIssue.
+type CreateIssueInput struct {
+	ProjectID  string             `json:"project_id,omitempty"`
+	SessionID  string             `json:"session_id,omitempty"`
 	Title      string             `json:"title"`
 	Body       string             `json:"body"`
 	Template   string             `json:"template,omitempty"`
@@ -30,14 +34,21 @@ type CreateIssueSpec struct {
 	DependsOn  []string           `json:"depends_on,omitempty"`
 	Priority   int                `json:"priority,omitempty"`
 	FailPolicy core.FailurePolicy `json:"fail_policy,omitempty"`
-	ParentID   string             `json:"parent_id,omitempty"`
 }
 
-// CreateIssuesInput mirrors teamleader.CreateIssuesInput.
-type CreateIssuesInput struct {
-	ProjectID string
-	SessionID string
-	Issues    []CreateIssueSpec
+// UpdateIssueInput carries partial updates for an existing issue.
+// Only non-zero fields are applied. Allowed only when issue is in draft or reviewing status.
+type UpdateIssueInput struct {
+	IssueID    string             `json:"issue_id"`
+	ProjectID  *string            `json:"project_id,omitempty"`
+	Title      string             `json:"title,omitempty"`
+	Body       string             `json:"body,omitempty"`
+	Template   string             `json:"template,omitempty"`
+	Labels     []string           `json:"labels,omitempty"`
+	Priority   *int               `json:"priority,omitempty"`
+	FailPolicy core.FailurePolicy `json:"fail_policy,omitempty"`
+	AutoMerge  *bool              `json:"auto_merge,omitempty"`
+	Reason     string             `json:"reason,omitempty"`
 }
 
 // RunExecutor defines run action operations exposed via MCP tools.

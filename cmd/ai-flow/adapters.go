@@ -221,30 +221,110 @@ func buildIssueBody(input web.IssueCreateInput) string {
 // mcpIssueManagerAdapter bridges teamleader.Manager to mcpserver.IssueManager.
 type mcpIssueManagerAdapter struct {
 	manager teamLeaderIssueService
+	store   core.Store
 }
 
-func (a *mcpIssueManagerAdapter) CreateIssues(ctx context.Context, input mcpserver.CreateIssuesInput) ([]*core.Issue, error) {
+func (a *mcpIssueManagerAdapter) CreateIssue(ctx context.Context, input mcpserver.CreateIssueInput) (*core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
-	specs := make([]teamleader.CreateIssueSpec, len(input.Issues))
-	for i, s := range input.Issues {
-		specs[i] = teamleader.CreateIssueSpec{
-			Title:      s.Title,
-			Body:       s.Body,
-			Template:   s.Template,
-			AutoMerge:  s.AutoMerge,
-			Labels:     s.Labels,
-			DependsOn:  s.DependsOn,
-			Priority:   s.Priority,
-			FailPolicy: s.FailPolicy,
-		}
+	spec := teamleader.CreateIssueSpec{
+		Title:      input.Title,
+		Body:       input.Body,
+		Template:   input.Template,
+		AutoMerge:  input.AutoMerge,
+		Labels:     input.Labels,
+		DependsOn:  input.DependsOn,
+		Priority:   input.Priority,
+		FailPolicy: input.FailPolicy,
 	}
-	return a.manager.CreateIssues(ctx, teamleader.CreateIssuesInput{
+	issues, err := a.manager.CreateIssues(ctx, teamleader.CreateIssuesInput{
 		ProjectID: input.ProjectID,
 		SessionID: input.SessionID,
-		Issues:    specs,
+		Issues:    []teamleader.CreateIssueSpec{spec},
 	})
+	if err != nil {
+		return nil, err
+	}
+	if len(issues) == 0 {
+		return nil, errors.New("no issue created")
+	}
+	return issues[0], nil
+}
+
+var mcpIssueEditableStatuses = map[core.IssueStatus]bool{
+	core.IssueStatusDraft:     true,
+	core.IssueStatusReviewing: true,
+}
+
+func (a *mcpIssueManagerAdapter) UpdateIssue(ctx context.Context, input mcpserver.UpdateIssueInput) (*core.Issue, error) {
+	if a == nil || a.store == nil {
+		return nil, errors.New("issue manager is not configured")
+	}
+	issue, err := a.store.GetIssue(input.IssueID)
+	if err != nil {
+		return nil, fmt.Errorf("get issue: %w", err)
+	}
+	if issue == nil {
+		return nil, fmt.Errorf("issue not found: %s", input.IssueID)
+	}
+	if !mcpIssueEditableStatuses[issue.Status] {
+		return nil, fmt.Errorf("cannot update issue in %q status (must be draft or reviewing)", issue.Status)
+	}
+
+	reason := input.Reason
+	if reason == "" {
+		reason = "mcp_update"
+	}
+
+	if input.ProjectID != nil {
+		old := issue.ProjectID
+		issue.ProjectID = *input.ProjectID
+		if old != issue.ProjectID {
+			_ = a.store.SaveIssueChange(&core.IssueChange{IssueID: issue.ID, Field: "project_id", OldValue: old, NewValue: issue.ProjectID, Reason: reason})
+		}
+	}
+	if input.Title != "" {
+		old := issue.Title
+		issue.Title = input.Title
+		if old != issue.Title {
+			_ = a.store.SaveIssueChange(&core.IssueChange{IssueID: issue.ID, Field: "title", OldValue: old, NewValue: issue.Title, Reason: reason})
+		}
+	}
+	if input.Body != "" {
+		old := issue.Body
+		issue.Body = input.Body
+		if old != issue.Body {
+			_ = a.store.SaveIssueChange(&core.IssueChange{IssueID: issue.ID, Field: "body", OldValue: old, NewValue: issue.Body, Reason: reason})
+		}
+	}
+	if input.Template != "" {
+		old := issue.Template
+		issue.Template = input.Template
+		if old != issue.Template {
+			_ = a.store.SaveIssueChange(&core.IssueChange{IssueID: issue.ID, Field: "template", OldValue: old, NewValue: issue.Template, Reason: reason})
+		}
+	}
+	if input.Labels != nil {
+		issue.Labels = input.Labels
+	}
+	if input.Priority != nil {
+		issue.Priority = *input.Priority
+	}
+	if input.FailPolicy != "" {
+		issue.FailPolicy = input.FailPolicy
+	}
+	if input.AutoMerge != nil {
+		issue.AutoMerge = *input.AutoMerge
+	}
+
+	if err := issue.Validate(); err != nil {
+		return nil, fmt.Errorf("validate issue: %w", err)
+	}
+	if err := a.store.SaveIssue(issue); err != nil {
+		return nil, fmt.Errorf("save issue: %w", err)
+	}
+	return issue, nil
 }
 
 func (a *mcpIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {

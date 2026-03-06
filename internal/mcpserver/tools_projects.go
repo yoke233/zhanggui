@@ -58,7 +58,7 @@ func createProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 			UpdatedAt:     now,
 		}
 		if err := store.CreateProject(p); err != nil {
-			return nil, nil, fmt.Errorf("create project: %w", err)
+			return errorResult(fmt.Sprintf("create project: %v", err))
 		}
 		return jsonResult(p)
 	}
@@ -80,7 +80,7 @@ func updateProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 		}
 		p, err := store.GetProject(in.ProjectID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("get project: %w", err)
+			return errorResult(fmt.Sprintf("get project: %v", err))
 		}
 		if p == nil {
 			return errorResult("project not found: " + in.ProjectID)
@@ -102,7 +102,7 @@ func updateProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 		}
 		p.UpdatedAt = time.Now().UTC()
 		if err := store.UpdateProject(p); err != nil {
-			return nil, nil, fmt.Errorf("update project: %w", err)
+			return errorResult(fmt.Sprintf("update project: %v", err))
 		}
 		return jsonResult(p)
 	}
@@ -118,7 +118,7 @@ func deleteProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 			return errorResult("project_id is required")
 		}
 		if err := store.DeleteProject(in.ProjectID); err != nil {
-			return nil, nil, fmt.Errorf("delete project: %w", err)
+			return errorResult(fmt.Sprintf("delete project: %v", err))
 		}
 		return jsonResult(map[string]string{"deleted": in.ProjectID})
 	}
