@@ -72,6 +72,7 @@ func TestStartWebChatSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 		"sid-old",
 		"D:/repo/demo",
 		teamleader.MCPEnvConfig{},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("startWebChatSession() error = %v", err)
@@ -107,6 +108,7 @@ func TestStartWebChatSessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 		"sid-old",
 		"D:/repo/demo",
 		teamleader.MCPEnvConfig{},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("startWebChatSession() error = %v", err)

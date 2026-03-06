@@ -218,7 +218,7 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		session, err := startWebChatSession(
 			createCtx, client, roleID, role,
 			strings.TrimSpace(req.AgentSessionID),
-			launchCfg.WorkDir, a.deps.MCPEnv,
+			launchCfg.WorkDir, a.deps.MCPEnv, handler,
 		)
 		if err != nil {
 			closeACPClient(client)
@@ -353,6 +353,7 @@ func startWebChatSession(
 	persistedSessionID string,
 	cwd string,
 	mcpEnv teamleader.MCPEnvConfig,
+	handler *teamleader.ACPHandler,
 ) (acpproto.SessionId, error) {
 	if client == nil {
 		return "", errors.New("chat acp client is required")
@@ -364,12 +365,20 @@ func startWebChatSession(
 	trimmedCWD := strings.TrimSpace(cwd)
 	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, client.SupportsSSEMCP())
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
+		// Suppress event publishing during LoadSession to avoid replaying
+		// historical events (thoughts, messages, tool calls) to the frontend.
+		if handler != nil {
+			handler.SetSuppressEvents(true)
+		}
 		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(sessionID),
 			Cwd:        trimmedCWD,
 			McpServers: effectiveMCPServers,
 			Meta:       metadata,
 		})
+		if handler != nil {
+			handler.SetSuppressEvents(false)
+		}
 		if err == nil && strings.TrimSpace(string(loaded)) != "" {
 			return loaded, nil
 		}

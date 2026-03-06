@@ -45,9 +45,10 @@ type ACPHandler struct {
 	publisher        acpEventPublisher
 	recorder         ChatRunEventRecorder
 
-	mu          sync.Mutex
-	changedSet  map[string]struct{}
-	changedList []string
+	mu             sync.Mutex
+	changedSet     map[string]struct{}
+	changedList    []string
+	suppressEvents bool // When true, HandleSessionUpdate skips publishing (used during LoadSession).
 
 	runEventMu        sync.Mutex
 	pendingChunkEvent *pendingChatRunChunkEvent
@@ -109,6 +110,17 @@ func NewACPHandler(cwd string, sessionID string, publisher acpEventPublisher) *A
 		changedSet: make(map[string]struct{}),
 		terminals:  make(map[string]*acpTerminalState),
 	}
+}
+
+// SetSuppressEvents controls whether HandleSessionUpdate silently drops events.
+// Used during LoadSession to prevent replaying historical events to the frontend.
+func (h *ACPHandler) SetSuppressEvents(suppress bool) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.suppressEvents = suppress
 }
 
 func (h *ACPHandler) SetRunEventRecorder(recorder ChatRunEventRecorder) {
@@ -386,7 +398,13 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	chatSessionID := strings.TrimSpace(h.chatSessionID)
 	agentSessionID := strings.TrimSpace(h.sessionID)
 	recorder := h.recorder
+	suppress := h.suppressEvents
 	h.mu.Unlock()
+
+	// During LoadSession the agent replays historical events — drop them silently.
+	if suppress {
+		return nil
+	}
 	if chatSessionID == "" {
 		chatSessionID = agentSessionID
 	}

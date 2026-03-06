@@ -1,0 +1,1438 @@
+{
+  "captured_at": "2026-03-06T13:42:29Z",
+  "agent": "codex-acp",
+  "scenarios": {
+    "load_session_replay": {
+      "description": "LoadSession on new process — replays historical conversation events",
+      "session_id": "019cc362-ba56-7603-8fea-30dfc374bb00",
+      "events": [
+        {
+          "offset_ms": 3529,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "user_message_chunk",
+            "text": "Reply with exactly: HELLO_ACP_TEST",
+            "rawUpdateJson": "{\"content\":{\"text\":\"Reply with exactly: HELLO_ACP_TEST\",\"type\":\"text\"},\"sessionUpdate\":\"user_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"Reply with exactly: HELLO_ACP_TEST\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3529,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "I see that I need to respond with the exact phrase \"HELLO_ACP_TEST.\" There’s no need for extra commentary or tools here, just a straightforward reply. I’m not sure if I need to be particularly polite in this case, but I should just keep it simple and direct for the user. It seems like a clear instruction, so I’ll stick to it! Just focusing on delivering the answer they want.",
+            "rawUpdateJson": "{\"content\":{\"text\":\"I see that I need to respond with the exact phrase \\\"HELLO_ACP_TEST.\\\" There’s no need for extra commentary or tools here, just a straightforward reply. I’m not sure if I need to be particularly polite in this case, but I should just keep it simple and direct for the user. It seems like a clear instruction, so I’ll stick to it! Just focusing on delivering the answer they want.\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"I see that I need to respond with the exact phrase \\\"HELLO_ACP_TEST.\\\" There’s no need for extra commentary or tools here, just a straightforward reply. I’m not sure if I need to be particularly polite in this case, but I should just keep it simple and direct for the user. It seems like a clear instruction, so I’ll stick to it! Just focusing on delivering the answer they want.\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3529,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "HELLO_ACP_TEST",
+            "rawUpdateJson": "{\"content\":{\"text\":\"HELLO_ACP_TEST\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"HELLO_ACP_TEST\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3536,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "available_commands_update",
+            "rawUpdateJson": "{\"availableCommands\":[{\"description\":\"Review my current changes and find issues\",\"input\":{\"hint\":\"optional custom review instructions\"},\"name\":\"review\"},{\"description\":\"Review the code changes against a specific branch\",\"input\":{\"hint\":\"branch name\"},\"name\":\"review-branch\"},{\"description\":\"Review the code changes introduced by a commit\",\"input\":{\"hint\":\"commit sha\"},\"name\":\"review-commit\"},{\"description\":\"create an AGENTS.md file with instructions for Codex\",\"name\":\"init\"},{\"description\":\"summarize conversation to prevent hitting the context limit\",\"name\":\"compact\"},{\"description\":\"undo Codex’s most recent turn\",\"name\":\"undo\"},{\"description\":\"logout of Codex\",\"name\":\"logout\"},{\"description\":\"\",\"name\":\"learn\"},{\"description\":\"Implement tasks from an OpenSpec change (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-apply\"},{\"description\":\"Archive a completed change in the experimental workflow\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-archive\"},{\"description\":\"Archive multiple completed changes at once\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-bulk-archive\"},{\"description\":\"Continue working on a change - create the next artifact (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-continue\"},{\"description\":\"Enter explore mode - think through ideas, investigate problems, clarify requirements\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-explore\"},{\"description\":\"Create a change and generate all artifacts needed for implementation in one go\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-ff\"},{\"description\":\"Start a new change using the experimental artifact workflow (OPSX)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-new\"},{\"description\":\"Guided onboarding - walk through a complete OpenSpec workflow cycle with narration\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-onboard\"},{\"description\":\"Sync delta specs from a change to main specs\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-sync\"},{\"description\":\"Verify implementation matches change artifacts before archiving\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-verify\"}],\"sessionUpdate\":\"available_commands_update\"}"
+          }
+        }
+      ]
+    },
+    "load_session_then_prompt": {
+      "description": "Prompt sent after LoadSession on resumed session",
+      "session_id": "019cc362-ba56-7603-8fea-30dfc374bb00",
+      "events": [
+        {
+          "offset_ms": 1503,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29589}"
+          }
+        },
+        {
+          "offset_ms": 3417,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "SECOND",
+            "rawUpdateJson": "{\"content\":{\"text\":\"SECOND\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"SECOND\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3417,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "_T",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_T\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"_T\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3426,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "URN",
+            "rawUpdateJson": "{\"content\":{\"text\":\"URN\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"URN\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3426,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "_OK",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_OK\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"_OK\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 3524,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29611}"
+          }
+        }
+      ],
+      "result": {
+        "text": "SECOND_TURN_OK",
+        "stop_reason": "end_turn"
+      }
+    },
+    "new_session_simple_prompt": {
+      "description": "NewSession then simple prompt asking for exact reply",
+      "session_id": "019cc362-ba56-7603-8fea-30dfc374bb00",
+      "events": [
+        {
+          "offset_ms": 3470,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "available_commands_update",
+            "rawUpdateJson": "{\"availableCommands\":[{\"description\":\"Review my current changes and find issues\",\"input\":{\"hint\":\"optional custom review instructions\"},\"name\":\"review\"},{\"description\":\"Review the code changes against a specific branch\",\"input\":{\"hint\":\"branch name\"},\"name\":\"review-branch\"},{\"description\":\"Review the code changes introduced by a commit\",\"input\":{\"hint\":\"commit sha\"},\"name\":\"review-commit\"},{\"description\":\"create an AGENTS.md file with instructions for Codex\",\"name\":\"init\"},{\"description\":\"summarize conversation to prevent hitting the context limit\",\"name\":\"compact\"},{\"description\":\"undo Codex’s most recent turn\",\"name\":\"undo\"},{\"description\":\"logout of Codex\",\"name\":\"logout\"},{\"description\":\"\",\"name\":\"learn\"},{\"description\":\"Implement tasks from an OpenSpec change (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-apply\"},{\"description\":\"Archive a completed change in the experimental workflow\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-archive\"},{\"description\":\"Archive multiple completed changes at once\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-bulk-archive\"},{\"description\":\"Continue working on a change - create the next artifact (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-continue\"},{\"description\":\"Enter explore mode - think through ideas, investigate problems, clarify requirements\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-explore\"},{\"description\":\"Create a change and generate all artifacts needed for implementation in one go\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-ff\"},{\"description\":\"Start a new change using the experimental artifact workflow (OPSX)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-new\"},{\"description\":\"Guided onboarding - walk through a complete OpenSpec workflow cycle with narration\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-onboard\"},{\"description\":\"Sync delta specs from a change to main specs\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-sync\"},{\"description\":\"Verify implementation matches change artifacts before archiving\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-verify\"}],\"sessionUpdate\":\"available_commands_update\"}"
+          }
+        },
+        {
+          "offset_ms": 16576,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "\n\n",
+            "rawUpdateJson": "{\"content\":{\"text\":\"\\n\\n\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"\\n\\n\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16576,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "I",
+            "rawUpdateJson": "{\"content\":{\"text\":\"I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16596,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " see",
+            "rawUpdateJson": "{\"content\":{\"text\":\" see\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" see\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16613,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " that",
+            "rawUpdateJson": "{\"content\":{\"text\":\" that\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" that\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16629,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " I",
+            "rawUpdateJson": "{\"content\":{\"text\":\" I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16653,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " need",
+            "rawUpdateJson": "{\"content\":{\"text\":\" need\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" need\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16668,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " to",
+            "rawUpdateJson": "{\"content\":{\"text\":\" to\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" to\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16723,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " respond",
+            "rawUpdateJson": "{\"content\":{\"text\":\" respond\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" respond\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " with",
+            "rawUpdateJson": "{\"content\":{\"text\":\" with\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" with\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " the",
+            "rawUpdateJson": "{\"content\":{\"text\":\" the\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" the\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " exact",
+            "rawUpdateJson": "{\"content\":{\"text\":\" exact\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" exact\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " phrase",
+            "rawUpdateJson": "{\"content\":{\"text\":\" phrase\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" phrase\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " \"",
+            "rawUpdateJson": "{\"content\":{\"text\":\" \\\"\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" \\\"\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "HEL",
+            "rawUpdateJson": "{\"content\":{\"text\":\"HEL\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"HEL\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "LO",
+            "rawUpdateJson": "{\"content\":{\"text\":\"LO\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"LO\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "_AC",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_AC\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"_AC\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "P",
+            "rawUpdateJson": "{\"content\":{\"text\":\"P\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"P\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16848,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "_TEST",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_TEST\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"_TEST\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16861,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ".\"",
+            "rawUpdateJson": "{\"content\":{\"text\":\".\\\"\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\".\\\"\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16873,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " There",
+            "rawUpdateJson": "{\"content\":{\"text\":\" There\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" There\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16890,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "’s",
+            "rawUpdateJson": "{\"content\":{\"text\":\"’s\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"’s\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16915,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " no",
+            "rawUpdateJson": "{\"content\":{\"text\":\" no\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" no\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16929,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " need",
+            "rawUpdateJson": "{\"content\":{\"text\":\" need\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" need\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16945,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " for",
+            "rawUpdateJson": "{\"content\":{\"text\":\" for\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" for\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16965,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " extra",
+            "rawUpdateJson": "{\"content\":{\"text\":\" extra\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" extra\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16967,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " commentary",
+            "rawUpdateJson": "{\"content\":{\"text\":\" commentary\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" commentary\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16979,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " or",
+            "rawUpdateJson": "{\"content\":{\"text\":\" or\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" or\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17002,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " tools",
+            "rawUpdateJson": "{\"content\":{\"text\":\" tools\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" tools\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17014,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " here",
+            "rawUpdateJson": "{\"content\":{\"text\":\" here\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" here\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17026,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ",",
+            "rawUpdateJson": "{\"content\":{\"text\":\",\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\",\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17042,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " just",
+            "rawUpdateJson": "{\"content\":{\"text\":\" just\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" just\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17056,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " a",
+            "rawUpdateJson": "{\"content\":{\"text\":\" a\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" a\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17073,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " straightforward",
+            "rawUpdateJson": "{\"content\":{\"text\":\" straightforward\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" straightforward\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17087,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " reply",
+            "rawUpdateJson": "{\"content\":{\"text\":\" reply\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" reply\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17098,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ".",
+            "rawUpdateJson": "{\"content\":{\"text\":\".\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\".\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17125,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " I",
+            "rawUpdateJson": "{\"content\":{\"text\":\" I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17136,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "’m",
+            "rawUpdateJson": "{\"content\":{\"text\":\"’m\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"’m\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17148,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " not",
+            "rawUpdateJson": "{\"content\":{\"text\":\" not\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" not\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17156,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " sure",
+            "rawUpdateJson": "{\"content\":{\"text\":\" sure\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" sure\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17171,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " if",
+            "rawUpdateJson": "{\"content\":{\"text\":\" if\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" if\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17179,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " I",
+            "rawUpdateJson": "{\"content\":{\"text\":\" I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17190,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " need",
+            "rawUpdateJson": "{\"content\":{\"text\":\" need\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" need\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17205,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " to",
+            "rawUpdateJson": "{\"content\":{\"text\":\" to\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" to\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17213,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " be",
+            "rawUpdateJson": "{\"content\":{\"text\":\" be\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" be\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17225,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " particularly",
+            "rawUpdateJson": "{\"content\":{\"text\":\" particularly\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" particularly\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17235,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " polite",
+            "rawUpdateJson": "{\"content\":{\"text\":\" polite\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" polite\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17253,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " in",
+            "rawUpdateJson": "{\"content\":{\"text\":\" in\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" in\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17262,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " this",
+            "rawUpdateJson": "{\"content\":{\"text\":\" this\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" this\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17274,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " case",
+            "rawUpdateJson": "{\"content\":{\"text\":\" case\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" case\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17315,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ",",
+            "rawUpdateJson": "{\"content\":{\"text\":\",\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\",\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17325,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " but",
+            "rawUpdateJson": "{\"content\":{\"text\":\" but\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" but\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17338,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " I",
+            "rawUpdateJson": "{\"content\":{\"text\":\" I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17359,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " should",
+            "rawUpdateJson": "{\"content\":{\"text\":\" should\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" should\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17381,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " just",
+            "rawUpdateJson": "{\"content\":{\"text\":\" just\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" just\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17411,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " keep",
+            "rawUpdateJson": "{\"content\":{\"text\":\" keep\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" keep\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17451,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " it",
+            "rawUpdateJson": "{\"content\":{\"text\":\" it\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" it\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17464,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " simple",
+            "rawUpdateJson": "{\"content\":{\"text\":\" simple\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" simple\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17475,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " and",
+            "rawUpdateJson": "{\"content\":{\"text\":\" and\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" and\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17490,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " direct",
+            "rawUpdateJson": "{\"content\":{\"text\":\" direct\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" direct\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17504,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " for",
+            "rawUpdateJson": "{\"content\":{\"text\":\" for\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" for\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17525,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " the",
+            "rawUpdateJson": "{\"content\":{\"text\":\" the\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" the\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17539,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " user",
+            "rawUpdateJson": "{\"content\":{\"text\":\" user\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" user\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17553,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ".",
+            "rawUpdateJson": "{\"content\":{\"text\":\".\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\".\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17566,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " It",
+            "rawUpdateJson": "{\"content\":{\"text\":\" It\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" It\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17583,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " seems",
+            "rawUpdateJson": "{\"content\":{\"text\":\" seems\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" seems\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17590,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " like",
+            "rawUpdateJson": "{\"content\":{\"text\":\" like\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" like\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17605,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " a",
+            "rawUpdateJson": "{\"content\":{\"text\":\" a\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" a\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17627,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " clear",
+            "rawUpdateJson": "{\"content\":{\"text\":\" clear\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" clear\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17632,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " instruction",
+            "rawUpdateJson": "{\"content\":{\"text\":\" instruction\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" instruction\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17651,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ",",
+            "rawUpdateJson": "{\"content\":{\"text\":\",\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\",\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17681,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " so",
+            "rawUpdateJson": "{\"content\":{\"text\":\" so\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" so\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17694,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " I",
+            "rawUpdateJson": "{\"content\":{\"text\":\" I\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" I\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17706,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "’ll",
+            "rawUpdateJson": "{\"content\":{\"text\":\"’ll\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"’ll\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17717,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " stick",
+            "rawUpdateJson": "{\"content\":{\"text\":\" stick\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" stick\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17729,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " to",
+            "rawUpdateJson": "{\"content\":{\"text\":\" to\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" to\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17752,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " it",
+            "rawUpdateJson": "{\"content\":{\"text\":\" it\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" it\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17778,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": "!",
+            "rawUpdateJson": "{\"content\":{\"text\":\"!\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\"!\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17818,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " Just",
+            "rawUpdateJson": "{\"content\":{\"text\":\" Just\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" Just\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17830,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " focusing",
+            "rawUpdateJson": "{\"content\":{\"text\":\" focusing\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" focusing\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17842,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " on",
+            "rawUpdateJson": "{\"content\":{\"text\":\" on\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" on\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17858,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " delivering",
+            "rawUpdateJson": "{\"content\":{\"text\":\" delivering\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" delivering\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17880,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " the",
+            "rawUpdateJson": "{\"content\":{\"text\":\" the\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" the\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17912,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " answer",
+            "rawUpdateJson": "{\"content\":{\"text\":\" answer\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" answer\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17918,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " they",
+            "rawUpdateJson": "{\"content\":{\"text\":\" they\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" they\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17935,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": " want",
+            "rawUpdateJson": "{\"content\":{\"text\":\" want\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\" want\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17941,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_thought_chunk",
+            "text": ".",
+            "rawUpdateJson": "{\"content\":{\"text\":\".\",\"type\":\"text\"},\"sessionUpdate\":\"agent_thought_chunk\"}",
+            "rawContentJson": "{\"text\":\".\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17970,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "HEL",
+            "rawUpdateJson": "{\"content\":{\"text\":\"HEL\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"HEL\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17973,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "LO",
+            "rawUpdateJson": "{\"content\":{\"text\":\"LO\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"LO\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17973,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "_AC",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_AC\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"_AC\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 17976,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "P",
+            "rawUpdateJson": "{\"content\":{\"text\":\"P\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"P\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 18038,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "agent_message_chunk",
+            "text": "_TEST",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_TEST\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"_TEST\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 18135,
+          "update": {
+            "sessionId": "019cc362-ba56-7603-8fea-30dfc374bb00",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29589}"
+          }
+        }
+      ],
+      "result": {
+        "text": "HELLO_ACP_TEST",
+        "stop_reason": "end_turn"
+      }
+    },
+    "new_session_tool_use": {
+      "description": "NewSession then prompt that triggers tool calls (file write)",
+      "session_id": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+      "events": [
+        {
+          "offset_ms": 2293,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "available_commands_update",
+            "rawUpdateJson": "{\"availableCommands\":[{\"description\":\"Review my current changes and find issues\",\"input\":{\"hint\":\"optional custom review instructions\"},\"name\":\"review\"},{\"description\":\"Review the code changes against a specific branch\",\"input\":{\"hint\":\"branch name\"},\"name\":\"review-branch\"},{\"description\":\"Review the code changes introduced by a commit\",\"input\":{\"hint\":\"commit sha\"},\"name\":\"review-commit\"},{\"description\":\"create an AGENTS.md file with instructions for Codex\",\"name\":\"init\"},{\"description\":\"summarize conversation to prevent hitting the context limit\",\"name\":\"compact\"},{\"description\":\"undo Codex’s most recent turn\",\"name\":\"undo\"},{\"description\":\"logout of Codex\",\"name\":\"logout\"},{\"description\":\"\",\"name\":\"learn\"},{\"description\":\"Implement tasks from an OpenSpec change (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-apply\"},{\"description\":\"Archive a completed change in the experimental workflow\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-archive\"},{\"description\":\"Archive multiple completed changes at once\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-bulk-archive\"},{\"description\":\"Continue working on a change - create the next artifact (Experimental)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-continue\"},{\"description\":\"Enter explore mode - think through ideas, investigate problems, clarify requirements\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-explore\"},{\"description\":\"Create a change and generate all artifacts needed for implementation in one go\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-ff\"},{\"description\":\"Start a new change using the experimental artifact workflow (OPSX)\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-new\"},{\"description\":\"Guided onboarding - walk through a complete OpenSpec workflow cycle with narration\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-onboard\"},{\"description\":\"Sync delta specs from a change to main specs\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-sync\"},{\"description\":\"Verify implementation matches change artifacts before archiving\",\"input\":{\"hint\":\"command arguments\"},\"name\":\"opsx-verify\"}],\"sessionUpdate\":\"available_commands_update\"}"
+          }
+        },
+        {
+          "offset_ms": 13962,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "我",
+            "rawUpdateJson": "{\"content\":{\"text\":\"我\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"我\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13964,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "来",
+            "rawUpdateJson": "{\"content\":{\"text\":\"来\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"来\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13965,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "直接",
+            "rawUpdateJson": "{\"content\":{\"text\":\"直接\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"直接\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13965,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "在",
+            "rawUpdateJson": "{\"content\":{\"text\":\"在\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"在\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13967,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "当前",
+            "rawUpdateJson": "{\"content\":{\"text\":\"当前\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"当前\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13968,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "目录",
+            "rawUpdateJson": "{\"content\":{\"text\":\"目录\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"目录\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13970,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "创建",
+            "rawUpdateJson": "{\"content\":{\"text\":\"创建\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"创建\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13970,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "这个",
+            "rawUpdateJson": "{\"content\":{\"text\":\"这个\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"这个\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13970,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "文件",
+            "rawUpdateJson": "{\"content\":{\"text\":\"文件\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"文件\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 13971,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "。",
+            "rawUpdateJson": "{\"content\":{\"text\":\"。\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"。\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 14814,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "tool_call",
+            "status": "in_progress",
+            "rawUpdateJson": "{\"content\":[{\"newText\":\"captured by acp-probe\\n\",\"path\":\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\",\"type\":\"diff\"}],\"kind\":\"edit\",\"locations\":[{\"path\":\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\"}],\"rawInput\":{\"auto_approved\":true,\"call_id\":\"call_pUHIoOaHnKh2A8SZ4pEqL83z\",\"changes\":{\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\":{\"content\":\"captured by acp-probe\\n\",\"type\":\"add\"}},\"turn_id\":\"019cc363-2419-75b3-8748-876df10d06e0\"},\"sessionUpdate\":\"tool_call\",\"status\":\"in_progress\",\"title\":\"Edit C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\",\"toolCallId\":\"call_pUHIoOaHnKh2A8SZ4pEqL83z\"}"
+          }
+        },
+        {
+          "offset_ms": 14814,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "tool_call_update",
+            "status": "completed",
+            "rawUpdateJson": "{\"content\":[{\"newText\":\"captured by acp-probe\\n\",\"path\":\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\",\"type\":\"diff\"}],\"locations\":[{\"path\":\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\"}],\"rawOutput\":{\"call_id\":\"call_pUHIoOaHnKh2A8SZ4pEqL83z\",\"changes\":{\"C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\":{\"content\":\"captured by acp-probe\\n\",\"type\":\"add\"}},\"status\":\"completed\",\"stderr\":\"\",\"stdout\":\"Success. Updated the following files:\\nA test_capture.txt\\n\",\"success\":true,\"turn_id\":\"019cc363-2419-75b3-8748-876df10d06e0\"},\"sessionUpdate\":\"tool_call_update\",\"status\":\"completed\",\"title\":\"Edit C:\\\\Users\\\\xyad\\\\AppData\\\\Local\\\\Temp\\\\acp-capture-2089183074\\\\test_capture.txt\",\"toolCallId\":\"call_pUHIoOaHnKh2A8SZ4pEqL83z\"}"
+          }
+        },
+        {
+          "offset_ms": 14824,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29717}"
+          }
+        },
+        {
+          "offset_ms": 15838,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29717}"
+          }
+        },
+        {
+          "offset_ms": 16139,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "已",
+            "rawUpdateJson": "{\"content\":{\"text\":\"已\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"已\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16161,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "创建",
+            "rawUpdateJson": "{\"content\":{\"text\":\"创建\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"创建\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16196,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "文件",
+            "rawUpdateJson": "{\"content\":{\"text\":\"文件\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"文件\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16207,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": " `",
+            "rawUpdateJson": "{\"content\":{\"text\":\" `\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\" `\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16207,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "test",
+            "rawUpdateJson": "{\"content\":{\"text\":\"test\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"test\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16224,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "_capture",
+            "rawUpdateJson": "{\"content\":{\"text\":\"_capture\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"_capture\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16243,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": ".txt",
+            "rawUpdateJson": "{\"content\":{\"text\":\".txt\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\".txt\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16260,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": ":",
+            "rawUpdateJson": "{\"content\":{\"text\":\":\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\":\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16280,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "1",
+            "rawUpdateJson": "{\"content\":{\"text\":\"1\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"1\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16298,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "`",
+            "rawUpdateJson": "{\"content\":{\"text\":\"`\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"`\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16322,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "，",
+            "rawUpdateJson": "{\"content\":{\"text\":\"，\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"，\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16345,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "内容",
+            "rawUpdateJson": "{\"content\":{\"text\":\"内容\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"内容\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16346,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "为",
+            "rawUpdateJson": "{\"content\":{\"text\":\"为\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"为\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16368,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": " `",
+            "rawUpdateJson": "{\"content\":{\"text\":\" `\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\" `\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16384,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "capt",
+            "rawUpdateJson": "{\"content\":{\"text\":\"capt\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"capt\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16402,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "ured",
+            "rawUpdateJson": "{\"content\":{\"text\":\"ured\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"ured\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16431,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": " by",
+            "rawUpdateJson": "{\"content\":{\"text\":\" by\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\" by\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16432,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": " ac",
+            "rawUpdateJson": "{\"content\":{\"text\":\" ac\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\" ac\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16451,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "p",
+            "rawUpdateJson": "{\"content\":{\"text\":\"p\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"p\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16480,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "-pro",
+            "rawUpdateJson": "{\"content\":{\"text\":\"-pro\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"-pro\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16489,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "be",
+            "rawUpdateJson": "{\"content\":{\"text\":\"be\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"be\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16519,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "`",
+            "rawUpdateJson": "{\"content\":{\"text\":\"`\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"`\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16527,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "agent_message_chunk",
+            "text": "。",
+            "rawUpdateJson": "{\"content\":{\"text\":\"。\",\"type\":\"text\"},\"sessionUpdate\":\"agent_message_chunk\"}",
+            "rawContentJson": "{\"text\":\"。\",\"type\":\"text\"}"
+          }
+        },
+        {
+          "offset_ms": 16671,
+          "update": {
+            "sessionId": "019cc363-2402-7ae1-9d2b-a4e8b90f4e20",
+            "type": "usage_update",
+            "rawUpdateJson": "{\"sessionUpdate\":\"usage_update\",\"size\":950000,\"used\":29782}"
+          }
+        }
+      ]
+    }
+  }
+}
