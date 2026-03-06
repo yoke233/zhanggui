@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -55,20 +56,24 @@ func registerQueryTools(server *mcp.Server, store core.Store) {
 
 type QueryProjectsInput struct {
 	NameContains string `json:"name_contains,omitempty" jsonschema:"Filter projects by name substring"`
+	Query        string `json:"query,omitempty" jsonschema:"Natural language search (falls back to name filter)"`
 }
 
 type QueryProjectDetailInput struct {
-	ProjectID string `json:"project_id" jsonschema:"Project ID"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 }
 
 type QueryIssuesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"Project ID"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 	Status    string `json:"status,omitempty" jsonschema:"Filter by issue status"`
-	State     string `json:"state,omitempty" jsonschema:"Filter by issue state (open/closed)"`
+	State     string `json:"state,omitempty" jsonschema:"Filter by issue state: open (default), closed, or all"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"Filter by chat session ID"`
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"Filter by parent issue ID (for child issues)"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"Max results to return"`
 	Offset    int    `json:"offset,omitempty" jsonschema:"Number of results to skip"`
+	Query     string `json:"query,omitempty" jsonschema:"Natural language search (filters by title/body keyword)"`
 }
 
 type QueryIssueDetailInput struct {
@@ -76,7 +81,8 @@ type QueryIssueDetailInput struct {
 }
 
 type QueryRunsInput struct {
-	ProjectID  string `json:"project_id" jsonschema:"Project ID"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 	Status     string `json:"status,omitempty" jsonschema:"Filter by run status"`
 	Conclusion string `json:"conclusion,omitempty" jsonschema:"Filter: success/failure/timed_out/cancelled"`
 	IssueID    string `json:"issue_id,omitempty" jsonschema:"Filter by associated issue ID"`
@@ -96,7 +102,8 @@ type QueryRunEventsInput struct {
 }
 
 type QueryProjectStatsInput struct {
-	ProjectID string `json:"project_id" jsonschema:"Project ID"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 }
 
 // --- Output types ---
@@ -125,8 +132,12 @@ type RunDetail struct {
 
 func queryProjectsHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, QueryProjectsInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in QueryProjectsInput) (*mcp.CallToolResult, any, error) {
+		nameContains := in.NameContains
+		if nameContains == "" && in.Query != "" {
+			nameContains = in.Query
+		}
 		projects, err := store.ListProjects(core.ProjectFilter{
-			NameContains: in.NameContains,
+			NameContains: nameContains,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("list projects: %w", err)
@@ -140,15 +151,16 @@ func queryProjectsHandler(store core.Store) func(context.Context, *mcp.CallToolR
 
 func queryProjectDetailHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, QueryProjectDetailInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in QueryProjectDetailInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
+		if err != nil {
+			return errorResult(err.Error())
 		}
-		project, err := store.GetProject(in.ProjectID)
+		project, err := store.GetProject(pid)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get project: %w", err)
 		}
 		if project == nil {
-			return errorResult("project not found: " + in.ProjectID)
+			return errorResult("project not found: " + pid)
 		}
 		return jsonResult(project)
 	}
@@ -156,19 +168,56 @@ func queryProjectDetailHandler(store core.Store) func(context.Context, *mcp.Call
 
 func queryIssuesHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, QueryIssuesInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in QueryIssuesInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
+		if err != nil {
+			return errorResult(err.Error())
 		}
-		issues, _, err := store.ListIssues(in.ProjectID, core.IssueFilter{
+		state := strings.TrimSpace(in.State)
+		if state == "" {
+			state = "open"
+		}
+		if state == "all" {
+			state = ""
+		}
+		queryText := strings.TrimSpace(in.Query)
+		limit := in.Limit
+		offset := in.Offset
+		// When query is used, fetch all rows so post-filter sees every match,
+		// then apply limit/offset after filtering.
+		if queryText != "" {
+			limit = 0
+			offset = 0
+		}
+		issues, _, err := store.ListIssues(pid, core.IssueFilter{
 			Status:    in.Status,
-			State:     in.State,
+			State:     state,
 			SessionID: in.SessionID,
 			ParentID:  in.ParentID,
-			Limit:     in.Limit,
-			Offset:    in.Offset,
+			Limit:     limit,
+			Offset:    offset,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("list issues: %w", err)
+		}
+		if queryText != "" {
+			lowerQ := strings.ToLower(queryText)
+			filtered := issues[:0]
+			for _, iss := range issues {
+				if strings.Contains(strings.ToLower(iss.Title), lowerQ) ||
+					strings.Contains(strings.ToLower(iss.Body), lowerQ) {
+					filtered = append(filtered, iss)
+				}
+			}
+			issues = filtered
+			// Apply original pagination after filtering.
+			if in.Offset > 0 && in.Offset < len(issues) {
+				issues = issues[in.Offset:]
+			} else if in.Offset >= len(issues) {
+				issues = nil
+			}
+			if in.Limit > 0 && in.Limit < len(issues) {
+				issues = issues[:in.Limit]
+			}
 		}
 		if issues == nil {
 			issues = []core.Issue{}
@@ -213,10 +262,11 @@ func queryIssueDetailHandler(store core.Store) func(context.Context, *mcp.CallTo
 
 func queryRunsHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, QueryRunsInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in QueryRunsInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
+		if err != nil {
+			return errorResult(err.Error())
 		}
-		runs, err := store.ListRuns(in.ProjectID, core.RunFilter{
+		runs, err := store.ListRuns(pid, core.RunFilter{
 			Status:     core.RunStatus(in.Status),
 			Conclusion: core.RunConclusion(in.Conclusion),
 			IssueID:    in.IssueID,
@@ -293,48 +343,15 @@ func queryRunEventsHandler(store core.Store) func(context.Context, *mcp.CallTool
 
 func queryProjectStatsHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, QueryProjectStatsInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in QueryProjectStatsInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
-		}
-		issues, totalIssues, err := store.ListIssues(in.ProjectID, core.IssueFilter{})
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list issues for stats: %w", err)
+			return errorResult(err.Error())
 		}
-		openCount := 0
-		for _, iss := range issues {
-			if iss.State == core.IssueStateOpen {
-				openCount++
-			}
-		}
-
-		runs, err := store.ListRuns(in.ProjectID, core.RunFilter{})
+		stats, err := computeProjectStats(store, pid)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list runs for stats: %w", err)
+			return nil, nil, fmt.Errorf("compute stats: %w", err)
 		}
-		completedCount := 0
-		successCount := 0
-		for _, r := range runs {
-			if r.Status == core.StatusCompleted {
-				completedCount++
-				if r.Conclusion == core.ConclusionSuccess {
-					successCount++
-				}
-			}
-		}
-
-		var successRate float64
-		if completedCount > 0 {
-			successRate = float64(successCount) / float64(completedCount)
-		}
-
-		return jsonResult(ProjectStats{
-			TotalIssues:   totalIssues,
-			OpenIssues:    openCount,
-			ClosedIssues:  totalIssues - openCount,
-			TotalRuns:     len(runs),
-			CompletedRuns: completedCount,
-			SuccessRate:   successRate,
-		})
+		return jsonResult(stats)
 	}
 }
 

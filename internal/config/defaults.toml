@@ -145,6 +145,12 @@ enabled = false
 driver = "sqlite"
 path   = ".ai-workflow/data.db"
 
+# ─── LLM Filter (reserved for future use) ────────────────────────
+# [llm_filter]
+# enabled  = false
+# provider = ""   # anthropic / openai / local
+# model    = ""
+
 # ─── Log ─────────────────────────────────────────────────────────
 [log]
 level        = "info"

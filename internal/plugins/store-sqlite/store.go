@@ -1134,17 +1134,17 @@ func (s *SQLiteStore) GetIssueByRun(RunID string) (*core.Issue, error) {
 	return issue, nil
 }
 
-func (s *SQLiteStore) SaveIssueAttachment(issueID, path, content string) error {
+func (s *SQLiteStore) SaveIssueAttachment(att *core.IssueAttachment) error {
 	if err := s.ensureIssueTables(); err != nil {
 		return err
 	}
-	trimmedIssueID := strings.TrimSpace(issueID)
+	trimmedIssueID := strings.TrimSpace(att.IssueID)
 	if trimmedIssueID == "" {
 		return errors.New("issue attachment issue_id is required")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO issue_attachments (issue_id, path, content) VALUES (?,?,?)`,
-		trimmedIssueID, path, content,
+		`INSERT INTO issue_attachments (issue_id, path, content, source_url, media_type) VALUES (?,?,?,?,?)`,
+		trimmedIssueID, att.Path, att.Content, att.SourceURL, att.MediaType,
 	)
 	return err
 }
@@ -1155,7 +1155,7 @@ func (s *SQLiteStore) GetIssueAttachments(issueID string) ([]core.IssueAttachmen
 	}
 
 	rows, err := s.db.Query(
-		`SELECT id, issue_id, path, content, created_at
+		`SELECT id, issue_id, path, content, source_url, media_type, created_at
 		 FROM issue_attachments
 		 WHERE issue_id=?
 		 ORDER BY id`,
@@ -1172,7 +1172,7 @@ func (s *SQLiteStore) GetIssueAttachments(issueID string) ([]core.IssueAttachmen
 			attachment core.IssueAttachment
 			id         int64
 		)
-		if err := rows.Scan(&id, &attachment.IssueID, &attachment.Path, &attachment.Content, &attachment.CreatedAt); err != nil {
+		if err := rows.Scan(&id, &attachment.IssueID, &attachment.Path, &attachment.Content, &attachment.SourceURL, &attachment.MediaType, &attachment.CreatedAt); err != nil {
 			return nil, err
 		}
 		attachment.ID = fmt.Sprintf("%d", id)

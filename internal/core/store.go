@@ -2,6 +2,7 @@ package core
 
 type ProjectFilter struct {
 	NameContains string
+	Query        string // Natural language query; currently falls back to keyword matching
 }
 
 type RunFilter struct {
@@ -17,6 +18,7 @@ type IssueFilter struct {
 	SessionID string
 	State     string
 	ParentID  string
+	Query     string // Natural language query; currently falls back to keyword matching
 	Limit     int
 	Offset    int
 }
@@ -26,6 +28,8 @@ type IssueAttachment struct {
 	IssueID   string `json:"issue_id"`
 	Path      string `json:"path"`
 	Content   string `json:"content"`
+	SourceURL string `json:"source_url,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -86,7 +90,7 @@ type Store interface {
 	GetActiveIssues(projectID string) ([]Issue, error)
 	GetIssueByRun(RunID string) (*Issue, error)
 	GetChildIssues(parentID string) ([]Issue, error)
-	SaveIssueAttachment(issueID, path, content string) error
+	SaveIssueAttachment(att *IssueAttachment) error
 	GetIssueAttachments(issueID string) ([]IssueAttachment, error)
 	SaveIssueChange(change *IssueChange) error
 	GetIssueChanges(issueID string) ([]IssueChange, error)

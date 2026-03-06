@@ -65,7 +65,8 @@ func createProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 }
 
 type UpdateProjectInput struct {
-	ProjectID     string `json:"project_id" jsonschema:"Project ID (required)"`
+	ProjectID     string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName   string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 	Name          string `json:"name,omitempty" jsonschema:"New project name"`
 	RepoPath      string `json:"repo_path,omitempty" jsonschema:"New repository path"`
 	DefaultBranch string `json:"default_branch,omitempty" jsonschema:"New default branch"`
@@ -75,10 +76,11 @@ type UpdateProjectInput struct {
 
 func updateProjectHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, UpdateProjectInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in UpdateProjectInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
+		if err != nil {
+			return errorResult(err.Error())
 		}
-		p, err := store.GetProject(in.ProjectID)
+		p, err := store.GetProject(pid)
 		if err != nil {
 			return errorResult(fmt.Sprintf("get project: %v", err))
 		}
@@ -109,17 +111,19 @@ func updateProjectHandler(store core.Store) func(context.Context, *mcp.CallToolR
 }
 
 type DeleteProjectInput struct {
-	ProjectID string `json:"project_id" jsonschema:"Project ID (required)"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
+	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
 }
 
 func deleteProjectHandler(store core.Store) func(context.Context, *mcp.CallToolRequest, DeleteProjectInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in DeleteProjectInput) (*mcp.CallToolResult, any, error) {
-		if in.ProjectID == "" {
-			return errorResult("project_id is required")
+		pid, err := resolveProjectID(store, in.ProjectID, in.ProjectName)
+		if err != nil {
+			return errorResult(err.Error())
 		}
-		if err := store.DeleteProject(in.ProjectID); err != nil {
+		if err := store.DeleteProject(pid); err != nil {
 			return errorResult(fmt.Sprintf("delete project: %v", err))
 		}
-		return jsonResult(map[string]string{"deleted": in.ProjectID})
+		return jsonResult(map[string]string{"deleted": pid})
 	}
 }

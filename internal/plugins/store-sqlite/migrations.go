@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS issue_attachments (
     issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     path       TEXT NOT NULL,
     content    TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '',
+    media_type TEXT NOT NULL DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -230,7 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_issue_edges_to ON issue_edges(to_id);
 
 // schemaVersion tracks which migrations have been applied.
 // Bump this when adding new migrations.
-const schemaVersion = 7
+const schemaVersion = 8
 
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
@@ -283,6 +285,11 @@ func applyMigrations(db *sql.DB) error {
 	if currentVersion < 7 {
 		if err := migrateAddCheckpointAgentSessionID(db); err != nil {
 			return fmt.Errorf("migrate checkpoint agent_session_id: %w", err)
+		}
+	}
+	if currentVersion < 8 {
+		if err := migrateAddAttachmentURLFields(db); err != nil {
+			return fmt.Errorf("migrate attachment url fields: %w", err)
 		}
 	}
 	if err := migrateBackfillLegacyColumns(db); err != nil {
@@ -410,6 +417,7 @@ func migrateBackfillLegacyColumns(db *sql.DB) error {
 		{name: "issues.triage_instructions", run: migrateAddIssueTriageInstructions},
 		{name: "issues.submitted_by", run: migrateAddSubmittedBy},
 		{name: "checkpoints.agent_session_id", run: migrateAddCheckpointAgentSessionID},
+		{name: "issue_attachments.source_url", run: migrateAddAttachmentURLFields},
 	}
 
 	for _, backfill := range backfills {
@@ -527,6 +535,24 @@ func migrateAddCheckpointAgentSessionID(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`ALTER TABLE checkpoints ADD COLUMN agent_session_id TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("add checkpoints.agent_session_id column: %w", err)
+	}
+	return nil
+}
+
+func migrateAddAttachmentURLFields(db *sql.DB) error {
+	for _, col := range []struct{ name, def string }{
+		{"source_url", "TEXT NOT NULL DEFAULT ''"},
+		{"media_type", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		has, err := hasColumn(db, "issue_attachments", col.name)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE issue_attachments ADD COLUMN %s %s`, col.name, col.def)); err != nil {
+				return fmt.Errorf("add issue_attachments.%s: %w", col.name, err)
+			}
+		}
 	}
 	return nil
 }

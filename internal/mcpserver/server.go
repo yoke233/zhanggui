@@ -26,10 +26,14 @@ func NewServer(deps Deps, opts Options) *mcp.Server {
 	if deps.Store != nil {
 		registerQueryTools(server, deps.Store)
 		registerProjectTools(server, deps.Store)
+		registerDashboardTools(server, deps.Store)
 	}
 	registerSystemInfoTool(server, opts)
 	if deps.IssueManager != nil {
 		registerIssueTools(server, deps.IssueManager, deps.Store)
+		if deps.Store != nil {
+			registerSubmitTaskTool(server, deps.IssueManager, deps.Store)
+		}
 	}
 	if deps.RunExecutor != nil {
 		registerRunTools(server, deps.RunExecutor)

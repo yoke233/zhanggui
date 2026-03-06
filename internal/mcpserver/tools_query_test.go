@@ -185,18 +185,14 @@ func TestQueryProjectDetail_NotFound(t *testing.T) {
 	}
 }
 
-func TestQueryProjectDetail_MissingProjectID(t *testing.T) {
+func TestQueryProjectDetail_MissingProjectID_EmptyStore(t *testing.T) {
 	store := setupTestStore(t)
 	session := setupTestClient(t, store)
 
-	// The MCP SDK validates required fields at the schema level before calling
-	// the handler, returning a transport error for missing required fields.
-	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "query_project_detail",
-		Arguments: map[string]any{},
-	})
-	if err == nil {
-		t.Fatal("expected error for missing project_id")
+	// No projects exist + no project_id/name → error from resolveProjectID.
+	res := callTool(t, session, "query_project_detail", map[string]any{})
+	if !res.IsError {
+		t.Fatal("expected error for empty store with no project_id")
 	}
 }
 
@@ -209,6 +205,7 @@ func TestQueryIssues_ReturnsList(t *testing.T) {
 	seedIssue(t, store, "i2", "p1", "Bug2", "bugfix", core.IssueStateClosed, core.IssueStatusDone)
 	session := setupTestClient(t, store)
 
+	// Default state is "open", so only i1 is returned.
 	res := callTool(t, session, "query_issues", map[string]any{"project_id": "p1"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", resultText(t, res))
@@ -218,8 +215,18 @@ func TestQueryIssues_ReturnsList(t *testing.T) {
 	if err := json.Unmarshal([]byte(resultText(t, res)), &issues); err != nil {
 		t.Fatal(err)
 	}
-	if len(issues) != 2 {
-		t.Fatalf("expected 2 issues, got %d", len(issues))
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 open issue, got %d", len(issues))
+	}
+
+	// Passing state=all returns both.
+	res2 := callTool(t, session, "query_issues", map[string]any{"project_id": "p1", "state": "all"})
+	var allIssues []core.Issue
+	if err := json.Unmarshal([]byte(resultText(t, res2)), &allIssues); err != nil {
+		t.Fatal(err)
+	}
+	if len(allIssues) != 2 {
+		t.Fatalf("expected 2 issues with state=all, got %d", len(allIssues))
 	}
 }
 
@@ -230,9 +237,11 @@ func TestQueryIssues_FilterByStatus(t *testing.T) {
 	seedIssue(t, store, "i2", "p1", "Bug2", "bugfix", core.IssueStateClosed, core.IssueStatusDone)
 	session := setupTestClient(t, store)
 
+	// Must pass state=all to see closed issues when filtering by status=done.
 	res := callTool(t, session, "query_issues", map[string]any{
 		"project_id": "p1",
 		"status":     "done",
+		"state":      "all",
 	})
 	var issues []core.Issue
 	if err := json.Unmarshal([]byte(resultText(t, res)), &issues); err != nil {
@@ -303,16 +312,36 @@ func TestQueryIssues_EmptyReturnsEmptyArray(t *testing.T) {
 	}
 }
 
-func TestQueryIssues_MissingProjectID(t *testing.T) {
+func TestQueryIssues_MissingProjectID_MultipleProjects(t *testing.T) {
 	store := setupTestStore(t)
+	seedProject(t, store, "p1", "Alpha")
+	seedProject(t, store, "p2", "Beta")
 	session := setupTestClient(t, store)
 
-	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "query_issues",
-		Arguments: map[string]any{},
-	})
-	if err == nil {
-		t.Fatal("expected error for missing project_id")
+	// Multiple projects + no project_id/name → error.
+	res := callTool(t, session, "query_issues", map[string]any{})
+	if !res.IsError {
+		t.Fatal("expected error for ambiguous project")
+	}
+}
+
+func TestQueryIssues_AutoInferSingleProject(t *testing.T) {
+	store := setupTestStore(t)
+	seedProject(t, store, "p1", "Alpha")
+	seedIssue(t, store, "i1", "p1", "Bug1", "bugfix", core.IssueStateOpen, core.IssueStatusReady)
+	session := setupTestClient(t, store)
+
+	// Single project → auto-inferred.
+	res := callTool(t, session, "query_issues", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", resultText(t, res))
+	}
+	var issues []core.Issue
+	if err := json.Unmarshal([]byte(resultText(t, res)), &issues); err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
 }
 
@@ -486,16 +515,15 @@ func TestQueryRuns_EmptyReturnsEmptyArray(t *testing.T) {
 	}
 }
 
-func TestQueryRuns_MissingProjectID(t *testing.T) {
+func TestQueryRuns_MissingProjectID_MultipleProjects(t *testing.T) {
 	store := setupTestStore(t)
+	seedProject(t, store, "p1", "Alpha")
+	seedProject(t, store, "p2", "Beta")
 	session := setupTestClient(t, store)
 
-	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "query_runs",
-		Arguments: map[string]any{},
-	})
-	if err == nil {
-		t.Fatal("expected error for missing project_id")
+	res := callTool(t, session, "query_runs", map[string]any{})
+	if !res.IsError {
+		t.Fatal("expected error for ambiguous project")
 	}
 }
 
@@ -696,16 +724,15 @@ func TestQueryProjectStats_EmptyProjectReturnsZeros(t *testing.T) {
 	}
 }
 
-func TestQueryProjectStats_MissingProjectID(t *testing.T) {
+func TestQueryProjectStats_MissingProjectID_MultipleProjects(t *testing.T) {
 	store := setupTestStore(t)
+	seedProject(t, store, "p1", "Alpha")
+	seedProject(t, store, "p2", "Beta")
 	session := setupTestClient(t, store)
 
-	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "query_project_stats",
-		Arguments: map[string]any{},
-	})
-	if err == nil {
-		t.Fatal("expected error for missing project_id")
+	res := callTool(t, session, "query_project_stats", map[string]any{})
+	if !res.IsError {
+		t.Fatal("expected error for ambiguous project")
 	}
 }
 

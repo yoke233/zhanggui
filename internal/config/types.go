@@ -36,6 +36,13 @@ type Config struct {
 	Store      StoreConfig      `toml:"store"        yaml:"store"`
 	Context    ContextConfig    `toml:"context"      yaml:"context"`
 	Log        LogConfig        `toml:"log"          yaml:"log"`
+	LLMFilter  LLMFilterConfig  `toml:"llm_filter"   yaml:"llm_filter"`
+}
+
+type LLMFilterConfig struct {
+	Enabled  bool   `toml:"enabled"  yaml:"enabled"`
+	Provider string `toml:"provider" yaml:"provider"` // anthropic / openai / local
+	Model    string `toml:"model"    yaml:"model"`
 }
 
 type AgentsConfig struct {

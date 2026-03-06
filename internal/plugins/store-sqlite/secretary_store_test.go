@@ -246,7 +246,7 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 		t.Fatalf("unexpected active issues: %#v", active)
 	}
 
-	if err := s.SaveIssueAttachment(issue.ID, "docs/oauth.md", "oauth design"); err != nil {
+	if err := s.SaveIssueAttachment(&core.IssueAttachment{IssueID: issue.ID, Path: "docs/oauth.md", Content: "oauth design"}); err != nil {
 		t.Fatal(err)
 	}
 	attachments, err := s.GetIssueAttachments(issue.ID)

@@ -218,18 +218,33 @@ func TestScenario_FilterIssuesBySession(t *testing.T) {
 
 	session := setupTestClient(t, store)
 
+	// Default state=open: only open issues are returned.
 	res := callTool(t, session, "query_issues", map[string]any{
 		"project_id": "p1",
 		"session_id": "sess-a",
 	})
-	var issues []core.Issue
-	if err := json.Unmarshal([]byte(resultText(t, res)), &issues); err != nil {
+	var openIssues []core.Issue
+	if err := json.Unmarshal([]byte(resultText(t, res)), &openIssues); err != nil {
 		t.Fatal(err)
 	}
-	if len(issues) != 2 {
-		t.Fatalf("expected 2 issues from sess-a, got %d", len(issues))
+	if len(openIssues) != 1 {
+		t.Fatalf("expected 1 open issue from sess-a, got %d", len(openIssues))
 	}
-	for _, iss := range issues {
+
+	// state=all returns both open and closed.
+	res = callTool(t, session, "query_issues", map[string]any{
+		"project_id": "p1",
+		"session_id": "sess-a",
+		"state":      "all",
+	})
+	var allIssues []core.Issue
+	if err := json.Unmarshal([]byte(resultText(t, res)), &allIssues); err != nil {
+		t.Fatal(err)
+	}
+	if len(allIssues) != 2 {
+		t.Fatalf("expected 2 issues from sess-a with state=all, got %d", len(allIssues))
+	}
+	for _, iss := range allIssues {
 		if iss.SessionID != "sess-a" {
 			t.Errorf("expected session_id=sess-a, got %s", iss.SessionID)
 		}

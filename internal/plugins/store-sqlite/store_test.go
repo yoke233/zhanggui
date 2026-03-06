@@ -338,10 +338,10 @@ func TestIssueAttachmentAndChangeCRUD(t *testing.T) {
 		t.Fatalf("create issue: %v", err)
 	}
 
-	if err := s.SaveIssueAttachment(issue.ID, "docs/spec.md", "spec v1"); err != nil {
+	if err := s.SaveIssueAttachment(&core.IssueAttachment{IssueID: issue.ID, Path: "docs/spec.md", Content: "spec v1"}); err != nil {
 		t.Fatalf("save attachment #1: %v", err)
 	}
-	if err := s.SaveIssueAttachment(issue.ID, "docs/test-plan.md", "test plan"); err != nil {
+	if err := s.SaveIssueAttachment(&core.IssueAttachment{IssueID: issue.ID, Path: "docs/test-plan.md", Content: "test plan"}); err != nil {
 		t.Fatalf("save attachment #2: %v", err)
 	}
 	attachments, err := s.GetIssueAttachments(issue.ID)
