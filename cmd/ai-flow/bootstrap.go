@@ -69,12 +69,24 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	return exec, bootstrapSet, bus, nil
 }
 
-func loadBootstrapConfig() (*config.Config, error) {
+// resolveDataDir returns the data directory for config, secrets, and database.
+// Priority: $AI_WORKFLOW_DATA_DIR > $CWD/.ai-workflow
+func resolveDataDir() (string, error) {
+	if env := os.Getenv("AI_WORKFLOW_DATA_DIR"); env != "" {
+		return filepath.Abs(env)
+	}
 	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cwd, ".ai-workflow"), nil
+}
+
+func loadBootstrapConfig() (*config.Config, error) {
+	dataDir, err := resolveDataDir()
 	if err != nil {
 		return nil, err
 	}
-	dataDir := filepath.Join(cwd, ".ai-workflow")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}

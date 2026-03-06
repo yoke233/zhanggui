@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,7 +23,7 @@ func cmdMCPServe() error {
 	}
 	defer store.Close()
 
-	cwd, _ := os.Getwd()
+	configDir, _ := resolveDataDir()
 	// Stdio mode: only Store is available (no IssueManager/RunExecutor).
 	// Write tools will not be registered.
 	deps := mcpserver.Deps{Store: store}
@@ -32,7 +31,7 @@ func cmdMCPServe() error {
 		DevMode:    os.Getenv("AI_WORKFLOW_DEV_MODE") == "true",
 		SourceRoot: os.Getenv("AI_WORKFLOW_SOURCE_ROOT"),
 		ServerAddr: os.Getenv("AI_WORKFLOW_SERVER_ADDR"),
-		ConfigDir:  filepath.Join(cwd, ".ai-workflow"),
+		ConfigDir:  configDir,
 		DBPath:     dbPath,
 	})
 

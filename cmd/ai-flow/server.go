@@ -142,8 +142,7 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
-	cwd, _ := os.Getwd()
-	configDir := filepath.Join(cwd, ".ai-workflow")
+	configDir, _ := resolveDataDir()
 
 	secrets, err := config.LoadSecrets(secretsFilePath(configDir))
 	if err != nil {

@@ -24,11 +24,10 @@ func cmdConfigInit(args []string) error {
 		}
 	}
 
-	cwd, err := os.Getwd()
+	dataDir, err := resolveDataDir()
 	if err != nil {
 		return err
 	}
-	dataDir := filepath.Join(cwd, ".ai-workflow")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}

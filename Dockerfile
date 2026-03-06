@@ -44,6 +44,8 @@ RUN apk add --no-cache ca-certificates git sqlite
 
 COPY --from=builder /ai-flow /usr/local/bin/ai-flow
 
+ENV AI_WORKFLOW_DATA_DIR=/data
+
 WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8080
