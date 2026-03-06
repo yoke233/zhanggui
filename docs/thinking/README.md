@@ -7,7 +7,7 @@
 | # | 文档 | 主题 | 状态 |
 |---|------|------|------|
 | 01 | [PR/Merge 流程](01-pr-merge-flow.zh-CN.md) | `merging` 状态、冲突解决、TL Triage | **已实现** — merging 状态机、AutoMergeHandler、冲突检测、MergeRetries |
-| 02 | [Escalation/Directive 模式](02-escalation-directive-pattern.zh-CN.md) | 通用层级决策协议，从 01 的 TL Triage 泛化而来 | 设计阶段（不急，等具体场景驱动） |
+| 02 | [Escalation/Directive 模式](02-escalation-directive-pattern.zh-CN.md) | 通用层级决策协议，从 01 的 TL Triage 泛化而来 | **被 06 取代** — Actor 消息模型不需要硬编码类型 |
 | 03 | [A2A 协议映射](03-a2a-escalation-mapping.zh-CN.md) | 02 的模式如何映射到 A2A 原语 | **核心已实现** — follow-up 回复、tasks/list；Escalation 路由待 02 |
 | 04 | [A2A 对外接口与权限](04-a2a-external-access-design.zh-CN.md) | 外部操控/读取的权限分层，基于 03 的协议基础 | **已实现** — 多 token 认证(submitter/role/projects)、Agent Card skills、Task artifacts |
 | 05 | [多用户多 Project 部署](05-multi-user-deployment-model.zh-CN.md) | 默认单实例多 project，三个独立问题（跨 project 分解 / 多用户 / 多实例），只在信任边界处拆实例 | **P0/P1 已实现** — 跨 Project 分解 + token 权限分层；P2 多实例联通待需求 |
@@ -33,7 +33,7 @@
 | 第 1 步 | 01 | `merging` 状态 + 冲突处理 + TL Triage | ✅ 已完成 |
 | 第 2 步 | 05 P0 | 跨 Project 分解（`DecomposeSpec.ProjectID`） | ✅ 已完成 |
 | 第 3 步 | 04 + 05 P1 | token 三合一模型（submitter + role + projects） | ✅ 已完成 |
-| 不急 | 02 + 03 | 完整 Escalation/Directive 协议 | ⏳ 等具体场景驱动 |
+| ~~不急~~ | ~~02 + 03~~ | ~~完整 Escalation/Directive 协议~~ | 被 06 Actor 模型取代 |
 
 ```
 实施路径:
