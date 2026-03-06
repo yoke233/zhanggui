@@ -437,12 +437,11 @@ func (c *Client) handleNotification(ctx context.Context, method string, params j
 	}
 
 	update := SessionUpdate{
-		SessionID:      in.SessionID,
-		Type:           updatePayloadData.SessionUpdate,
-		Text:           text,
-		Status:         updatePayloadData.Status,
-		RawUpdateJSON:  strings.TrimSpace(string(in.Update)),
-		RawContentJSON: strings.TrimSpace(string(updatePayloadData.Content)),
+		SessionID: in.SessionID,
+		Type:      updatePayloadData.SessionUpdate,
+		Text:      text,
+		Status:    updatePayloadData.Status,
+		RawJSON:   json.RawMessage(in.Update),
 	}
 	if c.eventHandler != nil {
 		_ = c.eventHandler.HandleSessionUpdate(ctx, update)
@@ -533,31 +532,23 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 	updateType := ""
 	text := ""
 	status := ""
-	rawContent := ""
+	commands := []acpproto.AvailableCommand(nil)
+	configOptions := []acpproto.SessionConfigOptionSelect(nil)
 	switch {
 	case notification.Update.AgentMessageChunk != nil:
 		updateType = "agent_message_chunk"
 		if tb := notification.Update.AgentMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.AgentMessageChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.AgentThoughtChunk != nil:
 		updateType = "agent_thought_chunk"
 		if tb := notification.Update.AgentThoughtChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.AgentThoughtChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.UserMessageChunk != nil:
 		updateType = "user_message_chunk"
 		if tb := notification.Update.UserMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.UserMessageChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.ToolCall != nil:
 		updateType = "tool_call"
@@ -571,10 +562,12 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		updateType = "plan"
 	case notification.Update.AvailableCommandsUpdate != nil:
 		updateType = "available_commands_update"
+		commands = append(commands, notification.Update.AvailableCommandsUpdate.AvailableCommands...)
 	case notification.Update.CurrentModeUpdate != nil:
 		updateType = "current_mode_update"
 	case notification.Update.ConfigOptionUpdate != nil:
 		updateType = "config_option_update"
+		configOptions = selectConfigOptions(notification.Update.ConfigOptionUpdate.ConfigOptions)
 	case notification.Update.SessionInfoUpdate != nil:
 		updateType = "session_info_update"
 	case notification.Update.UsageUpdate != nil:
@@ -588,13 +581,30 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		return SessionUpdate{}, false
 	}
 	return SessionUpdate{
-		SessionID:      sessionID,
-		Type:           updateType,
-		Text:           text,
-		Status:         status,
-		RawUpdateJSON:  strings.TrimSpace(string(rawUpdate)),
-		RawContentJSON: rawContent,
+		SessionID:     sessionID,
+		Type:          updateType,
+		Text:          text,
+		Status:        status,
+		RawJSON:       rawUpdate,
+		Commands:      commands,
+		ConfigOptions: configOptions,
 	}, true
+}
+
+func selectConfigOptions(options []acpproto.SessionConfigOption) []acpproto.SessionConfigOptionSelect {
+	if len(options) == 0 {
+		return nil
+	}
+	result := make([]acpproto.SessionConfigOptionSelect, 0, len(options))
+	for _, option := range options {
+		if option.Select != nil {
+			result = append(result, *option.Select)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func decodeTerminalCreateRequest(params json.RawMessage) (acpproto.CreateTerminalRequest, error) {

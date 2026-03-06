@@ -139,10 +139,96 @@ func TestDecodeACPNotificationExtractsChunkText(t *testing.T) {
 			if update.Text != tc.wantText {
 				t.Fatalf("update.Text = %q, want %q", update.Text, tc.wantText)
 			}
-			if update.RawContentJSON == "" {
-				t.Fatal("expected RawContentJSON to be populated")
+			if len(update.RawJSON) == 0 {
+				t.Fatal("expected RawJSON to be populated")
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(update.RawJSON, &raw); err != nil {
+				t.Fatalf("unmarshal RawJSON: %v", err)
+			}
+			if got := raw["sessionUpdate"]; got != tc.wantType {
+				t.Fatalf("raw sessionUpdate = %v, want %q", got, tc.wantType)
 			}
 		})
+	}
+}
+
+func TestDecodeACPNotificationExtractsAvailableCommands(t *testing.T) {
+	update, ok := decodeACPNotificationFromStruct(acpproto.SessionNotification{
+		SessionId: "session-commands",
+		Update: acpproto.SessionUpdate{
+			AvailableCommandsUpdate: &acpproto.SessionAvailableCommandsUpdate{
+				SessionUpdate: "available_commands_update",
+				AvailableCommands: []acpproto.AvailableCommand{
+					{
+						Name:        "create_plan",
+						Description: "Create a plan",
+						Input: &acpproto.AvailableCommandInput{
+							Unstructured: &acpproto.UnstructuredCommandInput{Hint: "topic"},
+						},
+					},
+				},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("expected decode to succeed")
+	}
+	if update.Type != "available_commands_update" {
+		t.Fatalf("update.Type = %q, want available_commands_update", update.Type)
+	}
+	if len(update.Commands) != 1 {
+		t.Fatalf("len(update.Commands) = %d, want 1", len(update.Commands))
+	}
+	if update.Commands[0].Name != "create_plan" {
+		t.Fatalf("command name = %q, want create_plan", update.Commands[0].Name)
+	}
+	if len(update.RawJSON) == 0 {
+		t.Fatal("expected RawJSON to be populated")
+	}
+}
+
+func TestDecodeACPNotificationExtractsConfigOptions(t *testing.T) {
+	update, ok := decodeACPNotificationFromStruct(acpproto.SessionNotification{
+		SessionId: "session-config",
+		Update: acpproto.SessionUpdate{
+			ConfigOptionUpdate: &acpproto.SessionConfigOptionUpdate{
+				SessionUpdate: "config_option_update",
+				ConfigOptions: []acpproto.SessionConfigOption{
+					{
+						Select: &acpproto.SessionConfigOptionSelect{
+							Type:         "select",
+							Id:           acpproto.SessionConfigId("model"),
+							Name:         "Model",
+							CurrentValue: acpproto.SessionConfigValueId("model-1"),
+							Options: acpproto.SessionConfigSelectOptions{
+								Ungrouped: &acpproto.SessionConfigSelectOptionsUngrouped{
+									{
+										Value: acpproto.SessionConfigValueId("model-1"),
+										Name:  "Model 1",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("expected decode to succeed")
+	}
+	if update.Type != "config_option_update" {
+		t.Fatalf("update.Type = %q, want config_option_update", update.Type)
+	}
+	if len(update.ConfigOptions) != 1 {
+		t.Fatalf("len(update.ConfigOptions) = %d, want 1", len(update.ConfigOptions))
+	}
+	if update.ConfigOptions[0].Id != acpproto.SessionConfigId("model") {
+		t.Fatalf("config option id = %q, want model", update.ConfigOptions[0].Id)
+	}
+	if len(update.RawJSON) == 0 {
+		t.Fatal("expected RawJSON to be populated")
 	}
 }
 
