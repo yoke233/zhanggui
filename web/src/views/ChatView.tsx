@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { KeyboardEvent } from "react";
 import { ApiError, type ApiClient } from "../lib/apiClient";
 import type { ChatMessage } from "../types/workflow";
 import type {
@@ -17,12 +18,17 @@ import type {
 import type { WsClient } from "../lib/wsClient";
 import type {
   ACPSessionUpdate,
+  AvailableCommand,
   ChatEventPayload,
   ChatEventType,
+  ConfigOption,
   WsEnvelope,
 } from "../types/ws";
 import FileTree from "../components/FileTree";
 import GitStatusPanel from "../components/GitStatusPanel";
+import CommandPalette from "../components/CommandPalette";
+import ConfigSelector from "../components/ConfigSelector";
+import { useChatStore } from "../stores/chatStore";
 
 interface ChatViewProps {
   apiClient: ApiClient;
@@ -203,6 +209,79 @@ const toRecordList = (value: unknown): Record<string, unknown>[] => {
   return value
     .map((item) => toRecord(item))
     .filter((item): item is Record<string, unknown> => item !== null);
+};
+
+const normalizeAvailableCommands = (value: unknown): AvailableCommand[] => {
+  const commands: AvailableCommand[] = [];
+  toRecordList(value).forEach((item) => {
+    const name = toStringValue(item.name);
+    if (!name) {
+      return;
+    }
+    const input = toRecord(item.input);
+    commands.push({
+      name,
+      description: toStringValue(item.description),
+      input: input
+        ? {
+            hint: toStringValue(input.hint),
+          }
+        : undefined,
+    });
+  });
+  return commands;
+};
+
+const normalizeConfigOptionValues = (
+  value: unknown,
+): ConfigOption["options"] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const directValues: ConfigOption["options"] = [];
+  value.forEach((item) => {
+    const record = toRecord(item);
+    const optionValue = toStringValue(record?.value);
+    const name = toStringValue(record?.name);
+    if (!optionValue || !name) {
+      return;
+    }
+    directValues.push({
+      value: optionValue,
+      name,
+      description: toStringValue(record?.description),
+    });
+  });
+  if (directValues.length > 0) {
+    return directValues;
+  }
+  return value.flatMap((group) => {
+    const record = toRecord(group);
+    return normalizeConfigOptionValues(record?.options);
+  });
+};
+
+const normalizeConfigOptions = (value: unknown): ConfigOption[] => {
+  const options: ConfigOption[] = [];
+  toRecordList(value).forEach((item) => {
+    const id = toStringValue(item.id);
+    const name = toStringValue(item.name);
+    const currentValue = toStringValue(item.currentValue);
+    const type = toStringValue(item.type) || "select";
+    if (!id || !name || !currentValue || type !== "select") {
+      return;
+    }
+    options.push({
+      id,
+      name,
+      description: toStringValue(item.description),
+      category: toStringValue(item.category),
+      type: "select",
+      currentValue,
+      options: normalizeConfigOptionValues(item.options),
+    });
+  });
+  return options;
 };
 
 const getLatestMessagePreview = (rawMessages: unknown): string => {
@@ -894,6 +973,12 @@ const ExpandCollapseIcon = ({ expanded }: { expanded: boolean }) => (
 );
 
 const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
+  const commandsBySessionId = useChatStore((state) => state.commandsBySessionId);
+  const configOptionsBySessionId = useChatStore(
+    (state) => state.configOptionsBySessionId,
+  );
+  const setCommands = useChatStore((state) => state.setCommands);
+  const setConfigOptions = useChatStore((state) => state.setConfigOptions);
   const [draft, setDraft] = useState("");
   const [filePathsDraft, setFilePathsDraft] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -932,12 +1017,15 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     Record<string, boolean>
   >({});
   const [wakingStage, setWakingStage] = useState<string | null>(null);
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [updatingConfigId, setUpdatingConfigId] = useState<string | null>(null);
   const chatRequestIdRef = useRef(0);
   const issueFromFilesRequestIdRef = useRef(0);
   const chatListRequestIdRef = useRef(0);
   const runEventsRequestIdRef = useRef(0);
   const activeRunStartedAtRef = useRef(0);
   const localRunStartPendingRef = useRef(false);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<{
@@ -970,6 +1058,8 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setSelectedIssueId(null);
     setIssueCheckpoints([]);
     setExpandedActivityCards({});
+    setSelectedCommandIndex(0);
+    setUpdatingConfigId(null);
     setChatLoading(false);
     setChatCancelling(false);
     setIssueFromFilesLoading(false);
@@ -980,6 +1070,37 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   }, [projectId]);
 
   const syncingFromOtherTerminal = chatLoading && !!crossTerminalRunNotice;
+  const sessionCommands = useMemo(
+    () => (sessionId ? commandsBySessionId[sessionId] ?? [] : []),
+    [commandsBySessionId, sessionId],
+  );
+  const sessionConfigOptions = useMemo(
+    () => (sessionId ? configOptionsBySessionId[sessionId] ?? [] : []),
+    [configOptionsBySessionId, sessionId],
+  );
+  const commandPaletteQuery = useMemo(() => {
+    const trimmed = draft.trimStart();
+    if (!trimmed.startsWith("/")) {
+      return null;
+    }
+    const body = trimmed.slice(1);
+    if (body.includes(" ") || body.includes("\n")) {
+      return null;
+    }
+    return body.toLowerCase();
+  }, [draft]);
+  const filteredCommands = useMemo(() => {
+    if (commandPaletteQuery === null) {
+      return [];
+    }
+    return sessionCommands.filter((command) => {
+      if (!commandPaletteQuery) {
+        return true;
+      }
+      return command.name.toLowerCase().includes(commandPaletteQuery);
+    });
+  }, [commandPaletteQuery, sessionCommands]);
+  const showCommandPalette = filteredCommands.length > 0;
   const canSubmit = chatLoading
     ? !!sessionId && !chatCancelling && !syncingFromOtherTerminal
     : draft.trim().length > 0;
@@ -992,6 +1113,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     filePaths.length > 0 &&
     !issueFromFilesLoading &&
     !chatLoading;
+
+  useEffect(() => {
+    setSelectedCommandIndex(0);
+  }, [commandPaletteQuery, sessionId]);
 
   const sortedMessages = useMemo(
     () =>
@@ -1266,6 +1391,31 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     [apiClient, upsertChatSessionSummary],
   );
 
+  const refreshSessionState = useCallback(
+    async (targetProjectId: string, targetSessionId: string) => {
+      const normalizedSessionID = targetSessionId.trim();
+      if (!normalizedSessionID) {
+        return;
+      }
+
+      const [commands, configOptions] = await Promise.all([
+        apiClient
+          .getSessionCommands(targetProjectId, normalizedSessionID)
+          .catch(() => []),
+        apiClient
+          .getSessionConfigOptions(targetProjectId, normalizedSessionID)
+          .catch(() => []),
+      ]);
+
+      if (targetSessionIdRef.current !== normalizedSessionID) {
+        return;
+      }
+      setCommands(normalizedSessionID, commands);
+      setConfigOptions(normalizedSessionID, configOptions);
+    },
+    [apiClient, setCommands, setConfigOptions],
+  );
+
   const loadToolCallGroup = useCallback(
     async (
       targetProjectId: string,
@@ -1358,6 +1508,13 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   }, [projectId, refreshIssueList]);
 
   useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    void refreshSessionState(projectId, sessionId);
+  }, [projectId, refreshSessionState, sessionId]);
+
+  useEffect(() => {
     const issue = issueList.find((i) => i.id === selectedIssueId);
     if (issue?.run_id) {
       void refreshIssueCheckpoints(issue.run_id);
@@ -1403,6 +1560,102 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
       void loadOlderHistory();
     }
   }, [historyCursor, historyLoadingMore, loadOlderHistory]);
+
+  const handleSelectCommand = useCallback((command: AvailableCommand) => {
+    const hint = command.input?.hint?.trim();
+    const nextDraft = hint
+      ? `/${command.name} [${hint}]`
+      : `/${command.name} `;
+    setDraft(nextDraft);
+    setSelectedCommandIndex(0);
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (!input) {
+        return;
+      }
+      input.focus();
+      if (hint) {
+        const start = nextDraft.indexOf("[") + 1;
+        const end = nextDraft.lastIndexOf("]");
+        input.setSelectionRange(start, end);
+        return;
+      }
+      input.setSelectionRange(nextDraft.length, nextDraft.length);
+    });
+  }, []);
+
+  const handleDraftKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!showCommandPalette) {
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setSelectedCommandIndex((prev) =>
+          Math.min(prev + 1, filteredCommands.length - 1),
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setSelectedCommandIndex((prev) => Math.max(prev - 1, 0));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = filteredCommands[selectedCommandIndex];
+        if (target) {
+          handleSelectCommand(target);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDraft("");
+      }
+    },
+    [
+      filteredCommands,
+      handleSelectCommand,
+      selectedCommandIndex,
+      showCommandPalette,
+    ],
+  );
+
+  const handleConfigOptionChange = useCallback(
+    async (configId: string, value: string) => {
+      const targetSessionId = sessionId?.trim();
+      if (!targetSessionId) {
+        return;
+      }
+      setUpdatingConfigId(configId);
+      setError(null);
+      try {
+        const nextOptions = await apiClient.setSessionConfigOption(
+          projectId,
+          targetSessionId,
+          configId,
+          value,
+        );
+        if (targetSessionIdRef.current !== targetSessionId) {
+          return;
+        }
+        setConfigOptions(targetSessionId, nextOptions);
+      } catch (requestError) {
+        if (targetSessionIdRef.current !== targetSessionId) {
+          return;
+        }
+        setError(getErrorMessage(requestError));
+      } finally {
+        if (targetSessionIdRef.current === targetSessionId) {
+          setUpdatingConfigId((current) =>
+            current === configId ? null : current,
+          );
+        }
+      }
+    },
+    [apiClient, projectId, sessionId, setConfigOptions],
+  );
 
   const handleStartChat = async () => {
     if (chatLoading) {
@@ -1727,6 +1980,25 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         case "run_update":
         case "team_leader_thinking":
         case "team_leader_files_changed": {
+          const acpUpdateType = toStringValue(data.acp?.sessionUpdate);
+          const isSessionStateUpdate =
+            acpUpdateType === "available_commands_update" ||
+            acpUpdateType === "config_option_update";
+          if (acpUpdateType === "available_commands_update") {
+            setCommands(
+              wsSessionID,
+              normalizeAvailableCommands(data.acp?.availableCommands),
+            );
+          }
+          if (acpUpdateType === "config_option_update") {
+            setConfigOptions(
+              wsSessionID,
+              normalizeConfigOptions(data.acp?.configOptions),
+            );
+          }
+          if (isSessionStateUpdate) {
+            break;
+          }
           const eventTimestampMs = toEventTimestampMs(data.timestamp);
           const runStartedAt = activeRunStartedAtRef.current;
           if (runStartedAt === 0) {
@@ -1818,6 +2090,8 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     pushRunEvent,
     refreshChatRunEvents,
     refreshChatSessions,
+    setCommands,
+    setConfigOptions,
     wsClient,
   ]);
 
@@ -1967,6 +2241,13 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
             </p>
           </div>
         </div>
+        <ConfigSelector
+          options={sessionConfigOptions}
+          updatingConfigId={updatingConfigId}
+          onChange={(configId, value) => {
+            void handleConfigOptionChange(configId, value);
+          }}
+        />
 
         <div className="mt-4 h-[30rem] rounded-lg border border-slate-200 bg-slate-50 p-3">
           {hasMessages ? (
@@ -2175,14 +2456,24 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           </label>
           <textarea
             id="chat-message"
+            ref={messageInputRef}
             rows={4}
             className="min-h-[7rem] w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm"
             placeholder="请输入要拆分为 issue 的需求..."
             value={draft}
+            onKeyDown={handleDraftKeyDown}
             onChange={(event) => {
               setDraft(event.target.value);
             }}
           />
+          {showCommandPalette ? (
+            <CommandPalette
+              commands={filteredCommands}
+              selectedIndex={selectedCommandIndex}
+              onHover={setSelectedCommandIndex}
+              onSelect={handleSelectCommand}
+            />
+          ) : null}
           <div className="mt-3 flex justify-end">
             <button
               type="button"

@@ -16,6 +16,7 @@ import type { WsClient } from "../lib/wsClient";
 import type { ApiIssue, ChatRunEvent } from "../types/api";
 import type { ChatMessage } from "../types/workflow";
 import type { WsEnvelope } from "../types/ws";
+import { useChatStore } from "../stores/chatStore";
 
 vi.mock("../components/FileTree", () => ({
   default: ({
@@ -167,6 +168,9 @@ const createMockApiClient = (): ApiClient => {
   const getRepoTree = vi.fn().mockResolvedValue({ dir: "", items: [] });
   const getRepoStatus = vi.fn().mockResolvedValue({ items: [] });
   const getRepoDiff = vi.fn().mockResolvedValue({ file_path: "", diff: "" });
+  const getSessionCommands = vi.fn().mockResolvedValue([]);
+  const getSessionConfigOptions = vi.fn().mockResolvedValue([]);
+  const setSessionConfigOption = vi.fn().mockResolvedValue([]);
 
   return {
     request: vi.fn(),
@@ -196,6 +200,9 @@ const createMockApiClient = (): ApiClient => {
     getChatSessionStatus: vi
       .fn()
       .mockResolvedValue({ alive: false, running: false }),
+    getSessionCommands,
+    getSessionConfigOptions,
+    setSessionConfigOption,
     getStageSessionStatus: vi
       .fn()
       .mockResolvedValue({ alive: false, session_id: "" }),
@@ -258,6 +265,7 @@ const createMockWsHarness = (): {
 
 describe("ChatView", () => {
   afterEach(() => {
+    useChatStore.getState().reset();
     cleanup();
   });
 
@@ -1762,5 +1770,134 @@ describe("ChatView", () => {
     expect(screen.getByText("GitStatusPanelMock")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "文件树" }));
     expect(screen.getByText("FileTreeMock")).toBeTruthy();
+  });
+
+  it("available_commands_update 会展示命令面板并回填 slash command", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(
+      <ChatView
+        apiClient={apiClient}
+        wsClient={wsHarness.wsClient}
+        projectId="proj-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请先创建会话" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.getSessionCommands).toHaveBeenCalledWith(
+        "proj-1",
+        "chat-1",
+      );
+    });
+
+    wsHarness.emit({
+      type: "run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            {
+              name: "review",
+              description: "Review current changes",
+              input: {
+                hint: "optional custom review instructions",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "/" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("/review")).toBeTruthy();
+    });
+
+    const reviewButton = screen.getByText("/review").closest("button");
+    expect(reviewButton).not.toBeNull();
+    fireEvent.click(reviewButton!);
+
+    expect(
+      (screen.getByLabelText("新消息") as HTMLTextAreaElement).value,
+    ).toBe("/review [optional custom review instructions]");
+  });
+
+  it("创建会话后会加载 config options，并支持切换当前值", async () => {
+    const apiClient = createMockApiClient();
+    apiClient.getSessionConfigOptions = vi.fn().mockResolvedValue([
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        currentValue: "model-1",
+        options: [
+          { value: "model-1", name: "Model 1" },
+          { value: "model-2", name: "Model 2" },
+        ],
+      },
+    ]);
+    apiClient.setSessionConfigOption = vi.fn().mockResolvedValue([
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        currentValue: "model-2",
+        options: [
+          { value: "model-1", name: "Model 1" },
+          { value: "model-2", name: "Model 2" },
+        ],
+      },
+    ]);
+    const wsHarness = createMockWsHarness();
+
+    render(
+      <ChatView
+        apiClient={apiClient}
+        wsClient={wsHarness.wsClient}
+        projectId="proj-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请先创建会话" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.getSessionConfigOptions).toHaveBeenCalledWith(
+        "proj-1",
+        "chat-1",
+      );
+    });
+
+    const select = (await screen.findByLabelText("Model")) as HTMLSelectElement;
+    expect(select.value).toBe("model-1");
+
+    fireEvent.change(select, {
+      target: { value: "model-2" },
+    });
+
+    await waitFor(() => {
+      expect(apiClient.setSessionConfigOption).toHaveBeenCalledWith(
+        "proj-1",
+        "chat-1",
+        "model",
+        "model-2",
+      );
+    });
+    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe(
+      "model-2",
+    );
   });
 });

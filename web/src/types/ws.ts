@@ -17,8 +17,35 @@ export type ChatEventType =
   | "team_leader_thinking"
   | "team_leader_files_changed";
 
+export interface AvailableCommand {
+  name: string;
+  description: string;
+  input?: {
+    hint?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface ConfigOptionValue {
+  value: string;
+  name: string;
+  description?: string;
+}
+
+export interface ConfigOption {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: "select";
+  currentValue: string;
+  options: ConfigOptionValue[];
+}
+
 export interface ACPSessionUpdate {
   sessionUpdate?: string;
+  availableCommands?: AvailableCommand[];
+  configOptions?: unknown;
   content?: {
     type?: string;
     text?: string;

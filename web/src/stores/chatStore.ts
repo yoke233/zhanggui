@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ChatMessage, ChatSession } from "../types/workflow";
+import type { AvailableCommand, ConfigOption } from "../types/ws";
 
 const upsertSession = (
   sessions: ChatSession[],
@@ -16,6 +17,8 @@ const upsertSession = (
 
 interface ChatState {
   sessionsByProjectId: Record<string, ChatSession[]>;
+  commandsBySessionId: Record<string, AvailableCommand[]>;
+  configOptionsBySessionId: Record<string, ConfigOption[]>;
   activeSessionId: string | null;
   loading: boolean;
   error: string | null;
@@ -24,6 +27,8 @@ interface ChatState {
   appendMessage: (projectId: string, sessionId: string, message: ChatMessage) => void;
   selectSession: (sessionId: string | null) => void;
   clearSession: (projectId: string, sessionId: string) => void;
+  setCommands: (sessionId: string, commands: AvailableCommand[]) => void;
+  setConfigOptions: (sessionId: string, options: ConfigOption[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
@@ -31,6 +36,8 @@ interface ChatState {
 
 const initialState = {
   sessionsByProjectId: {} as Record<string, ChatSession[]>,
+  commandsBySessionId: {} as Record<string, AvailableCommand[]>,
+  configOptionsBySessionId: {} as Record<string, ConfigOption[]>,
   activeSessionId: null as string | null,
   loading: false,
   error: null as string | null,
@@ -72,8 +79,32 @@ export const useChatStore = create<ChatState>((set) => ({
           (session) => session.id !== sessionId,
         ),
       },
+      commandsBySessionId: Object.fromEntries(
+        Object.entries(state.commandsBySessionId).filter(
+          ([key]) => key !== sessionId,
+        ),
+      ),
+      configOptionsBySessionId: Object.fromEntries(
+        Object.entries(state.configOptionsBySessionId).filter(
+          ([key]) => key !== sessionId,
+        ),
+      ),
       activeSessionId:
         state.activeSessionId === sessionId ? null : state.activeSessionId,
+    })),
+  setCommands: (sessionId, commands) =>
+    set((state) => ({
+      commandsBySessionId: {
+        ...state.commandsBySessionId,
+        [sessionId]: commands,
+      },
+    })),
+  setConfigOptions: (sessionId, options) =>
+    set((state) => ({
+      configOptionsBySessionId: {
+        ...state.configOptionsBySessionId,
+        [sessionId]: options,
+      },
     })),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),

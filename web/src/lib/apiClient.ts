@@ -43,6 +43,7 @@ import type {
   SetIssueAutoMergeResponse,
   SubmitIssueReviewResponse,
 } from "../types/api";
+import type { AvailableCommand, ConfigOption, ConfigOptionValue } from "../types/ws";
 import type { Project } from "../types/workflow";
 
 type Primitive = string | number | boolean;
@@ -215,6 +216,99 @@ const toSafeString = (raw: unknown): string | undefined => {
   }
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const toUnknownRecord = (raw: unknown): Record<string, unknown> | null => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  return raw as Record<string, unknown>;
+};
+
+const normalizeAvailableCommands = (raw: unknown): AvailableCommand[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const commands: AvailableCommand[] = [];
+  raw.forEach((item) => {
+    const record = toUnknownRecord(item);
+    const name = toSafeString(record?.name);
+    const description = toSafeString(record?.description) ?? "";
+    if (!name) {
+      return;
+    }
+    const input = toUnknownRecord(record?.input);
+    commands.push({
+      name,
+      description,
+      input: input
+        ? {
+            hint: toSafeString(input.hint),
+          }
+        : undefined,
+    });
+  });
+  return commands;
+};
+
+const normalizeConfigOptionValues = (raw: unknown): ConfigOptionValue[] => {
+  if (Array.isArray(raw)) {
+    const directValues: ConfigOptionValue[] = [];
+    raw.forEach((item) => {
+      const record = toUnknownRecord(item);
+      if (!record) {
+        return;
+      }
+      const value = toSafeString(record.value);
+      const name = toSafeString(record.name);
+      if (!value || !name) {
+        return;
+      }
+      directValues.push({
+        value,
+        name,
+        description: toSafeString(record.description),
+      });
+    });
+    if (directValues.length > 0) {
+      return directValues;
+    }
+    return raw.flatMap((group) => {
+      const record = toUnknownRecord(group);
+      return normalizeConfigOptionValues(record?.options);
+    });
+  }
+  return [];
+};
+
+const normalizeConfigOptions = (raw: unknown): ConfigOption[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const options: ConfigOption[] = [];
+  raw.forEach((item) => {
+    const record = toUnknownRecord(item);
+    if (!record) {
+      return;
+    }
+    const id = toSafeString(record.id);
+    const name = toSafeString(record.name);
+    const currentValue = toSafeString(record.currentValue);
+    const type = toSafeString(record.type) ?? "select";
+    if (!id || !name || !currentValue || type !== "select") {
+      return;
+    }
+    options.push({
+      id,
+      name,
+      description: toSafeString(record.description),
+      category: toSafeString(record.category),
+      type: "select",
+      currentValue,
+      options: normalizeConfigOptionValues(record.options),
+    });
+  });
+  return options;
 };
 
 const normalizeIssueNumberFromExternalId = (
@@ -436,6 +530,14 @@ export interface ApiClient {
     sessionId: string,
   ): Promise<ChatSessionStatus>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
+  getSessionCommands(projectId: string, sessionId: string): Promise<AvailableCommand[]>;
+  getSessionConfigOptions(projectId: string, sessionId: string): Promise<ConfigOption[]>;
+  setSessionConfigOption(
+    projectId: string,
+    sessionId: string,
+    configId: string,
+    value: string,
+  ): Promise<ConfigOption[]>;
   setIssueAutoMerge(
     projectId: string,
     issueId: string,
@@ -742,6 +844,29 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<GetChatResponse>({
         path: `/api/v1/projects/${projectId}/chat/${sessionId}`,
       }),
+    getSessionCommands: async (projectId, sessionId) => {
+      const response = await request<unknown>({
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/commands`,
+      });
+      return normalizeAvailableCommands(response);
+    },
+    getSessionConfigOptions: async (projectId, sessionId) => {
+      const response = await request<unknown>({
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/config-options`,
+      });
+      return normalizeConfigOptions(response);
+    },
+    setSessionConfigOption: async (projectId, sessionId, configId, value) => {
+      const response = await request<unknown, { configId: string; value: string }>({
+        path: `/api/v1/projects/${projectId}/chat/${sessionId}/config-options`,
+        method: "POST",
+        body: {
+          configId,
+          value,
+        },
+      });
+      return normalizeConfigOptions(response);
+    },
     setIssueAutoMerge: (projectId, issueId, body) =>
       request<SetIssueAutoMergeResponse, SetIssueAutoMergeRequest>({
         path: `/api/v1/projects/${projectId}/issues/${issueId}/auto-merge`,

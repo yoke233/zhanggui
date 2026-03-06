@@ -582,4 +582,103 @@ describe("apiClient", () => {
       "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/event-groups/tool-call-group:1:2",
     );
   });
+
+  it("chat session commands/config-options 接口命中正确路由并返回归一化结果", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "review",
+              description: "Review current changes",
+              input: { hint: "optional custom review instructions" },
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              currentValue: "model-1",
+              options: [
+                { value: "model-1", name: "Model 1" },
+                { value: "model-2", name: "Model 2" },
+              ],
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              currentValue: "model-2",
+              options: [
+                { value: "model-1", name: "Model 1" },
+                { value: "model-2", name: "Model 2" },
+              ],
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const commands = await client.getSessionCommands("proj-1", "chat-1");
+    const options = await client.getSessionConfigOptions("proj-1", "chat-1");
+    const updated = await client.setSessionConfigOption(
+      "proj-1",
+      "chat-1",
+      "model",
+      "model-2",
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/commands",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/config-options",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/config-options",
+    );
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit)?.body)),
+    ).toEqual({
+      configId: "model",
+      value: "model-2",
+    });
+    expect(commands[0]?.input?.hint).toBe(
+      "optional custom review instructions",
+    );
+    expect(options[0]?.currentValue).toBe("model-1");
+    expect(options[0]?.options.map((item) => item.value)).toEqual([
+      "model-1",
+      "model-2",
+    ]);
+    expect(updated[0]?.currentValue).toBe("model-2");
+  });
 });
