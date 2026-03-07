@@ -12,6 +12,7 @@ type ChatSession struct {
 	ProjectID string `json:"project_id"`
 	// AgentSessionID stores provider-native session id (e.g. Claude session_id) for multi-turn resume.
 	AgentSessionID string        `json:"agent_session_id,omitempty"`
+	AgentName      string        `json:"agent_name,omitempty"`
 	Messages       []ChatMessage `json:"messages"`
 	CreatedAt      time.Time     `json:"created_at"`
 	UpdatedAt      time.Time     `json:"updated_at"`
