@@ -220,6 +220,20 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 			return ChatAssistantResponse{}, fmt.Errorf("resolve chat role %q: %w", roleID, err)
 		}
 
+		// Agent override: use specified agent instead of role's default.
+		if agentOverride := strings.TrimSpace(req.AgentOverride); agentOverride != "" && agentOverride != agent.ID {
+			type agentGetter interface {
+				GetAgent(string) (acpclient.AgentProfile, error)
+			}
+			if getter, ok := roleResolver.(agentGetter); ok {
+				overrideAgent, oErr := getter.GetAgent(agentOverride)
+				if oErr != nil {
+					return ChatAssistantResponse{}, fmt.Errorf("resolve agent override %q: %w", agentOverride, oErr)
+				}
+				agent = overrideAgent
+			}
+		}
+
 		launchCfg := acpclient.LaunchConfig{
 			Command: strings.TrimSpace(agent.LaunchCommand),
 			Args:    cloneStrings(agent.LaunchArgs),
