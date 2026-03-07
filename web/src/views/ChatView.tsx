@@ -117,20 +117,6 @@ const CHAT_UPDATE_PARSERS: Record<string, ChatUpdateParser> = {
   message_chunk: (acp) => toChunkValue(acp.content?.text),
 };
 
-const formatTime = (time: string): string => {
-  const date = new Date(time);
-  if (Number.isNaN(date.getTime())) {
-    return time;
-  }
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-};
-
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -728,19 +714,6 @@ const getStreamingDelta = (payload: ChatEventPayload): string => {
     return "";
   }
   return parser(acp);
-};
-
-const getCollapsedPreview = (content: string, maxLength = 160): string => {
-  const firstLine =
-    content
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? "";
-  const compact = firstLine.replace(/\s+/g, " ").trim();
-  if (compact.length <= maxLength) {
-    return compact;
-  }
-  return `${compact.slice(0, maxLength)}...`;
 };
 
 const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
@@ -1940,15 +1913,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     : sessionId
       ? "发送"
       : "发送并创建会话";
-  const visibleRunEvents = useMemo(() => {
-    if (!sessionId) {
-      return runEvents.slice(-20);
-    }
-    return runEvents
-      .filter((event) => event.sessionId === sessionId)
-      .slice(-20);
-  }, [runEvents, sessionId]);
-
   return (
     <section
       className={`grid h-[calc(100vh-4rem)] gap-4 font-mono ${leftPanelOpen ? "lg:grid-cols-[280px_minmax(0,2fr)_320px]" : "lg:grid-cols-[minmax(0,2fr)_320px]"}`}

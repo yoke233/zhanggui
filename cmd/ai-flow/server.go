@@ -28,6 +28,7 @@ const defaultServerPort = 8080
 
 const (
 	defaultFrontendDir = "/opt/ai-workflow/web/dist"
+	repoFrontendDir    = "web/dist"
 	frontendDirEnvVar  = "AI_WORKFLOW_FRONTEND_DIR"
 )
 
@@ -414,22 +415,46 @@ func resolveServerPort(cliPort int, cfgPort int) int {
 func resolveServerFrontendFS() (fs.FS, error) {
 	rawDir, hasOverride := os.LookupEnv(frontendDirEnvVar)
 	frontendDir := strings.TrimSpace(rawDir)
-	if frontendDir == "" {
-		frontendDir = defaultFrontendDir
-		hasOverride = false
+	if hasOverride && frontendDir != "" {
+		frontendFS, found, err := resolveFrontendDirFS(frontendDir)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("resolve frontend dir %q: %w", frontendDir, os.ErrNotExist)
+		}
+		return frontendFS, nil
 	}
 
+	candidates := []string{
+		defaultFrontendDir,
+		repoFrontendDir,
+	}
+	for _, candidate := range candidates {
+		frontendFS, found, err := resolveFrontendDirFS(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return frontendFS, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func resolveFrontendDirFS(frontendDir string) (fs.FS, bool, error) {
 	info, err := os.Stat(frontendDir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && !hasOverride {
-			return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("resolve frontend dir %q: %w", frontendDir, err)
+		return nil, false, fmt.Errorf("resolve frontend dir %q: %w", frontendDir, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("resolve frontend dir %q: not a directory", frontendDir)
+		return nil, false, fmt.Errorf("resolve frontend dir %q: not a directory", frontendDir)
 	}
-	return os.DirFS(frontendDir), nil
+	return os.DirFS(frontendDir), true, nil
 }
 
 func buildServerAddress(host string, port int) string {

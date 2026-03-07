@@ -26,6 +26,9 @@ func ApplyEnvOverrides(cfg *Config) error {
 		}
 		cfg.Server.Port = port
 	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SERVER_HOST"); ok {
+		cfg.Server.Host = v
+	}
 
 	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_MAX_GLOBAL_AGENTS"); ok {
 		maxAgents, err := strconv.Atoi(strings.TrimSpace(v))

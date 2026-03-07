@@ -33,7 +33,7 @@ COPY . .
 
 RUN npm --prefix web run build
 
-RUN CGO_ENABLED=0 go build -tags webdist \
+RUN CGO_ENABLED=0 go build \
     -ldflags="-s -w" \
     -o /ai-flow ./cmd/ai-flow
 
@@ -43,8 +43,11 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates git sqlite
 
 COPY --from=builder /ai-flow /usr/local/bin/ai-flow
+COPY --from=builder /build/web/dist /opt/ai-workflow/web/dist
 
 ENV AI_WORKFLOW_DATA_DIR=/data
+ENV AI_WORKFLOW_FRONTEND_DIR=/opt/ai-workflow/web/dist
+ENV AI_WORKFLOW_SERVER_HOST=0.0.0.0
 
 WORKDIR /data
 VOLUME ["/data"]

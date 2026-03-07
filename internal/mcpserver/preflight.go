@@ -37,9 +37,9 @@ type StepResult struct {
 
 // PreflightGate tracks the last successful preflight and gates restart.
 type PreflightGate struct {
-	mu              sync.Mutex
-	last            *PreflightResult
-	running         bool
+	mu               sync.Mutex
+	last             *PreflightResult
+	running          bool
 	enforceCommitSHA bool // if true, restart requires preflight SHA == HEAD; default false
 }
 
@@ -100,7 +100,7 @@ type preflightStep struct {
 
 // Run executes the full preflight quality gate.
 // If onProgress is non-nil, it is called after each step completes.
-func (g *PreflightGate) Run(ctx context.Context, sourceRoot string, skipFrontend bool, onProgress ...ProgressFunc) (*PreflightResult, error) {
+func (g *PreflightGate) Run(ctx context.Context, sourceRoot string, frontendDir string, skipFrontend bool, onProgress ...ProgressFunc) (*PreflightResult, error) {
 	g.mu.Lock()
 	if g.running {
 		g.mu.Unlock()
@@ -129,10 +129,14 @@ func (g *PreflightGate) Run(ctx context.Context, sourceRoot string, skipFrontend
 		{"go test", "go", []string{"test", "-p", "4", "-timeout", "10m", "-count=1", "./..."}},
 	}
 	if !skipFrontend {
+		prefix := strings.TrimSpace(frontendDir)
+		if prefix == "" {
+			prefix = "web"
+		}
 		steps = append(steps,
-			preflightStep{"frontend lint", "npm", []string{"--prefix", "web", "run", "lint"}},
-			preflightStep{"frontend typecheck", "npm", []string{"--prefix", "web", "run", "typecheck"}},
-			preflightStep{"frontend build", "npm", []string{"--prefix", "web", "run", "build"}},
+			preflightStep{"frontend lint", "npm", []string{"--prefix", prefix, "run", "lint"}},
+			preflightStep{"frontend typecheck", "npm", []string{"--prefix", prefix, "run", "typecheck"}},
+			preflightStep{"frontend build", "npm", []string{"--prefix", prefix, "run", "build"}},
 		)
 	}
 

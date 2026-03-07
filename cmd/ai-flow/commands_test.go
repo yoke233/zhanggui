@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -144,6 +146,91 @@ func TestResolveServerPortPriority(t *testing.T) {
 				t.Fatalf("resolveServerPort(%d, %d) = %d, want %d", tt.cliPort, tt.cfgPort, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveServerFrontendFS_UsesOverrideDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("override-index"), 0o644); err != nil {
+		t.Fatalf("write override index: %v", err)
+	}
+	t.Setenv(frontendDirEnvVar, dir)
+
+	frontendFS, err := resolveServerFrontendFS()
+	if err != nil {
+		t.Fatalf("resolveServerFrontendFS() error = %v, want nil", err)
+	}
+	if frontendFS == nil {
+		t.Fatal("resolveServerFrontendFS() = nil, want non-nil frontend fs")
+	}
+
+	indexContent := mustReadFrontendIndex(t, frontendFS)
+	if !strings.Contains(indexContent, "override-index") {
+		t.Fatalf("override frontend index mismatch, got %q", indexContent)
+	}
+}
+
+func TestResolveServerFrontendFS_FallsBackToRepoDist(t *testing.T) {
+	if _, err := os.Stat(defaultFrontendDir); err == nil {
+		t.Skipf("default frontend dir %q exists on host; skip repo fallback assertion", defaultFrontendDir)
+	}
+
+	repoRoot := t.TempDir()
+	distDir := filepath.Join(repoRoot, "web", "dist")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatalf("mkdir dist dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("repo-index"), 0o644); err != nil {
+		t.Fatalf("write repo dist index: %v", err)
+	}
+	t.Chdir(repoRoot)
+	t.Setenv(frontendDirEnvVar, "")
+
+	frontendFS, err := resolveServerFrontendFS()
+	if err != nil {
+		t.Fatalf("resolveServerFrontendFS() error = %v, want nil", err)
+	}
+	if frontendFS == nil {
+		t.Fatal("resolveServerFrontendFS() = nil, want repo dist frontend fs")
+	}
+
+	indexContent := mustReadFrontendIndex(t, frontendFS)
+	if !strings.Contains(indexContent, "repo-index") {
+		t.Fatalf("repo dist frontend index mismatch, got %q", indexContent)
+	}
+}
+
+func TestResolveServerFrontendFS_ReturnsNilWhenNoFrontendFound(t *testing.T) {
+	if _, err := os.Stat(defaultFrontendDir); err == nil {
+		t.Skipf("default frontend dir %q exists on host; skip nil assertion", defaultFrontendDir)
+	}
+
+	repoRoot := t.TempDir()
+	t.Chdir(repoRoot)
+	t.Setenv(frontendDirEnvVar, "")
+
+	frontendFS, err := resolveServerFrontendFS()
+	if err != nil {
+		t.Fatalf("resolveServerFrontendFS() error = %v, want nil", err)
+	}
+	if frontendFS != nil {
+		t.Fatal("resolveServerFrontendFS() returned frontend fs, want nil when no frontend dir exists")
+	}
+}
+
+func TestResolveServerFrontendFS_OverrideMissingReturnsError(t *testing.T) {
+	missingDir := filepath.Join(t.TempDir(), "missing-dist")
+	t.Setenv(frontendDirEnvVar, missingDir)
+
+	frontendFS, err := resolveServerFrontendFS()
+	if err == nil {
+		t.Fatal("resolveServerFrontendFS() error = nil, want not-exist error for missing override dir")
+	}
+	if frontendFS != nil {
+		t.Fatal("resolveServerFrontendFS() frontend fs should be nil when override dir is missing")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected missing override error to wrap os.ErrNotExist, got %v", err)
 	}
 }
 
@@ -556,6 +643,15 @@ func captureStdout(t *testing.T, fn func()) (output string) {
 
 	fn()
 	return output
+}
+
+func mustReadFrontendIndex(t *testing.T, frontendFS fs.FS) string {
+	t.Helper()
+	content, err := fs.ReadFile(frontendFS, "index.html")
+	if err != nil {
+		t.Fatalf("read frontend index.html from fs: %v", err)
+	}
+	return string(content)
 }
 
 type testAPIServer struct {

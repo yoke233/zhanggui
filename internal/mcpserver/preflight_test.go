@@ -113,7 +113,7 @@ func TestPreflightGateRun_VetStep(t *testing.T) {
 
 	// Run with skip_frontend=true to keep test fast, only vet+build+test.
 	// We only test the first step (vet) completes to verify the machinery works.
-	result, err := g.Run(ctx, repoRoot, true)
+	result, err := g.Run(ctx, repoRoot, "web", true)
 	if err != nil {
 		t.Fatalf("preflight run: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestPreflightGateRunConcurrentBlocked(t *testing.T) {
 	g.running = true
 	g.mu.Unlock()
 
-	_, err := g.Run(context.Background(), ".", false)
+	_, err := g.Run(context.Background(), ".", "web", false)
 	if err == nil {
 		t.Fatal("expected error when preflight already running")
 	}

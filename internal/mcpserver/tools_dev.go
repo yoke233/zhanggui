@@ -5,10 +5,13 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,12 +23,12 @@ var gate = NewPreflightGate()
 func registerDevTools(server *mcp.Server, opts Options) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_build_frontend",
-		Description: "Build the frontend SPA (npm run build) into web/dist/. Run this before self_build with embed_frontend=true, or independently to update static assets.",
+		Description: "Build the frontend SPA (npm run build) into web/dist/. Frontend is served as static files and is not embedded into backend binary.",
 	}, selfBuildFrontendHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_build",
-		Description: "Build the ai-flow Go binary. Set embed_frontend=true to bake web/dist/ into the binary (requires self_build_frontend first). Always includes -tags dev.",
+		Description: "Build the ai-flow Go binary (backend only, no frontend embedding).",
 	}, selfBuildHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -46,21 +49,26 @@ func registerDevTools(server *mcp.Server, opts Options) {
 
 // --- self_build_frontend ---
 
-type SelfBuildFrontendInput struct{}
-
 type SelfBuildFrontendOutput struct {
 	Success bool   `json:"success"`
 	Output  string `json:"output"`
 }
 
+type SelfBuildFrontendInput struct {
+	SourceRoot  string `json:"source_root,omitempty" jsonschema:"Override source root; defaults to server option source_root"`
+	FrontendDir string `json:"frontend_dir,omitempty" jsonschema:"Frontend workspace path for npm --prefix (relative to source_root, default: web)"`
+}
+
 func selfBuildFrontendHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfBuildFrontendInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfBuildFrontendInput) (*mcp.CallToolResult, any, error) {
-		if opts.SourceRoot == "" {
-			return errorResult("source_root not configured")
+		sourceRoot, err := resolveDevToolSourceRoot(opts.SourceRoot, in.SourceRoot)
+		if err != nil {
+			return errorResult(err.Error())
 		}
+		frontendDir := resolveDevToolFrontendDir(in.FrontendDir)
 
-		cmd := exec.CommandContext(ctx, "npm", "--prefix", "web", "run", "build")
-		cmd.Dir = opts.SourceRoot
+		cmd := exec.CommandContext(ctx, "npm", "--prefix", frontendDir, "run", "build")
+		cmd.Dir = sourceRoot
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
@@ -82,7 +90,7 @@ func selfBuildFrontendHandler(opts Options) func(context.Context, *mcp.CallToolR
 // --- self_build ---
 
 type SelfBuildInput struct {
-	EmbedFrontend bool `json:"embed_frontend,omitempty" jsonschema:"Embed web/dist/ into binary (adds -tags webdist). Run self_build_frontend first."`
+	SourceRoot string `json:"source_root,omitempty" jsonschema:"Override source root; defaults to server option source_root"`
 }
 
 type SelfBuildOutput struct {
@@ -94,23 +102,20 @@ type SelfBuildOutput struct {
 
 func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfBuildInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfBuildInput) (*mcp.CallToolResult, any, error) {
-		if opts.SourceRoot == "" {
-			return errorResult("source_root not configured")
+		sourceRoot, err := resolveDevToolSourceRoot(opts.SourceRoot, in.SourceRoot)
+		if err != nil {
+			return errorResult(err.Error())
 		}
 		binaryPath, err := os.Executable()
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve executable: %w", err)
 		}
 
-		tags := "dev"
-		if in.EmbedFrontend {
-			tags = "dev,webdist"
-		}
-
-		args := []string{"build", "-tags", tags, "-o", binaryPath, "./cmd/ai-flow"}
+		tags := ""
+		args := []string{"build", "-o", binaryPath, "./cmd/ai-flow"}
 
 		cmd := exec.CommandContext(ctx, "go", args...)
-		cmd.Dir = opts.SourceRoot
+		cmd.Dir = sourceRoot
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
@@ -143,7 +148,9 @@ func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, 
 // --- self_preflight ---
 
 type SelfPreflightInput struct {
-	SkipFrontend bool `json:"skip_frontend,omitempty" jsonschema:"Skip frontend typecheck and build steps"`
+	SourceRoot   string `json:"source_root,omitempty" jsonschema:"Override source root; defaults to server option source_root"`
+	FrontendDir  string `json:"frontend_dir,omitempty" jsonschema:"Frontend workspace path for npm --prefix (relative to source_root, default: web)"`
+	SkipFrontend bool   `json:"skip_frontend,omitempty" jsonschema:"Skip frontend typecheck and build steps"`
 }
 
 type SelfPreflightOutput struct {
@@ -156,8 +163,9 @@ type SelfPreflightOutput struct {
 
 func selfPreflightHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfPreflightInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfPreflightInput) (*mcp.CallToolResult, any, error) {
-		if opts.SourceRoot == "" {
-			return errorResult("source_root not configured")
+		sourceRoot, err := resolveDevToolSourceRoot(opts.SourceRoot, in.SourceRoot)
+		if err != nil {
+			return errorResult(err.Error())
 		}
 
 		// Broadcast preflight start.
@@ -180,7 +188,7 @@ func selfPreflightHandler(opts Options) func(context.Context, *mcp.CallToolReque
 			})
 		}
 
-		result, err := gate.Run(ctx, opts.SourceRoot, in.SkipFrontend, progress)
+		result, err := gate.Run(ctx, sourceRoot, resolveDevToolFrontendDir(in.FrontendDir), in.SkipFrontend, progress)
 		if err != nil {
 			return errorResult(fmt.Sprintf("preflight error: %v", err))
 		}
@@ -207,6 +215,97 @@ func selfPreflightHandler(opts Options) func(context.Context, *mcp.CallToolReque
 			Message:   msg,
 		})
 	}
+}
+
+func resolveDevToolSourceRoot(defaultRoot string, overrideRoot string) (string, error) {
+	trimmedDefault := strings.TrimSpace(defaultRoot)
+	trimmedOverride := strings.TrimSpace(overrideRoot)
+
+	if trimmedOverride == "" {
+		if trimmedDefault != "" {
+			return filepath.Clean(trimmedDefault), nil
+		}
+		detected, err := detectDevToolSourceRoot()
+		if err != nil {
+			return "", err
+		}
+		return detected, nil
+	}
+
+	if filepath.IsAbs(trimmedOverride) {
+		return filepath.Clean(trimmedOverride), nil
+	}
+
+	if trimmedDefault != "" {
+		return filepath.Clean(filepath.Join(trimmedDefault, trimmedOverride)), nil
+	}
+
+	absolute, err := filepath.Abs(trimmedOverride)
+	if err != nil {
+		return "", fmt.Errorf("resolve source_root %q: %w", trimmedOverride, err)
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func resolveDevToolFrontendDir(frontendDir string) string {
+	trimmed := strings.TrimSpace(frontendDir)
+	if trimmed == "" {
+		return "web"
+	}
+	return filepath.Clean(trimmed)
+}
+
+func detectDevToolSourceRoot() (string, error) {
+	candidates := make([]string, 0, 2)
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	}
+	if binaryPath, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Dir(binaryPath))
+	}
+
+	for _, start := range candidates {
+		if root, ok := findRepoRoot(start); ok {
+			return root, nil
+		}
+	}
+
+	return "", errors.New("source_root not configured and auto-detect failed (expected go.mod + cmd/ai-flow)")
+}
+
+func findRepoRoot(start string) (string, bool) {
+	dir := filepath.Clean(start)
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		cmdPath := filepath.Join(dir, "cmd", "ai-flow")
+		if fileExists(modPath) && directoryExists(cmdPath) {
+			return dir, true
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", false
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 // --- self_preflight_status ---

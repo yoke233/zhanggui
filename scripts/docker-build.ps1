@@ -10,13 +10,13 @@
 .PARAMETER Registry
     镜像仓库前缀
 .EXAMPLE
-    .\scripts\docker-build.ps1                         # 仅本地构建 dev
-    .\scripts\docker-build.ps1 -Push                   # 构建 dev 并推送
-    .\scripts\docker-build.ps1 -Target prod -Push      # 构建 prod 并推送
+    .\scripts\docker-build.ps1                         # 仅本地构建 prod
+    .\scripts\docker-build.ps1 -Push                   # 构建 prod 并推送
+    .\scripts\docker-build.ps1 -Target dev -Push       # 构建 dev 并推送
 #>
 param(
     [ValidateSet("dev", "prod")]
-    [string]$Target = "dev",
+    [string]$Target = "prod",
     [switch]$Push,
     [string]$Registry = "registry.cn-shanghai.aliyuncs.com/xiaoin"
 )
@@ -41,6 +41,11 @@ $dockerfileMap = @{
     prod = "Dockerfile"
 }
 $dockerfile = $dockerfileMap[$Target]
+
+if ($Target -eq "dev" -and -not (Test-Path $dockerfile) -and (Test-Path "Dockerfile")) {
+    Write-Host "Dockerfile.dev not found, fallback to Dockerfile for dev build." -ForegroundColor Yellow
+    $dockerfile = "Dockerfile"
+}
 
 if (-not (Test-Path $dockerfile)) {
     Write-Host "Dockerfile not found: $dockerfile" -ForegroundColor Red
