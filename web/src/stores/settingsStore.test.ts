@@ -32,13 +32,8 @@ describe("settingsStore", () => {
 
   it("reads persisted values from localStorage on init", async () => {
     localStorage.setItem("ai-workflow-settings", JSON.stringify({ theme: "amber", fontSize: "sm" }));
-    // Can't re-init store easily; verify localStorage was written correctly by checking load logic
-    // Just verify that after setTheme the value persists:
     const { useSettingsStore } = await import("./settingsStore");
-    useSettingsStore.getState().setTheme("amber");
-    useSettingsStore.getState().setFontSize("sm");
-    const saved = JSON.parse(localStorage.getItem("ai-workflow-settings") ?? "{}");
-    expect(saved.theme).toBe("amber");
-    expect(saved.fontSize).toBe("sm");
+    expect(useSettingsStore.getState().theme).toBe("amber");
+    expect(useSettingsStore.getState().fontSize).toBe("sm");
   });
 });
