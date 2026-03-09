@@ -33,9 +33,9 @@ type Executor struct {
 	roleResolver      *acpclient.RoleResolver
 	stageRoles        map[core.StageID]string
 	workspace         core.WorkspacePlugin
-	acpHandlerFactory  ACPHandlerFactory
+	acpHandlerFactory ACPHandlerFactory
 	mcpServerResolver func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer
-	logger             *slog.Logger
+	logger            *slog.Logger
 
 	// testStageFunc is a test-only hook that bypasses real ACP execution.
 	testStageFunc func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error
@@ -190,6 +190,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
+		e.recordRunTaskStep(p, core.StepRunStarted, "", "", "run started")
 	}
 
 	startIndex := e.resolveStartIndex(p, allowAlreadyRunning)
@@ -207,6 +208,11 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 			return err
 		}
 		stageStartedAt := time.Now()
+		stageAgent := ""
+		if resolvedAgent, _, resolveErr := e.resolveStageAgentName(&stage); resolveErr == nil {
+			stageAgent = resolvedAgent
+		}
+		e.recordRunTaskStep(p, core.StepStageStarted, stage.Name, stageAgent, "")
 
 		stageStartTS := time.Now()
 		e.bus.Publish(ctx, core.Event{
@@ -264,6 +270,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 				if saveErr := e.store.SaveCheckpoint(cp); saveErr != nil {
 					return saveErr
 				}
+				e.recordRunTaskStep(p, core.StepStageCompleted, stage.Name, agentUsed, "")
 				stageCompleteTS := time.Now()
 				e.bus.Publish(ctx, core.Event{
 					Type:      core.EventStageComplete,
@@ -299,6 +306,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 			if saveErr := e.store.SaveCheckpoint(cp); saveErr != nil {
 				return saveErr
 			}
+			e.recordRunTaskStep(p, core.StepStageFailed, stage.Name, agentUsed, err.Error())
 			stageFailedTS := time.Now()
 			e.bus.Publish(ctx, core.Event{
 				Type:      core.EventStageFailed,
@@ -421,6 +429,7 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
+	e.recordRunTaskStep(p, core.StepRunCompleted, "", "", "run completed: success")
 	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventRunDone,
 		RunID:     p.ID,
@@ -502,6 +511,7 @@ func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 	if err := e.store.SaveRun(p); err != nil {
 		return err
 	}
+	e.recordRunTaskStep(p, core.StepRunFailed, "", "", "run completed: failure")
 	traceID := RunTraceID(p)
 	issueNumber := issueNumberFromRun(p)
 	extra := map[string]string{}
@@ -532,4 +542,30 @@ func (e *Executor) failRun(p *core.Run, message string, cause error) error {
 		return errors.New(message)
 	}
 	return fmt.Errorf("%s: %w", message, cause)
+}
+
+func (e *Executor) recordRunTaskStep(run *core.Run, action core.TaskStepAction, stageID core.StageID, agentID, note string) {
+	if e == nil || e.store == nil || run == nil {
+		return
+	}
+	issueID := strings.TrimSpace(run.IssueID)
+	if issueID == "" {
+		return
+	}
+	if _, err := e.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   issueID,
+		RunID:     run.ID,
+		Action:    action,
+		StageID:   stageID,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		logger := e.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.Warn("failed to save task step", "run_id", run.ID, "issue_id", issueID, "action", action, "stage", stageID, "error", err)
+	}
 }

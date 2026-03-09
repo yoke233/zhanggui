@@ -25,6 +25,7 @@ func TestMigration_V2Baseline_CreatesIssueRunSchema(t *testing.T) {
 		"issue_attachments",
 		"issue_changes",
 		"review_records",
+		"task_steps",
 	}
 	for _, table := range tables {
 		assertTableExists(t, db, table)
@@ -112,9 +113,35 @@ func TestMigration_V2Baseline_CreatesIndexes(t *testing.T) {
 		"idx_issue_attachments_issue",
 		"idx_issue_changes_issue",
 		"idx_review_records_issue",
+		"idx_task_steps_issue",
+		"idx_task_steps_run",
 	}
 	for _, index := range indexes {
 		assertIndexExists(t, db, index)
+	}
+}
+
+func TestMigration_V10_AddsTaskStepsTable(t *testing.T) {
+	db := openSQLite(t)
+	defer db.Close()
+
+	if err := applyMigrations(db); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	assertTableExists(t, db, "task_steps")
+	for _, column := range []string{"id", "issue_id", "run_id", "agent_id", "action", "stage_id", "input", "output", "note", "ref_id", "ref_type", "created_at"} {
+		assertColumnExists(t, db, "task_steps", column)
+	}
+	assertIndexExists(t, db, "idx_task_steps_issue")
+	assertIndexExists(t, db, "idx_task_steps_run")
+
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("user_version=%d, want %d", version, schemaVersion)
 	}
 }
 

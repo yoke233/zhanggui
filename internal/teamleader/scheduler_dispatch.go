@@ -75,6 +75,7 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 		s.rollbackDispatch(sessionID, issueID, Run.ID)
 		return false, err
 	}
+	s.recordTaskStep(issue, core.StepExecutionStarted, "system", "scheduler dispatched run")
 	s.publishIssueEvent(core.EventIssueExecuting, issue, map[string]string{
 		"workflow_profile": string(profile),
 	}, "")
@@ -119,6 +120,7 @@ func (s *DepScheduler) rollbackDispatch(sessionID, issueID, RunID string) {
 
 	if issue != nil {
 		_ = s.saveIssue(issue)
+		s.recordTaskStep(issue, core.StepReady, "system", "dispatch rollback")
 	}
 }
 
@@ -248,6 +250,7 @@ func (s *DepScheduler) markReadyByProfileQueueLocked(rs *runningSession) error {
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
+			s.recordTaskStep(issue, core.StepReady, "system", "dependencies satisfied")
 			s.publishIssueEvent(core.EventIssueReady, issue, map[string]string{
 				"workflow_profile": string(profile),
 			}, "")

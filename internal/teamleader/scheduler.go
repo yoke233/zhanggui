@@ -229,12 +229,14 @@ func (s *DepScheduler) scheduleSession(ctx context.Context, sessionID string, is
 			continue
 		}
 
+		recoveredToQueued := false
 		switch issue.Status {
 		case core.IssueStatusExecuting, core.IssueStatusMerging:
 			if strings.TrimSpace(issue.RunID) == "" {
 				if err := transitionIssueStatus(issue, core.IssueStatusQueued); err != nil {
 					return err
 				}
+				recoveredToQueued = true
 			} else {
 				rs.Running[issueID] = issue.RunID
 			}
@@ -244,10 +246,14 @@ func (s *DepScheduler) scheduleSession(ctx context.Context, sessionID string, is
 				return err
 			}
 			issue.RunID = ""
+			recoveredToQueued = true
 		}
 
 		if err := s.saveIssue(issue); err != nil {
 			return err
+		}
+		if recoveredToQueued {
+			s.recordTaskStep(issue, core.StepQueued, "system", "recovered on restart")
 		}
 		if issue.Status == core.IssueStatusQueued {
 			s.publishIssueEvent(core.EventIssueQueued, issue, nil, "")
@@ -324,6 +330,7 @@ func (s *DepScheduler) recoverSession(ctx context.Context, sessionID string, iss
 				if err := s.saveIssue(issue); err != nil {
 					return err
 				}
+				s.recordTaskStep(issue, core.StepQueued, "system", "recovered on restart")
 				continue
 			}
 			Run, getErr := s.store.GetRun(issue.RunID)
@@ -351,6 +358,7 @@ func (s *DepScheduler) recoverSession(ctx context.Context, sessionID string, iss
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
+			s.recordTaskStep(issue, core.StepQueued, "system", "recovered on restart")
 			s.publishIssueEvent(core.EventIssueQueued, issue, nil, "")
 		}
 	}

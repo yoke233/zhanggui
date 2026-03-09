@@ -2,6 +2,7 @@ package teamleader
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -49,6 +50,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
+			s.recordTaskStep(issue, core.StepMergeStarted, "system", "run completed, entering merge")
 			s.publishIssueEvent(core.EventIssueMerging, issue, nil, "")
 			return nil
 		}
@@ -58,6 +60,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
+		s.recordTaskStep(issue, core.StepCompleted, "system", "run completed with auto_merge disabled")
 		s.publishIssueEvent(core.EventIssueDone, issue, nil, "")
 	case core.EventRunFailed:
 		if err := transitionIssueStatus(issue, core.IssueStatusFailed); err != nil {
@@ -66,6 +69,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
+		s.recordTaskStep(issue, core.StepFailed, "system", evt.Error)
 		s.publishIssueEvent(core.EventIssueFailed, issue, nil, evt.Error)
 		switch issue.FailPolicy {
 		case core.FailSkip:
@@ -83,6 +87,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
+		s.recordTaskStep(issue, core.StepMergeCompleted, "system", "merge completed")
 		s.publishIssueEvent(core.EventIssueDone, issue, nil, "")
 	case core.EventMergeFailed:
 		if err := transitionIssueStatus(issue, core.IssueStatusFailed); err != nil {
@@ -91,6 +96,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if err := s.saveIssue(issue); err != nil {
 			return err
 		}
+		s.recordTaskStep(issue, core.StepFailed, "system", evt.Error)
 		s.publishIssueEvent(core.EventIssueFailed, issue, nil, evt.Error)
 		switch issue.FailPolicy {
 		case core.FailSkip:
@@ -113,6 +119,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
+			s.recordTaskStep(issue, core.StepQueued, "system", "merge retry queued")
 		}
 	case core.EventIssueFailed:
 		if err := s.syncIssueStateFromStoreLocked(issue); err != nil {
@@ -123,6 +130,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 			if err := transitionIssueStatus(issue, core.IssueStatusFailed); err != nil {
 				return err
 			}
+			s.recordTaskStep(issue, core.StepFailed, "system", evt.Error)
 			if err := s.saveIssue(issue); err != nil {
 				return err
 			}
@@ -250,6 +258,7 @@ func (s *DepScheduler) applyBlockPolicyLocked(rs *runningSession, failedIssueID 
 		if err := transitionIssueStatus(issue, core.IssueStatusFailed); err != nil {
 			return err
 		}
+		s.recordTaskStep(issue, core.StepFailed, "system", "blocked by session failure")
 		issue.RunID = ""
 		if err := s.saveIssue(issue); err != nil {
 			return err
@@ -303,6 +312,23 @@ func (s *DepScheduler) saveIssue(issue *core.Issue) error {
 		_ = s.tracker.UpdateStatus(context.Background(), issue.ExternalID, issue.Status)
 	}
 	return nil
+}
+
+func (s *DepScheduler) recordTaskStep(issue *core.Issue, action core.TaskStepAction, agentID, note string) {
+	if s == nil || s.store == nil || issue == nil || strings.TrimSpace(issue.ID) == "" {
+		return
+	}
+	if _, err := s.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   strings.TrimSpace(issue.ID),
+		RunID:     strings.TrimSpace(issue.RunID),
+		Action:    action,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		slog.Warn("failed to save task step", "error", err, "issue", issue.ID, "action", action)
+	}
 }
 
 func (s *DepScheduler) syncIssueDependencies(issues []*core.Issue) {

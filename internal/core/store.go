@@ -104,6 +104,13 @@ type Store interface {
 	SaveRunEvent(event RunEvent) error
 	ListRunEvents(runID string) ([]RunEvent, error)
 
+	// TaskStep event sourcing.
+	// SaveTaskStep persists a step and atomically updates Issue.Status if the
+	// action implies a state transition. Returns the (possibly new) IssueStatus.
+	SaveTaskStep(step *TaskStep) (IssueStatus, error)
+	ListTaskSteps(issueID string) ([]TaskStep, error)
+	RebuildIssueStatus(issueID string) (IssueStatus, error)
+
 	// ListEvents queries the unified events table with scope/entity filtering.
 	ListEvents(filter EventFilter) ([]UnifiedEvent, error)
 	// SaveEvent persists an event to the unified events table.

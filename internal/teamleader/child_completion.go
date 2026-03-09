@@ -141,6 +141,7 @@ func (h *ChildCompletionHandler) resolveParentSuccess(parent *core.Issue) {
 		h.log.Error("child_completion: save parent done", "parent_id", parent.ID, "error", err)
 		return
 	}
+	h.recordTaskStep(parent, core.StepCompleted, "system", "all children done")
 	h.pub.Publish(context.Background(), core.Event{
 		Type:      core.EventIssueDone,
 		IssueID:   parent.ID,
@@ -172,6 +173,7 @@ func (h *ChildCompletionHandler) resolveParentWithFailures(parent *core.Issue) {
 			h.log.Error("child_completion: save parent failed", "parent_id", parent.ID, "error", err)
 			return
 		}
+		h.recordTaskStep(parent, core.StepFailed, "system", "child failed (block policy)")
 		h.pub.Publish(context.Background(), core.Event{
 			Type:      core.EventIssueFailed,
 			IssueID:   parent.ID,
@@ -180,5 +182,22 @@ func (h *ChildCompletionHandler) resolveParentWithFailures(parent *core.Issue) {
 			Timestamp: time.Now(),
 		})
 		h.log.Info("child_completion: parent failed", "parent_id", parent.ID)
+	}
+}
+
+func (h *ChildCompletionHandler) recordTaskStep(issue *core.Issue, action core.TaskStepAction, agentID, note string) {
+	if h == nil || h.store == nil || issue == nil || strings.TrimSpace(issue.ID) == "" {
+		return
+	}
+	if _, err := h.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   strings.TrimSpace(issue.ID),
+		RunID:     strings.TrimSpace(issue.RunID),
+		Action:    action,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		h.log.Warn("failed to save task step", "error", err, "issue", issue.ID, "action", action)
 	}
 }

@@ -206,6 +206,21 @@ CREATE TABLE IF NOT EXISTS issue_edges (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(from_id, to_id, edge_type)
 );
+
+CREATE TABLE IF NOT EXISTS task_steps (
+    id         TEXT PRIMARY KEY,
+    issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    run_id     TEXT NOT NULL DEFAULT '',
+    agent_id   TEXT NOT NULL DEFAULT '',
+    action     TEXT NOT NULL,
+    stage_id   TEXT NOT NULL DEFAULT '',
+    input      TEXT NOT NULL DEFAULT '',
+    output     TEXT NOT NULL DEFAULT '',
+    note       TEXT NOT NULL DEFAULT '',
+    ref_id     TEXT NOT NULL DEFAULT '',
+    ref_type   TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 const schemaIndexes = `
@@ -228,11 +243,13 @@ CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_issue_edges_from ON issue_edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_issue_edges_to ON issue_edges(to_id);
+CREATE INDEX IF NOT EXISTS idx_task_steps_issue ON task_steps(issue_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_steps_run ON task_steps(run_id, created_at);
 `
 
 // schemaVersion tracks which migrations have been applied.
 // Bump this when adding new migrations.
-const schemaVersion = 9
+const schemaVersion = 10
 
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
@@ -295,6 +312,11 @@ func applyMigrations(db *sql.DB) error {
 	if currentVersion < 9 {
 		if err := migrateAddChatSessionAgentName(db); err != nil {
 			return fmt.Errorf("migration v9 (chat_sessions.agent_name): %w", err)
+		}
+	}
+	if currentVersion < 10 {
+		if err := migrateAddTaskSteps(db); err != nil {
+			return fmt.Errorf("migration v10 (task_steps): %w", err)
 		}
 	}
 	if err := migrateBackfillLegacyColumns(db); err != nil {
@@ -409,6 +431,28 @@ func migrateAddIssueTriageInstructions(db *sql.DB) error {
 		return fmt.Errorf("add triage_instructions column: %w", err)
 	}
 	return nil
+}
+
+func migrateAddTaskSteps(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS task_steps (
+	id         TEXT PRIMARY KEY,
+	issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+	run_id     TEXT NOT NULL DEFAULT '',
+	agent_id   TEXT NOT NULL DEFAULT '',
+	action     TEXT NOT NULL,
+	stage_id   TEXT NOT NULL DEFAULT '',
+	input      TEXT NOT NULL DEFAULT '',
+	output     TEXT NOT NULL DEFAULT '',
+	note       TEXT NOT NULL DEFAULT '',
+	ref_id     TEXT NOT NULL DEFAULT '',
+	ref_type   TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_task_steps_issue ON task_steps(issue_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_steps_run ON task_steps(run_id, created_at);
+`)
+	return err
 }
 
 func migrateBackfillLegacyColumns(db *sql.DB) error {

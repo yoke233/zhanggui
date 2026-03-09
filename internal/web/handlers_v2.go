@@ -49,7 +49,6 @@ type workflowRunListResponse struct {
 	Offset int                   `json:"offset"`
 }
 
-
 func (h *v2IssueHandlers) listIssues(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
@@ -121,6 +120,49 @@ func (h *v2IssueHandlers) getIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, normalized)
+}
+
+func (h *v2IssueHandlers) listIssueTimeline(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectId"))
+	issueID := strings.TrimSpace(chi.URLParam(r, "issueId"))
+	if projectID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
+		return
+	}
+	if issueID == "" {
+		writeAPIError(w, http.StatusBadRequest, "issue id is required", "ISSUE_ID_REQUIRED")
+		return
+	}
+
+	issue, err := h.store.GetIssue(issueID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("issue %s not found", issueID), "ISSUE_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load issue", "GET_ISSUE_FAILED")
+		return
+	}
+	if strings.TrimSpace(issue.ProjectID) != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("issue %s not found in project %s", issueID, projectID), "ISSUE_NOT_FOUND")
+		return
+	}
+
+	steps, err := h.store.ListTaskSteps(issueID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to list issue timeline", "LIST_ISSUE_TIMELINE_FAILED")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"steps": steps,
+		"total": len(steps),
+	})
 }
 
 func handleListWorkflowProfiles(w http.ResponseWriter, _ *http.Request) {
@@ -283,15 +325,15 @@ func (h *v2RunHandlers) listRunEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 type stageSummary struct {
-	Stage          string    `json:"stage"`
-	EventCount     int       `json:"event_count"`
-	ToolCallCount  int       `json:"tool_call_count"`
-	FirstActivity  time.Time `json:"first_activity"`
-	LastActivity   time.Time `json:"last_activity"`
-	DurationMs     int64     `json:"duration_ms"`
-	LastUsageSize  int64     `json:"last_usage_size,omitempty"`
-	LastUsageUsed  int64     `json:"last_usage_used,omitempty"`
-	HasError       bool      `json:"has_error"`
+	Stage         string    `json:"stage"`
+	EventCount    int       `json:"event_count"`
+	ToolCallCount int       `json:"tool_call_count"`
+	FirstActivity time.Time `json:"first_activity"`
+	LastActivity  time.Time `json:"last_activity"`
+	DurationMs    int64     `json:"duration_ms"`
+	LastUsageSize int64     `json:"last_usage_size,omitempty"`
+	LastUsageUsed int64     `json:"last_usage_used,omitempty"`
+	HasError      bool      `json:"has_error"`
 }
 
 func (h *v2RunHandlers) runStageSummary(w http.ResponseWriter, r *http.Request) {

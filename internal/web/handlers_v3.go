@@ -90,6 +90,7 @@ func registerV1Routes(
 	issueHandlers := &v2IssueHandlers{store: store}
 	r.With(RequireScope(ScopeIssuesRead)).Get("/issues", issueHandlers.listIssues)
 	r.With(RequireScope(ScopeIssuesRead)).Get("/issues/{id}", issueHandlers.getIssue)
+	r.With(RequireScope(ScopeIssuesRead)).Get("/projects/{projectId}/issues/{issueId}/timeline", issueHandlers.listIssueTimeline)
 
 	r.Get("/workflow-profiles", handleListWorkflowProfiles)
 	r.Get("/workflow-profiles/{type}", handleGetWorkflowProfile)

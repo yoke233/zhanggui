@@ -180,6 +180,7 @@ func (h *DecomposeHandler) OnEvent(ctx context.Context, evt core.Event) {
 		h.log.Error("decompose: save parent failed", "issue_id", issueID, "error", err)
 		return
 	}
+	h.recordTaskStep(parent, core.StepDecomposed, "system", fmt.Sprintf("decomposed into %d children", len(specs)))
 	h.pub.Publish(ctx, core.Event{
 		Type:      core.EventIssueDecomposed,
 		IssueID:   parent.ID,
@@ -213,6 +214,7 @@ func (h *DecomposeHandler) markParentFailed(parent *core.Issue, errMsg string) {
 	if err := h.fullStore.SaveIssue(parent); err != nil {
 		h.log.Error("decompose: mark parent failed", "issue_id", parent.ID, "error", err)
 	}
+	h.recordTaskStep(parent, core.StepFailed, "system", errMsg)
 	h.pub.Publish(context.Background(), core.Event{
 		Type:      core.EventIssueFailed,
 		IssueID:   parent.ID,
@@ -220,4 +222,21 @@ func (h *DecomposeHandler) markParentFailed(parent *core.Issue, errMsg string) {
 		Error:     errMsg,
 		Timestamp: time.Now(),
 	})
+}
+
+func (h *DecomposeHandler) recordTaskStep(issue *core.Issue, action core.TaskStepAction, agentID, note string) {
+	if h == nil || h.fullStore == nil || issue == nil || strings.TrimSpace(issue.ID) == "" {
+		return
+	}
+	if _, err := h.fullStore.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   strings.TrimSpace(issue.ID),
+		RunID:     strings.TrimSpace(issue.RunID),
+		Action:    action,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		h.log.Warn("failed to save task step", "error", err, "issue", issue.ID, "action", action)
+	}
 }

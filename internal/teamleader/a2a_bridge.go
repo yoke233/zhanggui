@@ -161,8 +161,12 @@ func (b *A2ABridge) SendMessage(ctx context.Context, input A2ASendMessageInput) 
 		if issue.Status == core.IssueStatusDraft {
 			if err := transitionIssueStatus(issue, core.IssueStatusReviewing); err != nil {
 				slog.Error("A2A draft->reviewing transition failed", "id", issue.ID, "error", err)
-			} else if err := b.store.SaveIssue(issue); err != nil {
-				slog.Error("A2A save reviewing issue failed", "id", issue.ID, "error", err)
+			} else {
+				if err := b.store.SaveIssue(issue); err != nil {
+					slog.Error("A2A save reviewing issue failed", "id", issue.ID, "error", err)
+				} else {
+					b.recordTaskStep(issue, core.StepSubmittedForReview, "system", "a2a auto-submit for review")
+				}
 			}
 		}
 		approved, approveErr := b.manager.ApplyIssueAction(ctx, issue.ID, IssueActionApprove, "a2a auto-approve")
@@ -177,6 +181,23 @@ func (b *A2ABridge) SendMessage(ctx context.Context, input A2ASendMessageInput) 
 	}
 
 	return snapshotFromIssue(issue), nil
+}
+
+func (b *A2ABridge) recordTaskStep(issue *core.Issue, action core.TaskStepAction, agentID, note string) {
+	if b == nil || b.store == nil || issue == nil || strings.TrimSpace(issue.ID) == "" {
+		return
+	}
+	if _, err := b.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   strings.TrimSpace(issue.ID),
+		RunID:     strings.TrimSpace(issue.RunID),
+		Action:    action,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		slog.Warn("failed to save task step", "error", err, "issue", issue.ID, "action", action)
+	}
 }
 
 func (b *A2ABridge) GetTask(ctx context.Context, input A2AGetTaskInput) (*A2ATaskSnapshot, error) {

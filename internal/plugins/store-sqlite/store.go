@@ -1235,6 +1235,186 @@ func (s *SQLiteStore) GetIssueChanges(issueID string) ([]core.IssueChange, error
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) SaveTaskStep(step *core.TaskStep) (core.IssueStatus, error) {
+	if err := s.ensureIssueTables(); err != nil {
+		return "", err
+	}
+	if err := s.ensureTaskStepTables(); err != nil {
+		return "", err
+	}
+	if step == nil {
+		return "", errors.New("task step is nil")
+	}
+	if err := step.Validate(); err != nil {
+		return "", fmt.Errorf("invalid task step: %w", err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	createdAt := step.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+
+	if _, err := tx.Exec(
+		`INSERT INTO task_steps (id, issue_id, run_id, agent_id, action, stage_id, input, output, note, ref_id, ref_type, created_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		step.ID,
+		step.IssueID,
+		normalizeOptionalText(step.RunID),
+		normalizeOptionalText(step.AgentID),
+		string(step.Action),
+		normalizeOptionalText(string(step.StageID)),
+		normalizeOptionalText(step.Input),
+		normalizeOptionalText(step.Output),
+		normalizeOptionalText(step.Note),
+		normalizeOptionalText(step.RefID),
+		normalizeOptionalText(step.RefType),
+		createdAt,
+	); err != nil {
+		return "", fmt.Errorf("insert task step: %w", err)
+	}
+
+	status, derived := step.Action.DeriveIssueStatus()
+	if derived {
+		result, err := tx.Exec(`UPDATE issues SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, string(status), step.IssueID)
+		if err != nil {
+			return "", fmt.Errorf("update issue status: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return "", fmt.Errorf("read updated issue rows: %w", err)
+		}
+		if affected == 0 {
+			return "", fmt.Errorf("issue %s not found", step.IssueID)
+		}
+	} else {
+		status, err = currentIssueStatusTx(tx, step.IssueID)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit task step tx: %w", err)
+	}
+	return status, nil
+}
+
+func (s *SQLiteStore) ListTaskSteps(issueID string) ([]core.TaskStep, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return nil, fmt.Errorf("issue id is required")
+	}
+	if err := s.ensureIssueTables(); err != nil {
+		return nil, err
+	}
+	if err := s.ensureTaskStepTables(); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, issue_id, COALESCE(run_id, ''), COALESCE(agent_id, ''), action, COALESCE(stage_id, ''),
+		        COALESCE(input, ''), COALESCE(output, ''), COALESCE(note, ''), COALESCE(ref_id, ''), COALESCE(ref_type, ''), created_at
+		 FROM task_steps
+		 WHERE issue_id = ?
+		 ORDER BY created_at ASC, id ASC`,
+		issueID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query task_steps: %w", err)
+	}
+	defer rows.Close()
+
+	steps := make([]core.TaskStep, 0)
+	for rows.Next() {
+		var (
+			step      core.TaskStep
+			action    string
+			createdAt sql.NullTime
+		)
+		if err := rows.Scan(
+			&step.ID,
+			&step.IssueID,
+			&step.RunID,
+			&step.AgentID,
+			&action,
+			&step.StageID,
+			&step.Input,
+			&step.Output,
+			&step.Note,
+			&step.RefID,
+			&step.RefType,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan task_step: %w", err)
+		}
+		step.Action = core.TaskStepAction(action)
+		if createdAt.Valid {
+			step.CreatedAt = createdAt.Time
+		}
+		steps = append(steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate task_steps: %w", err)
+	}
+	return steps, nil
+}
+
+func (s *SQLiteStore) RebuildIssueStatus(issueID string) (core.IssueStatus, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return "", fmt.Errorf("issue id is required")
+	}
+	if err := s.ensureIssueTables(); err != nil {
+		return "", err
+	}
+	if err := s.ensureTaskStepTables(); err != nil {
+		return "", err
+	}
+
+	steps, err := s.ListTaskSteps(issueID)
+	if err != nil {
+		return "", err
+	}
+
+	currentStatus := core.IssueStatusDraft
+	if issue, err := s.GetIssue(issueID); err != nil {
+		return "", err
+	} else if strings.TrimSpace(string(issue.Status)) != "" {
+		currentStatus = issue.Status
+	}
+
+	status := core.IssueStatusDraft
+	derivedSeen := false
+	for _, step := range steps {
+		if derived, ok := step.Action.DeriveIssueStatus(); ok {
+			status = derived
+			derivedSeen = true
+		}
+	}
+	if !derivedSeen {
+		status = currentStatus
+	}
+
+	result, err := s.db.Exec(`UPDATE issues SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, string(status), issueID)
+	if err != nil {
+		return "", fmt.Errorf("rebuild issue status: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("read rebuilt issue rows: %w", err)
+	}
+	if affected == 0 {
+		return "", fmt.Errorf("issue %s not found", issueID)
+	}
+	return status, nil
+}
+
 func (s *SQLiteStore) SaveReviewRecord(record *core.ReviewRecord) error {
 	issuesJSON, err := marshalJSON(record.Issues)
 	if err != nil {
@@ -1454,6 +1634,46 @@ CREATE INDEX IF NOT EXISTS idx_issue_changes_issue ON issue_changes(issue_id);
 		return fmt.Errorf("ensure issue tables: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLiteStore) ensureTaskStepTables() error {
+	_, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS task_steps (
+	id         TEXT PRIMARY KEY,
+	issue_id   TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+	run_id     TEXT NOT NULL DEFAULT '',
+	agent_id   TEXT NOT NULL DEFAULT '',
+	action     TEXT NOT NULL,
+	stage_id   TEXT NOT NULL DEFAULT '',
+	input      TEXT NOT NULL DEFAULT '',
+	output     TEXT NOT NULL DEFAULT '',
+	note       TEXT NOT NULL DEFAULT '',
+	ref_id     TEXT NOT NULL DEFAULT '',
+	ref_type   TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_task_steps_issue ON task_steps(issue_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_steps_run ON task_steps(run_id, created_at);
+`)
+	if err != nil {
+		return fmt.Errorf("ensure task step tables: %w", err)
+	}
+	return nil
+}
+
+func normalizeOptionalText(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func currentIssueStatusTx(tx *sql.Tx, issueID string) (core.IssueStatus, error) {
+	var status string
+	if err := tx.QueryRow(`SELECT status FROM issues WHERE id = ?`, issueID).Scan(&status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("issue %s not found", issueID)
+		}
+		return "", fmt.Errorf("load issue status: %w", err)
+	}
+	return core.IssueStatus(status), nil
 }
 
 func normalizeIssueForPersist(issue *core.Issue) core.Issue {

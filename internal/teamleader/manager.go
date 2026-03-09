@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -257,6 +258,7 @@ func (m *Manager) SubmitForReview(ctx context.Context, issueIDs []string) error 
 		if err := m.store.SaveIssue(updated); err != nil {
 			return fmt.Errorf("save issue %s as reviewing: %w", updated.ID, err)
 		}
+		m.recordTaskStep(updated.ID, core.StepSubmittedForReview, "system", "submitted for review")
 		if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), "submit_for_review"); err != nil {
 			return err
 		}
@@ -343,6 +345,7 @@ func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feed
 		if err := m.store.SaveIssue(updated); err != nil {
 			return nil, fmt.Errorf("save decomposing issue %s: %w", updated.ID, err)
 		}
+		m.recordTaskStep(updated.ID, core.StepDecomposeStarted, "system", "approved for decomposition")
 		if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), reason); err != nil {
 			return nil, err
 		}
@@ -368,6 +371,7 @@ func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feed
 	if err := m.store.SaveIssue(updated); err != nil {
 		return nil, fmt.Errorf("save approved issue %s: %w", updated.ID, err)
 	}
+	m.recordTaskStep(updated.ID, core.StepReviewApproved, "system", "approved by review gate")
 	if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), reason); err != nil {
 		return nil, err
 	}
@@ -397,6 +401,7 @@ func (m *Manager) markApproveDispatchFailure(issue *core.Issue, dispatchErr erro
 	if err := m.store.SaveIssue(failed); err != nil {
 		return fmt.Errorf("save failed issue %s after approve dispatch error: %w", failed.ID, err)
 	}
+	m.recordTaskStep(failed.ID, core.StepFailed, "system", "approve dispatch failed")
 
 	reason := "approve dispatch failed"
 	if dispatchErr != nil {
@@ -428,6 +433,7 @@ func (m *Manager) applyIssueReject(_ context.Context, issue *core.Issue, feedbac
 	if err := m.store.SaveIssue(updated); err != nil {
 		return nil, fmt.Errorf("save rejected issue %s: %w", updated.ID, err)
 	}
+	m.recordTaskStep(updated.ID, core.StepReviewRejected, "system", reason)
 	if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), reason); err != nil {
 		return nil, err
 	}
@@ -452,10 +458,31 @@ func (m *Manager) applyIssueAbandon(_ context.Context, issue *core.Issue, feedba
 	if reason == "" {
 		reason = "human abandon"
 	}
+	m.recordTaskStep(updated.ID, core.StepAbandoned, "system", reason)
 	if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), reason); err != nil {
 		return nil, err
 	}
 	return m.loadIssue(updated.ID)
+}
+
+func (m *Manager) recordTaskStep(issueID string, action core.TaskStepAction, agentID, note string) {
+	if m == nil || m.store == nil {
+		return
+	}
+	issueID = strings.TrimSpace(issueID)
+	if issueID == "" {
+		return
+	}
+	if _, err := m.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   issueID,
+		Action:    action,
+		AgentID:   strings.TrimSpace(agentID),
+		Note:      strings.TrimSpace(note),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		slog.Warn("failed to save task step", "error", err, "issue", issueID, "action", action)
+	}
 }
 
 func (m *Manager) issueScheduler() (managerIssueScheduler, error) {
