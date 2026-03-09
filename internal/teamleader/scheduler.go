@@ -171,10 +171,9 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 	cancel := s.loopCancel
 	s.loopCancel = nil
 	s.mu.Unlock()
-	if cancel == nil {
-		return nil
+	if cancel != nil {
+		cancel()
 	}
-	cancel()
 
 	done := make(chan struct{})
 	go func() {

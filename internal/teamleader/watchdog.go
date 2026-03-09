@@ -58,7 +58,7 @@ func (s *DepScheduler) StartWatchdog(ctx context.Context, cfg config.WatchdogCon
 			case <-runCtx.Done():
 				return
 			case <-ticker.C:
-				s.watchdogOnce(context.Background(), cfg)
+				s.watchdogOnce(runCtx, cfg)
 			}
 		}
 	}()
@@ -85,7 +85,6 @@ func (s *DepScheduler) stopWatchdog() {
 		return
 	}
 	cancel()
-	s.watchdogWG.Wait()
 }
 
 func (s *DepScheduler) watchdogOnce(ctx context.Context, cfg config.WatchdogConfig) {

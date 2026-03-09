@@ -2,6 +2,7 @@ package teamleader
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -192,4 +193,89 @@ func TestScheduler_StaleRunFailedDoesNotOverrideMerging(t *testing.T) {
 	if after.RunID != merging.RunID {
 		t.Fatalf("expected merging issue to keep run id %q, got %q", merging.RunID, after.RunID)
 	}
+}
+
+func TestDepScheduler_StopHonorsContextWhenWatchdogBusy(t *testing.T) {
+	baseStore := newSchedulerTestStore(t)
+	defer baseStore.Close()
+
+	store := &blockingGetRunStore{
+		Store:   baseStore,
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+
+	project := mustCreateSchedulerProject(t, store, "proj-watchdog-stop-timeout")
+	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-watchdog-stop-timeout", core.FailSkip, []core.Issue{
+		newIssueWithProfile("issue-watchdog-stop-timeout", "stop timeout", core.WorkflowProfileStrict, nil),
+	})
+
+	blockingRunner := func(_ context.Context, _ string) error {
+		select {}
+	}
+
+	s := NewDepScheduler(store, nil, blockingRunner, nil, 1)
+	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
+		t.Fatalf("ScheduleIssues() error = %v", err)
+	}
+
+	issue := waitIssueStatus(t, store, "issue-watchdog-stop-timeout", core.IssueStatusExecuting, 3*time.Second)
+	run, err := baseStore.GetRun(issue.RunID)
+	if err != nil {
+		t.Fatalf("GetRun(%s) error = %v", issue.RunID, err)
+	}
+	run.Status = core.StatusInProgress
+	if err := baseStore.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun(%s) error = %v", run.ID, err)
+	}
+
+	s.StartWatchdog(context.Background(), config.WatchdogConfig{
+		Enabled:       true,
+		Interval:      config.Duration{Duration: 5 * time.Millisecond},
+		StuckRunTTL:   config.Duration{Duration: time.Hour},
+		StuckMergeTTL: config.Duration{Duration: time.Hour},
+		QueueStaleTTL: config.Duration{Duration: time.Hour},
+	})
+
+	select {
+	case <-store.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected watchdog GetRun to start")
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err = s.Stop(stopCtx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop() error = %v, want deadline exceeded", err)
+	}
+
+	close(store.release)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.watchdogWG.Wait()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected watchdog goroutine to exit after release")
+	}
+}
+
+type blockingGetRunStore struct {
+	core.Store
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingGetRunStore) GetRun(id string) (*core.Run, error) {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	<-s.release
+	return s.Store.GetRun(id)
 }
