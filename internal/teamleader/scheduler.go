@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -41,6 +42,7 @@ type DepScheduler struct {
 
 	reconcileInterval time.Duration
 	reconcileRun      func(context.Context) error
+	watchdogCfg       config.WatchdogConfig
 }
 
 // SetStageRoles configures the role mapping for run stages.
@@ -99,6 +101,16 @@ func (s *DepScheduler) SetReconcileRunner(interval time.Duration, run func(conte
 	s.reconcileRun = run
 }
 
+// SetWatchdogConfig configures watchdog health checks for scheduler lifecycle.
+func (s *DepScheduler) SetWatchdogConfig(cfg config.WatchdogConfig) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.watchdogCfg = cfg
+}
+
 func (s *DepScheduler) Start(ctx context.Context) error {
 	if s == nil || s.bus == nil {
 		return nil
@@ -118,6 +130,7 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 	s.loopCancel = cancel
 	reconcileRun := s.reconcileRun
 	reconcileInterval := s.reconcileInterval
+	watchdogCfg := s.watchdogCfg
 	if reconcileInterval <= 0 {
 		reconcileInterval = 10 * time.Minute
 	}
@@ -155,6 +168,10 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 				}
 			}
 		}(runCtx, reconcileInterval, reconcileRun)
+	}
+
+	if watchdogCfg.Enabled {
+		s.StartWatchdog(runCtx, watchdogCfg)
 	}
 
 	return nil

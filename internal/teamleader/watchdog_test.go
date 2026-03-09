@@ -265,6 +265,50 @@ func TestDepScheduler_StopHonorsContextWhenWatchdogBusy(t *testing.T) {
 	}
 }
 
+func TestDepScheduler_StartUsesWatchdogConfig(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	s := NewDepScheduler(store, &recordingSchedulerBus{}, nil, nil, 1)
+	s.SetWatchdogConfig(config.WatchdogConfig{
+		Enabled:       true,
+		Interval:      config.Duration{Duration: 10 * time.Millisecond},
+		StuckRunTTL:   config.Duration{Duration: time.Hour},
+		StuckMergeTTL: config.Duration{Duration: time.Hour},
+		QueueStaleTTL: config.Duration{Duration: time.Hour},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		s.mu.Lock()
+		running := s.watchdogCancel != nil
+		s.mu.Unlock()
+		if running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected Start() to launch watchdog from config")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.watchdogCancel != nil {
+		t.Fatal("expected Stop() to clear watchdog cancel after Start() launched it")
+	}
+}
+
 type blockingGetRunStore struct {
 	core.Store
 	started chan struct{}
