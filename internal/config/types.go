@@ -72,8 +72,17 @@ type RunConfig struct {
 }
 
 type SchedulerConfig struct {
-	MaxGlobalAgents int `toml:"max_global_agents" yaml:"max_global_agents"`
-	MaxProjectRuns  int `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	MaxGlobalAgents int            `toml:"max_global_agents" yaml:"max_global_agents"`
+	MaxProjectRuns  int            `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	Watchdog        WatchdogConfig `toml:"watchdog"          yaml:"watchdog"`
+}
+
+type WatchdogConfig struct {
+	Enabled       bool     `toml:"enabled"         yaml:"enabled"`
+	Interval      Duration `toml:"interval"        yaml:"interval"`
+	StuckRunTTL   Duration `toml:"stuck_run_ttl"   yaml:"stuck_run_ttl"`
+	StuckMergeTTL Duration `toml:"stuck_merge_ttl" yaml:"stuck_merge_ttl"`
+	QueueStaleTTL Duration `toml:"queue_stale_ttl" yaml:"queue_stale_ttl"`
 }
 
 type TeamLeaderConfig struct {
@@ -176,8 +185,17 @@ type RunLayer struct {
 }
 
 type SchedulerLayer struct {
-	MaxGlobalAgents *int `toml:"max_global_agents" yaml:"max_global_agents"`
-	MaxProjectRuns  *int `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	MaxGlobalAgents *int           `toml:"max_global_agents" yaml:"max_global_agents"`
+	MaxProjectRuns  *int           `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	Watchdog        *WatchdogLayer `toml:"watchdog"          yaml:"watchdog"`
+}
+
+type WatchdogLayer struct {
+	Enabled       *bool     `toml:"enabled"         yaml:"enabled"`
+	Interval      *Duration `toml:"interval"        yaml:"interval"`
+	StuckRunTTL   *Duration `toml:"stuck_run_ttl"   yaml:"stuck_run_ttl"`
+	StuckMergeTTL *Duration `toml:"stuck_merge_ttl" yaml:"stuck_merge_ttl"`
+	QueueStaleTTL *Duration `toml:"queue_stale_ttl" yaml:"queue_stale_ttl"`
 }
 
 type TeamLeaderLayer struct {

@@ -45,6 +45,8 @@ type Executor struct {
 	// Key: "runID:stageID" where stageID is the stage that created the session.
 	acpPoolMu sync.Mutex
 	acpPool   map[string]*acpSessionEntry
+
+	heartbeatInterval time.Duration
 }
 
 func NewExecutor(
@@ -53,10 +55,11 @@ func NewExecutor(
 	logger *slog.Logger,
 ) *Executor {
 	return &Executor{
-		store:   store,
-		bus:     bus,
-		logger:  logger,
-		acpPool: make(map[string]*acpSessionEntry),
+		store:             store,
+		bus:               bus,
+		logger:            logger,
+		acpPool:           make(map[string]*acpSessionEntry),
+		heartbeatInterval: 10 * time.Second,
 	}
 }
 
@@ -84,6 +87,11 @@ func (e *Executor) SetMemory(memory core.Memory) {
 // TestSetStageFunc sets a test-only hook that bypasses real ACP stage execution.
 func (e *Executor) TestSetStageFunc(fn func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error) {
 	e.testStageFunc = fn
+}
+
+// TestSetHeartbeatInterval adjusts the run heartbeat cadence for tests.
+func (e *Executor) TestSetHeartbeatInterval(interval time.Duration) {
+	e.heartbeatInterval = interval
 }
 
 func (e *Executor) SetRunstageRoles(stageRoles map[string]string) {
@@ -184,20 +192,25 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 	if allowAlreadyRunning && p.Status == core.StatusInProgress {
 		if p.StartedAt.IsZero() {
 			p.StartedAt = time.Now()
-			if err := e.store.SaveRun(p); err != nil {
-				return err
-			}
+		}
+		p.LastHeartbeatAt = time.Now()
+		if err := e.store.SaveRun(p); err != nil {
+			return err
 		}
 	} else {
 		if err := p.TransitionStatus(core.StatusInProgress); err != nil {
 			return err
 		}
 		p.StartedAt = time.Now()
+		p.LastHeartbeatAt = time.Now()
 		if err := e.store.SaveRun(p); err != nil {
 			return err
 		}
 		e.recordRunTaskStep(p, core.StepRunStarted, "", "", "run started")
 	}
+
+	stopHeartbeat := e.startRunHeartbeat(ctx, p.ID)
+	defer stopHeartbeat()
 
 	startIndex := e.resolveStartIndex(p, allowAlreadyRunning)
 	for i := startIndex; i < len(p.Stages); i++ {
@@ -452,6 +465,43 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 		Latency:     0,
 	})...)
 	return nil
+}
+
+type runHeartbeatStore interface {
+	TouchRunHeartbeat(runID string, at time.Time) error
+}
+
+func (e *Executor) startRunHeartbeat(ctx context.Context, runID string) func() {
+	if e == nil || strings.TrimSpace(runID) == "" {
+		return func() {}
+	}
+	interval := e.heartbeatInterval
+	if interval <= 0 {
+		return func() {}
+	}
+	store, ok := e.store.(runHeartbeatStore)
+	if !ok {
+		return func() {}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case tickAt := <-ticker.C:
+				if err := store.TouchRunHeartbeat(runID, tickAt); err != nil && e.logger != nil {
+					e.logger.Warn("failed to update run heartbeat", "run_id", runID, "error", err)
+				}
+			}
+		}
+	}()
+	return cancel
 }
 
 func (e *Executor) resolveStartIndex(p *core.Run, allowAlreadyRunning bool) int {

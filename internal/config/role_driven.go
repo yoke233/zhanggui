@@ -14,6 +14,10 @@ func validateConfig(cfg *Config) error {
 		return nil
 	}
 
+	if err := validateWatchdogConfig(cfg.Scheduler.Watchdog); err != nil {
+		return err
+	}
+
 	if !hasRoleDrivenData(cfg) {
 		return nil
 	}
@@ -62,6 +66,25 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 
+	return nil
+}
+
+func validateWatchdogConfig(cfg WatchdogConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Interval.Duration <= 0 {
+		return fmt.Errorf("scheduler.watchdog.interval must be > 0")
+	}
+	if cfg.StuckRunTTL.Duration <= 0 {
+		return fmt.Errorf("scheduler.watchdog.stuck_run_ttl must be > 0")
+	}
+	if cfg.StuckMergeTTL.Duration <= 0 {
+		return fmt.Errorf("scheduler.watchdog.stuck_merge_ttl must be > 0")
+	}
+	if cfg.QueueStaleTTL.Duration <= 0 {
+		return fmt.Errorf("scheduler.watchdog.queue_stale_ttl must be > 0")
+	}
 	return nil
 }
 

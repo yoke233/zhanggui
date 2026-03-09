@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -31,14 +32,18 @@ type DepScheduler struct {
 	mu            sync.Mutex
 	sessions      map[string]*runningSession
 	RunIndex      map[string]RunRef
+	runCancels    map[string]context.CancelFunc
 	lastSessionID string
 
-	loopCancel  context.CancelFunc
-	loopWG      sync.WaitGroup
-	reconcileWG sync.WaitGroup
+	loopCancel     context.CancelFunc
+	watchdogCancel context.CancelFunc
+	loopWG         sync.WaitGroup
+	reconcileWG    sync.WaitGroup
+	watchdogWG     sync.WaitGroup
 
 	reconcileInterval time.Duration
 	reconcileRun      func(context.Context) error
+	watchdogCfg       config.WatchdogConfig
 }
 
 // SetStageRoles configures the role mapping for run stages.
@@ -72,14 +77,15 @@ func NewDepScheduler(
 	}
 
 	return &DepScheduler{
-		store:    store,
-		bus:      bus,
-		pub:      bus,
-		tracker:  tracker,
-		runRun:   runRun,
-		sem:      make(chan struct{}, maxConcurrent),
-		sessions: make(map[string]*runningSession),
-		RunIndex: make(map[string]RunRef),
+		store:      store,
+		bus:        bus,
+		pub:        bus,
+		tracker:    tracker,
+		runRun:     runRun,
+		sem:        make(chan struct{}, maxConcurrent),
+		sessions:   make(map[string]*runningSession),
+		RunIndex:   make(map[string]RunRef),
+		runCancels: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -95,6 +101,16 @@ func (s *DepScheduler) SetReconcileRunner(interval time.Duration, run func(conte
 	defer s.mu.Unlock()
 	s.reconcileInterval = interval
 	s.reconcileRun = run
+}
+
+// SetWatchdogConfig configures watchdog health checks for scheduler lifecycle.
+func (s *DepScheduler) SetWatchdogConfig(cfg config.WatchdogConfig) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.watchdogCfg = cfg
 }
 
 func (s *DepScheduler) Start(ctx context.Context) error {
@@ -116,6 +132,7 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 	s.loopCancel = cancel
 	reconcileRun := s.reconcileRun
 	reconcileInterval := s.reconcileInterval
+	watchdogCfg := s.watchdogCfg
 	if reconcileInterval <= 0 {
 		reconcileInterval = 10 * time.Minute
 	}
@@ -155,6 +172,10 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 		}(runCtx, reconcileInterval, reconcileRun)
 	}
 
+	if watchdogCfg.Enabled {
+		s.StartWatchdog(runCtx, watchdogCfg)
+	}
+
 	return nil
 }
 
@@ -163,20 +184,22 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	s.stopWatchdog()
+
 	s.mu.Lock()
 	cancel := s.loopCancel
 	s.loopCancel = nil
 	s.mu.Unlock()
-	if cancel == nil {
-		return nil
+	if cancel != nil {
+		cancel()
 	}
-	cancel()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		s.loopWG.Wait()
 		s.reconcileWG.Wait()
+		s.watchdogWG.Wait()
 	}()
 
 	select {
@@ -427,6 +450,9 @@ func (s *DepScheduler) registerSessionRuntime(sessionID string, rs *runningSessi
 func (s *DepScheduler) OnEvent(ctx context.Context, evt core.Event) error {
 	if s == nil {
 		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if !isSchedulerHandledEvent(evt.Type) {
 		return nil

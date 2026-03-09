@@ -177,6 +177,23 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		if scheduler.MaxProjectRuns != nil {
 			cfg.Scheduler.MaxProjectRuns = *scheduler.MaxProjectRuns
 		}
+		if watchdog := scheduler.Watchdog; watchdog != nil {
+			if watchdog.Enabled != nil {
+				cfg.Scheduler.Watchdog.Enabled = *watchdog.Enabled
+			}
+			if watchdog.Interval != nil {
+				cfg.Scheduler.Watchdog.Interval = *watchdog.Interval
+			}
+			if watchdog.StuckRunTTL != nil {
+				cfg.Scheduler.Watchdog.StuckRunTTL = *watchdog.StuckRunTTL
+			}
+			if watchdog.StuckMergeTTL != nil {
+				cfg.Scheduler.Watchdog.StuckMergeTTL = *watchdog.StuckMergeTTL
+			}
+			if watchdog.QueueStaleTTL != nil {
+				cfg.Scheduler.Watchdog.QueueStaleTTL = *watchdog.QueueStaleTTL
+			}
+		}
 	}
 
 	if teamLeader := layer.TeamLeader; teamLeader != nil {

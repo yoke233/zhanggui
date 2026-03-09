@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func ApplyEnvOverrides(cfg *Config) error {
@@ -36,6 +37,41 @@ func ApplyEnvOverrides(cfg *Config) error {
 			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_MAX_GLOBAL_AGENTS: %w", err)
 		}
 		cfg.Scheduler.MaxGlobalAgents = maxAgents
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_WATCHDOG_ENABLED"); ok {
+		enabled, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_WATCHDOG_ENABLED: %w", err)
+		}
+		cfg.Scheduler.Watchdog.Enabled = enabled
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_WATCHDOG_INTERVAL"); ok {
+		duration, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_WATCHDOG_INTERVAL: %w", err)
+		}
+		cfg.Scheduler.Watchdog.Interval = Duration{Duration: duration}
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_RUN_TTL"); ok {
+		duration, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_RUN_TTL: %w", err)
+		}
+		cfg.Scheduler.Watchdog.StuckRunTTL = Duration{Duration: duration}
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_MERGE_TTL"); ok {
+		duration, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_MERGE_TTL: %w", err)
+		}
+		cfg.Scheduler.Watchdog.StuckMergeTTL = Duration{Duration: duration}
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_SCHEDULER_WATCHDOG_QUEUE_STALE_TTL"); ok {
+		duration, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_SCHEDULER_WATCHDOG_QUEUE_STALE_TTL: %w", err)
+		}
+		cfg.Scheduler.Watchdog.QueueStaleTTL = Duration{Duration: duration}
 	}
 
 	if v, ok := os.LookupEnv("AI_WORKFLOW_A2A_ENABLED"); ok {

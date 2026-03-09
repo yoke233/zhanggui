@@ -116,6 +116,13 @@ max_total_retries  = 5
 max_global_agents = 3
 max_project_runs  = 2
 
+  [scheduler.watchdog]
+  enabled         = true
+  interval        = "5m"
+  stuck_run_ttl   = "30m"
+  stuck_merge_ttl = "15m"
+  queue_stale_ttl = "60m"
+
 # ─── Team Leader ─────────────────────────────────────────────────
 [team_leader]
 review_gate_plugin = "review-ai-panel"

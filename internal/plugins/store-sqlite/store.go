@@ -155,6 +155,15 @@ ON CONFLICT(id) DO UPDATE SET
 	return err
 }
 
+func (s *SQLiteStore) TouchRunHeartbeat(id string, at time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE runs SET last_heartbeat_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		nullableTime(at),
+		id,
+	)
+	return err
+}
+
 func (s *SQLiteStore) GetRun(id string) (*core.Run, error) {
 	p := &core.Run{}
 	var (

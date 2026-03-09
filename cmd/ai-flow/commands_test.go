@@ -301,7 +301,7 @@ func TestRunServer_PortPriority(t *testing.T) {
 			newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 				return fakeScheduler, nil
 			}
-			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
+			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.WatchdogConfig, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 				return fakeIssueManager, nil
 			}
 			newAPIServer = func(cfg web.Config) apiServer {
@@ -349,7 +349,7 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.WatchdogConfig, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 		return fakeIssueManager, nil
 	}
 	newAPIServer = func(_ web.Config) apiServer {
@@ -397,7 +397,7 @@ func TestRunServer_IssueManagerReceivesReviewRoleBindings(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.TeamLeaderConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, _ config.WatchdogConfig, _ config.TeamLeaderConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
 		capturedRoleBinds = roleBinds
 		return fakeIssueManager, nil
 	}
@@ -420,6 +420,58 @@ func TestRunServer_IssueManagerReceivesReviewRoleBindings(t *testing.T) {
 	}
 	if got := capturedRoleBinds.ReviewOrchestrator.Reviewers["feasibility"]; got != "reviewer" {
 		t.Fatalf("captured feasibility reviewer binding = %q, want %q", got, "reviewer")
+	}
+}
+
+func TestRunServer_IssueManagerReceivesWatchdogConfig(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+	t.Chdir(tempHome)
+
+	origSchedulerFactory := newServerScheduler
+	origServerFactory := newAPIServer
+	origIssueManagerFactory := newServerIssueManager
+	t.Cleanup(func() {
+		newServerScheduler = origSchedulerFactory
+		newAPIServer = origServerFactory
+		newServerIssueManager = origIssueManagerFactory
+	})
+
+	startErr := errors.New("server start failed")
+	fakeScheduler := &testScheduler{}
+	fakeIssueManager := &testServerIssueManager{}
+	var capturedWatchdog config.WatchdogConfig
+
+	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
+		return fakeScheduler, nil
+	}
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ core.EventBus, watchdogCfg config.WatchdogConfig, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
+		capturedWatchdog = watchdogCfg
+		return fakeIssueManager, nil
+	}
+	newAPIServer = func(_ web.Config) apiServer {
+		return &testAPIServer{startErr: startErr}
+	}
+
+	err := runServer(context.Background(), nil)
+	if !errors.Is(err, startErr) {
+		t.Fatalf("expected server start error, got %v", err)
+	}
+	if !capturedWatchdog.Enabled {
+		t.Fatal("expected watchdog config to be passed into issue manager factory")
+	}
+	if got := capturedWatchdog.Interval.Duration; got != 5*time.Minute {
+		t.Fatalf("captured watchdog interval = %s, want %s", got, 5*time.Minute)
+	}
+	if got := capturedWatchdog.StuckRunTTL.Duration; got != 30*time.Minute {
+		t.Fatalf("captured watchdog stuck_run_ttl = %s, want %s", got, 30*time.Minute)
+	}
+	if got := capturedWatchdog.StuckMergeTTL.Duration; got != 15*time.Minute {
+		t.Fatalf("captured watchdog stuck_merge_ttl = %s, want %s", got, 15*time.Minute)
+	}
+	if got := capturedWatchdog.QueueStaleTTL.Duration; got != 60*time.Minute {
+		t.Fatalf("captured watchdog queue_stale_ttl = %s, want %s", got, 60*time.Minute)
 	}
 }
 

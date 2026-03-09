@@ -112,6 +112,29 @@ func newExecutorWithBus(store core.Store, bus *eventbus.MemoryBus, stageResults 
 	return e
 }
 
+func TestExecutor_StartRunHeartbeatTouchesStore(t *testing.T) {
+	baseStore := newTestStore(t)
+	defer baseStore.Close()
+	store := &heartbeatTrackingStore{
+		SQLiteStore: baseStore,
+		touched:     make(chan time.Time, 8),
+	}
+
+	exec := newExecutorWithBus(store, eventbus.New(), nil)
+	exec.TestSetHeartbeatInterval(5 * time.Millisecond)
+	run := setupProjectAndRun(t, store, t.TempDir(), []core.StageConfig{{Name: core.StageImplement, Role: "worker"}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopHeartbeat := exec.startRunHeartbeat(ctx, run.ID)
+	defer stopHeartbeat()
+	select {
+	case <-store.touched:
+	case <-time.After(time.Second):
+		t.Fatal("expected heartbeat loop to touch the store")
+	}
+	cancel()
+}
+
 func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages []core.StageConfig) *core.Run {
 	t.Helper()
 
@@ -154,6 +177,19 @@ func setupProjectAndRun(t *testing.T, store core.Store, repoPath string, stages 
 		t.Fatal(err)
 	}
 	return p
+}
+
+type heartbeatTrackingStore struct {
+	*storesqlite.SQLiteStore
+	touched chan time.Time
+}
+
+func (s *heartbeatTrackingStore) TouchRunHeartbeat(runID string, at time.Time) error {
+	select {
+	case s.touched <- at:
+	default:
+	}
+	return s.SQLiteStore.TouchRunHeartbeat(runID, at)
 }
 
 func defaultTestRoleForStage(stage core.StageID) string {

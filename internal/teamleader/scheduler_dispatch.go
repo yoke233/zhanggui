@@ -16,6 +16,9 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 	if s == nil || s.store == nil {
 		return false, errors.New("scheduler store is not configured")
 	}
+	if ctx != nil && ctx.Err() != nil {
+		return false, ctx.Err()
+	}
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(issueID) == "" {
 		return false, errors.New("session id and issue id are required")
 	}
@@ -84,7 +87,10 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 	if ctx != nil {
 		runCtx = context.WithoutCancel(ctx)
 	}
+	runCtx, cancel := context.WithCancel(runCtx)
+	s.registerRunCancel(Run.ID, cancel)
 	go func(runCtx context.Context, RunID string) {
+		defer s.forgetRunCancel(RunID)
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("run goroutine panicked, releasing slot", "run_id", RunID, "panic", r)
@@ -126,6 +132,10 @@ func (s *DepScheduler) rollbackDispatch(sessionID, issueID, RunID string) {
 		delete(rs.Running, issueID)
 	}
 	delete(s.RunIndex, RunID)
+	if cancel := s.runCancels[RunID]; cancel != nil {
+		delete(s.runCancels, RunID)
+		cancel()
+	}
 	s.releaseSlot()
 	s.mu.Unlock()
 
@@ -141,6 +151,9 @@ func (s *DepScheduler) dispatchReadyAcrossSessions(ctx context.Context) error {
 	}
 
 	for {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		s.mu.Lock()
 		semLen, semCap := len(s.sem), cap(s.sem)
 		if semCap > 0 && semLen >= semCap {
@@ -341,4 +354,36 @@ func (s *DepScheduler) releaseSlot() {
 	case <-s.sem:
 	default:
 	}
+}
+
+func (s *DepScheduler) registerRunCancel(runID string, cancel context.CancelFunc) {
+	if s == nil || strings.TrimSpace(runID) == "" || cancel == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runCancels[runID] = cancel
+}
+
+func (s *DepScheduler) forgetRunCancel(runID string) {
+	if s == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.runCancels, runID)
+}
+
+func (s *DepScheduler) cancelRun(runID string) bool {
+	if s == nil || strings.TrimSpace(runID) == "" {
+		return false
+	}
+	s.mu.Lock()
+	cancel := s.runCancels[runID]
+	s.mu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
 }

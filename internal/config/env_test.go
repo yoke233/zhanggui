@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestApplyEnvOverrides_ServerHost(t *testing.T) {
@@ -49,5 +50,34 @@ func TestApplyEnvOverrides_DoesNotMutateWhenUnset(t *testing.T) {
 
 	if cfg.Server.Host != original {
 		t.Fatalf("expected server host %q to stay unchanged, got %q", original, cfg.Server.Host)
+	}
+}
+
+func TestApplyEnvOverrides_Watchdog(t *testing.T) {
+	t.Setenv("AI_WORKFLOW_SCHEDULER_WATCHDOG_ENABLED", "false")
+	t.Setenv("AI_WORKFLOW_SCHEDULER_WATCHDOG_INTERVAL", "2m")
+	t.Setenv("AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_RUN_TTL", "45m")
+	t.Setenv("AI_WORKFLOW_SCHEDULER_WATCHDOG_STUCK_MERGE_TTL", "20m")
+	t.Setenv("AI_WORKFLOW_SCHEDULER_WATCHDOG_QUEUE_STALE_TTL", "90m")
+
+	cfg := Defaults()
+	if err := ApplyEnvOverrides(&cfg); err != nil {
+		t.Fatalf("ApplyEnvOverrides returned error: %v", err)
+	}
+
+	if cfg.Scheduler.Watchdog.Enabled {
+		t.Fatal("expected watchdog enabled override to disable watchdog")
+	}
+	if got := cfg.Scheduler.Watchdog.Interval.Duration; got != 2*time.Minute {
+		t.Fatalf("watchdog interval = %s, want 2m", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckRunTTL.Duration; got != 45*time.Minute {
+		t.Fatalf("watchdog stuck run ttl = %s, want 45m", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckMergeTTL.Duration; got != 20*time.Minute {
+		t.Fatalf("watchdog stuck merge ttl = %s, want 20m", got)
+	}
+	if got := cfg.Scheduler.Watchdog.QueueStaleTTL.Duration; got != 90*time.Minute {
+		t.Fatalf("watchdog queue stale ttl = %s, want 90m", got)
 	}
 }

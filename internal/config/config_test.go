@@ -2,7 +2,9 @@ package config
 
 import (
 	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestMergeAgentConfig(t *testing.T) {
@@ -65,6 +67,21 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Log.File != ".ai-workflow/logs/app.log" {
 		t.Errorf("expected default log file .ai-workflow/logs/app.log, got %s", cfg.Log.File)
+	}
+	if !cfg.Scheduler.Watchdog.Enabled {
+		t.Fatal("expected scheduler.watchdog.enabled default true, got false")
+	}
+	if got := cfg.Scheduler.Watchdog.Interval.Duration; got != 5*time.Minute {
+		t.Fatalf("expected scheduler.watchdog.interval 5m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckRunTTL.Duration; got != 30*time.Minute {
+		t.Fatalf("expected scheduler.watchdog.stuck_run_ttl 30m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckMergeTTL.Duration; got != 15*time.Minute {
+		t.Fatalf("expected scheduler.watchdog.stuck_merge_ttl 15m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.QueueStaleTTL.Duration; got != 60*time.Minute {
+		t.Fatalf("expected scheduler.watchdog.queue_stale_ttl 60m, got %s", got)
 	}
 }
 
@@ -338,6 +355,173 @@ implement = "reviewer"
 	}
 	if got := cfg.RoleBinds.Run.StageRoles["implement"]; got != "reviewer" {
 		t.Fatalf("expected Run implement role overwritten to reviewer, got %q", got)
+	}
+}
+
+func TestApplyConfigLayer_SchedulerWatchdogOverride(t *testing.T) {
+	cfg := Defaults()
+	layer, err := loadLayerFromBytes([]byte(`
+[scheduler.watchdog]
+enabled = false
+interval = "2m"
+stuck_run_ttl = "45m"
+stuck_merge_ttl = "20m"
+queue_stale_ttl = "90m"
+`))
+	if err != nil {
+		t.Fatalf("load layer failed: %v", err)
+	}
+
+	ApplyConfigLayer(&cfg, layer)
+
+	if cfg.Scheduler.Watchdog.Enabled {
+		t.Fatal("expected scheduler.watchdog.enabled override false, got true")
+	}
+	if got := cfg.Scheduler.Watchdog.Interval.Duration; got != 2*time.Minute {
+		t.Fatalf("expected interval 2m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckRunTTL.Duration; got != 45*time.Minute {
+		t.Fatalf("expected stuck_run_ttl 45m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.StuckMergeTTL.Duration; got != 20*time.Minute {
+		t.Fatalf("expected stuck_merge_ttl 20m, got %s", got)
+	}
+	if got := cfg.Scheduler.Watchdog.QueueStaleTTL.Duration; got != 90*time.Minute {
+		t.Fatalf("expected queue_stale_ttl 90m, got %s", got)
+	}
+}
+
+func TestMergeForRun_SchedulerWatchdogOverride(t *testing.T) {
+	global := Defaults()
+	global.A2A.Token = "test-default-token"
+
+	merged, err := MergeForRun(&global, nil, map[string]any{
+		"scheduler": map[string]any{
+			"watchdog": map[string]any{
+				"enabled":         false,
+				"interval":        "2m",
+				"stuck_run_ttl":   "45m",
+				"stuck_merge_ttl": "20m",
+				"queue_stale_ttl": "90m",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("MergeForRun() error = %v", err)
+	}
+
+	if merged.Scheduler.Watchdog.Enabled {
+		t.Fatal("expected merged watchdog.enabled false, got true")
+	}
+	if got := merged.Scheduler.Watchdog.Interval.Duration; got != 2*time.Minute {
+		t.Fatalf("expected merged interval 2m, got %s", got)
+	}
+	if got := merged.Scheduler.Watchdog.StuckRunTTL.Duration; got != 45*time.Minute {
+		t.Fatalf("expected merged stuck_run_ttl 45m, got %s", got)
+	}
+	if got := merged.Scheduler.Watchdog.StuckMergeTTL.Duration; got != 20*time.Minute {
+		t.Fatalf("expected merged stuck_merge_ttl 20m, got %s", got)
+	}
+	if got := merged.Scheduler.Watchdog.QueueStaleTTL.Duration; got != 90*time.Minute {
+		t.Fatalf("expected merged queue_stale_ttl 90m, got %s", got)
+	}
+}
+
+func TestLoadLayerFromYAML_SchedulerWatchdog(t *testing.T) {
+	layer, err := loadLayerFromYAML([]byte(`
+scheduler:
+  watchdog:
+    enabled: false
+    interval: 2m
+    stuck_run_ttl: 45m
+    stuck_merge_ttl: 20m
+    queue_stale_ttl: 90m
+`))
+	if err != nil {
+		t.Fatalf("loadLayerFromYAML() error = %v", err)
+	}
+	if layer.Scheduler == nil || layer.Scheduler.Watchdog == nil {
+		t.Fatal("expected scheduler.watchdog layer to be loaded")
+	}
+	if layer.Scheduler.Watchdog.Enabled == nil || *layer.Scheduler.Watchdog.Enabled {
+		t.Fatal("expected scheduler.watchdog.enabled false")
+	}
+	if layer.Scheduler.Watchdog.Interval == nil {
+		t.Fatal("expected scheduler.watchdog.interval to be loaded")
+	}
+	if got := layer.Scheduler.Watchdog.Interval.Duration; got != 2*time.Minute {
+		t.Fatalf("expected scheduler.watchdog.interval 2m, got %s", got)
+	}
+}
+
+func TestLoadLayerFromYAML_SchedulerWatchdogInvalidDuration(t *testing.T) {
+	_, err := loadLayerFromYAML([]byte(`
+scheduler:
+  watchdog:
+    interval: nope
+`))
+	if err == nil {
+		t.Fatal("expected invalid duration error, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse duration") {
+		t.Fatalf("expected parse duration error, got %v", err)
+	}
+}
+
+func TestValidateConfig_WatchdogRejectsNonPositiveDurations(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{
+			name: "interval zero",
+			raw: `
+[scheduler.watchdog]
+enabled = true
+interval = "0s"
+`,
+			wantErr: "scheduler.watchdog.interval must be > 0",
+		},
+		{
+			name: "stuck run ttl negative",
+			raw: `
+[scheduler.watchdog]
+enabled = true
+stuck_run_ttl = "-1m"
+`,
+			wantErr: "scheduler.watchdog.stuck_run_ttl must be > 0",
+		},
+		{
+			name: "stuck merge ttl zero",
+			raw: `
+[scheduler.watchdog]
+enabled = true
+stuck_merge_ttl = "0s"
+`,
+			wantErr: "scheduler.watchdog.stuck_merge_ttl must be > 0",
+		},
+		{
+			name: "queue stale ttl negative",
+			raw: `
+[scheduler.watchdog]
+enabled = true
+queue_stale_ttl = "-5m"
+`,
+			wantErr: "scheduler.watchdog.queue_stale_ttl must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadAndValidate(t, tt.raw)
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
 	}
 }
 

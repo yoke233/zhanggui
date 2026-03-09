@@ -59,6 +59,7 @@ var (
 		exec *engine.Executor,
 		bootstrapSet *pluginfactory.BootstrapSet,
 		bus core.EventBus,
+		watchdogCfg config.WatchdogConfig,
 		teamLeaderCfg config.TeamLeaderConfig,
 		roleBinds config.RoleBindings,
 	) (serverIssueManager, error) {
@@ -100,6 +101,7 @@ var (
 			bootstrapSet.Tracker,
 			teamLeaderCfg.DAGScheduler.MaxConcurrentTasks,
 		)
+		depScheduler.SetWatchdogConfig(watchdogCfg)
 		depScheduler.SetStageRoles(roleBinds.Run.StageRoles)
 
 		opts := make([]teamleader.ManagerOption, 0, 2)
@@ -172,7 +174,7 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
-	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.TeamLeader, cfg.RoleBinds)
+	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.Scheduler.Watchdog, cfg.TeamLeader, cfg.RoleBinds)
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
