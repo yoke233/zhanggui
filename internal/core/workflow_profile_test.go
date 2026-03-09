@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestResolveGates(t *testing.T) {
+	t.Run("default normal", func(t *testing.T) {
+		p := WorkflowProfile{Type: WorkflowProfileNormal, SLAMinutes: 10}
+		gates := p.ResolveGates()
+		if len(gates) != 1 || gates[0].Name != "demand_review" {
+			t.Errorf("unexpected gates: %+v", gates)
+		}
+	})
+	t.Run("default strict", func(t *testing.T) {
+		p := WorkflowProfile{Type: WorkflowProfileStrict, SLAMinutes: 10}
+		gates := p.ResolveGates()
+		if len(gates) != 2 {
+			t.Errorf("expected 2 gates, got %d", len(gates))
+		}
+	})
+	t.Run("custom gates override", func(t *testing.T) {
+		custom := []Gate{{Name: "my_gate", Type: GateTypeAuto}}
+		p := WorkflowProfile{Type: WorkflowProfileNormal, SLAMinutes: 10, Gates: custom}
+		gates := p.ResolveGates()
+		if len(gates) != 1 || gates[0].Name != "my_gate" {
+			t.Errorf("expected custom gate, got: %+v", gates)
+		}
+	})
+}
+
 func TestWorkflowProfileTypeValidate(t *testing.T) {
 	cases := []struct {
 		name    string
