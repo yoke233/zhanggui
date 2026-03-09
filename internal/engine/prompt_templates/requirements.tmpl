@@ -1,3 +1,11 @@
+{{if .ColdContext}}
+{{.ColdContext}}
+
+{{end}}
+{{if .WarmContext}}
+{{.WarmContext}}
+
+{{end}}
 你正在项目 {{.ProjectName}} ({{.RepoPath}}) 中工作。
 
 请将以下需求结构化，输出一份清晰的需求文档：
@@ -12,3 +20,7 @@
 1. 明确功能边界
 2. 列出验收标准
 3. 识别技术约束
+{{if .HotContext}}
+
+{{.HotContext}}
+{{end}}

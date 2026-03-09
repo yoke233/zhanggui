@@ -52,16 +52,22 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 	if err != nil {
 		return fmt.Errorf("build prompt execution context: %w", err)
 	}
-	prompt, err := RenderPrompt(promptStage, PromptVars{
+	vars := PromptVars{
 		ProjectName:       project.Name,
 		RepoPath:          project.RepoPath,
 		WorktreePath:      p.WorktreePath,
 		Requirements:      p.Description,
-		ExecutionContext:   executionContext,
+		ExecutionContext:  executionContext,
 		RetryError:        p.ErrorMessage,
 		MergeConflictHint: mergeConflictHintFromConfig(p.Config),
 		RetryCount:        p.TotalRetries,
-	})
+	}
+	var prompt string
+	if e.promptBuilder != nil {
+		prompt, err = e.promptBuilder.Build(p.IssueID, p.ID, promptStage, vars)
+	} else {
+		prompt, err = RenderPrompt(promptStage, vars)
+	}
 	if err != nil {
 		return fmt.Errorf("render prompt: %w", err)
 	}

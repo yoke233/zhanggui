@@ -1,3 +1,11 @@
+{{if .ColdContext}}
+{{.ColdContext}}
+
+{{end}}
+{{if .WarmContext}}
+{{.WarmContext}}
+
+{{end}}
 你正在对项目 {{.ProjectName}} 的改动进行代码审查。
 
 请重点检查：
@@ -8,3 +16,7 @@
 输出要求：
 - 给出问题清单（按严重级别）
 - 给出可执行修复建议
+{{if .HotContext}}
+
+{{.HotContext}}
+{{end}}

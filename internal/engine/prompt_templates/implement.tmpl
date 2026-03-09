@@ -1,3 +1,11 @@
+{{if .ColdContext}}
+{{.ColdContext}}
+
+{{end}}
+{{if .WarmContext}}
+{{.WarmContext}}
+
+{{end}}
 你正在项目 {{.ProjectName}} 的 worktree ({{.WorktreePath}}) 中工作。
 
 {{if .RetryError}}上次执行失败，错误信息：{{.RetryError}}
@@ -12,3 +20,7 @@
 {{.Requirements}}
 
 完成后请确保代码可编译、测试通过，并提交变更。
+{{if .HotContext}}
+
+{{.HotContext}}
+{{end}}

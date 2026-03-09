@@ -36,6 +36,7 @@ type Executor struct {
 	acpHandlerFactory ACPHandlerFactory
 	mcpServerResolver func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer
 	logger            *slog.Logger
+	promptBuilder     *PromptBuilder
 
 	// testStageFunc is a test-only hook that bypasses real ACP execution.
 	testStageFunc func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error
@@ -73,6 +74,11 @@ func (e *Executor) SetMCPServerResolver(fn func(role acpclient.RoleProfile, sseS
 
 func (e *Executor) SetWorkspace(workspace core.WorkspacePlugin) {
 	e.workspace = workspace
+}
+
+// SetMemory configures layered prompt memory for prompt generation.
+func (e *Executor) SetMemory(memory core.Memory) {
+	e.promptBuilder = NewPromptBuilder(memory)
 }
 
 // TestSetStageFunc sets a test-only hook that bypasses real ACP stage execution.

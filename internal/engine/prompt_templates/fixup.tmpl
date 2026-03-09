@@ -1,3 +1,11 @@
+{{if .ColdContext}}
+{{.ColdContext}}
+
+{{end}}
+{{if .WarmContext}}
+{{.WarmContext}}
+
+{{end}}
 你正在项目 {{.ProjectName}} 中修复上一轮审查问题。
 
 {{if .PreviousReview}}上一轮审查结论：
@@ -8,3 +16,7 @@
 {{end}}
 
 请完成修复并确保测试通过。
+{{if .HotContext}}
+
+{{.HotContext}}
+{{end}}

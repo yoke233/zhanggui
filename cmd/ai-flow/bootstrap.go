@@ -17,6 +17,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
+	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
@@ -47,6 +48,9 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	bus := eventbus.New()
 	logger := slog.Default()
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, logger)
+	if memory := memoryFromStore(bootstrapSet.Store); memory != nil {
+		exec.SetMemory(memory)
+	}
 	exec.SetRoleResolver(bootstrapSet.RoleResolver)
 	exec.SetWorkspace(bootstrapSet.Workspace)
 	exec.SetRunstageRoles(cfg.RoleBinds.Run.StageRoles)
@@ -67,6 +71,14 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	})
 
 	return exec, bootstrapSet, bus, nil
+}
+
+func memoryFromStore(store core.Store) core.Memory {
+	sqliteStore, ok := store.(*storesqlite.SQLiteStore)
+	if !ok || sqliteStore == nil {
+		return nil
+	}
+	return storesqlite.NewSQLiteMemory(sqliteStore)
 }
 
 // resolveDataDir returns the data directory for config, secrets, and database.
