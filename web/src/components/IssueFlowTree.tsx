@@ -7,7 +7,7 @@ type IssueFlowTreeProps = {
   steps: TaskStep[];
 };
 
-type FlowNode = {
+export type FlowNode = {
   id: string;
   label: string;
   meta?: string;
@@ -78,11 +78,11 @@ const stepLabel = (step: TaskStep) => `${ACTION_ICONS[step.action] ?? "?"} ${for
 const stepMeta = (step: TaskStep) =>
   [step.agent_id ? `agent: ${step.agent_id}` : "", step.stage_id ? `stage: ${step.stage_id}` : ""]
     .filter(Boolean)
-    .join(" ? ");
+    .join(" · ");
 
 const stepNote = (step: TaskStep) => step.note || (step.ref_id ? `ref: ${step.ref_type || "unknown"}/${step.ref_id}` : "");
 
-const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
+export const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
   const ordered = [...steps].sort((left, right) => {
     const leftTime = new Date(left.created_at).getTime();
     const rightTime = new Date(right.created_at).getTime();
@@ -105,8 +105,8 @@ const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
     children: [],
   };
 
-  const preRunNodes: FlowNode[] = [];
   const runNodes = new Map<string, FlowNode>();
+  const issueChildren: FlowNode[] = [];
 
   ordered.forEach((step) => {
     const node: FlowNode = {
@@ -119,7 +119,7 @@ const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
     };
 
     if (!step.run_id) {
-      preRunNodes.push(node);
+      issueChildren.push(node);
       return;
     }
 
@@ -132,12 +132,12 @@ const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
         children: [],
       };
       runNodes.set(step.run_id, runNode);
-      issueRoot.children.push(runNode);
+      issueChildren.push(runNode);
     }
     runNode.children.push(node);
   });
 
-  issueRoot.children = [...preRunNodes, ...issueRoot.children];
+  issueRoot.children = issueChildren;
   return [issueRoot];
 };
 
@@ -197,7 +197,7 @@ export default function IssueFlowTree({ projectId, issueId, steps }: IssueFlowTr
       </div>
 
       {steps.length === 0 ? (
-        <p className="mt-3 text-xs text-[#57606a]">?? flow ???</p>
+        <p className="mt-3 text-xs text-[#57606a]">No flow data yet.</p>
       ) : (
         <ol className="mt-3 space-y-1">
           {flow.map((node) => (

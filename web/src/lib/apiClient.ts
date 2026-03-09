@@ -988,33 +988,21 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           offset: query?.offset,
         },
       });
-      const rawSteps = Array.isArray(response.steps) ? response.steps : [];
-      if (rawSteps.length > 0) {
-        const normalized = rawSteps.map((step, index) =>
-          taskStepToTimelineEntry(step, index),
-        );
-        return {
-          items: normalized.map((item) => item.item),
-          steps: normalized.map((item) => item.step),
-          total:
-            typeof response.total === "number"
-              ? response.total
-              : normalized.length,
-          offset:
-            typeof response.offset === "number"
-              ? response.offset
-              : (query?.offset ?? 0),
-        };
-      }
-
       const rawItems = Array.isArray(response.items) ? response.items : [];
+      const rawSteps = Array.isArray(response.steps) ? response.steps : [];
+      const normalizedItems = rawItems.map((item, index) =>
+        normalizeIssueTimelineEntry(item, index),
+      );
+      const normalizedSteps = rawSteps.map((step, index) =>
+        taskStepToTimelineEntry(step, normalizedItems.length + index),
+      );
       return {
-        items: rawItems.map((item, index) =>
-          normalizeIssueTimelineEntry(item, index),
-        ),
-        steps: [],
+        items: [...normalizedItems, ...normalizedSteps.map((item) => item.item)],
+        steps: normalizedSteps.map((item) => item.step),
         total:
-          typeof response.total === "number" ? response.total : rawItems.length,
+          typeof response.total === "number"
+            ? response.total
+            : normalizedItems.length + normalizedSteps.length,
         offset:
           typeof response.offset === "number"
             ? response.offset

@@ -549,8 +549,28 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     };
   }, [apiClient, projectId, refreshToken, autoRefreshEnabled, autoRefreshIntervalMs, manualReloadToken]);
 
+  const groupedTasks = useMemo(() => groupBoardTasks(tasks), [tasks]);
+  const visibleTasks = useMemo(() => {
+    if (statusFilter === "all") {
+      return tasks;
+    }
+    return groupedTasks[statusFilter];
+  }, [groupedTasks, statusFilter, tasks]);
+  const selectedTask = selectedTaskId
+    ? tasks.find((task) => task.id === selectedTaskId) ?? null
+    : null;
+  const activeIssueTaskID = resolveRouteIssueTaskID(routeIssueID, tasks);
+  const detailTask = activeIssueTaskID
+    ? tasks.find((task) => task.id === activeIssueTaskID) ?? selectedTask
+    : null;
+  const isIssueDetailOpen = routeIssueID !== null;
+  const timelineIssueID = isIssueDetailOpen ? detailTask?.id ?? "" : "";
+  const timelineItems = useMemo(
+    () => (detailTask ? buildTimeline(detailTask, timelineEntries) : []),
+    [detailTask, timelineEntries],
+  );
+
   useEffect(() => {
-    const timelineIssueID = selectedTaskId ?? "";
     if (!timelineIssueID) {
       setTimelineLoading(false);
       setTimelineError(null);
@@ -576,13 +596,14 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     setTimelineError(null);
     const loadTimeline = async () => {
       try {
-        const [timelineResponse, taskStepResponse] = await Promise.all([
-          apiClient.listIssueTimeline(projectId, timelineIssueID, {
+        const timelineResponse = await apiClient.listIssueTimeline(
+          projectId,
+          timelineIssueID,
+          {
             limit: 200,
             offset: 0,
-          }),
-          apiClient.listIssueTaskSteps(projectId, timelineIssueID),
-        ]);
+          },
+        );
         if (cancelled) {
           return;
         }
@@ -601,7 +622,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
           return right - left;
         });
         setTimelineEntries(sorted);
-        setTaskSteps(Array.isArray(taskStepResponse.steps) ? taskStepResponse.steps : []);
+        setTaskSteps(Array.isArray(timelineResponse.steps) ? timelineResponse.steps : []);
         setTaskStepsError(null);
         hasLoadedTimelineRef.current = true;
       } catch (requestError) {
@@ -622,27 +643,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     return () => {
       cancelled = true;
     };
-  }, [apiClient, projectId, selectedTaskId, tasks, refreshToken, timelineReloadToken]);
-
-  const groupedTasks = useMemo(() => groupBoardTasks(tasks), [tasks]);
-  const visibleTasks = useMemo(() => {
-    if (statusFilter === "all") {
-      return tasks;
-    }
-    return groupedTasks[statusFilter];
-  }, [groupedTasks, statusFilter, tasks]);
-  const selectedTask = selectedTaskId
-    ? tasks.find((task) => task.id === selectedTaskId) ?? null
-    : null;
-  const activeIssueTaskID = resolveRouteIssueTaskID(routeIssueID, tasks);
-  const detailTask = activeIssueTaskID
-    ? tasks.find((task) => task.id === activeIssueTaskID) ?? selectedTask
-    : null;
-  const isIssueDetailOpen = routeIssueID !== null;
-  const timelineItems = useMemo(
-    () => (detailTask ? buildTimeline(detailTask, timelineEntries) : []),
-    [detailTask, timelineEntries],
-  );
+  }, [apiClient, projectId, timelineIssueID, timelineReloadToken]);
 
   useEffect(() => {
     const routeTaskID = resolveRouteIssueTaskID(routeIssueID, tasks);

@@ -432,6 +432,7 @@ describe("BoardView", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Issue Timeline").length).toBeGreaterThan(0);
     });
+    expect(apiClient.listIssueTimeline).not.toHaveBeenCalled();
 
     const timelineButton = screen
       .getAllByTestId("board-task")
@@ -447,9 +448,75 @@ describe("BoardView", () => {
         offset: 0,
       });
     });
+    expect(apiClient.listIssueTaskSteps).not.toHaveBeenCalled();
     expect(screen.getByText("log · implement/stage_start")).toBeTruthy();
     expect(screen.getAllByText(/stage started/).length).toBeGreaterThan(0);
     expect(screen.queryByText("展开完整输出")).toBeNull();
+  });
+
+  it("详情已打开时列表刷新不会重复拉取同一 issue timeline", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
+      items: [
+        buildIssue({
+          id: "issue-refresh-stable",
+          title: "Issue Refresh Stable",
+          status: "executing",
+          run_id: "pipe-77",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    vi.mocked(apiClient.listIssueTimeline).mockResolvedValue({
+      items: [
+        {
+          event_id: "log:refresh-stable",
+          kind: "log",
+          created_at: "2026-03-03T10:00:00Z",
+          actor_type: "agent",
+          actor_name: "codex",
+          actor_avatar_seed: "codex",
+          title: "log · implement/stage_start",
+          body: "stage started",
+          status: "running",
+          refs: {
+            issue_id: "issue-refresh-stable",
+            run_id: "pipe-77",
+            stage: "implement",
+          },
+          meta: { type: "stage_start" },
+        } as IssueTimelineEntry,
+      ],
+      total: 1,
+      offset: 0,
+    });
+
+    const view = render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Issue Refresh Stable").length).toBeGreaterThan(0);
+    });
+    expect(apiClient.listIssueTimeline).not.toHaveBeenCalled();
+
+    const detailButton = screen
+      .getAllByTestId("board-task")
+      .find((item) => within(item).queryByText("Issue Refresh Stable"));
+    if (!detailButton) {
+      throw new Error("Issue Refresh Stable card not found");
+    }
+    fireEvent.click(detailButton);
+
+    await waitFor(() => {
+      expect(apiClient.listIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+
+    view.rerender(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={1} />);
+
+    await waitFor(() => {
+      expect(apiClient.listIssues).toHaveBeenCalledTimes(2);
+    });
+    expect(apiClient.listIssueTimeline).toHaveBeenCalledTimes(1);
   });
 
   it("timeline 会折叠重复事件并生成可读摘要", async () => {

@@ -344,6 +344,157 @@ describe("apiClient", () => {
     expect(timeline.items[1]?.event_id).toBe("review:7");
   });
 
+  it("listIssueTimeline 兼容 task step 响应并回填 steps", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          steps: [
+            {
+              id: "step-1",
+              issue_id: "issue-1",
+              run_id: "pipe-1",
+              agent_id: "codex",
+              action: "stage_started",
+              stage_id: "implement",
+              input: "",
+              output: "stage started",
+              note: "implement started",
+              ref_id: "ref-1",
+              ref_type: "stage",
+              created_at: "2026-03-03T10:04:00Z",
+            },
+          ],
+          total: 1,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const timeline = await client.listIssueTimeline("proj-1", "issue-1", {
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(timeline.total).toBe(1);
+    expect(timeline.items).toHaveLength(1);
+    expect(timeline.items[0]?.event_id).toBe("task-step:step-1");
+    expect(timeline.items[0]?.title).toBe("task step · stage_started");
+    expect(timeline.items[0]?.refs.stage).toBe("implement");
+    expect(timeline.steps).toHaveLength(1);
+    expect(timeline.steps?.[0]?.id).toBe("step-1");
+  });
+
+  it("listIssueTimeline 在 items 与 steps 混合响应时保留两类事件", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              event_id: "change:1",
+              kind: "change",
+              created_at: "2026-03-03T10:03:00Z",
+              actor_type: "user",
+              actor_name: "alice",
+              title: "change · updated",
+              body: "issue updated",
+              status: "completed",
+              refs: {
+                issue_id: "issue-1",
+              },
+            },
+          ],
+          steps: [
+            {
+              id: "step-1",
+              issue_id: "issue-1",
+              run_id: "pipe-1",
+              agent_id: "codex",
+              action: "stage_started",
+              stage_id: "implement",
+              input: "",
+              output: "stage started",
+              note: "implement started",
+              ref_id: "ref-1",
+              ref_type: "stage",
+              created_at: "2026-03-03T10:04:00Z",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const timeline = await client.listIssueTimeline("proj-1", "issue-1", {
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(timeline.items).toHaveLength(2);
+    expect(timeline.items.map((item) => item.event_id)).toEqual([
+      "change:1",
+      "task-step:step-1",
+    ]);
+    expect(timeline.steps).toHaveLength(1);
+    expect(timeline.total).toBe(2);
+  });
+
+  it("listIssueTaskSteps 规范化 task step 响应", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          steps: [
+            {
+              id: "step-2",
+              issue_id: "issue-1",
+              run_id: "",
+              agent_id: "",
+              action: "queued",
+              stage_id: "",
+              input: "draft",
+              output: "",
+              note: "",
+              ref_id: "",
+              ref_type: "",
+              created_at: "2026-03-03T10:05:00Z",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const response = await client.listIssueTaskSteps("proj-1", "issue-1");
+
+    expect(response.total).toBe(1);
+    expect(response.steps).toHaveLength(1);
+    expect(response.steps[0]?.id).toBe("step-2");
+    expect(response.steps[0]?.action).toBe("queued");
+  });
+
   it("createIssueFromFiles 命中 issues/from-files 路由", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
