@@ -1,6 +1,7 @@
 package storesqlite
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -183,11 +184,9 @@ func TestRecallHot(t *testing.T) {
 		RunID:     runID,
 		ProjectID: issue.ProjectID,
 		IssueID:   issue.ID,
-		EventType: string(core.EventAgentOutput),
+		EventType: string(core.EventStageFailed),
 		Stage:     string(core.StageImplement),
-		Data: map[string]string{
-			"message": "draft patch ready",
-		},
+		Error:     "compile failed",
 		CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("SaveRunEvent: %v", err)
@@ -213,17 +212,162 @@ func TestRecallHot(t *testing.T) {
 	if !strings.Contains(hot, string(core.StepExecutionStarted)) {
 		t.Fatalf("RecallHot() missing task step action: %q", hot)
 	}
-	if !strings.Contains(hot, string(core.EventAgentOutput)) {
+	if !strings.Contains(hot, string(core.EventStageFailed)) {
 		t.Fatalf("RecallHot() missing run event type: %q", hot)
 	}
-	if !strings.Contains(hot, "draft patch ready") {
-		t.Fatalf("RecallHot() missing run event payload: %q", hot)
+	if !strings.Contains(hot, "compile failed") {
+		t.Fatalf("RecallHot() missing run event error: %q", hot)
 	}
 	if !strings.Contains(hot, "completeness") {
 		t.Fatalf("RecallHot() missing reviewer: %q", hot)
 	}
 	if !strings.Contains(hot, "Looks good") {
 		t.Fatalf("RecallHot() missing review summary: %q", hot)
+	}
+}
+
+func TestRecallHot_FiltersTaskStepsByRun(t *testing.T) {
+	store := setupMemoryTest(t)
+	defer store.Close()
+
+	issue := &core.Issue{
+		ID:        "issue-hot-filter",
+		ProjectID: "proj-mem",
+		Title:     "Hot filter test",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	}
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	if _, err := store.SaveTaskStep(&core.TaskStep{
+		ID:        "step-old",
+		IssueID:   issue.ID,
+		RunID:     "run-old",
+		Action:    core.StepStageFailed,
+		Note:      "old run failure",
+		CreatedAt: time.Now().UTC().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("SaveTaskStep(old): %v", err)
+	}
+	if _, err := store.SaveTaskStep(&core.TaskStep{
+		ID:        "step-new",
+		IssueID:   issue.ID,
+		RunID:     "run-new",
+		Action:    core.StepExecutionStarted,
+		Note:      "current run started",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveTaskStep(new): %v", err)
+	}
+
+	mem := NewSQLiteMemory(store)
+	hot, err := mem.RecallHot(issue.ID, "run-new")
+	if err != nil {
+		t.Fatalf("RecallHot: %v", err)
+	}
+	if strings.Contains(hot, "old run failure") {
+		t.Fatalf("RecallHot() leaked old run task step: %q", hot)
+	}
+	if !strings.Contains(hot, "current run started") {
+		t.Fatalf("RecallHot() missing current run task step: %q", hot)
+	}
+}
+
+func TestRecallHot_IgnoresAgentOutputRunEvents(t *testing.T) {
+	store := setupMemoryTest(t)
+	defer store.Close()
+
+	issue := &core.Issue{
+		ID:        "issue-hot-events",
+		ProjectID: "proj-mem",
+		Title:     "Hot event filtering",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	}
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	runID := "run-hot-events"
+	if err := store.SaveRunEvent(core.RunEvent{
+		RunID:     runID,
+		ProjectID: issue.ProjectID,
+		IssueID:   issue.ID,
+		EventType: string(core.EventAgentOutput),
+		Stage:     string(core.StageImplement),
+		Data: map[string]string{
+			"type":    "prompt",
+			"content": "SECRET PROMPT CONTENT",
+		},
+		CreatedAt: time.Now().UTC().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("SaveRunEvent(prompt): %v", err)
+	}
+	if err := store.SaveRunEvent(core.RunEvent{
+		RunID:     runID,
+		ProjectID: issue.ProjectID,
+		IssueID:   issue.ID,
+		EventType: string(core.EventStageComplete),
+		Stage:     string(core.StageImplement),
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveRunEvent(stage_complete): %v", err)
+	}
+
+	mem := NewSQLiteMemory(store)
+	hot, err := mem.RecallHot(issue.ID, runID)
+	if err != nil {
+		t.Fatalf("RecallHot: %v", err)
+	}
+	if strings.Contains(hot, "SECRET PROMPT CONTENT") || strings.Contains(hot, string(core.EventAgentOutput)) {
+		t.Fatalf("RecallHot() should not include agent output payloads: %q", hot)
+	}
+	if !strings.Contains(hot, string(core.EventStageComplete)) {
+		t.Fatalf("RecallHot() missing safe lifecycle event: %q", hot)
+	}
+}
+
+func TestRecallHot_LimitsReviewHistory(t *testing.T) {
+	store := setupMemoryTest(t)
+	defer store.Close()
+
+	issue := &core.Issue{
+		ID:        "issue-hot-reviews",
+		ProjectID: "proj-mem",
+		Title:     "Hot review limit",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	}
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	for i := 1; i <= 7; i++ {
+		if err := store.SaveReviewRecord(&core.ReviewRecord{
+			IssueID:  issue.ID,
+			Round:    i,
+			Reviewer: "reviewer",
+			Verdict:  "approve",
+			Summary:  "summary round " + strconv.Itoa(i),
+		}); err != nil {
+			t.Fatalf("SaveReviewRecord(%d): %v", i, err)
+		}
+	}
+
+	mem := NewSQLiteMemory(store)
+	hot, err := mem.RecallHot(issue.ID, "")
+	if err != nil {
+		t.Fatalf("RecallHot: %v", err)
+	}
+	if strings.Contains(hot, "summary round 1") || strings.Contains(hot, "summary round 2") {
+		t.Fatalf("RecallHot() should trim old reviews: %q", hot)
+	}
+	for _, want := range []string{"summary round 3", "summary round 7"} {
+		if !strings.Contains(hot, want) {
+			t.Fatalf("RecallHot() missing retained review %q: %q", want, hot)
+		}
 	}
 }
 
@@ -260,10 +404,8 @@ func TestRecallHot_MissingIssueIgnoresRunEvents(t *testing.T) {
 	if err := store.SaveRunEvent(core.RunEvent{
 		RunID:     runID,
 		ProjectID: "proj-mem",
-		EventType: string(core.EventAgentOutput),
-		Data: map[string]string{
-			"message": "should stay hidden",
-		},
+		EventType: string(core.EventStageFailed),
+		Error:     "should stay hidden",
 		CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("SaveRunEvent: %v", err)

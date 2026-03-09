@@ -16,6 +16,8 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
+var errIssueNotFound = errors.New("issue not found")
+
 func New(path string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -804,7 +806,7 @@ func (s *SQLiteStore) GetIssue(id string) (*core.Issue, error) {
 		&issue.ExternalID, &issue.FailPolicy, &issue.ParentID, &closedAt, &issue.CreatedAt, &issue.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("issue %s not found", id)
+		return nil, fmt.Errorf("%w: %s", errIssueNotFound, id)
 	}
 	if err != nil {
 		return nil, err

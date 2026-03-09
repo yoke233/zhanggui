@@ -141,6 +141,68 @@ func TestExecutorExecuteStage_UsesPromptBuilderMemory(t *testing.T) {
 	}
 }
 
+func TestExecutorExecuteStage_ReviewUsesLayeredTemplate(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	worktreePath := t.TempDir()
+	run := setupProjectAndRun(t, store, worktreePath, []core.StageConfig{
+		{
+			Name:           core.StageReview,
+			PromptTemplate: "review",
+			OnFailure:      core.OnFailureAbort,
+		},
+	})
+	run.WorktreePath = worktreePath
+	run.IssueID = "issue-review-memory-1"
+	run.Description = "Review login page"
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+	if err := store.CreateIssue(&core.Issue{
+		ID:        run.IssueID,
+		ProjectID: run.ProjectID,
+		Title:     "Review login flow",
+		Template:  "standard",
+		Status:    core.IssueStatusExecuting,
+	}); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	project, err := store.GetProject(run.ProjectID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+
+	execEngine := newExecutor(store, nil)
+	execEngine.SetMemory(&mockMemory{
+		cold: "## 任务背景\n标题: Review login flow",
+		warm: "## 父任务\n标题: Auth epic",
+		hot:  "## 最近事件\n- review_rejected",
+	})
+
+	var capturedPrompt string
+	execEngine.TestSetStageFunc(func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error {
+		capturedPrompt = prompt
+		return nil
+	})
+
+	if err := execEngine.executeStage(context.Background(), project, run, &run.Stages[0]); err != nil {
+		t.Fatalf("executeStage: %v", err)
+	}
+
+	for _, want := range []string{
+		"Review login flow",
+		"Auth epic",
+		"review_rejected",
+		"你正在对项目 proj 的改动进行代码审查",
+	} {
+		if !strings.Contains(capturedPrompt, want) {
+			t.Fatalf("captured prompt missing %q: %s", want, capturedPrompt)
+		}
+	}
+}
+
 func TestRenderPrompt_LayeredContextTemplates(t *testing.T) {
 	tests := []struct {
 		stage       string
@@ -149,7 +211,7 @@ func TestRenderPrompt_LayeredContextTemplates(t *testing.T) {
 		extraCheck  string
 	}{
 		{stage: "implement", requirement: "Build login page", requireReq: true, extraCheck: "你正在项目 demo 的 worktree"},
-		{stage: "code_review", requirement: "Review login page", requireReq: true, extraCheck: "你正在对项目 demo 的改动进行代码审查"},
+		{stage: "review", requirement: "Review login page", requireReq: true, extraCheck: "你正在对项目 demo 的改动进行代码审查"},
 		{stage: "fixup", requirement: "Fix login page", requireReq: false, extraCheck: "你正在项目 demo 中修复上一轮审查问题"},
 		{stage: "requirements", requirement: "Structure login requirements", requireReq: true, extraCheck: "你正在项目 demo (D:/repo) 中工作"},
 	}

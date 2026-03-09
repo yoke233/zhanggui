@@ -27,12 +27,12 @@ type PromptVars struct {
 }
 
 func RenderPrompt(stage string, vars PromptVars) (string, error) {
-	data, err := promptFS.ReadFile("prompt_templates/" + stage + ".tmpl")
+	data, tmplName, err := readPromptTemplate(stage)
 	if err != nil {
 		return fmt.Sprintf("Execute stage: %s\nRequirements: %s", stage, vars.Requirements), nil
 	}
 
-	tmpl, err := template.New(stage).Parse(string(data))
+	tmpl, err := template.New(tmplName).Parse(string(data))
 	if err != nil {
 		return "", err
 	}
@@ -41,4 +41,27 @@ func RenderPrompt(stage string, vars PromptVars) (string, error) {
 		return "", err
 	}
 	return b.String(), nil
+}
+
+func readPromptTemplate(stage string) ([]byte, string, error) {
+	candidates := promptTemplateCandidates(stage)
+	var lastErr error
+	for _, candidate := range candidates {
+		data, err := promptFS.ReadFile("prompt_templates/" + candidate + ".tmpl")
+		if err == nil {
+			return data, candidate, nil
+		}
+		lastErr = err
+	}
+	return nil, "", lastErr
+}
+
+func promptTemplateCandidates(stage string) []string {
+	trimmed := strings.TrimSpace(stage)
+	switch trimmed {
+	case "review":
+		return []string{"review", "code_review"}
+	default:
+		return []string{trimmed}
+	}
 }

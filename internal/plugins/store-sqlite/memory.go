@@ -1,8 +1,8 @@
 package storesqlite
 
 import (
+	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -14,6 +14,12 @@ var _ core.Memory = (*SQLiteMemory)(nil)
 type SQLiteMemory struct {
 	store *SQLiteStore
 }
+
+const (
+	maxHotTaskSteps = 20
+	maxHotRunEvents = 5
+	maxHotReviews   = 5
+)
 
 // NewSQLiteMemory creates a memory adapter backed by SQLiteStore.
 func NewSQLiteMemory(store *SQLiteStore) *SQLiteMemory {
@@ -91,25 +97,16 @@ func (m *SQLiteMemory) RecallHot(issueID string, runID string) (string, error) {
 	}
 
 	var sections []string
+	runID = strings.TrimSpace(runID)
 
 	steps, err := m.store.ListTaskSteps(issue.ID)
 	if err != nil {
 		return "", err
 	}
-	if len(steps) > 0 {
-		start := max(0, len(steps)-20)
-		lines := make([]string, 0, len(steps[start:]))
-		for _, step := range steps[start:] {
-			line := fmt.Sprintf("- %s %s", step.CreatedAt.UTC().Format(timeOnlyLayout), step.Action)
-			if note := truncateRunes(strings.TrimSpace(step.Note), 120); note != "" {
-				line += ": " + note
-			}
-			lines = append(lines, line)
-		}
+	if lines := summarizeTaskSteps(steps, runID); len(lines) > 0 {
 		sections = append(sections, "## 最近事件\n"+strings.Join(lines, "\n"))
 	}
 
-	runID = strings.TrimSpace(runID)
 	if runID != "" {
 		events, err := m.store.ListRunEvents(runID)
 		if err != nil {
@@ -125,15 +122,7 @@ func (m *SQLiteMemory) RecallHot(issueID string, runID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(reviews) > 0 {
-		lines := make([]string, 0, len(reviews))
-		for _, review := range reviews {
-			line := fmt.Sprintf("- 第%d轮 %s: %s", review.Round, review.Reviewer, review.Verdict)
-			if summary := truncateRunes(strings.TrimSpace(review.Summary), 200); summary != "" {
-				line += " - " + summary
-			}
-			lines = append(lines, line)
-		}
+	if lines := summarizeReviewRecords(reviews); len(lines) > 0 {
 		sections = append(sections, "## 审查记录\n"+strings.Join(lines, "\n"))
 	}
 
@@ -157,12 +146,40 @@ func (m *SQLiteMemory) getIssue(issueID string) (*core.Issue, error) {
 
 	issue, err := m.store.GetIssue(issueID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, errIssueNotFound) || strings.Contains(err.Error(), "not found") {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return issue, nil
+}
+
+func summarizeTaskSteps(steps []core.TaskStep, runID string) []string {
+	if len(steps) == 0 {
+		return nil
+	}
+
+	filtered := make([]core.TaskStep, 0, len(steps))
+	for _, step := range steps {
+		if runID != "" && strings.TrimSpace(step.RunID) != runID {
+			continue
+		}
+		filtered = append(filtered, step)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	start := max(0, len(filtered)-maxHotTaskSteps)
+	lines := make([]string, 0, len(filtered[start:]))
+	for _, step := range filtered[start:] {
+		line := fmt.Sprintf("- %s %s", step.CreatedAt.UTC().Format(timeOnlyLayout), step.Action)
+		if note := truncateRunes(strings.TrimSpace(step.Note), 120); note != "" {
+			line += ": " + note
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func summarizeRunEvents(events []core.RunEvent) []string {
@@ -172,7 +189,7 @@ func summarizeRunEvents(events []core.RunEvent) []string {
 
 	filtered := make([]core.RunEvent, 0, len(events))
 	for _, event := range events {
-		if isRelevantRunEvent(event.EventType) {
+		if isRelevantRunEvent(event) {
 			filtered = append(filtered, event)
 		}
 	}
@@ -180,16 +197,14 @@ func summarizeRunEvents(events []core.RunEvent) []string {
 		return nil
 	}
 
-	start := max(0, len(filtered)-5)
+	start := max(0, len(filtered)-maxHotRunEvents)
 	lines := make([]string, 0, len(filtered[start:]))
 	for _, event := range filtered[start:] {
 		line := fmt.Sprintf("- %s", event.EventType)
 		if stage := strings.TrimSpace(event.Stage); stage != "" {
 			line += fmt.Sprintf(" [%s]", stage)
 		}
-		if payload := stringifyRunEventData(event.Data); payload != "" {
-			line += ": " + truncateRunes(payload, 200)
-		} else if event.Error != "" {
+		if event.Error != "" {
 			line += ": " + truncateRunes(strings.TrimSpace(event.Error), 200)
 		}
 		lines = append(lines, line)
@@ -197,40 +212,40 @@ func summarizeRunEvents(events []core.RunEvent) []string {
 	return lines
 }
 
-func isRelevantRunEvent(eventType string) bool {
-	switch strings.TrimSpace(eventType) {
-	case string(core.EventAgentOutput),
+func summarizeReviewRecords(reviews []core.ReviewRecord) []string {
+	if len(reviews) == 0 {
+		return nil
+	}
+
+	start := max(0, len(reviews)-maxHotReviews)
+	lines := make([]string, 0, len(reviews[start:]))
+	for _, review := range reviews[start:] {
+		line := fmt.Sprintf("- 第%d轮 %s: %s", review.Round, review.Reviewer, review.Verdict)
+		if summary := truncateRunes(strings.TrimSpace(review.Summary), 200); summary != "" {
+			line += " - " + summary
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func isRelevantRunEvent(event core.RunEvent) bool {
+	switch strings.TrimSpace(event.EventType) {
+	case string(core.EventStageStart),
+		string(core.EventStageComplete),
+		string(core.EventStageFailed),
+		string(core.EventHumanRequired),
 		string(core.EventRunStarted),
 		string(core.EventRunUpdate),
 		string(core.EventRunCompleted),
+		string(core.EventRunDone),
 		string(core.EventRunFailed),
-		string(core.EventStageFailed):
+		string(core.EventIssueMergeConflict),
+		string(core.EventMergeFailed):
 		return true
 	default:
 		return false
 	}
-}
-
-func stringifyRunEventData(data map[string]string) string {
-	if len(data) == 0 {
-		return ""
-	}
-
-	keys := make([]string, 0, len(data))
-	for key := range data {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		value := strings.TrimSpace(data[key])
-		if value == "" {
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", key, value))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func truncateRunes(s string, maxLen int) string {
