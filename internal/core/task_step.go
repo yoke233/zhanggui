@@ -39,6 +39,13 @@ const (
 	StepRunFailed      TaskStepAction = "run_failed"
 )
 
+// Gate-level actions (do not change Issue.Status).
+const (
+	StepGateCheck  TaskStepAction = "gate_check"
+	StepGatePassed TaskStepAction = "gate_passed"
+	StepGateFailed TaskStepAction = "gate_failed"
+)
+
 var actionToStatus = map[TaskStepAction]IssueStatus{
 	StepCreated:            IssueStatusDraft,
 	StepSubmittedForReview: IssueStatusReviewing,
@@ -65,6 +72,7 @@ var validTaskStepActions = map[TaskStepAction]struct{}{
 	StepDecomposed: {}, StepSuperseded: {},
 	StepRunCreated: {}, StepRunStarted: {}, StepStageStarted: {},
 	StepStageCompleted: {}, StepStageFailed: {}, StepRunCompleted: {}, StepRunFailed: {},
+	StepGateCheck: {}, StepGatePassed: {}, StepGateFailed: {},
 }
 
 // DeriveIssueStatus returns the IssueStatus this action implies.

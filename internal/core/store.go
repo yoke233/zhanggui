@@ -98,6 +98,16 @@ type Store interface {
 	SaveReviewRecord(r *ReviewRecord) error
 	GetReviewRecords(issueID string) ([]ReviewRecord, error)
 
+	// Decision versioning.
+	SaveDecision(d *Decision) error
+	GetDecision(id string) (*Decision, error)
+	ListDecisions(issueID string) ([]Decision, error)
+
+	// Gate checks.
+	SaveGateCheck(gc *GateCheck) error
+	GetGateChecks(issueID string) ([]GateCheck, error)
+	GetLatestGateCheck(issueID, gateName string) (*GateCheck, error)
+
 	AppendChatRunEvent(event ChatRunEvent) error
 	ListChatRunEvents(sessionID string) ([]ChatRunEvent, error)
 
