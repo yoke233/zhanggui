@@ -61,13 +61,14 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 		SessionID: sessionID,
 		Issues: []CreateIssueSpec{
 			{
-				ID:        "issue-manager-create",
-				Title:     "Fill release regression steps",
-				Body:      "Ensure full regression checklist before release.",
-				Labels:    []string{"release", "qa"},
-				DependsOn: []string{" issue-prep ", "issue-prep", ""},
-				Blocks:    []string{"issue-deploy", "issue-deploy"},
-				Priority:  3,
+				ID:           "issue-manager-create",
+				Title:        "Fill release regression steps",
+				Body:         "Ensure full regression checklist before release.",
+				Labels:       []string{"release", "qa"},
+				DependsOn:    []string{" issue-prep ", "issue-prep", ""},
+				Blocks:       []string{"issue-deploy", "issue-deploy"},
+				Priority:     3,
+				ChildrenMode: core.ChildrenModeSequential,
 			},
 		},
 	})
@@ -94,6 +95,9 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	if issue.FailPolicy != core.FailBlock {
 		t.Fatalf("created fail_policy = %q, want %q", issue.FailPolicy, core.FailBlock)
 	}
+	if issue.ChildrenMode != core.ChildrenModeSequential {
+		t.Fatalf("created children_mode = %q, want %q", issue.ChildrenMode, core.ChildrenModeSequential)
+	}
 	if got, want := issue.DependsOn, []string{"issue-prep"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("created depends_on = %#v, want %#v", got, want)
 	}
@@ -113,6 +117,9 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	}
 	if persisted.SessionID != sessionID {
 		t.Fatalf("persisted session_id = %q, want %q", persisted.SessionID, sessionID)
+	}
+	if persisted.ChildrenMode != core.ChildrenModeSequential {
+		t.Fatalf("persisted children_mode = %q, want %q", persisted.ChildrenMode, core.ChildrenModeSequential)
 	}
 	if got, want := persisted.DependsOn, []string{"issue-prep"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("persisted depends_on = %#v, want %#v", got, want)

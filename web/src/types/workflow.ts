@@ -112,6 +112,7 @@ export interface Issue {
   version: number;
   superseded_by: string;
   parent_id: string;
+  children_mode: "" | "parallel" | "sequential";
   external_id: string;
   submitted_by: string;
   merge_retries: number;

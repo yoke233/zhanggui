@@ -127,6 +127,7 @@ export interface ProposalItem {
   body: string;
   labels: string[];
   depends_on: string[];
+  children_mode?: "parallel" | "sequential";
   template?: string;
   auto_merge?: boolean;
 }

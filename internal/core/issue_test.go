@@ -78,6 +78,36 @@ func TestIssueValidate_AllowsMergingStatus(t *testing.T) {
 	}
 }
 
+func TestIssueValidate_ChildrenMode(t *testing.T) {
+	cases := []struct {
+		name         string
+		childrenMode ChildrenMode
+		wantErr      bool
+	}{
+		{name: "empty", childrenMode: "", wantErr: false},
+		{name: "parallel", childrenMode: ChildrenModeParallel, wantErr: false},
+		{name: "sequential", childrenMode: ChildrenModeSequential, wantErr: false},
+		{name: "invalid", childrenMode: ChildrenMode("serial"), wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issue := Issue{
+				Title:        "children mode validate",
+				Template:     "standard",
+				ChildrenMode: tc.childrenMode,
+			}
+			err := issue.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for children mode %q", tc.childrenMode)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for children mode %q: %v", tc.childrenMode, err)
+			}
+		})
+	}
+}
+
 func TestIssueJSON_MergeRetriesRoundTrip(t *testing.T) {
 	issue := Issue{
 		ID:                 "issue-20260305-a1b2c3d4",

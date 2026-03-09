@@ -19,13 +19,14 @@ type DecomposeProposal struct {
 
 // ProposalItem is one node in the proposed DAG.
 type ProposalItem struct {
-	TempID    string   `json:"temp_id"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Labels    []string `json:"labels"`
-	DependsOn []string `json:"depends_on"`
-	Template  string   `json:"template,omitempty"`
-	AutoMerge *bool    `json:"auto_merge,omitempty"`
+	TempID       string       `json:"temp_id"`
+	Title        string       `json:"title"`
+	Body         string       `json:"body"`
+	Labels       []string     `json:"labels"`
+	DependsOn    []string     `json:"depends_on"`
+	ChildrenMode ChildrenMode `json:"children_mode,omitempty"`
+	Template     string       `json:"template,omitempty"`
+	AutoMerge    *bool        `json:"auto_merge,omitempty"`
 }
 
 func NewProposalID() string {
@@ -46,6 +47,11 @@ func (p DecomposeProposal) Validate() error {
 		}
 		if strings.TrimSpace(item.Title) == "" {
 			return fmt.Errorf("proposal item %q missing title", id)
+		}
+		if item.ChildrenMode != "" {
+			if err := item.ChildrenMode.Validate(); err != nil {
+				return fmt.Errorf("proposal item %q %w", id, err)
+			}
 		}
 		if _, exists := ids[id]; exists {
 			return fmt.Errorf("proposal item %q duplicated", id)

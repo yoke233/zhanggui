@@ -57,7 +57,7 @@ vi.mock("../components/IssueFlowTree", () => ({
 }));
 
 const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
-  return {
+  const issue: ApiIssue = {
     id: "issue-1",
     project_id: "proj-1",
     session_id: "chat-1",
@@ -71,6 +71,7 @@ const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
     priority: 0,
     template: "standard",
     auto_merge: false,
+    children_mode: "",
     state: "open",
     status: "draft",
     run_id: "",
@@ -86,6 +87,8 @@ const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
     updated_at: "2026-03-01T10:00:00.000Z",
     ...overrides,
   };
+  issue.children_mode = overrides?.children_mode ?? issue.children_mode;
+  return issue;
 };
 
 const createMockApiClient = (): ApiClient => {
@@ -1120,6 +1123,46 @@ describe("DagPreview", () => {
       expect(
         screen.getByRole("button", { name: "创建 1 个 Issue" }).hasAttribute("disabled"),
       ).toBe(false);
+    });
+  });
+
+  it("执行模式切换为顺序时，confirm 会附带 children_mode=sequential", async () => {
+    const { default: RealDagPreview } = await vi.importActual<typeof import("../components/DagPreview")>(
+      "../components/DagPreview",
+    );
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <RealDagPreview
+        items={[
+          {
+            temp_id: "A",
+            title: "设计 schema",
+            body: "",
+            labels: [],
+            depends_on: [],
+          },
+        ]}
+        summary="拆解摘要"
+        onConfirm={onConfirm}
+        onCancel={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "顺序" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建 1 个 Issue" }));
+
+    await waitFor(() => {
+      expect(onConfirm).toHaveBeenCalledWith([
+        {
+          temp_id: "A",
+          title: "设计 schema",
+          body: "",
+          labels: [],
+          depends_on: [],
+          children_mode: "sequential",
+        },
+      ]);
     });
   });
 });

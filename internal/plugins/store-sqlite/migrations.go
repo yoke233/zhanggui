@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS issues (
     superseded_by     TEXT NOT NULL DEFAULT '',
     external_id       TEXT,
     fail_policy       TEXT NOT NULL DEFAULT 'block',
+    children_mode     TEXT NOT NULL DEFAULT '',
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     closed_at         DATETIME
@@ -249,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_task_steps_run ON task_steps(run_id, created_at);
 
 // schemaVersion tracks which migrations have been applied.
 // Bump this when adding new migrations.
-const schemaVersion = 13
+const schemaVersion = 14
 
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
@@ -320,18 +321,23 @@ func applyMigrations(db *sql.DB) error {
 		}
 	}
 	if currentVersion < 11 {
-		if err := migrateAddDecisions(db); err != nil {
-			return fmt.Errorf("migration v11 (decisions): %w", err)
+		if err := migrateAddChildrenMode(db); err != nil {
+			return fmt.Errorf("migration v11 (issues.children_mode): %w", err)
 		}
 	}
 	if currentVersion < 12 {
-		if err := migrateAddGateChecks(db); err != nil {
-			return fmt.Errorf("migration v12 (gate_checks): %w", err)
+		if err := migrateAddDecisions(db); err != nil {
+			return fmt.Errorf("migration v12 (decisions): %w", err)
 		}
 	}
 	if currentVersion < 13 {
+		if err := migrateAddGateChecks(db); err != nil {
+			return fmt.Errorf("migration v13 (gate_checks): %w", err)
+		}
+	}
+	if currentVersion < 14 {
 		if err := migrateHardenGateChecks(db); err != nil {
-			return fmt.Errorf("migration v13 (gate_checks constraints): %w", err)
+			return fmt.Errorf("migration v14 (gate_checks constraints): %w", err)
 		}
 	}
 	if err := migrateBackfillLegacyColumns(db); err != nil {
@@ -597,6 +603,7 @@ func migrateBackfillLegacyColumns(db *sql.DB) error {
 		{name: "checkpoints.agent_session_id", run: migrateAddCheckpointAgentSessionID},
 		{name: "issue_attachments.source_url", run: migrateAddAttachmentURLFields},
 		{name: "chat_sessions.agent_name", run: migrateAddChatSessionAgentName},
+		{name: "issues.children_mode", run: migrateAddChildrenMode},
 	}
 
 	for _, backfill := range backfills {
@@ -746,6 +753,20 @@ func migrateAddChatSessionAgentName(db *sql.DB) error {
 	}
 	_, err = db.Exec(`ALTER TABLE chat_sessions ADD COLUMN agent_name TEXT NOT NULL DEFAULT ''`)
 	return err
+}
+
+func migrateAddChildrenMode(db *sql.DB) error {
+	has, err := hasColumn(db, "issues", "children_mode")
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE issues ADD COLUMN children_mode TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add children_mode column: %w", err)
+	}
+	return nil
 }
 
 func hasTable(db *sql.DB, table string) (bool, error) {

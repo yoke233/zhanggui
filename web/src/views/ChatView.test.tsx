@@ -60,6 +60,40 @@ vi.mock("../components/GitStatusPanel", () => ({
   default: () => <div>GitStatusPanelMock</div>,
 }));
 
+vi.mock("../components/DagPreview", () => ({
+  default: ({
+    items,
+    loading,
+    onConfirm,
+    onCancel,
+  }: {
+    items: Array<Record<string, unknown>>;
+    loading?: boolean;
+    onConfirm: (nextItems: Array<Record<string, unknown>>) => void | Promise<void>;
+    onCancel: () => void;
+  }) => (
+    <div data-testid="chat-dag-preview">
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => {
+          void onConfirm(
+            items.map((item) => ({
+              ...item,
+              children_mode: "sequential",
+            })),
+          );
+        }}
+      >
+        confirm dag from chat
+      </button>
+      <button type="button" onClick={onCancel}>
+        cancel dag from chat
+      </button>
+    </div>
+  ),
+}));
+
 const buildIssue = (id: string): ApiIssue => ({
   id,
   project_id: "proj-1",
@@ -80,6 +114,7 @@ const buildIssue = (id: string): ApiIssue => ({
   version: 1,
   superseded_by: "",
   parent_id: "",
+  children_mode: "",
   external_id: "",
   submitted_by: "",
   merge_retries: 0,
@@ -141,6 +176,24 @@ const createMockApiClient = (): ApiClient => {
   });
   const getChat = vi.fn().mockResolvedValue(buildChatSession());
   const createIssue = vi.fn().mockResolvedValue(buildIssue("plan-1"));
+  const decompose = vi.fn().mockResolvedValue({
+    proposal_id: "prop-chat-1",
+    project_id: "proj-1",
+    prompt: "默认拆解提示",
+    summary: "拆解摘要",
+    issues: [
+      {
+        temp_id: "A",
+        title: "子任务 A",
+        body: "实现 A",
+        labels: ["backend"],
+        depends_on: [],
+      },
+    ],
+  });
+  const confirmDecompose = vi.fn().mockResolvedValue({
+    created_issues: [{ temp_id: "A", issue_id: "issue-a" }],
+  });
   const createIssueFromFiles = vi
     .fn()
     .mockResolvedValue(buildIssue("plan-files-1"));
@@ -189,6 +242,8 @@ const createMockApiClient = (): ApiClient => {
     listChatRunEvents,
     getChatEventGroup,
     createIssue,
+    decompose,
+    confirmDecompose,
     createIssueFromFiles,
     getRepoTree,
     getRepoStatus,
@@ -1887,5 +1942,47 @@ describe("ChatView", () => {
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe(
       "model-2",
     );
+  });
+
+  it("DAG 拆解确认时会把 children_mode 透传到 confirmDecompose 请求体", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(
+      <ChatView
+        apiClient={apiClient}
+        wsClient={wsHarness.wsClient}
+        projectId="proj-1"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "拆解一个顺序执行任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(apiClient.decompose).toHaveBeenCalledWith("proj-1", {
+        prompt: "拆解一个顺序执行任务",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag from chat" }));
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledWith("proj-1", {
+        proposal_id: "prop-chat-1",
+        issues: [
+          {
+            temp_id: "A",
+            title: "子任务 A",
+            body: "实现 A",
+            labels: ["backend"],
+            depends_on: [],
+            children_mode: "sequential",
+          },
+        ],
+      });
+    });
   });
 });

@@ -7,8 +7,8 @@ func TestProposalValidate(t *testing.T) {
 		ID:      "prop-20260309-abcd",
 		Summary: "用户注册系统",
 		Items: []ProposalItem{
-			{TempID: "A", Title: "设计 DB schema", Body: "...", DependsOn: nil},
-			{TempID: "B", Title: "实现注册 API", Body: "...", DependsOn: []string{"A"}},
+			{TempID: "A", Title: "设计 DB schema", Body: "...", DependsOn: nil, ChildrenMode: ChildrenModeParallel},
+			{TempID: "B", Title: "实现注册 API", Body: "...", DependsOn: []string{"A"}, ChildrenMode: ChildrenModeSequential},
 		},
 	}
 	if err := valid.Validate(); err != nil {
@@ -36,6 +36,20 @@ func TestProposalValidate(t *testing.T) {
 	}
 	if err := badDep.Validate(); err == nil {
 		t.Fatal("expected error for missing dependency")
+	}
+}
+
+func TestProposalValidate_RejectsInvalidChildrenMode(t *testing.T) {
+	proposal := DecomposeProposal{
+		ID:      "prop-children-mode",
+		Summary: "test",
+		Items: []ProposalItem{
+			{TempID: "A", Title: "task A", ChildrenMode: ChildrenMode("serial")},
+		},
+	}
+
+	if err := proposal.Validate(); err == nil {
+		t.Fatal("expected error for invalid children mode")
 	}
 }
 

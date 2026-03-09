@@ -1,6 +1,6 @@
 # v3 演化路线图 — 功能清单与优先级
 
-> 日期: 2026-03-09
+> 日期: 2026-03-09（最后更新: 2026-03-09 evening）
 >
 > 基于 v3 架构设计文档，对照当前 ai-workflow 项目实现状态，梳理全部功能项并规划优先级。
 
@@ -19,15 +19,18 @@
 ## 一、总览
 
 ```
- 已完成 ████████████░░░░░░░░░░░░░░░░░░░░ 进行中 ██░░ 待做
+ 已完成 ██████████████████████░░░░░░░░░░░ 进行中 ███░ 待做
 ```
 
 | 类别 | 已完成 | 进行中 | 待做 |
 |------|--------|--------|------|
 | 核心链路 | 6 | 1 | 0 |
-| 可靠性 | 1 | 0 | 3 |
-| 决策与门禁 | 0 | 0 | 2 |
-| 上下文与记忆 | 0 | 0 | 3 |
+| 可靠性 | 3 | 0 | 1 |
+| 决策与门禁 | 1 | 0 | 1 |
+| 上下文与记忆 | 2 | 0 | 1 |
+| Issue 模型增强 | 0 | 0 | 4 |
+| 通信层 | 0 | 0 | 3 |
+| Agent 能力 | 0 | 0 | 3 |
 | 自进化 | 0 | 0 | 4 |
 | 生产化 | 2 | 0 | 4 |
 
@@ -52,23 +55,23 @@
 | # | 功能 | 状态 | v3 设计 | 优先级 | 说明 |
 |---|------|------|---------|--------|------|
 | R1 | 错误分类 | ✅ 完成 | transient/permanent/need_help 三类型 | — | Run 失败有 conclusion 区分 |
-| R2 | Watchdog 巡检 | ❌ 待做 | 定时扫描 stuck issue/run，超时升级 | **P1** | 解决死锁/僵尸 run，直接影响系统可用性 |
-| R3 | Scheduler 信号量修复 | ❌ 待做 | run 失败/取消后释放 slot | **P1** | 已知 bug，不修会导致调度卡死 |
+| R2 | Watchdog 巡检 | ✅ 完成 | 定时扫描 stuck issue/run，超时升级 | — | `01e1d51` scheduler health checks + recovery loop |
+| R3 | Scheduler 信号量修复 | ✅ 完成 | run 失败/取消后释放 slot | — | `8768ea0` panic recovery 防泄漏 |
 | R4 | 幂等消息处理 | ❌ 待做 | idempotency_key + at-least-once 投递 | P3 | 当前 EventBus 是 in-process，暂无丢消息风险 |
 
 ### 决策与门禁（v3 核心理念）
 
 | # | 功能 | 状态 | v3 设计 | 优先级 | 说明 |
 |---|------|------|---------|--------|------|
-| D1 | Decision 版本化 | ❌ 待做 | 记录每个 AI 决策的 prompt/model/reasoning，可追溯 | **P1** | 基础设施性质，Gate 依赖它 |
-| D2 | Gate 门禁 | ❌ 待做 | 替代固定 ReviewGate，支持 auto/owner_review/peer_review/vote，可串联多道 | **P2** | 依赖 D1，验收条件写进 prompt 提升质量 |
+| D1 | Decision 版本化 | ✅ 完成 | 记录每个 AI 决策的 prompt/model/reasoning，可追溯 | — | `f57d220` Decision model + `df23f12` 后端基础 + `a5bd848` 审核决策串联 + `4f02e09` decompose/stage 决策追踪 |
+| D2 | Gate 门禁 | ❌ 待做 | 替代固定 ReviewGate，支持 auto/owner_review/peer_review/vote，可串联多道 | **P1** | D1 已就绪，Gate 是下一个解锁项 |
 
 ### 上下文与记忆（v3 Prompt 质量核心）
 
 | # | 功能 | 状态 | v3 设计 | 优先级 | 说明 |
 |---|------|------|---------|--------|------|
-| M1 | PromptBuilder 分层拼装 | ❌ 待做 | 按变化频率排列 prompt（冷→温→热→当前），最大化 prefix cache 命中率 | **P2** | 直接提升 prompt 质量 + 省钱 |
-| M2 | 三级记忆 (冷/温/热) | ❌ 待做 | 应用层分层缓存 + 版本号传播失效 | P3 | 依赖 M1，初期取最近 N 条够用 |
+| M1 | PromptBuilder 分层拼装 | ✅ 完成 | 冷→温→热三层注入 prompt，4 个模板全部改造，prefix cache 友好排列 | — | `7529b6b` prompt builder + 模板改造 + executor 集成，27 个测试全通过 |
+| M2 | SQLite 记忆召回 | ✅ 完成 | 冷(Issue背景)/温(父兄弟任务)/热(TaskStep+RunEvents+Reviews) 三层 | — | `1d4648f` SQLiteMemory 269 行 + `bfc95ac` bootstrap 自动注入，11 个测试全通过 |
 | M3 | Memory Compact | ❌ 待做 | 超过阈值时压缩历史为摘要，fingerprint 控制冷层缓存 | P3 | 长期任务才需要 |
 
 ### Issue 模型增强（v3 Task 字段）
@@ -120,26 +123,24 @@
 
 ## 三、优先级排序与推荐执行顺序
 
-### P1 — 立即做（补齐可靠性 + 决策基础）
+### P1 — 立即做 ✅ 已全部完成
 
 ```
-R3 Scheduler 信号量修复    简单 bug fix，不修会卡死
-R2 Watchdog 巡检           解决僵尸 run/stuck issue
-D1 Decision 版本化         v3 核心理念，Gate/Analyst 等后续全部依赖
+R3 Scheduler 信号量修复    ✅ 8768ea0
+R2 Watchdog 巡检           ✅ 01e1d51
+D1 Decision 版本化         ✅ f57d220 + df23f12 + a5bd848
 ```
 
-**依赖关系:** R3 独立 | R2 独立 | D1 独立，三者可并行
-
-### P2 — 紧跟其后（门禁 + Prompt 质量 + Issue 增强）
+### 当前优先级 — 下一步做（门禁 + Prompt 质量 + Issue 增强）
 
 ```
-D2 Gate 门禁               替代固定 ReviewGate，依赖 D1
+D2 Gate 门禁               替代固定 ReviewGate，D1 已就绪      ← 最高优先
+C7 Issue DAG 拆解收尾      decompose 流程加固中（95%）
 I2 acceptance_criteria      Gate 的验收条件，写进 prompt
 I4 children_mode            DAG 之后的自然延伸
-M1 PromptBuilder 分层拼装   直接提升 prompt 质量 + 省钱
 ```
 
-**依赖关系:** D1 → D2 → I2 | C7 → I4 | M1 独立
+**依赖关系:** D1✅ → D2 → I2 | C7🔧 → I4 | M1✅ M2✅ 已完成
 
 ### P3 — 按需推进（丰富功能）
 
@@ -175,22 +176,22 @@ P6 企业 IM 通知
 ## 四、依赖关系图
 
 ```
-C7(DAG 拆解, 进行中)
+C7(DAG 拆解, 🔧进行中)
   └→ I4(children_mode)
 
-R3(信号量修复) ──┐
-R2(Watchdog)   ──┤── 可靠性基础
-                 │
-D1(Decision)  ──┤── 决策基础
-  └→ D2(Gate) ──┤
-      └→ I2   ──┘
+R3(信号量修复) ✅ ──┐
+R2(Watchdog)   ✅ ──┤── 可靠性基础 ✅
+                    │
+D1(Decision)   ✅ ──┤── 决策基础 ✅
+  └→ D2(Gate)  ❌ ──┤   ← 下一个重点
+      └→ I2    ❌ ──┘
       └→ E3(授权衰减)
 
-M1(PromptBuilder)
-  ├→ M2(三级记忆) → M3(Compact)
+M1(PromptBuilder)  ✅
+  ├→ M2(记忆召回)  ✅ → M3(Compact)
   └→ T1(Thread) → T2(结晶) → T3(群聊)
 
-D1(Decision) → A2(Prompt 即 Artifact)
+D1(Decision) ✅ → A2(Prompt 即 Artifact)
 E1(Analyst) → E2(Pattern)
 ```
 
@@ -201,9 +202,11 @@ E1(Analyst) → E2(Pattern)
 | v3 Phase | 原始目标 | 我们的做法 |
 |----------|---------|-----------|
 | Phase 0 | 最小闭环 | ✅ 已超额完成（含 Web UI、GitHub 集成） |
-| Phase 1 | Reviewer + 动态创建 + Validator | ⚠️ Reviewer ✅ / 动态创建 P4 / Validator → Decision 版本化 P1 |
-| Phase 2 | 子任务拆分 + Merger + Watchdog | ⚠️ 拆分 🔧 / Merger ✅ / Watchdog P1 |
+| Phase 1 | Reviewer + 动态创建 + Validator | ✅ Reviewer ✅ / Decision 版本化 ✅ / 动态创建 P4 |
+| Phase 2 | 子任务拆分 + Merger + Watchdog | ⚠️ DAG 拆分 🔧收尾中 / Merger ✅ / Watchdog ✅ |
 | Phase 3 | Analyst + Pattern + 授权衰减 + Dashboard | ❌ 全部 P4 远期 |
-| Phase 4 | 三级记忆 + PG + Docker + 企业 IM | ⚠️ 记忆 P2-P3 / 其余 P4 |
+| Phase 4 | 三级记忆 + PG + Docker + 企业 IM | ⚠️ PromptBuilder+Memory ✅已完成(含冷温热三层) / Memory Compact+PG+Docker P4 |
 
 **我们的演化路径不是照搬 v3 Phase 顺序，而是按「实用价值 × 解锁后续」的乘积排序。** v3 的 Phase 是从零建系统的路线，我们在一个已有完整链路的项目上渐进注入 v3 理念。
+
+Phase 0-1 已基本达成，Phase 2 仅差 DAG 拆解收尾。当前瓶颈转移到 **Gate 门禁（D2）** — 所有前置依赖（Decision、Reviewer、Watchdog）均已就位。

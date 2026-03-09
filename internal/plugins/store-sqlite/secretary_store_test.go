@@ -211,6 +211,9 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 	if createdIssue.Status != core.IssueStatusDraft {
 		t.Fatalf("expected draft issue status, got %s", createdIssue.Status)
 	}
+	if createdIssue.ChildrenMode != core.ChildrenModeParallel {
+		t.Fatalf("expected default children_mode=%q, got %q", core.ChildrenModeParallel, createdIssue.ChildrenMode)
+	}
 
 	issue.Status = core.IssueStatusExecuting
 	issue.RunID = Run.ID

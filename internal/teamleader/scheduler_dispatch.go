@@ -297,7 +297,7 @@ func (s *DepScheduler) markReadyByProfileQueueLocked(rs *runningSession) error {
 	return nil
 }
 
-func areDependenciesMet(dependsOn []string, lookup func(string) *core.Issue) bool {
+func areDependenciesMet(dependsOn []string, failPolicy core.FailurePolicy, lookup func(string) *core.Issue) bool {
 	if len(dependsOn) == 0 {
 		return true
 	}
@@ -307,17 +307,104 @@ func areDependenciesMet(dependsOn []string, lookup func(string) *core.Issue) boo
 			continue
 		}
 		dep := lookup(trimmed)
-		if dep == nil || dep.Status != core.IssueStatusDone {
+		if dep == nil {
+			return false
+		}
+		if dep.Status == core.IssueStatusDone {
+			continue
+		}
+		switch dep.Status {
+		case core.IssueStatusFailed, core.IssueStatusAbandoned:
+			if failPolicy == core.FailSkip {
+				continue
+			}
+			return false
+		default:
 			return false
 		}
 	}
 	return true
 }
 
+func (s *DepScheduler) effectiveDependsOn(rs *runningSession, issue *core.Issue) []string {
+	if issue == nil {
+		return nil
+	}
+	if rs == nil || strings.TrimSpace(issue.ParentID) == "" {
+		return issue.DependsOn
+	}
+
+	parent := rs.IssueByID[issue.ParentID]
+	if parent == nil {
+		storedParent, err := s.store.GetIssue(issue.ParentID)
+		if err == nil {
+			parent = storedParent
+		}
+	}
+	if parent == nil || parent.ChildrenMode != core.ChildrenModeSequential {
+		return issue.DependsOn
+	}
+
+	siblings := make([]*core.Issue, 0)
+	for _, candidate := range rs.IssueByID {
+		if candidate == nil || candidate.ParentID != issue.ParentID {
+			continue
+		}
+		siblings = append(siblings, candidate)
+	}
+	if len(siblings) == 0 {
+		storedSiblings, err := s.store.GetChildIssues(issue.ParentID)
+		if err != nil {
+			return issue.DependsOn
+		}
+		for i := range storedSiblings {
+			sibling := storedSiblings[i]
+			siblings = append(siblings, &sibling)
+		}
+	}
+	if len(siblings) <= 1 {
+		return issue.DependsOn
+	}
+
+	sort.SliceStable(siblings, func(i, j int) bool {
+		if siblings[i].Priority != siblings[j].Priority {
+			return siblings[i].Priority > siblings[j].Priority
+		}
+		if !siblings[i].CreatedAt.Equal(siblings[j].CreatedAt) {
+			return siblings[i].CreatedAt.Before(siblings[j].CreatedAt)
+		}
+		return siblings[i].ID < siblings[j].ID
+	})
+
+	previousID := ""
+	for i, sibling := range siblings {
+		if sibling == nil || sibling.ID != issue.ID {
+			continue
+		}
+		if i > 0 && siblings[i-1] != nil {
+			previousID = strings.TrimSpace(siblings[i-1].ID)
+		}
+		break
+	}
+	if previousID == "" {
+		return issue.DependsOn
+	}
+	for _, depID := range issue.DependsOn {
+		if strings.TrimSpace(depID) == previousID {
+			return issue.DependsOn
+		}
+	}
+
+	effective := append([]string{}, issue.DependsOn...)
+	effective = append(effective, previousID)
+	return effective
+}
+
 func (s *DepScheduler) dependenciesSatisfiedLocked(rs *runningSession, issue *core.Issue) (bool, error) {
 	if issue == nil {
 		return false, nil
 	}
+	effectiveDependsOn := s.effectiveDependsOn(rs, issue)
 	lookup := func(id string) *core.Issue {
 		if dep := rs.IssueByID[id]; dep != nil {
 			return dep
@@ -328,7 +415,7 @@ func (s *DepScheduler) dependenciesSatisfiedLocked(rs *runningSession, issue *co
 		}
 		return dep
 	}
-	for _, depID := range issue.DependsOn {
+	for _, depID := range effectiveDependsOn {
 		trimmed := strings.TrimSpace(depID)
 		if trimmed == "" || rs.IssueByID[trimmed] != nil {
 			continue
@@ -337,7 +424,7 @@ func (s *DepScheduler) dependenciesSatisfiedLocked(rs *runningSession, issue *co
 			return false, err
 		}
 	}
-	return areDependenciesMet(issue.DependsOn, lookup), nil
+	return areDependenciesMet(effectiveDependsOn, issue.FailPolicy, lookup), nil
 }
 
 func (s *DepScheduler) tryAcquireSlot() bool {

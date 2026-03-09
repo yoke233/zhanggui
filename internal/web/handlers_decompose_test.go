@@ -93,19 +93,20 @@ func persistStubCreatedIssues(t *testing.T, store core.Store, input teamleader.C
 	out := make([]*core.Issue, 0, len(input.Issues))
 	for _, spec := range input.Issues {
 		issue := &core.Issue{
-			ID:         spec.ID,
-			ProjectID:  input.ProjectID,
-			SessionID:  input.SessionID,
-			Title:      spec.Title,
-			Body:       spec.Body,
-			Labels:     append([]string(nil), spec.Labels...),
-			DependsOn:  append([]string(nil), spec.DependsOn...),
-			Blocks:     append([]string(nil), spec.Blocks...),
-			Template:   "standard",
-			AutoMerge:  false,
-			State:      core.IssueStateOpen,
-			Status:     core.IssueStatusDraft,
-			FailPolicy: core.FailBlock,
+			ID:           spec.ID,
+			ProjectID:    input.ProjectID,
+			SessionID:    input.SessionID,
+			Title:        spec.Title,
+			Body:         spec.Body,
+			Labels:       append([]string(nil), spec.Labels...),
+			DependsOn:    append([]string(nil), spec.DependsOn...),
+			Blocks:       append([]string(nil), spec.Blocks...),
+			Template:     "standard",
+			AutoMerge:    false,
+			ChildrenMode: spec.ChildrenMode,
+			State:        core.IssueStateOpen,
+			Status:       core.IssueStatusDraft,
+			FailPolicy:   core.FailBlock,
 		}
 		if spec.Template != "" {
 			issue.Template = spec.Template
@@ -316,6 +317,12 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 			if len(input.Issues) != 2 {
 				t.Fatalf("issues len = %d", len(input.Issues))
 			}
+			if input.Issues[0].ChildrenMode != core.ChildrenModeSequential {
+				t.Fatalf("issue A children_mode = %q", input.Issues[0].ChildrenMode)
+			}
+			if input.Issues[1].ChildrenMode != core.ChildrenModeParallel {
+				t.Fatalf("issue B children_mode = %q", input.Issues[1].ChildrenMode)
+			}
 			if got := input.Issues[0].Blocks; len(got) != 1 || got[0] != "issue-b" {
 				t.Fatalf("resolved blocks = %#v", got)
 			}
@@ -340,8 +347,8 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 	rawBody, _ := json.Marshal(map[string]any{
 		"proposal_id": "prop-1",
 		"issues": []map[string]any{
-			{"temp_id": "A", "title": "?? schema", "body": "", "depends_on": []string{}, "labels": []string{}},
-			{"temp_id": "B", "title": "?? API", "body": "", "depends_on": []string{"A"}, "labels": []string{}},
+			{"temp_id": "A", "title": "?? schema", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "sequential"},
+			{"temp_id": "B", "title": "?? API", "body": "", "depends_on": []string{"A"}, "labels": []string{}, "children_mode": "parallel"},
 		},
 		"issue_ids": map[string]string{"A": "issue-a", "B": "issue-b"},
 	})

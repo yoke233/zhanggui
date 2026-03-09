@@ -13,6 +13,8 @@ import type {
   ApiIssue,
   ChatRunEvent,
   ChatSessionStatus,
+  DecomposeProposal,
+  ProposalItem,
   RunCheckpoint,
 } from "../types/api";
 import type { WsClient } from "../lib/wsClient";
@@ -28,6 +30,7 @@ import FileTree from "../components/FileTree";
 import GitStatusPanel from "../components/GitStatusPanel";
 import CommandPalette from "../components/CommandPalette";
 import ConfigSelector from "../components/ConfigSelector";
+import DagPreview from "../components/DagPreview";
 import { TuiMessage } from "../components/TuiMessage";
 import { TuiActivityBlock } from "../components/TuiActivityBlock";
 import { TuiMarkdown } from "../components/TuiMarkdown";
@@ -759,10 +762,15 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [wakingStage, setWakingStage] = useState<string | null>(null);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [updatingConfigId, setUpdatingConfigId] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<DecomposeProposal | null>(null);
+  const [decomposeLoading, setDecomposeLoading] = useState(false);
+  const [decomposeError, setDecomposeError] = useState<string | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
   const [agents, setAgents] = useState<Array<{ name: string }>>([]);
   const [selectedAgent, setSelectedAgent] = useState("claude");
   const chatRequestIdRef = useRef(0);
   const issueFromFilesRequestIdRef = useRef(0);
+  const decomposeRequestIdRef = useRef(0);
   const chatListRequestIdRef = useRef(0);
   const runEventsRequestIdRef = useRef(0);
   const activeRunStartedAtRef = useRef(0);
@@ -800,9 +808,14 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setIssueCheckpoints([]);
     setSelectedCommandIndex(0);
     setUpdatingConfigId(null);
+    setProposal(null);
+    setDecomposeLoading(false);
+    setDecomposeError(null);
+    setConfirmLoading(false);
     setChatLoading(false);
     setChatCancelling(false);
     setIssueFromFilesLoading(false);
+    decomposeRequestIdRef.current += 1;
     chatListRequestIdRef.current += 1;
     runEventsRequestIdRef.current += 1;
     activeRunStartedAtRef.current = 0;
@@ -853,6 +866,11 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const canSubmit = chatLoading
     ? !!sessionId && !chatCancelling && !syncingFromOtherTerminal
     : draft.trim().length > 0;
+  const canDecompose =
+    draft.trim().length > 0 &&
+    !chatLoading &&
+    !decomposeLoading &&
+    !confirmLoading;
   const filePaths = selectedFiles;
   const canCreateIssueFromFiles =
     !!sessionId &&
@@ -1556,6 +1574,74 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     }
   };
 
+  const handleDecompose = useCallback(
+    async (prompt: string) => {
+      const trimmedProjectID = projectId.trim();
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedProjectID || !trimmedPrompt || decomposeLoading) {
+        return;
+      }
+      const requestId = decomposeRequestIdRef.current + 1;
+      decomposeRequestIdRef.current = requestId;
+      setDecomposeLoading(true);
+      setDecomposeError(null);
+      try {
+        const nextProposal = await apiClient.decompose(trimmedProjectID, {
+          prompt: trimmedPrompt,
+        });
+        if (decomposeRequestIdRef.current !== requestId) {
+          return;
+        }
+        setProposal(nextProposal);
+      } catch (requestError) {
+        if (decomposeRequestIdRef.current !== requestId) {
+          return;
+        }
+        setDecomposeError(getErrorMessage(requestError));
+      } finally {
+        if (decomposeRequestIdRef.current === requestId) {
+          setDecomposeLoading(false);
+        }
+      }
+    },
+    [apiClient, decomposeLoading, projectId],
+  );
+
+  const handleConfirmDecompose = useCallback(
+    async (items: ProposalItem[]) => {
+      const trimmedProjectID = projectId.trim();
+      if (!trimmedProjectID || !proposal || confirmLoading) {
+        return;
+      }
+      const requestId = decomposeRequestIdRef.current + 1;
+      decomposeRequestIdRef.current = requestId;
+      setConfirmLoading(true);
+      setDecomposeError(null);
+      try {
+        const response = await apiClient.confirmDecompose(trimmedProjectID, {
+          proposal_id: proposal.proposal_id,
+          issues: items,
+        });
+        if (decomposeRequestIdRef.current !== requestId) {
+          return;
+        }
+        setProposal(null);
+        setIssueNotice(`已创建 ${response.created_issues.length} 个 Issue`);
+        void refreshIssueList(trimmedProjectID);
+      } catch (requestError) {
+        if (decomposeRequestIdRef.current !== requestId) {
+          return;
+        }
+        setDecomposeError(getErrorMessage(requestError));
+      } finally {
+        if (decomposeRequestIdRef.current === requestId) {
+          setConfirmLoading(false);
+        }
+      }
+    },
+    [apiClient, confirmLoading, projectId, proposal, refreshIssueList],
+  );
+
   const handleToggleFile = (filePath: string, selected: boolean) => {
     const normalizedPath = filePath.trim();
     if (!normalizedPath) {
@@ -2157,6 +2243,11 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
               onSelect={handleSelectCommand}
             />
           ) : null}
+          {decomposeError && !proposal ? (
+            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              DAG 拆解失败：{decomposeError}
+            </p>
+          ) : null}
           <div className="mt-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               {!sessionId ? (
@@ -2176,26 +2267,58 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              className="accent-bg w-36 rounded-md px-4 py-2 text-center text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canSubmit}
-              onClick={() => {
-                if (chatLoading) {
-                  if (syncingFromOtherTerminal) {
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 px-4 py-2 text-center text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canDecompose}
+                onClick={() => {
+                  void handleDecompose(draft);
+                }}
+              >
+                {decomposeLoading ? "拆解中..." : "DAG 拆解"}
+              </button>
+              <button
+                type="button"
+                className="accent-bg w-36 rounded-md px-4 py-2 text-center text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canSubmit}
+                onClick={() => {
+                  if (chatLoading) {
+                    if (syncingFromOtherTerminal) {
+                      return;
+                    }
+                    void handleCancelChat();
                     return;
                   }
-                  void handleCancelChat();
-                  return;
-                }
-                void handleStartChat();
-              }}
-            >
-              {submitButtonLabel}
-            </button>
+                  void handleStartChat();
+                }}
+              >
+                {submitButtonLabel}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {proposal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-4xl">
+            <DagPreview
+              items={proposal.issues}
+              summary={proposal.summary}
+              error={decomposeError}
+              loading={confirmLoading}
+              onConfirm={handleConfirmDecompose}
+              onCancel={() => {
+                if (!confirmLoading) {
+                  setProposal(null);
+                  setDecomposeError(null);
+                }
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <aside className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="text-lg font-semibold">会话与 Team Leader</h3>

@@ -170,11 +170,15 @@ export function DagPreview({
   const [draftItems, setDraftItems] = useState<ProposalItem[]>(items);
   const [selectedID, setSelectedID] = useState<string | null>(items[0]?.temp_id ?? null);
   const [confirmLocked, setConfirmLocked] = useState(false);
+  const [childrenMode, setChildrenMode] = useState<"parallel" | "sequential">(
+    items[0]?.children_mode === "sequential" ? "sequential" : "parallel",
+  );
   const confirmLockedRef = useRef(false);
 
   useEffect(() => {
     setDraftItems(items);
     setSelectedID(items[0]?.temp_id ?? null);
+    setChildrenMode(items[0]?.children_mode === "sequential" ? "sequential" : "parallel");
     setConfirmLocked(false);
     confirmLockedRef.current = false;
   }, [items]);
@@ -238,6 +242,29 @@ export function DagPreview({
           {summary.trim().length > 0 ? (
             <p className="max-w-3xl text-sm text-[#57606a]">{summary}</p>
           ) : null}
+          <div className="pt-1 text-xs text-[#57606a]">
+            <span className="mr-2 font-medium">执行模式:</span>
+            <button
+              type="button"
+              className={`rounded-md border px-2 py-1 ${childrenMode === "parallel" ? "border-[#0969da] bg-[#ddf4ff] text-[#0969da]" : "border-[#d0d7de] text-[#57606a]"}`}
+              onClick={() => {
+                setChildrenMode("parallel");
+              }}
+              disabled={loading}
+            >
+              并行
+            </button>
+            <button
+              type="button"
+              className={`ml-2 rounded-md border px-2 py-1 ${childrenMode === "sequential" ? "border-[#0969da] bg-[#ddf4ff] text-[#0969da]" : "border-[#d0d7de] text-[#57606a]"}`}
+              onClick={() => {
+                setChildrenMode("sequential");
+              }}
+              disabled={loading}
+            >
+              顺序
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -265,7 +292,11 @@ export function DagPreview({
               }
               confirmLockedRef.current = true;
               setConfirmLocked(true);
-              void Promise.resolve(onConfirm(normalizedItems))
+              const confirmItems = normalizedItems.map((item) => ({
+                ...item,
+                children_mode: childrenMode,
+              }));
+              void Promise.resolve(onConfirm(confirmItems))
                 .catch(() => undefined)
                 .finally(() => {
                   confirmLockedRef.current = false;

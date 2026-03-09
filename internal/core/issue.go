@@ -120,6 +120,18 @@ const (
 	FailHuman FailurePolicy = "human"
 )
 
+type ChildrenMode string
+
+const (
+	ChildrenModeParallel   ChildrenMode = "parallel"
+	ChildrenModeSequential ChildrenMode = "sequential"
+)
+
+var validChildrenModes = map[ChildrenMode]struct{}{
+	ChildrenModeParallel:   {},
+	ChildrenModeSequential: {},
+}
+
 // Issue is the V2 requirement unit and single tracker-facing aggregate.
 //
 // NOTE: DependsOn/Blocks/RunID are retained as cutover fields during
@@ -138,6 +150,7 @@ type Issue struct {
 	Priority           int           `json:"priority"`
 	Template           string        `json:"template"`
 	AutoMerge          bool          `json:"auto_merge"`
+	ChildrenMode       ChildrenMode  `json:"children_mode"`
 	State              IssueState    `json:"state"`
 	Status             IssueStatus   `json:"status"`
 	MergeRetries       int           `json:"merge_retries"`
@@ -166,6 +179,13 @@ func (s IssueState) Validate() error {
 func (s IssueStatus) Validate() error {
 	if _, ok := validIssueStatuses[s]; !ok {
 		return fmt.Errorf("invalid issue status %q", s)
+	}
+	return nil
+}
+
+func (m ChildrenMode) Validate() error {
+	if _, ok := validChildrenModes[m]; !ok {
+		return fmt.Errorf("invalid children mode %q", m)
 	}
 	return nil
 }
@@ -228,6 +248,11 @@ func (i Issue) Validate() error {
 	}
 	if i.Status != "" {
 		if err := i.Status.Validate(); err != nil {
+			return err
+		}
+	}
+	if i.ChildrenMode != "" {
+		if err := i.ChildrenMode.Validate(); err != nil {
 			return err
 		}
 	}

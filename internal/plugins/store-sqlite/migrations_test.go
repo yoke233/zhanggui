@@ -44,6 +44,7 @@ func TestMigration_V2Baseline_CreatesIssueRunSchema(t *testing.T) {
 	assertColumnExists(t, db, "issues", "auto_merge")
 	assertColumnExists(t, db, "issues", "merge_retries")
 	assertColumnExists(t, db, "issues", "triage_instructions")
+	assertColumnExists(t, db, "issues", "children_mode")
 	assertColumnExists(t, db, "chat_sessions", "agent_session_id")
 	assertColumnExists(t, db, "run_events", "run_id")
 	assertColumnExists(t, db, "review_records", "issue_id")
@@ -145,6 +146,68 @@ func TestMigration_V10_AddsTaskStepsTable(t *testing.T) {
 	}
 }
 
+func TestMigration_V11_AddsIssueChildrenModeFromV10(t *testing.T) {
+	db := openSQLite(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS issues (
+	id                TEXT PRIMARY KEY,
+	project_id        TEXT NOT NULL,
+	session_id        TEXT,
+	title             TEXT NOT NULL,
+	body              TEXT NOT NULL DEFAULT '',
+	labels            TEXT NOT NULL DEFAULT '[]',
+	milestone_id      TEXT NOT NULL DEFAULT '',
+	attachments       TEXT NOT NULL DEFAULT '[]',
+	depends_on        TEXT NOT NULL DEFAULT '[]',
+	blocks            TEXT NOT NULL DEFAULT '[]',
+	priority          INTEGER NOT NULL DEFAULT 0,
+	template          TEXT NOT NULL DEFAULT 'standard',
+	auto_merge        INTEGER NOT NULL DEFAULT 1,
+	merge_retries     INTEGER NOT NULL DEFAULT 0,
+	triage_instructions TEXT NOT NULL DEFAULT '',
+	submitted_by      TEXT NOT NULL DEFAULT '',
+	state             TEXT NOT NULL DEFAULT 'open',
+	status            TEXT NOT NULL DEFAULT 'draft',
+	run_id            TEXT,
+	version           INTEGER NOT NULL DEFAULT 1,
+	superseded_by     TEXT NOT NULL DEFAULT '',
+	external_id       TEXT,
+	fail_policy       TEXT NOT NULL DEFAULT 'block',
+	parent_id         TEXT NOT NULL DEFAULT '',
+	created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+	closed_at         DATETIME
+)`); err != nil {
+		t.Fatalf("create v10 issues table: %v", err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 10`); err != nil {
+		t.Fatalf("set user_version=10: %v", err)
+	}
+
+	if err := applyMigrations(db); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	assertColumnExists(t, db, "issues", "children_mode")
+
+	if _, err := db.Exec(`
+INSERT INTO issues (
+	id, project_id, title, template, state, status
+) VALUES ('issue-v11-default', 'p1', 'title', 'standard', 'open', 'draft')`); err != nil {
+		t.Fatalf("insert issue with children_mode default: %v", err)
+	}
+
+	var childrenMode string
+	if err := db.QueryRow(`SELECT COALESCE(children_mode, '') FROM issues WHERE id='issue-v11-default'`).Scan(&childrenMode); err != nil {
+		t.Fatalf("select children_mode: %v", err)
+	}
+	if childrenMode != "" {
+		t.Fatalf("children_mode default mismatch: got=%q want empty string", childrenMode)
+	}
+}
+
 func TestMigration_AddsIssueMergeRetriesFromV3(t *testing.T) {
 	db := openSQLite(t)
 	defer db.Close()
@@ -188,6 +251,7 @@ CREATE TABLE IF NOT EXISTS issues (
 
 	assertColumnExists(t, db, "issues", "merge_retries")
 	assertColumnExists(t, db, "issues", "triage_instructions")
+	assertColumnExists(t, db, "issues", "children_mode")
 
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
@@ -267,6 +331,7 @@ CREATE TABLE IF NOT EXISTS issues (
 	assertColumnExists(t, db, "run_events", "run_id")
 	assertColumnExists(t, db, "issues", "merge_retries")
 	assertColumnExists(t, db, "issues", "triage_instructions")
+	assertColumnExists(t, db, "issues", "children_mode")
 	assertIndexExists(t, db, "idx_run_events_run_created")
 }
 
@@ -308,6 +373,7 @@ func TestMigration_V6ColdStart_CreatesUnifiedEventsAndIssueEdges(t *testing.T) {
 
 	// submitted_by on issues
 	assertColumnExists(t, db, "issues", "submitted_by")
+	assertColumnExists(t, db, "issues", "children_mode")
 
 	// V6 indexes
 	assertIndexExists(t, db, "idx_events_scope_project")

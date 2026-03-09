@@ -184,14 +184,15 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			template = "standard"
 		}
 		spec := teamleader.CreateIssueSpec{
-			ID:        issueID,
-			Title:     strings.TrimSpace(item.Title),
-			Body:      item.Body,
-			Labels:    append([]string(nil), item.Labels...),
-			DependsOn: resolvedDeps,
-			Blocks:    append([]string(nil), tempToBlocks[tempID]...),
-			Template:  template,
-			AutoMerge: item.AutoMerge,
+			ID:           issueID,
+			Title:        strings.TrimSpace(item.Title),
+			Body:         item.Body,
+			Labels:       append([]string(nil), item.Labels...),
+			DependsOn:    resolvedDeps,
+			Blocks:       append([]string(nil), tempToBlocks[tempID]...),
+			Template:     template,
+			AutoMerge:    item.AutoMerge,
+			ChildrenMode: item.ChildrenMode,
 		}
 		specs = append(specs, spec)
 		if existingIssues[issueID] == nil {

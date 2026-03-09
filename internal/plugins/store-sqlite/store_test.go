@@ -135,6 +135,7 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 		Version:            1,
 		ExternalID:         "ISSUE-101",
 		FailPolicy:         core.FailBlock,
+		ChildrenMode:       core.ChildrenModeSequential,
 		MergeRetries:       1,
 		TriageInstructions: "collect conflict files and retry merge",
 	}
@@ -148,6 +149,9 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 	}
 	if got.Title != issue.Title || got.Status != issue.Status || got.State != issue.State {
 		t.Fatalf("issue core fields mismatch: got=%#v want=%#v", got, issue)
+	}
+	if got.ChildrenMode != core.ChildrenModeSequential {
+		t.Fatalf("issue ChildrenMode mismatch: got=%q want=%q", got.ChildrenMode, core.ChildrenModeSequential)
 	}
 	if got.MergeRetries != 1 {
 		t.Fatalf("issue MergeRetries mismatch: got=%d want=1", got.MergeRetries)
@@ -167,6 +171,7 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 	issue.MergeRetries = 2
 	issue.TriageInstructions = "rerun tests on default branch before merge"
 	issue.Labels = append(issue.Labels, "critical")
+	issue.ChildrenMode = core.ChildrenModeParallel
 	if err := s.SaveIssue(issue); err != nil {
 		t.Fatalf("save issue: %v", err)
 	}
@@ -177,6 +182,9 @@ func TestIssueRoundTrip_PersistsStructuredFields(t *testing.T) {
 	}
 	if got2.Status != core.IssueStatusExecuting || got2.Version != 2 {
 		t.Fatalf("issue update not persisted: got=%#v", got2)
+	}
+	if got2.ChildrenMode != core.ChildrenModeParallel {
+		t.Fatalf("issue ChildrenMode after save mismatch: got=%q want=%q", got2.ChildrenMode, core.ChildrenModeParallel)
 	}
 	if got2.MergeRetries != 2 {
 		t.Fatalf("issue MergeRetries after save mismatch: got=%d want=2", got2.MergeRetries)
@@ -312,6 +320,39 @@ func TestIssueListAndActiveIssues(t *testing.T) {
 	}
 	if len(active) != 3 {
 		t.Fatalf("expected 3 active issues, got %d (%#v)", len(active), active)
+	}
+}
+
+func TestIssueChildrenMode_DefaultsToParallel(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	project := &core.Project{ID: "proj-issue-mode-default", Name: "issue-mode-default", RepoPath: t.TempDir()}
+	if err := s.CreateProject(project); err != nil {
+		t.Fatal(err)
+	}
+
+	issue := &core.Issue{
+		ID:        "issue-20260309-mode-default",
+		ProjectID: project.ID,
+		Title:     "默认 children_mode",
+		Template:  "standard",
+		State:     core.IssueStateOpen,
+		Status:    core.IssueStatusDraft,
+	}
+	if err := s.CreateIssue(issue); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	got, err := s.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+	if got.ChildrenMode != core.ChildrenModeParallel {
+		t.Fatalf("issue ChildrenMode default mismatch: got=%q want=%q", got.ChildrenMode, core.ChildrenModeParallel)
 	}
 }
 

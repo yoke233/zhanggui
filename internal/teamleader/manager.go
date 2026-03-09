@@ -18,18 +18,19 @@ const (
 )
 
 type CreateIssueSpec struct {
-	ID          string
-	Title       string
-	Body        string
-	Template    string
-	AutoMerge   *bool
-	Labels      []string
-	DependsOn   []string
-	Blocks      []string
-	Priority    int
-	FailPolicy  core.FailurePolicy
-	MilestoneID string
-	ExternalID  string
+	ID           string
+	Title        string
+	Body         string
+	Template     string
+	AutoMerge    *bool
+	ChildrenMode core.ChildrenMode
+	Labels       []string
+	DependsOn    []string
+	Blocks       []string
+	Priority     int
+	FailPolicy   core.FailurePolicy
+	MilestoneID  string
+	ExternalID   string
 }
 
 type CreateIssuesInput struct {
@@ -218,28 +219,33 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 		if failPolicy == "" {
 			failPolicy = core.FailBlock
 		}
+		childrenMode := spec.ChildrenMode
+		if childrenMode == "" {
+			childrenMode = core.ChildrenModeParallel
+		}
 		autoMerge := true
 		if spec.AutoMerge != nil {
 			autoMerge = *spec.AutoMerge
 		}
 
 		issue := &core.Issue{
-			ID:          issueID,
-			ProjectID:   projectID,
-			SessionID:   strings.TrimSpace(input.SessionID),
-			Title:       strings.TrimSpace(spec.Title),
-			Body:        spec.Body,
-			Labels:      cloneStringSlice(spec.Labels),
-			DependsOn:   normalizeIssueRefs(spec.DependsOn),
-			Blocks:      normalizeIssueRefs(spec.Blocks),
-			Priority:    spec.Priority,
-			Template:    template,
-			AutoMerge:   autoMerge,
-			State:       core.IssueStateOpen,
-			Status:      core.IssueStatusDraft,
-			MilestoneID: strings.TrimSpace(spec.MilestoneID),
-			ExternalID:  strings.TrimSpace(spec.ExternalID),
-			FailPolicy:  failPolicy,
+			ID:           issueID,
+			ProjectID:    projectID,
+			SessionID:    strings.TrimSpace(input.SessionID),
+			Title:        strings.TrimSpace(spec.Title),
+			Body:         spec.Body,
+			Labels:       cloneStringSlice(spec.Labels),
+			DependsOn:    normalizeIssueRefs(spec.DependsOn),
+			Blocks:       normalizeIssueRefs(spec.Blocks),
+			Priority:     spec.Priority,
+			Template:     template,
+			AutoMerge:    autoMerge,
+			ChildrenMode: childrenMode,
+			State:        core.IssueStateOpen,
+			Status:       core.IssueStatusDraft,
+			MilestoneID:  strings.TrimSpace(spec.MilestoneID),
+			ExternalID:   strings.TrimSpace(spec.ExternalID),
+			FailPolicy:   failPolicy,
 		}
 		if err := issue.Validate(); err != nil {
 			return nil, rollbackCreated(fmt.Errorf("validate issue %s: %w", issueID, err))
