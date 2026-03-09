@@ -1,17 +1,20 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 type gateHandlers struct {
-	store core.Store
+	store    core.Store
+	resolver interface {
+		ResolveGate(ctx context.Context, issueID, gateName, action, reason string) (*core.Issue, error)
+	}
 }
 
 // gateStatusResponse aggregates checks by gate name.
@@ -85,6 +88,10 @@ func (h *gateHandlers) resolveGate(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
 		return
 	}
+	if h.resolver == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "gate resolver is not configured", "GATE_RESOLVER_UNAVAILABLE")
+		return
+	}
 
 	issueID := strings.TrimSpace(chi.URLParam(r, "id"))
 	gateName := strings.TrimSpace(chi.URLParam(r, "gateName"))
@@ -109,54 +116,25 @@ func (h *gateHandlers) resolveGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine the attempt number from existing checks.
-	existingChecks, err := h.store.GetGateChecks(issueID)
+	updated, err := h.resolver.ResolveGate(r.Context(), issueID, gateName, action, strings.TrimSpace(body.Reason))
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to query gate checks", "GET_GATE_CHECKS_FAILED")
-		return
-	}
-	attempt := 1
-	for _, c := range existingChecks {
-		if c.GateName == gateName && c.Attempt >= attempt {
-			attempt = c.Attempt + 1
+		switch {
+		case isNotFoundError(err):
+			writeAPIError(w, http.StatusNotFound, err.Error(), "GATE_NOT_FOUND")
+		case strings.Contains(strings.ToLower(err.Error()), "not pending"),
+			strings.Contains(strings.ToLower(err.Error()), "not configured"),
+			strings.Contains(strings.ToLower(err.Error()), "unsupported gate action"),
+			strings.Contains(strings.ToLower(err.Error()), "gate name is required"):
+			writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_GATE_RESOLUTION")
+		default:
+			writeAPIError(w, http.StatusInternalServerError, "failed to resolve gate", "RESOLVE_GATE_FAILED")
 		}
-	}
-
-	status := core.GateStatusPassed
-	stepAction := core.StepGatePassed
-	if action == "fail" {
-		status = core.GateStatusFailed
-		stepAction = core.StepGateFailed
-	}
-
-	gc := &core.GateCheck{
-		ID:        core.NewGateCheckID(),
-		IssueID:   issueID,
-		GateName:  gateName,
-		GateType:  core.GateTypeOwnerReview,
-		Attempt:   attempt,
-		Status:    status,
-		Reason:    strings.TrimSpace(body.Reason),
-		CheckedBy: "human",
-		CreatedAt: time.Now().UTC(),
-	}
-
-	if err := h.store.SaveGateCheck(gc); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to save gate check", "SAVE_GATE_CHECK_FAILED")
 		return
 	}
 
-	// Record a TaskStep for traceability.
-	step := &core.TaskStep{
-		ID:        core.NewTaskStepID(),
-		IssueID:   issueID,
-		Action:    stepAction,
-		Note:      "[gate:" + gateName + "] " + strings.TrimSpace(body.Reason),
-		RefID:     gc.ID,
-		RefType:   "gate_check",
-		CreatedAt: time.Now().UTC(),
+	response := map[string]string{"status": "ok"}
+	if updated != nil {
+		response["issue_status"] = string(updated.Status)
 	}
-	_, _ = h.store.SaveTaskStep(step)
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "gate_check_id": gc.ID})
+	writeJSON(w, http.StatusOK, response)
 }

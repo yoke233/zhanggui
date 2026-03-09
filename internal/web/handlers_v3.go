@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -113,6 +114,11 @@ func registerV1Routes(
 	}
 
 	gateH := &gateHandlers{store: store}
+	if resolver, ok := issueManager.(interface {
+		ResolveGate(ctx context.Context, issueID, gateName, action, reason string) (*core.Issue, error)
+	}); ok {
+		gateH.resolver = resolver
+	}
 	r.With(RequireScope(ScopeIssuesRead)).Get("/issues/{id}/gates", gateH.listGates)
 	r.With(RequireScope(ScopeIssuesWrite)).Post("/issues/{id}/gates/{gateName}/resolve", gateH.resolveGate)
 

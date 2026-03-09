@@ -104,8 +104,23 @@ var (
 		depScheduler.SetWatchdogConfig(watchdogCfg)
 		depScheduler.SetStageRoles(roleBinds.Run.StageRoles)
 
-		opts := make([]teamleader.ManagerOption, 0, 2)
+		demandReviewer := reviewPanel.DemandReviewer()
+		if demandReviewer == nil {
+			return nil, errors.New("gate chain requires a demand reviewer")
+		}
+		gateChain := &teamleader.GateChain{
+			Store: bootstrapSet.Store,
+			Runners: map[core.GateType]core.GateRunner{
+				core.GateTypeAuto:        &teamleader.AutoGateRunner{Reviewer: demandReviewer},
+				core.GateTypeOwnerReview: &teamleader.OwnerReviewRunner{},
+				core.GateTypePeerReview:  &teamleader.PeerReviewRunner{},
+				core.GateTypeVote:        &teamleader.VoteGateRunner{},
+			},
+		}
+
+		opts := make([]teamleader.ManagerOption, 0, 3)
 		opts = append(opts, teamleader.WithEventPublisher(bus))
+		opts = append(opts, teamleader.WithGateChain(gateChain))
 		if bootstrapSet.ReviewGate != nil {
 			opts = append(opts, teamleader.WithReviewGate(bootstrapSet.ReviewGate))
 		}

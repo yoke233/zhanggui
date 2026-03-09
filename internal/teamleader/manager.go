@@ -80,6 +80,15 @@ func WithReviewGate(gate core.ReviewGate) ManagerOption {
 	}
 }
 
+func WithGateChain(gc *GateChain) ManagerOption {
+	return func(m *Manager) {
+		if m == nil {
+			return
+		}
+		m.gateChain = gc
+	}
+}
+
 type Manager struct {
 	store      core.Store
 	scheduler  managerScheduler
@@ -342,6 +351,9 @@ func (m *Manager) SubmitForReview(ctx context.Context, issueIDs []string) error 
 	if err != nil {
 		return err
 	}
+	if m.gateChain != nil {
+		return m.submitIssuesWithGateChain(ctx, issues)
+	}
 
 	roundBeforeSubmit := make(map[string]int, len(issues))
 	for _, issue := range issues {
@@ -416,10 +428,6 @@ func (m *Manager) ApplyIssueAction(ctx context.Context, issueID, action, feedbac
 }
 
 func (m *Manager) submitIssues(ctx context.Context, issues []*core.Issue) error {
-	if m.gateChain != nil {
-		return m.submitIssuesViaGateChain(ctx, issues)
-	}
-
 	switch {
 	case m.twoPhaseReview != nil:
 		if err := m.twoPhaseReview.SubmitForReview(ctx, cloneManagerIssues(issues)); err != nil {
@@ -441,27 +449,173 @@ func (m *Manager) submitIssues(ctx context.Context, issues []*core.Issue) error 
 	}
 }
 
-func (m *Manager) submitIssuesViaGateChain(ctx context.Context, issues []*core.Issue) error {
+func (m *Manager) submitIssuesWithGateChain(ctx context.Context, issues []*core.Issue) error {
 	for _, issue := range issues {
-		wp := core.WorkflowProfile{Type: workflowProfileFromIssue(issue), SLAMinutes: 10}
-		gates := wp.ResolveGates()
-
-		result, err := m.gateChain.Run(ctx, issue, gates)
-		if err != nil {
-			return fmt.Errorf("gate chain for issue %s: %w", issue.ID, err)
+		before := issue.Status
+		reviewing := cloneManagerIssue(issue)
+		if err := transitionIssueStatus(reviewing, core.IssueStatusReviewing); err != nil {
+			return fmt.Errorf("transition issue %s to reviewing: %w", reviewing.ID, err)
 		}
-		if result.AllPassed {
-			// Gate chain passed — the issue will be approved by the caller
-			// (SubmitForReview handles the post-submit approve logic).
-		} else if result.PendingGate != "" {
-			// Awaiting human intervention — do nothing, leave in reviewing state.
-		} else if result.FailedCheck != nil {
-			// Gate failed — mark as rejected so the caller does not auto-approve.
-			m.recordTaskStep(issue.ID, core.StepGateFailed, "system",
-				fmt.Sprintf("gate %s failed: %s", result.FailedCheck.GateName, result.FailedCheck.Reason))
+		if reviewing.State == "" {
+			reviewing.State = core.IssueStateOpen
+		}
+		if err := m.store.SaveIssue(reviewing); err != nil {
+			return fmt.Errorf("save issue %s as reviewing: %w", reviewing.ID, err)
+		}
+		m.recordTaskStep(reviewing.ID, core.StepSubmittedForReview, "system", "submitted for review")
+		if err := m.saveIssueChange(reviewing.ID, "status", string(before), string(reviewing.Status), "submit_for_review"); err != nil {
+			return err
+		}
+
+		wp := core.WorkflowProfile{Type: workflowProfileFromIssue(reviewing), SLAMinutes: 10}
+		result, err := m.gateChain.Run(ctx, reviewing, wp.ResolveGates())
+		if err != nil {
+			return fmt.Errorf("gate chain for issue %s: %w", reviewing.ID, err)
+		}
+		switch {
+		case result.AllPassed:
+			if _, err := m.applyIssueApprove(ctx, reviewing, "approved by gate chain"); err != nil {
+				return err
+			}
+		case result.PendingGate != "":
+			continue
+		case result.FailedCheck != nil:
+			reason := strings.TrimSpace(result.FailedCheck.Reason)
+			if reason == "" {
+				reason = fmt.Sprintf("gate %s failed", result.FailedCheck.GateName)
+			} else {
+				reason = fmt.Sprintf("gate %s failed: %s", result.FailedCheck.GateName, reason)
+			}
+			if _, err := m.applyIssueReject(ctx, reviewing, reason); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("gate chain for issue %s returned no outcome", reviewing.ID)
 		}
 	}
 	return nil
+}
+
+func (m *Manager) ResolveGate(ctx context.Context, issueID, gateName, action, reason string) (*core.Issue, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if m.gateChain == nil {
+		return nil, errors.New("gate chain is not configured")
+	}
+
+	issue, err := m.loadIssue(issueID)
+	if err != nil {
+		return nil, err
+	}
+	resolvedAction := strings.ToLower(strings.TrimSpace(action))
+	if resolvedAction != "pass" && resolvedAction != "fail" {
+		return nil, fmt.Errorf("unsupported gate action %q", strings.TrimSpace(action))
+	}
+	gateName = strings.TrimSpace(gateName)
+	if gateName == "" {
+		return nil, errors.New("gate name is required")
+	}
+
+	wp := core.WorkflowProfile{Type: workflowProfileFromIssue(issue), SLAMinutes: 10}
+	gates := wp.ResolveGates()
+	gateIndex := -1
+	var gate core.Gate
+	for i := range gates {
+		if gates[i].Name == gateName {
+			gateIndex = i
+			gate = gates[i]
+			break
+		}
+	}
+	if gateIndex < 0 {
+		return nil, fmt.Errorf("gate %s is not configured for issue %s", gateName, issue.ID)
+	}
+
+	latest, err := m.store.GetLatestGateCheck(issue.ID, gateName)
+	if err != nil {
+		return nil, fmt.Errorf("load latest gate check for %s: %w", gateName, err)
+	}
+	if latest.Status != core.GateStatusPending {
+		return nil, fmt.Errorf("gate %s is not pending", gateName)
+	}
+
+	resolutionReason := strings.TrimSpace(reason)
+	if resolutionReason == "" {
+		if resolvedAction == "pass" {
+			resolutionReason = "approved by human gate resolution"
+		} else {
+			resolutionReason = "rejected by human gate resolution"
+		}
+	}
+
+	status := core.GateStatusPassed
+	taskAction := core.StepGatePassed
+	if resolvedAction == "fail" {
+		status = core.GateStatusFailed
+		taskAction = core.StepGateFailed
+	}
+
+	check := &core.GateCheck{
+		ID:        core.NewGateCheckID(),
+		IssueID:   issue.ID,
+		GateName:  gate.Name,
+		GateType:  gate.Type,
+		Attempt:   latest.Attempt + 1,
+		Status:    status,
+		Reason:    resolutionReason,
+		CheckedBy: "human",
+		CreatedAt: time.Now(),
+	}
+	if err := m.saveGateDecision(issue, gate, check); err != nil {
+		return nil, err
+	}
+	if err := m.store.SaveGateCheck(check); err != nil {
+		return nil, fmt.Errorf("save resolved gate check %s: %w", gateName, err)
+	}
+	if _, err := m.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   issue.ID,
+		Action:    taskAction,
+		Note:      fmt.Sprintf("[gate:%s] %s", gateName, resolutionReason),
+		RefID:     check.ID,
+		RefType:   "gate_check",
+		CreatedAt: time.Now(),
+	}); err != nil {
+		return nil, fmt.Errorf("save gate resolution task step %s: %w", gateName, err)
+	}
+
+	if resolvedAction == "fail" {
+		return m.applyIssueReject(ctx, issue, resolutionReason)
+	}
+
+	remaining := gates[gateIndex+1:]
+	if len(remaining) == 0 {
+		return m.applyIssueApprove(ctx, issue, resolutionReason)
+	}
+	result, err := m.gateChain.Run(ctx, issue, remaining)
+	if err != nil {
+		return nil, fmt.Errorf("continue gate chain for issue %s: %w", issue.ID, err)
+	}
+	switch {
+	case result.AllPassed:
+		return m.applyIssueApprove(ctx, issue, resolutionReason)
+	case result.PendingGate != "":
+		return m.loadIssue(issue.ID)
+	case result.FailedCheck != nil:
+		rejectReason := strings.TrimSpace(result.FailedCheck.Reason)
+		if rejectReason == "" {
+			rejectReason = fmt.Sprintf("gate %s failed", result.FailedCheck.GateName)
+		} else {
+			rejectReason = fmt.Sprintf("gate %s failed: %s", result.FailedCheck.GateName, rejectReason)
+		}
+		return m.applyIssueReject(ctx, issue, rejectReason)
+	default:
+		return nil, fmt.Errorf("continue gate chain for issue %s returned no outcome", issue.ID)
+	}
 }
 
 func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feedback string) (*core.Issue, error) {
@@ -715,6 +869,18 @@ func normalizeReviewVerdict(verdict string) string {
 	default:
 		return normalized
 	}
+}
+
+func (m *Manager) saveGateDecision(issue *core.Issue, gate core.Gate, check *core.GateCheck) error {
+	decision, err := buildGateDecision(issue, gate, check)
+	if err != nil {
+		return err
+	}
+	if err := m.store.SaveDecision(decision); err != nil {
+		return fmt.Errorf("save gate decision %s: %w", gate.Name, err)
+	}
+	check.DecisionID = decision.ID
+	return nil
 }
 
 func (m *Manager) shouldAutoApproveIssue(issueID string, baselineRound int) (bool, error) {

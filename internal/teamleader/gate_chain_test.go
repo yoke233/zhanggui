@@ -345,7 +345,7 @@ func TestGateChain_FailAbort(t *testing.T) {
 	}
 }
 
-func TestGateChain_NoRunnerSkips(t *testing.T) {
+func TestGateChain_NoRunnerFails(t *testing.T) {
 	t.Parallel()
 
 	store := &mockGateStore{}
@@ -356,18 +356,41 @@ func TestGateChain_NoRunnerSkips(t *testing.T) {
 
 	issue := &core.Issue{ID: "issue-8", Title: "test", Template: "standard"}
 	gates := []core.Gate{
-		{Name: "unknown_gate", Type: "custom_type"},
+		{Name: "peer_review", Type: core.GateTypePeerReview},
+	}
+
+	_, err := chain.Run(context.Background(), issue, gates)
+	if err == nil {
+		t.Fatal("expected error when gate runner is missing")
+	}
+}
+
+func TestGateChain_MaxAttemptsZeroFallsBackImmediately(t *testing.T) {
+	t.Parallel()
+
+	store := &mockGateStore{}
+	chain := &GateChain{
+		Store: store,
+		Runners: map[core.GateType]core.GateRunner{
+			core.GateTypeAuto: &mockGateRunner{
+				checks: []*core.GateCheck{newFailCheck("issue-9", "lint")},
+			},
+		},
+	}
+
+	issue := &core.Issue{ID: "issue-9", Title: "test", Template: "standard"}
+	gates := []core.Gate{
+		{Name: "lint", Type: core.GateTypeAuto, MaxAttempts: 0, Fallback: core.GateFallbackAbort},
 	}
 
 	result, err := chain.Run(context.Background(), issue, gates)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.AllPassed {
-		t.Error("expected AllPassed=true when gate type has no runner (skipped)")
+	if result.FailedCheck == nil {
+		t.Fatal("expected failed check when max attempts defaults to one")
 	}
-	// Should have recorded a skip step.
-	if len(store.taskSteps) != 1 {
-		t.Errorf("expected 1 task step (skip), got %d", len(store.taskSteps))
+	if len(store.gateChecks) != 1 {
+		t.Fatalf("expected exactly one gate check, got %d", len(store.gateChecks))
 	}
 }

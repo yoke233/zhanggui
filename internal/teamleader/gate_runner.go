@@ -67,3 +67,37 @@ func (r *OwnerReviewRunner) Check(_ context.Context, issue *core.Issue, gate cor
 		CreatedAt: time.Now(),
 	}, nil
 }
+
+// PeerReviewRunner creates a pending gate check that waits for peer review.
+type PeerReviewRunner struct{}
+
+func (r *PeerReviewRunner) Check(_ context.Context, issue *core.Issue, gate core.Gate, attempt int) (*core.GateCheck, error) {
+	return &core.GateCheck{
+		ID:        core.NewGateCheckID(),
+		IssueID:   issue.ID,
+		GateName:  gate.Name,
+		GateType:  gate.Type,
+		Attempt:   attempt,
+		Status:    core.GateStatusPending,
+		Reason:    "awaiting peer review",
+		CheckedBy: "human",
+		CreatedAt: time.Now(),
+	}, nil
+}
+
+// VoteGateRunner creates a pending gate check that waits for a human vote.
+type VoteGateRunner struct{}
+
+func (r *VoteGateRunner) Check(_ context.Context, issue *core.Issue, gate core.Gate, attempt int) (*core.GateCheck, error) {
+	return &core.GateCheck{
+		ID:        core.NewGateCheckID(),
+		IssueID:   issue.ID,
+		GateName:  gate.Name,
+		GateType:  gate.Type,
+		Attempt:   attempt,
+		Status:    core.GateStatusPending,
+		Reason:    "awaiting vote",
+		CheckedBy: "human",
+		CreatedAt: time.Now(),
+	}, nil
+}

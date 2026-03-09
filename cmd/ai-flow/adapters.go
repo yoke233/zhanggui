@@ -150,6 +150,19 @@ func (a *teamLeaderIssueManagerAdapter) ApplyIssueAction(ctx context.Context, is
 	return a.manager.ApplyIssueAction(ctx, issueID, action.Action, feedback)
 }
 
+func (a *teamLeaderIssueManagerAdapter) ResolveGate(ctx context.Context, issueID, gateName, action, reason string) (*core.Issue, error) {
+	if a == nil || a.manager == nil {
+		return nil, errors.New("issue manager is not configured")
+	}
+	resolver, ok := a.manager.(interface {
+		ResolveGate(ctx context.Context, issueID, gateName, action, reason string) (*core.Issue, error)
+	})
+	if !ok {
+		return nil, errors.New("gate resolution is not supported")
+	}
+	return resolver.ResolveGate(ctx, issueID, gateName, action, reason)
+}
+
 // --- Issue helper functions ---
 
 func resolveIssueTitle(input web.IssueCreateInput) string {

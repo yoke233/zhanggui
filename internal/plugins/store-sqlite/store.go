@@ -1540,6 +1540,9 @@ func (s *SQLiteStore) GetDecision(id string) (*core.Decision, error) {
 		&d.InputTokens, &d.Action, &d.Reasoning, &d.Confidence,
 		&d.OutputTokens, &d.OutputData, &d.DurationMs, &d.CreatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("decision %s not found", id)
+		}
 		return nil, err
 	}
 	d.StageID = core.StageID(stageID)
@@ -1618,6 +1621,9 @@ func (s *SQLiteStore) GetLatestGateCheck(issueID, gateName string) (*core.GateCh
 	err := row.Scan(&gc.ID, &gc.IssueID, &gc.GateName, &gateType, &gc.Attempt,
 		&status, &gc.Reason, &gc.DecisionID, &gc.CheckedBy, &gc.CreatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("gate check %s/%s not found", issueID, gateName)
+		}
 		return nil, err
 	}
 	gc.GateType = core.GateType(gateType)

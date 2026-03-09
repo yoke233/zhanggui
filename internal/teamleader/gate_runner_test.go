@@ -130,3 +130,41 @@ func TestOwnerReviewRunner_Pending(t *testing.T) {
 		t.Errorf("expected gate_name 'owner', got %q", check.GateName)
 	}
 }
+
+func TestPeerReviewRunner_Pending(t *testing.T) {
+	t.Parallel()
+
+	runner := &PeerReviewRunner{}
+	issue := &core.Issue{ID: "issue-4", Title: "test", Template: "standard"}
+	gate := core.Gate{Name: "peer", Type: core.GateTypePeerReview}
+
+	check, err := runner.Check(context.Background(), issue, gate, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if check.Status != core.GateStatusPending {
+		t.Errorf("expected pending, got %q", check.Status)
+	}
+	if check.Reason != "awaiting peer review" {
+		t.Errorf("expected peer review reason, got %q", check.Reason)
+	}
+}
+
+func TestVoteGateRunner_Pending(t *testing.T) {
+	t.Parallel()
+
+	runner := &VoteGateRunner{}
+	issue := &core.Issue{ID: "issue-5", Title: "test", Template: "standard"}
+	gate := core.Gate{Name: "vote", Type: core.GateTypeVote}
+
+	check, err := runner.Check(context.Background(), issue, gate, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if check.Status != core.GateStatusPending {
+		t.Errorf("expected pending, got %q", check.Status)
+	}
+	if check.Reason != "awaiting vote" {
+		t.Errorf("expected vote reason, got %q", check.Reason)
+	}
+}

@@ -471,6 +471,234 @@ func TestManager_SubmitForReviewDoesNotAutoApproveWhenRoundNotPass(t *testing.T)
 	}
 }
 
+func TestManager_SubmitForReviewWithGateChainApprovesAndPersistsGateData(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-gate-pass")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-gate-pass", core.IssueStatusDraft, core.IssueStateOpen)
+
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(
+		store,
+		nil,
+		nil,
+		scheduler,
+		WithGateChain(&GateChain{
+			Store: store,
+			Runners: map[core.GateType]core.GateRunner{
+				core.GateTypeAuto: &AutoGateRunner{
+					Reviewer: &gateStubDemandReviewer{
+						verdict: core.ReviewVerdict{Status: "pass", Score: 95, Summary: "ready"},
+					},
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+	if scheduler.startIssueCalls != 1 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 1", scheduler.startIssueCalls)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if updated.Status != core.IssueStatusQueued {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.IssueStatusQueued)
+	}
+
+	checks, err := store.GetGateChecks(issue.ID)
+	if err != nil {
+		t.Fatalf("GetGateChecks(%s) error = %v", issue.ID, err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("gate checks len = %d, want 1", len(checks))
+	}
+	if checks[0].Status != core.GateStatusPassed {
+		t.Fatalf("gate status = %q, want %q", checks[0].Status, core.GateStatusPassed)
+	}
+	if strings.TrimSpace(checks[0].DecisionID) == "" {
+		t.Fatal("expected saved gate check to reference a decision")
+	}
+
+	decisions, err := store.ListDecisions(issue.ID)
+	if err != nil {
+		t.Fatalf("ListDecisions(%s) error = %v", issue.ID, err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions len = %d, want 1", len(decisions))
+	}
+	if decisions[0].Action != "pass" {
+		t.Fatalf("decision action = %q, want pass", decisions[0].Action)
+	}
+}
+
+func TestManager_SubmitForReviewWithGateChainPendingLeavesIssueReviewing(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-gate-pending")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-gate-pending", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.Labels = []string{"profile:strict"}
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(
+		store,
+		nil,
+		nil,
+		scheduler,
+		WithGateChain(&GateChain{
+			Store: store,
+			Runners: map[core.GateType]core.GateRunner{
+				core.GateTypeAuto: &AutoGateRunner{
+					Reviewer: &gateStubDemandReviewer{
+						verdict: core.ReviewVerdict{Status: "pass", Score: 95, Summary: "ready"},
+					},
+				},
+				core.GateTypePeerReview: &PeerReviewRunner{},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+	if scheduler.startIssueCalls != 0 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 0", scheduler.startIssueCalls)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if updated.Status != core.IssueStatusReviewing {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.IssueStatusReviewing)
+	}
+
+	latest, err := store.GetLatestGateCheck(issue.ID, "peer_review")
+	if err != nil {
+		t.Fatalf("GetLatestGateCheck(peer_review) error = %v", err)
+	}
+	if latest.Status != core.GateStatusPending {
+		t.Fatalf("peer_review latest status = %q, want %q", latest.Status, core.GateStatusPending)
+	}
+}
+
+func TestManager_ResolveGatePassContinuesChainAndApprovesIssue(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-resolve-pass")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-resolve-pass", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.Labels = []string{"profile:strict"}
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(
+		store,
+		nil,
+		nil,
+		scheduler,
+		WithGateChain(&GateChain{
+			Store: store,
+			Runners: map[core.GateType]core.GateRunner{
+				core.GateTypeAuto: &AutoGateRunner{
+					Reviewer: &gateStubDemandReviewer{
+						verdict: core.ReviewVerdict{Status: "pass", Score: 95, Summary: "ready"},
+					},
+				},
+				core.GateTypePeerReview: &PeerReviewRunner{},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+
+	updated, err := manager.ResolveGate(context.Background(), issue.ID, "peer_review", "pass", "peer approved")
+	if err != nil {
+		t.Fatalf("ResolveGate(pass) error = %v", err)
+	}
+	if updated.Status != core.IssueStatusQueued {
+		t.Fatalf("resolved status = %q, want %q", updated.Status, core.IssueStatusQueued)
+	}
+	if scheduler.startIssueCalls != 1 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 1", scheduler.startIssueCalls)
+	}
+}
+
+func TestManager_ResolveGateFailRejectsIssue(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-resolve-fail")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-resolve-fail", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.Labels = []string{"profile:strict"}
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	manager, err := NewManager(
+		store,
+		nil,
+		nil,
+		&fakeManagerScheduler{},
+		WithGateChain(&GateChain{
+			Store: store,
+			Runners: map[core.GateType]core.GateRunner{
+				core.GateTypeAuto: &AutoGateRunner{
+					Reviewer: &gateStubDemandReviewer{
+						verdict: core.ReviewVerdict{Status: "pass", Score: 95, Summary: "ready"},
+					},
+				},
+				core.GateTypePeerReview: &PeerReviewRunner{},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+
+	updated, err := manager.ResolveGate(context.Background(), issue.ID, "peer_review", "fail", "needs changes")
+	if err != nil {
+		t.Fatalf("ResolveGate(fail) error = %v", err)
+	}
+	if updated.Status != core.IssueStatusDraft {
+		t.Fatalf("resolved status = %q, want %q", updated.Status, core.IssueStatusDraft)
+	}
+}
+
 func TestManager_SubmitForReviewUsesReviewGateWhenConfigured(t *testing.T) {
 	t.Parallel()
 

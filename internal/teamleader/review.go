@@ -135,6 +135,14 @@ func (r *ReviewOrchestrator) SubmitForReview(ctx context.Context, issues []*core
 	return err
 }
 
+func (r *ReviewOrchestrator) DemandReviewer() DemandReviewer {
+	engine := r.toTwoPhaseReview()
+	if engine == nil {
+		return nil
+	}
+	return engine.Reviewer
+}
+
 func (r *ReviewOrchestrator) toTwoPhaseReview() *TwoPhaseReview {
 	if r == nil {
 		return nil
