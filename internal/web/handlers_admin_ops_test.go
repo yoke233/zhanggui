@@ -53,6 +53,20 @@ func TestAdminOps_ForceReady_Audited(t *testing.T) {
 	if !strings.Contains(actions[0].Message, "trace_id=trace-force-ready") {
 		t.Fatalf("expected trace_id in audit message, got %q", actions[0].Message)
 	}
+
+	steps, err := store.ListTaskSteps(issue.ID)
+	if err != nil {
+		t.Fatalf("ListTaskSteps() error = %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("expected 1 task step, got %d", len(steps))
+	}
+	if steps[0].Action != core.StepReady {
+		t.Fatalf("task step action = %s, want %s", steps[0].Action, core.StepReady)
+	}
+	if steps[0].AgentID != "admin" {
+		t.Fatalf("task step agent_id = %s, want admin", steps[0].AgentID)
+	}
 }
 
 func TestAdminOps_ForceUnblock_Audited(t *testing.T) {
@@ -93,6 +107,20 @@ func TestAdminOps_ForceUnblock_Audited(t *testing.T) {
 	}
 	if !strings.Contains(actions[0].Message, "trace_id=trace-force-unblock") {
 		t.Fatalf("expected trace_id in audit message, got %q", actions[0].Message)
+	}
+
+	steps, err := store.ListTaskSteps(issue.ID)
+	if err != nil {
+		t.Fatalf("ListTaskSteps() error = %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("expected 1 task step, got %d", len(steps))
+	}
+	if steps[0].Action != core.StepReady {
+		t.Fatalf("task step action = %s, want %s", steps[0].Action, core.StepReady)
+	}
+	if steps[0].AgentID != "admin" {
+		t.Fatalf("task step agent_id = %s, want admin", steps[0].AgentID)
 	}
 }
 

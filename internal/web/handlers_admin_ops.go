@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sort"
@@ -126,6 +127,17 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 		writeAPIError(w, http.StatusInternalServerError, "failed to update issue", "SAVE_ISSUE_FAILED")
 		return
 	}
+	if _, err := h.store.SaveTaskStep(&core.TaskStep{
+		ID:        core.NewTaskStepID(),
+		IssueID:   issue.ID,
+		RunID:     issue.RunID,
+		Action:    adminTargetStatusAction(targetStatus),
+		AgentID:   "admin",
+		Note:      fmt.Sprintf("admin force: %s", targetStatus),
+		CreatedAt: time.Now(),
+	}); err != nil {
+		slog.Warn("failed to save task step for admin op", "error", err, "issue_id", issue.ID, "target_status", targetStatus)
+	}
 
 	traceID := resolveAdminTraceID(req.TraceID, r)
 	auditMessage := "trace_id=" + traceID
@@ -148,6 +160,37 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 		"issue_id": issue.ID,
 		"trace_id": traceID,
 	})
+}
+
+func adminTargetStatusAction(status core.IssueStatus) core.TaskStepAction {
+	switch status {
+	case core.IssueStatusReviewing:
+		return core.StepSubmittedForReview
+	case core.IssueStatusQueued:
+		return core.StepQueued
+	case core.IssueStatusReady:
+		return core.StepReady
+	case core.IssueStatusExecuting:
+		return core.StepExecutionStarted
+	case core.IssueStatusMerging:
+		return core.StepMergeStarted
+	case core.IssueStatusDone:
+		return core.StepMergeCompleted
+	case core.IssueStatusFailed:
+		return core.StepFailed
+	case core.IssueStatusDecomposing:
+		return core.StepDecomposeStarted
+	case core.IssueStatusDecomposed:
+		return core.StepDecomposed
+	case core.IssueStatusSuperseded:
+		return core.StepSuperseded
+	case core.IssueStatusAbandoned:
+		return core.StepAbandoned
+	case core.IssueStatusDraft:
+		fallthrough
+	default:
+		return core.StepCreated
+	}
 }
 
 func (h *adminOpsHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
@@ -528,7 +571,6 @@ func parseAdminAuditTimestamp(raw string) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
-
 
 func resolveAdminTraceID(raw string, r *http.Request) string {
 	traceID := strings.TrimSpace(raw)
