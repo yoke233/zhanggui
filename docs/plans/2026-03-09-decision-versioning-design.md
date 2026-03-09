@@ -9,8 +9,9 @@
 
 ### 设计原则
 
-- **利用已有基础设施** — TaskStep.Input/Output 已有但未使用，优先填充而非新建表
-- **渐进式** — 先覆盖关键决策点，不追求一步到位
+- **独立表，显式 schema** — Decision 是核心资产，值得专用表和强类型字段
+- **与 TaskStep 通过 RefID 关联** — TaskStep 记"发生了什么"，Decision 记"为什么这么决策"，职责分离
+- **渐进覆盖** — 先覆盖 3 个关键决策点（审查/分解/Stage），后续扩展
 - **不影响性能** — 决策记录是写入的副作用，不增加 LLM 调用
 
 ## 2. 现状分析
@@ -19,245 +20,257 @@
 
 | 决策点 | 位置 | 当前记录 | 缺失 |
 |--------|------|---------|------|
-| 审查决策 | review.go `decideSession()` | ReviewRecord (verdict/score) | prompt、model |
-| 分解决策 | decompose_handler.go | TaskStep (note only) | Input/Output 为空 |
+| 审查决策 | review.go `decideSession()` | ReviewRecord (verdict/score) | prompt、model、reasoning |
+| 分解决策 | decompose_handler.go | TaskStep (note only) | 全部 |
 | Stage 执行 | executor_stages.go | run_events (prompt/done) | model、template 版本 |
-| Chat 助手 | handlers_chat.go | 无 | 全部缺失 |
+| Chat 助手 | handlers_chat.go | 无 | 全部 |
 | 权限决策 | acp_handler.go | 无 | 策略选择记录 |
 
-### TaskStep 已有但未使用的字段
+## 3. 数据模型
 
-```go
-type TaskStep struct {
-    Input   string  // ← 空，设计用于存储输入摘要
-    Output  string  // ← 空，设计用于存储输出摘要
-    RefID   string  // ← 部分使用（review_record_id）
-    RefType string  // ← 部分使用（"review_record"）
-}
-```
-
-## 3. 方案选择
-
-### 方案 A：新建 decisions 表
-
-独立的 Decision 模型，完整存储所有决策字段。
-
-- 优点：结构清晰，查询灵活
-- 缺点：新增表 + migration + Store 接口 + 大量改造
-
-### 方案 B：扩展 TaskStep（推荐）
-
-利用 TaskStep 已有的 Input/Output/RefID 字段，新增少量字段。
-
-- 优点：改动最小，与事件溯源统一
-- 缺点：Input/Output 是 JSON 字符串，不如独立表灵活
-
-### 方案 C：扩展 TaskStep + 独立 decision_meta 表
-
-TaskStep 记录核心决策事实，decision_meta 存储 prompt 快照等大体积数据。
-
-- 优点：兼顾简洁和完整
-- 缺点：多一张表，复杂度介于 A 和 B 之间
-
-**选择方案 B**，理由：
-1. TaskStep.Input/Output 本身就是为此设计的
-2. 初期决策记录的主要用途是追溯，不需要复杂查询
-3. v3 设计中 TaskStep.decision_ref 是可选的，证明 TaskStep 本身就能承载决策信息
-4. 需要时可以在方案 B 基础上升级到方案 C
-
-## 4. 数据结构
-
-### 4.1 TaskStep 字段使用约定
-
-不新增字段，充分利用已有字段：
-
-```go
-// 决策类 TaskStep 的字段使用：
-TaskStep{
-    Action:  StepReviewApproved,     // 决策动作
-    AgentID: "reviewer_code",        // 决策执行者
-    Input:   `{"prompt_hash":"...","model":"claude-sonnet-4-20250514","template":"review"}`,
-    Output:  `{"decision":"approve","score":85,"reasoning":"代码质量符合标准"}`,
-    Note:    "review approved with score 85",  // 人类可读摘要
-    RefID:   "review-record-123",    // 关联详细记录
-    RefType: "review_record",        // 关联类型
-}
-```
-
-### 4.2 Input JSON Schema
-
-```json
-{
-  "prompt_hash": "sha256:abcd1234",
-  "model": "claude-sonnet-4-20250514",
-  "template": "review",
-  "template_version": "v2.1",
-  "token_count": 4500
-}
-```
-
-不存完整 prompt（太大），存 hash。完整 prompt 在 run_events 中已有（type=prompt 的事件）。通过 prompt_hash 可以关联。
-
-### 4.3 Output JSON Schema
-
-```json
-{
-  "decision": "approve",
-  "reasoning": "代码结构清晰，测试覆盖率 85%",
-  "score": 85,
-  "confidence": 0.9,
-  "issues_count": 0,
-  "duration_ms": 3200
-}
-```
-
-### 4.4 各决策点的 Input/Output 规范
-
-#### 审查决策
-
-```go
-// review.go — runPhase1 完成后
-s.recordTaskStep(issue, StepReviewApproved, reviewerName, note)
-// Input: {"prompt_hash":"...","model":"...","template":"review"}
-// Output: {"decision":"approve","score":85,"reasoning":"..."}
-```
-
-#### 分解决策
-
-```go
-// decompose_handler.go — 分解完成后
-s.recordTaskStep(issue, StepDecomposed, "team_leader", note)
-// Input: {"prompt_hash":"...","model":"...","template":"decompose","user_prompt":"帮我做注册系统"}
-// Output: {"decision":"decompose","children_count":5,"summary":"用户注册系统拆为5个子任务"}
-```
-
-#### Stage 执行
-
-Stage 执行通过 run_events 已有 prompt/done 事件，不重复在 TaskStep 中记录。但 `stage_completed` 的 TaskStep 可以记录：
-
-```go
-// executor.go — stage 完成后
-recordTaskStep(issue, StepStageCompleted, agentName, note)
-// Input: {"model":"...","template":"implement","stage":"implement"}
-// Output: {"files_changed":3,"tests_passed":true,"duration_ms":45000}
-```
-
-## 5. 实现路径
-
-### 5.1 辅助函数
+### 3.1 Decision 结构
 
 ```go
 // internal/core/decision.go
-
-// DecisionInput 构造决策输入元数据
-type DecisionInput struct {
-    PromptHash      string `json:"prompt_hash,omitempty"`
-    Model           string `json:"model,omitempty"`
-    Template        string `json:"template,omitempty"`
-    TemplateVersion string `json:"template_version,omitempty"`
-    TokenCount      int    `json:"token_count,omitempty"`
-    Extra           map[string]string `json:"extra,omitempty"`
-}
-
-func (d DecisionInput) JSON() string { ... }
-
-// DecisionOutput 构造决策输出元数据
-type DecisionOutput struct {
-    Decision    string `json:"decision"`
-    Reasoning   string `json:"reasoning,omitempty"`
-    Score       *int   `json:"score,omitempty"`
-    Confidence  float64 `json:"confidence,omitempty"`
-    DurationMs  int64  `json:"duration_ms,omitempty"`
-    Extra       map[string]string `json:"extra,omitempty"`
-}
-
-func (d DecisionOutput) JSON() string { ... }
-
-// PromptHash 计算 prompt 的 SHA256 前缀
-func PromptHash(prompt string) string {
-    h := sha256.Sum256([]byte(prompt))
-    return "sha256:" + hex.EncodeToString(h[:8])
+type Decision struct {
+    ID              string    `json:"id"`               // dec-YYYYMMDD-HHMMSS-xxxxxxxx
+    IssueID         string    `json:"issue_id"`         // 关联 Issue
+    RunID           string    `json:"run_id,omitempty"`  // 关联 Run（可选）
+    StageID         StageID   `json:"stage_id,omitempty"`// 关联 Stage（可选）
+    AgentID         string    `json:"agent_id"`         // 决策执行者
+    Type            string    `json:"type"`             // 决策类型枚举
+    // 输入
+    PromptHash      string    `json:"prompt_hash"`      // prompt 的 SHA256 前 16 hex
+    PromptPreview   string    `json:"prompt_preview"`   // prompt 前 500 字符预览
+    Model           string    `json:"model"`            // 模型 ID
+    Template        string    `json:"template"`         // prompt 模板名
+    TemplateVersion string    `json:"template_version"` // 模板版本
+    InputTokens     int       `json:"input_tokens"`     // 输入 token 数
+    // 输出
+    Action          string    `json:"action"`           // 决策结果动作
+    Reasoning       string    `json:"reasoning"`        // AI 推理过程
+    Confidence      float64   `json:"confidence"`       // 置信度 0-1
+    OutputTokens    int       `json:"output_tokens"`    // 输出 token 数
+    OutputData      string    `json:"output_data"`      // 结构化输出 JSON
+    // 元数据
+    DurationMs      int64     `json:"duration_ms"`      // 决策耗时
+    CreatedAt       time.Time `json:"created_at"`
 }
 ```
 
-### 5.2 改造 recordTaskStep
-
-现有 `recordTaskStep` 签名：
+### 3.2 Decision Type 枚举
 
 ```go
-func (s *DepScheduler) recordTaskStep(issue *core.Issue, action core.TaskStepAction, agentID, note string)
+const (
+    DecisionTypeReview     = "review"      // 审查决策
+    DecisionTypeDecompose  = "decompose"   // 任务分解
+    DecisionTypeStage      = "stage"       // Stage 执行
+    DecisionTypeChat       = "chat"        // Chat 助手
+    DecisionTypePermission = "permission"  // 权限决策
+)
 ```
 
-新增带 Decision 的版本：
+### 3.3 与 TaskStep 的关联
+
+TaskStep 通过 `RefID`/`RefType` 关联 Decision：
 
 ```go
-func (s *DepScheduler) recordTaskStepWithDecision(
-    issue *core.Issue,
-    action core.TaskStepAction,
-    agentID, note string,
-    input, output string,
-) {
-    // 和 recordTaskStep 相同，但填充 Input/Output
+TaskStep{
+    Action:  StepReviewApproved,
+    RefID:   "dec-20260309-120000-abcd1234",  // 指向 Decision.ID
+    RefType: "decision",
 }
 ```
 
-### 5.3 改造调用方
+一个 TaskStep 可以关联 0 或 1 个 Decision。一个 Decision 对应 1 个 TaskStep。
 
-| 调用方 | 改造内容 |
-|--------|---------|
-| `review.go` `runReviewSession()` | 审查完成时填充 Input/Output |
-| `decompose_handler.go` `OnEvent()` | 分解完成时填充 Input/Output |
-| `executor.go` stage 完成 | stage_completed 时填充 Input/Output |
+## 4. 数据库表
 
-## 6. 前端展示
+```sql
+CREATE TABLE decisions (
+    id               TEXT PRIMARY KEY,
+    issue_id         TEXT NOT NULL,
+    run_id           TEXT,
+    stage_id         TEXT,
+    agent_id         TEXT NOT NULL,
+    type             TEXT NOT NULL,
+    prompt_hash      TEXT NOT NULL,
+    prompt_preview   TEXT NOT NULL DEFAULT '',
+    model            TEXT NOT NULL DEFAULT '',
+    template         TEXT NOT NULL DEFAULT '',
+    template_version TEXT NOT NULL DEFAULT '',
+    input_tokens     INTEGER NOT NULL DEFAULT 0,
+    action           TEXT NOT NULL,
+    reasoning        TEXT NOT NULL DEFAULT '',
+    confidence       REAL NOT NULL DEFAULT 0,
+    output_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_data      TEXT NOT NULL DEFAULT '{}',
+    duration_ms      INTEGER NOT NULL DEFAULT 0,
+    created_at       DATETIME NOT NULL,
+    FOREIGN KEY (issue_id) REFERENCES issues(id)
+);
+CREATE INDEX idx_decisions_issue ON decisions(issue_id, created_at);
+CREATE INDEX idx_decisions_type  ON decisions(type, created_at);
+CREATE INDEX idx_decisions_model ON decisions(model);
+```
 
-IssueFlowTree 已有，TaskStep.Input/Output 可在展开详情时显示：
+## 5. Store 接口
+
+```go
+// core/store.go 新增
+SaveDecision(d *Decision) error
+GetDecision(id string) (*Decision, error)
+ListDecisions(issueID string) ([]Decision, error)
+```
+
+## 6. 各决策点的记录规范
+
+### 6.1 审查决策
+
+```go
+// review.go — runReviewSession 完成后
+decision := &core.Decision{
+    ID:            core.NewDecisionID(),
+    IssueID:       issue.ID,
+    AgentID:       reviewerName,
+    Type:          core.DecisionTypeReview,
+    PromptHash:    core.PromptHash(reviewPrompt),
+    PromptPreview: core.TruncateString(reviewPrompt, 500),
+    Model:         modelID,  // 从 ACP session 或 reviewer 获取
+    Template:      "review",
+    Action:        "approve",  // approve / fix / escalate
+    Reasoning:     verdict.Summary,
+    Confidence:    float64(score) / 100.0,
+    OutputData:    `{"score":85,"issues_count":0}`,
+    DurationMs:    elapsed.Milliseconds(),
+    CreatedAt:     time.Now(),
+}
+store.SaveDecision(decision)
+
+// TaskStep 关联
+recordTaskStep(issue, StepReviewApproved, reviewerName, note)
+// RefID = decision.ID, RefType = "decision"
+```
+
+### 6.2 分解决策
+
+```go
+// decompose_handler.go / decompose_planner.go
+decision := &core.Decision{
+    ID:            core.NewDecisionID(),
+    IssueID:       parentIssue.ID,
+    AgentID:       "team_leader",
+    Type:          core.DecisionTypeDecompose,
+    PromptHash:    core.PromptHash(systemPrompt + userPrompt),
+    PromptPreview: core.TruncateString(userPrompt, 500),
+    Model:         modelID,
+    Template:      "decompose",
+    Action:        "decompose",
+    Reasoning:     proposal.Summary,
+    OutputData:    `{"children_count":5}`,
+    DurationMs:    elapsed.Milliseconds(),
+    CreatedAt:     time.Now(),
+}
+```
+
+### 6.3 Stage 执行
+
+```go
+// executor.go — stage 完成后
+decision := &core.Decision{
+    ID:            core.NewDecisionID(),
+    IssueID:       run.IssueID,
+    RunID:         run.ID,
+    StageID:       stage.Name,
+    AgentID:       agentName,
+    Type:          core.DecisionTypeStage,
+    PromptHash:    core.PromptHash(prompt),
+    PromptPreview: core.TruncateString(prompt, 500),
+    Model:         modelID,
+    Template:      string(stage.Name),
+    Action:        "completed",  // completed / failed
+    OutputTokens:  tokenCount,
+    DurationMs:    elapsed.Milliseconds(),
+    CreatedAt:     time.Now(),
+}
+```
+
+## 7. API
 
 ```
-▼ ✅ reviewing                                    10:05
+GET /api/v3/issues/{issueId}/decisions
+  → 返回该 Issue 的所有 Decision
+
+GET /api/v3/decisions/{id}
+  → 返回单个 Decision 详情
+```
+
+Timeline API 不变，TaskStep 通过 RefID 关联 Decision，前端按需懒加载。
+
+## 8. 前端展示
+
+IssueFlowTree 中，当 TaskStep 的 `ref_type == "decision"` 时，点击展开显示 Decision 详情：
+
+```
+▼ ✅ reviewing                                        10:05
+    ├── 决策: approve
     ├── 模型: claude-sonnet-4-20250514
-    ├── 决策: approve (score: 85)
-    └── 推理: "代码结构清晰，测试覆盖率 85%"
+    ├── 评分: 85 (confidence: 0.9)
+    ├── 推理: "代码结构清晰，测试覆盖率 85%"
+    ├── 耗时: 3.2s
+    └── prompt: sha256:abcd1234 (500 tokens)
 ```
 
-前端改动：IssueFlowTree 组件解析 `step.input`/`step.output` JSON，渲染为可读格式。
-
-## 7. 查询与追溯
-
-无需新增 API，现有 Timeline API 已返回 TaskStep 全量数据：
+## 9. 三层数据架构更新
 
 ```
-GET /api/v3/projects/{projectId}/issues/{issueId}/timeline
+TaskStep (业务事实层)
+  ├── Issue 状态变迁（~15 种 action）
+  └── Run 关键节点（~7 种 action）
+          │
+          ├── decisions (决策追溯层)  ← 新增
+          │     └── prompt_hash / model / reasoning / action
+          │
+          ├── run_events (执行追溯层)
+          │     └── prompt / agent_message / tool_call / ...
+          │
+          └── review_records (审核细节)
+                └── reviewer / verdict / issues / fixes
 ```
 
-返回的 TaskStep 中 Input/Output 不再为空，前端自然可以展示。
+- **TaskStep** — 记"发生了什么"（业务转折点）
+- **Decision** — 记"为什么这么决策"（AI 推理追溯）
+- **run_events** — 记"agent 具体做了什么"（执行细节）
+- **review_records** — 记"怎么审的"（审核细节）
+- 通过 `issue_id` / `run_id` / `ref_id` 互相关联
 
-未来如需专门查询决策：可以在 SQLite 中用 `json_extract` 查询，或新增索引。
-
-## 8. 改造范围
+## 10. 改造范围
 
 ### 新增
 
-- `internal/core/decision.go` — DecisionInput/Output 辅助类型 + PromptHash
+- `internal/core/decision.go` — Decision 模型 + ID 生成 + PromptHash
+- `store-sqlite` migration V11 — decisions 表
+- `store-sqlite` SaveDecision/GetDecision/ListDecisions 实现
+- API handler: `GET /api/v3/issues/{id}/decisions`
 
 ### 改造
 
-- `internal/teamleader/scheduler_dispatch.go` — `recordTaskStepWithDecision()` 辅助函数
-- `internal/teamleader/review.go` — 审查决策记录 Input/Output
-- `internal/teamleader/decompose_handler.go` — 分解决策记录 Input/Output
-- `internal/engine/executor.go` — Stage 完成记录 Input/Output
-- `web/src/components/IssueFlowTree.tsx` — 解析并展示 Decision 详情
+- `internal/teamleader/review.go` — 审查完成时写 Decision
+- `internal/teamleader/decompose_handler.go` — 分解完成时写 Decision
+- `internal/engine/executor.go` — Stage 完成时写 Decision
+- `internal/teamleader/scheduler_dispatch.go` — recordTaskStep 支持 RefID/RefType 填写
+- `web/src/components/IssueFlowTree.tsx` — 展示 Decision 详情
 
 ### 不变
 
-- TaskStep 模型和数据库 schema（字段已有）
-- Store 接口（SaveTaskStep 签名不变）
+- TaskStep 模型和 schema（只使用已有 RefID/RefType 字段）
 - run_events 表
 - review_records 表
 - Timeline API
 
-## 9. 未来演进
+## 11. 未来演进
 
-- **方案 C 升级**：如果 Input/Output JSON 字符串查询成为瓶颈，抽出 `decision_meta` 表
-- **retrieval_trace**：记录"AI 看到了什么上下文"（v3 OpenViking 设计中提到）
-- **DecisionValidator**：对 Decision 做硬规则校验，防止 AI 做出不合理决策
+- **retrieval_trace** — 记录"AI 看到了什么上下文"（v3 OpenViking 设计）
+- **DecisionValidator** — 对 Decision 做硬规则校验，防止 AI 做出不合理决策
+- **Decision 统计** — 按 model/type/action 聚合分析决策质量
+- **Gate 集成** — gate_check 的每次检查产生一条 Decision 记录
