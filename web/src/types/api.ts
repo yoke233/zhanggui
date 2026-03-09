@@ -432,6 +432,27 @@ export interface ListRunEventsResponse {
   total: number;
 }
 
+export interface AdminIssueOperationRequest {
+  issue_id: string;
+  trace_id?: string;
+  reason?: string;
+}
+
+export interface AdminIssueOperationResponse {
+  status: string;
+  issue_id: string;
+  trace_id: string;
+}
+
+export interface AdminSystemEventRequest {
+  event: string;
+  data?: Record<string, unknown>;
+}
+
+export interface AdminSystemEventResponse {
+  status: string;
+}
+
 export interface RunCheckpoint {
   run_id: string;
   stage_name: string;

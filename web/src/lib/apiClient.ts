@@ -1,5 +1,9 @@
 import type {
   AgentListResponse,
+  AdminIssueOperationRequest,
+  AdminIssueOperationResponse,
+  AdminSystemEventRequest,
+  AdminSystemEventResponse,
   ApiIssue,
   ApiRun,
   ApiWorkflowProfile,
@@ -668,6 +672,15 @@ export interface ApiClient {
   listAdminAuditLog?(
     query?: AdminAuditLogQuery,
   ): Promise<ListAdminAuditLogResponse>;
+  forceIssueReady?(
+    body: AdminIssueOperationRequest,
+  ): Promise<AdminIssueOperationResponse>;
+  forceIssueUnblock?(
+    body: AdminIssueOperationRequest,
+  ): Promise<AdminIssueOperationResponse>;
+  sendSystemEvent?(
+    body: AdminSystemEventRequest,
+  ): Promise<AdminSystemEventResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
@@ -1056,6 +1069,24 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           limit: query?.limit,
           offset: query?.offset,
         },
+      }),
+    forceIssueReady: (body) =>
+      request<AdminIssueOperationResponse, AdminIssueOperationRequest>({
+        path: "/api/v1/admin/ops/force-ready",
+        method: "POST",
+        body,
+      }),
+    forceIssueUnblock: (body) =>
+      request<AdminIssueOperationResponse, AdminIssueOperationRequest>({
+        path: "/api/v1/admin/ops/force-unblock",
+        method: "POST",
+        body,
+      }),
+    sendSystemEvent: (body) =>
+      request<AdminSystemEventResponse, AdminSystemEventRequest>({
+        path: "/api/v1/admin/ops/system-event",
+        method: "POST",
+        body,
       }),
     getRepoTree: (projectId, dir) =>
       request<RepoTreeResponse>({

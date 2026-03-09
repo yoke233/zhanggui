@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
   const listProjects = vi.fn();
   const createProjectCreateRequest = vi.fn();
   const getProjectCreateRequest = vi.fn();
+  const commandCenterProps: Array<Record<string, unknown>> = [];
   const chatViewProps: Array<Record<string, unknown>> = [];
   const a2aViewProps: Array<Record<string, unknown>> = [];
 
@@ -51,6 +52,11 @@ const mocks = vi.hoisted(() => {
       stats: { total: 0, pending: 0, ready: 0, running: 0, done: 0, failed: 0 },
     }),
     getRun: vi.fn(),
+    listWorkflowProfiles: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
+    listAdminAuditLog: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
+    forceIssueReady: vi.fn(),
+    forceIssueUnblock: vi.fn(),
+    sendSystemEvent: vi.fn(),
   };
 
   const wsClient = {
@@ -92,6 +98,7 @@ const mocks = vi.hoisted(() => {
   const resetState = (): void => {
     anyHandlers.clear();
     statusHandlers.clear();
+    commandCenterProps.length = 0;
     chatViewProps.length = 0;
     a2aViewProps.length = 0;
     wsStatus = "open";
@@ -101,6 +108,7 @@ const mocks = vi.hoisted(() => {
     apiClient,
     wsClient,
     a2aClient,
+    commandCenterProps,
     chatViewProps,
     a2aViewProps,
     listProjects,
@@ -130,22 +138,93 @@ vi.mock("./lib/a2aClient", () => {
   };
 });
 
-vi.mock("./views/ChatView", () => ({
+vi.mock("./v3/views/OverviewView", () => ({
   default: (props: Record<string, unknown>) => {
+    mocks.commandCenterProps.push(props);
+    if (!props.projectId) {
+      return <div>当前没有可展示的业务总览</div>;
+    }
+    return <div>Command Center Mock</div>;
+  },
+}));
+
+vi.mock("./v3/views/SessionsView", () => ({
+  default: (props: Record<string, unknown>) => {
+    if (props.a2aEnabled) {
+      mocks.a2aViewProps.push(props);
+      return <div>A2A Chat View Mock</div>;
+    }
     mocks.chatViewProps.push(props);
     return <div>Chat View Mock</div>;
   },
 }));
 
-vi.mock("./views/A2AChatView", () => ({
-  default: (props: Record<string, unknown>) => {
-    mocks.a2aViewProps.push(props);
-    return <div>A2A Chat View Mock</div>;
-  },
+vi.mock("./v3/views/IssuesView", () => ({
+  default: () => <div>Board View Mock</div>,
 }));
 
-vi.mock("./views/BoardView", () => ({
-  default: () => <div>Board View Mock</div>,
+vi.mock("./v3/views/RunsView", () => ({
+  default: () => <div>Run View Mock</div>,
+}));
+
+vi.mock("./v3/views/OpsView", () => ({
+  default: ({ apiClient, onProjectCreated }: Record<string, any>) => {
+    const React = require("react") as typeof import("react");
+    const [sourceType, setSourceType] = React.useState("local_path");
+    const [projectName, setProjectName] = React.useState("");
+    const [repoPath, setRepoPath] = React.useState("");
+    const [remoteURL, setRemoteURL] = React.useState("");
+    const [message, setMessage] = React.useState("");
+
+    return (
+      <div>
+        <label htmlFor="mock-project-name">项目名称</label>
+        <input id="mock-project-name" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+        <label htmlFor="mock-project-source">项目来源</label>
+        <select id="mock-project-source" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
+          <option value="local_path">本地已有仓库</option>
+          <option value="local_new">新建本地仓库</option>
+          <option value="github_clone">从 GitHub 克隆</option>
+        </select>
+        {sourceType === "github_clone" ? (
+          <>
+            <label htmlFor="mock-remote-url">Remote URL</label>
+            <input id="mock-remote-url" value={remoteURL} onChange={(event) => setRemoteURL(event.target.value)} />
+          </>
+        ) : (
+          <>
+            <label htmlFor="mock-repo-path">仓库路径</label>
+            <input id="mock-repo-path" value={repoPath} onChange={(event) => setRepoPath(event.target.value)} />
+          </>
+        )}
+        <button
+          type="button"
+          onClick={async () => {
+            const payload: Record<string, string> = {
+              name: projectName,
+              source_type: sourceType,
+            };
+            if (sourceType === "github_clone") {
+              payload.remote_url = remoteURL;
+            } else {
+              payload.repo_path = repoPath;
+            }
+            const response = await apiClient.createProjectCreateRequest(payload);
+            const status = await apiClient.getProjectCreateRequest(response.request_id);
+            if (status.status === "failed") {
+              setMessage(status.error || "创建失败");
+              return;
+            }
+            await onProjectCreated(status.project_id);
+            setMessage(status.message || "创建完成");
+          }}
+        >
+          创建项目
+        </button>
+        {message ? <div>{message}</div> : null}
+      </div>
+    );
+  },
 }));
 
 import App from "./App";
@@ -162,7 +241,7 @@ const baseProject = {
 
 describe("App", () => {
   beforeEach(() => {
-    window.history.replaceState(null, "", "/?view=chat");
+    window.history.replaceState(null, "", "/?view=overview");
     localStorage.setItem(TOKEN_STORAGE_KEY, "local-token");
     mocks.resetState();
     mocks.listProjects.mockReset();
@@ -188,6 +267,7 @@ describe("App", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("加载项目、支持项目切换与双视图切换", async () => {
@@ -197,13 +277,16 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText("Chat View Mock")).toBeTruthy();
+    expect(screen.getByText("Command Center Mock")).toBeTruthy();
 
     const projectSelect = screen.getByLabelText("当前项目") as HTMLSelectElement;
     expect(projectSelect.value).toBe("proj-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Issues" }));
+    fireEvent.click(screen.getByRole("button", { name: "项目 / Issue" }));
     expect(screen.getByText("Board View Mock")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "会话" }));
+    expect(screen.getByText("Chat View Mock")).toBeTruthy();
 
     fireEvent.change(projectSelect, { target: { value: "proj-2" } });
     expect(projectSelect.value).toBe("proj-2");
@@ -219,7 +302,7 @@ describe("App", () => {
       screen.getByText("缺少访问 token，请使用 ?token=xxxx 访问。"),
     ).toBeTruthy();
     expect(mocks.listProjects).not.toHaveBeenCalled();
-    expect(screen.queryByText("Chat View Mock")).toBeNull();
+    expect(screen.queryByText("Command Center Mock")).toBeNull();
   });
 
   it("URL token 无效时会报错且不会写入本地存储", async () => {
@@ -247,9 +330,9 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText("Chat View Mock")).toBeTruthy();
+    expect(screen.getByText("Command Center Mock")).toBeTruthy();
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("good-token");
-    expect(window.location.search).toBe("?view=chat");
+    expect(window.location.search).toBe("?view=overview");
     expect(window.location.search).not.toContain("token=");
   });
 
@@ -265,6 +348,12 @@ describe("App", () => {
       },
     ]);
     mocks.createProjectCreateRequest.mockResolvedValueOnce({ request_id: "req-9" });
+    mocks.getProjectCreateRequest.mockResolvedValueOnce({
+      request_id: "req-9",
+      status: "succeeded",
+      project_id: "proj-9",
+      message: "创建完成",
+    });
 
     render(<App />);
 
@@ -272,14 +361,14 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "协议 / 运维" }));
     fireEvent.change(screen.getByLabelText("项目名称"), {
       target: { value: "Gamma" },
     });
     fireEvent.change(screen.getByLabelText("仓库路径"), {
       target: { value: "D:/repo/gamma" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "提交创建请求" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
 
     await waitFor(() => {
       expect(mocks.createProjectCreateRequest).toHaveBeenCalledWith({
@@ -289,15 +378,8 @@ describe("App", () => {
       });
     });
 
-    await act(async () => {
-      mocks.emitEnvelope({
-        type: "project_create_succeeded",
-        data: {
-          request_id: "req-9",
-          project_id: "proj-9",
-          message: "创建完成",
-        },
-      });
+    await waitFor(() => {
+      expect(mocks.getProjectCreateRequest).toHaveBeenCalledWith("req-9");
     });
 
     await waitFor(() => {
@@ -309,6 +391,11 @@ describe("App", () => {
   it("创建失败时会显示错误且不触发项目列表刷新", async () => {
     mocks.listProjects.mockResolvedValueOnce([baseProject]);
     mocks.createProjectCreateRequest.mockResolvedValueOnce({ request_id: "req-fail" });
+    mocks.getProjectCreateRequest.mockResolvedValueOnce({
+      request_id: "req-fail",
+      status: "failed",
+      error: "权限不足",
+    });
 
     render(<App />);
 
@@ -316,27 +403,21 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "协议 / 运维" }));
     fireEvent.change(screen.getByLabelText("项目名称"), {
       target: { value: "Broken" },
     });
     fireEvent.change(screen.getByLabelText("仓库路径"), {
       target: { value: "D:/repo/broken" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "提交创建请求" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
 
     await waitFor(() => {
       expect(mocks.createProjectCreateRequest).toHaveBeenCalledTimes(1);
     });
 
-    await act(async () => {
-      mocks.emitEnvelope({
-        type: "project_create_failed",
-        data: {
-          request_id: "req-fail",
-          error: "权限不足",
-        },
-      });
+    await waitFor(() => {
+      expect(mocks.getProjectCreateRequest).toHaveBeenCalledWith("req-fail");
     });
 
     await waitFor(() => {
@@ -352,11 +433,11 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "协议 / 运维" }));
     fireEvent.change(screen.getByLabelText("项目来源"), {
       target: { value: "local_new" },
     });
-    expect(screen.queryByLabelText("仓库路径")).toBeNull();
+    expect(screen.getByLabelText("仓库路径")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("项目来源"), {
       target: { value: "github_clone" },
@@ -374,7 +455,7 @@ describe("App", () => {
     });
 
     expect((screen.getByLabelText("当前项目") as HTMLSelectElement).value).toBe("");
-    expect(screen.getByText("暂无可用项目。请先在后端创建项目，或点击“刷新项目”重试。")).toBeTruthy();
+    expect(screen.getByText("当前没有可展示的业务总览")).toBeTruthy();
   });
   it("默认关闭 A2A 时走 legacy ChatView", async () => {
     render(<App />);
@@ -383,6 +464,7 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "会话" }));
     expect(screen.getByText("Chat View Mock")).toBeTruthy();
     expect(screen.queryByText("A2A Chat View Mock")).toBeNull();
     expect(mocks.chatViewProps.length).toBeGreaterThan(0);
@@ -396,6 +478,7 @@ describe("App", () => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "会话" }));
     expect(screen.getByText("A2A Chat View Mock")).toBeTruthy();
     expect(screen.queryByText("Chat View Mock")).toBeNull();
     expect(mocks.a2aViewProps.length).toBeGreaterThan(0);

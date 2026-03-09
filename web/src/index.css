@@ -3,9 +3,11 @@
 @tailwind utilities;
 
 :root {
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: #0f172a;
-  background-color: #f1f5f9;
+  background: #f8fafc;
+  background-color: #f8fafc;
+  color-scheme: light;
 }
 
 * {
@@ -14,6 +16,15 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background: #f8fafc;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 /* ── Settings: accent color themes ── */
@@ -43,3 +54,7 @@ body {
 .accent-bg   { background-color: var(--accent-dark); color: #fff; }
 .accent-text { color: var(--accent); }
 .accent-border { border-color: var(--accent); }
+
+#root {
+  min-height: 100vh;
+}
