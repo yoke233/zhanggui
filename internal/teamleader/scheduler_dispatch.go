@@ -85,6 +85,17 @@ func (s *DepScheduler) dispatchIssue(ctx context.Context, sessionID, issueID str
 		runCtx = context.WithoutCancel(ctx)
 	}
 	go func(runCtx context.Context, RunID string) {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("run goroutine panicked, releasing slot", "run_id", RunID, "panic", r)
+				_ = s.OnEvent(context.Background(), core.Event{
+					Type:      core.EventRunFailed,
+					RunID:     RunID,
+					Error:     fmt.Sprintf("panic: %v", r),
+					Timestamp: time.Now(),
+				})
+			}
+		}()
 		if runErr := s.runRun(runCtx, RunID); runErr != nil {
 			_ = s.OnEvent(context.Background(), core.Event{
 				Type:      core.EventRunFailed,
