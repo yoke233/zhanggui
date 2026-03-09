@@ -251,7 +251,6 @@ func isManagerNotFoundError(err error) bool {
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(msg, "not found")
 }
-
 func (m *Manager) ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
 	if ctx == nil {
 		ctx = context.Background()

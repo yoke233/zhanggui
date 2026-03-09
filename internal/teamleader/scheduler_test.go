@@ -605,6 +605,36 @@ func TestScheduler_RecoverExecutingIssuesReplaysDoneAndDispatchesNext(t *testing
 	}
 }
 
+func TestScheduler_RunPanicReleasesSlotAndFailsIssue(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateSchedulerProject(t, store, "proj-scheduler-panic")
+	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-panic", core.FailSkip, []core.Issue{
+		newIssueWithProfile("issue-panic", "panic", core.WorkflowProfileStrict, nil),
+		newIssueWithProfile("issue-after", "after", core.WorkflowProfileNormal, nil),
+	})
+
+	var panicOnce sync.Once
+	panicRunner := func(_ context.Context, _ string) error {
+		panicOnce.Do(func() { panic("simulated run panic") })
+		return nil
+	}
+	s := NewDepScheduler(store, nil, panicRunner, nil, 1)
+	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
+		t.Fatalf("ScheduleIssues() error = %v", err)
+	}
+
+	// The panicking run should be marked failed and its slot released,
+	// allowing the next issue to be dispatched.
+	waitIssueStatus(t, store, "issue-panic", core.IssueStatusFailed, 3*time.Second)
+	waitIssueStatus(t, store, "issue-after", core.IssueStatusExecuting, 3*time.Second)
+
+	if len(s.sem) != 1 {
+		t.Fatalf("expected exactly 1 slot used after panic recovery, got %d", len(s.sem))
+	}
+}
+
 func TestDepScheduler_ScheduleIssuesRejectsEmptyPayload(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()

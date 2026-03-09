@@ -48,7 +48,11 @@
       "WebFetch(domain:golang.org)",
       "WebFetch(domain:go.opentelemetry.io)",
       "WebFetch(domain:google.golang.org)",
-      "WebFetch(domain:proxy.golang.org)"
+      "WebFetch(domain:proxy.golang.org)",
+      "mcp__claude_ai_Notion__notion-search",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "Bash(git:*)",
+      "Bash(cd:*)"
     ]
   },
   "sandbox": {
