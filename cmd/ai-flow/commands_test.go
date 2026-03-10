@@ -21,6 +21,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
+	v2sandbox "github.com/yoke233/ai-workflow/internal/v2/sandbox"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -648,6 +649,82 @@ func TestResolveTeamLeaderRoleIDReturnsBindingRole(t *testing.T) {
 func TestResolveTeamLeaderRoleIDReturnsEmptyWhenUnset(t *testing.T) {
 	if got := resolveTeamLeaderRoleID(config.RoleBindings{}); got != "" {
 		t.Fatalf("resolveTeamLeaderRoleID() = %q, want empty", got)
+	}
+}
+
+func TestBuildV2SandboxDisabledReturnsNoop(t *testing.T) {
+	t.Setenv("AI_WORKFLOW_CODEX_REQUIRE_AUTH", "true")
+
+	got := buildV2Sandbox(&config.Config{
+		V2: config.V2Config{
+			Sandbox: config.V2SandboxConfig{Enabled: false},
+		},
+	}, t.TempDir())
+
+	if _, ok := got.(v2sandbox.NoopSandbox); !ok {
+		t.Fatalf("buildV2Sandbox() = %T, want NoopSandbox when config disabled", got)
+	}
+}
+
+func TestBuildV2SandboxEnabledReturnsHomeDirSandbox(t *testing.T) {
+	t.Setenv("AI_WORKFLOW_CODEX_REQUIRE_AUTH", "true")
+	dataDir := t.TempDir()
+
+	got := buildV2Sandbox(&config.Config{
+		V2: config.V2Config{
+			Sandbox: config.V2SandboxConfig{Enabled: true},
+		},
+	}, dataDir)
+
+	sb, ok := got.(v2sandbox.HomeDirSandbox)
+	if !ok {
+		t.Fatalf("buildV2Sandbox() = %T, want HomeDirSandbox when config enabled", got)
+	}
+	if sb.DataDir != dataDir {
+		t.Fatalf("HomeDirSandbox.DataDir = %q, want %q", sb.DataDir, dataDir)
+	}
+	if !sb.RequireCodexAuth {
+		t.Fatal("HomeDirSandbox.RequireCodexAuth = false, want true from env")
+	}
+}
+
+func TestBuildV2SandboxLiteBoxProviderReturnsLiteBoxSandbox(t *testing.T) {
+	t.Setenv("AI_WORKFLOW_CODEX_REQUIRE_AUTH", "true")
+	dataDir := t.TempDir()
+
+	got := buildV2Sandbox(&config.Config{
+		V2: config.V2Config{
+			Sandbox: config.V2SandboxConfig{
+				Enabled:  true,
+				Provider: "litebox",
+				LiteBox: config.V2LiteBoxConfig{
+					BridgeCommand: "litebox-acp",
+					RunnerPath:    "D:\\litebox\\runner.exe",
+					RunnerArgs:    []string{"--rootfs", "D:\\rootfs"},
+				},
+			},
+		},
+	}, dataDir)
+
+	sb, ok := got.(v2sandbox.LiteBoxSandbox)
+	if !ok {
+		t.Fatalf("buildV2Sandbox() = %T, want LiteBoxSandbox when provider=litebox", got)
+	}
+	if sb.BridgeCommand != "litebox-acp" {
+		t.Fatalf("LiteBoxSandbox.BridgeCommand = %q, want %q", sb.BridgeCommand, "litebox-acp")
+	}
+	if sb.RunnerPath != "D:\\litebox\\runner.exe" {
+		t.Fatalf("LiteBoxSandbox.RunnerPath = %q, want runner path", sb.RunnerPath)
+	}
+	base, ok := sb.Base.(v2sandbox.HomeDirSandbox)
+	if !ok {
+		t.Fatalf("LiteBoxSandbox.Base = %T, want HomeDirSandbox", sb.Base)
+	}
+	if base.DataDir != dataDir {
+		t.Fatalf("HomeDirSandbox.DataDir = %q, want %q", base.DataDir, dataDir)
+	}
+	if !base.RequireCodexAuth {
+		t.Fatal("HomeDirSandbox.RequireCodexAuth = false, want true from env")
 	}
 }
 

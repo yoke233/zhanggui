@@ -819,6 +819,35 @@
         "capabilities_max"
       ]
     },
+    "V2LiteBoxConfig": {
+      "properties": {
+        "bridge_command": {
+          "type": "string"
+        },
+        "bridge_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "runner_path": {
+          "type": "string"
+        },
+        "runner_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "bridge_command",
+        "bridge_args",
+        "runner_path",
+        "runner_args"
+      ]
+    },
     "V2OpenAIConfig": {
       "properties": {
         "base_url": {
@@ -913,11 +942,19 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "litebox": {
+          "$ref": "#/$defs/V2LiteBoxConfig"
         }
       },
       "type": "object",
       "required": [
-        "enabled"
+        "enabled",
+        "provider",
+        "litebox"
       ]
     },
     "V2SessionConfig": {

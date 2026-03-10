@@ -54,12 +54,22 @@ type V2Config struct {
 	Collector    V2CollectorConfig `toml:"collector" yaml:"collector"`
 	Sandbox      V2SandboxConfig   `toml:"sandbox"   yaml:"sandbox"`
 	Agents       V2AgentsConfig    `toml:"agents"    yaml:"agents"`
+	MCP          V2MCPConfig       `toml:"mcp"       yaml:"mcp"`
 	Prompts      V2PromptsConfig   `toml:"prompts"   yaml:"prompts"`
 }
 
 // V2SandboxConfig configures per-ACP-process sandbox isolation.
 type V2SandboxConfig struct {
-	Enabled bool `toml:"enabled" yaml:"enabled"`
+	Enabled  bool            `toml:"enabled"  yaml:"enabled"`
+	Provider string          `toml:"provider" yaml:"provider"`
+	LiteBox  V2LiteBoxConfig `toml:"litebox"  yaml:"litebox"`
+}
+
+type V2LiteBoxConfig struct {
+	BridgeCommand string   `toml:"bridge_command" yaml:"bridge_command"`
+	BridgeArgs    []string `toml:"bridge_args"    yaml:"bridge_args"`
+	RunnerPath    string   `toml:"runner_path"    yaml:"runner_path"`
+	RunnerArgs    []string `toml:"runner_args"    yaml:"runner_args"`
 }
 
 // V2PromptsConfig stores user-maintained prompt templates for v2 runtime behaviors.
@@ -74,6 +84,33 @@ type V2PromptsConfig struct {
 type V2AgentsConfig struct {
 	Drivers  []V2DriverConfig  `toml:"drivers"  yaml:"drivers"`
 	Profiles []V2ProfileConfig `toml:"profiles" yaml:"profiles"`
+}
+
+// V2MCPConfig defines MCP servers and per-profile bindings for the v2 engine.
+type V2MCPConfig struct {
+	Servers         []V2MCPServerConfig         `toml:"servers"          yaml:"servers"`
+	ProfileBindings []V2MCPProfileBindingConfig `toml:"profile_bindings" yaml:"profile_bindings"`
+}
+
+type V2MCPServerConfig struct {
+	ID            string            `toml:"id"              yaml:"id"`
+	Name          string            `toml:"name"            yaml:"name"`
+	Kind          string            `toml:"kind"            yaml:"kind"`
+	Transport     string            `toml:"transport"       yaml:"transport"`
+	Endpoint      string            `toml:"endpoint"        yaml:"endpoint"`
+	Command       string            `toml:"command"         yaml:"command"`
+	Args          []string          `toml:"args"            yaml:"args"`
+	Env           map[string]string `toml:"env"             yaml:"env"`
+	AuthSecretRef string            `toml:"auth_secret_ref" yaml:"auth_secret_ref"`
+	Enabled       bool              `toml:"enabled"         yaml:"enabled"`
+}
+
+type V2MCPProfileBindingConfig struct {
+	Profile  string   `toml:"profile"   yaml:"profile"`
+	Server   string   `toml:"server"    yaml:"server"`
+	Enabled  bool     `toml:"enabled"   yaml:"enabled"`
+	ToolMode string   `toml:"tool_mode" yaml:"tool_mode"`
+	Tools    []string `toml:"tools"     yaml:"tools"`
 }
 
 // V2DriverConfig defines an ACP agent driver (process launch configuration).
@@ -251,11 +288,21 @@ type V2Layer struct {
 	Collector *V2CollectorLayer `toml:"collector" yaml:"collector"`
 	Sandbox   *V2SandboxLayer   `toml:"sandbox"   yaml:"sandbox"`
 	Agents    *V2AgentsLayerCfg `toml:"agents"    yaml:"agents"`
+	MCP       *V2MCPLayer       `toml:"mcp"       yaml:"mcp"`
 	Prompts   *V2PromptsLayer   `toml:"prompts"   yaml:"prompts"`
 }
 
 type V2SandboxLayer struct {
-	Enabled *bool `toml:"enabled" yaml:"enabled"`
+	Enabled  *bool           `toml:"enabled"  yaml:"enabled"`
+	Provider *string         `toml:"provider" yaml:"provider"`
+	LiteBox  *V2LiteBoxLayer `toml:"litebox"  yaml:"litebox"`
+}
+
+type V2LiteBoxLayer struct {
+	BridgeCommand *string   `toml:"bridge_command" yaml:"bridge_command"`
+	BridgeArgs    *[]string `toml:"bridge_args"    yaml:"bridge_args"`
+	RunnerPath    *string   `toml:"runner_path"    yaml:"runner_path"`
+	RunnerArgs    *[]string `toml:"runner_args"    yaml:"runner_args"`
 }
 
 type V2PromptsLayer struct {
@@ -266,6 +313,11 @@ type V2PromptsLayer struct {
 type V2AgentsLayerCfg struct {
 	Drivers  *[]V2DriverConfig  `toml:"drivers"  yaml:"drivers"`
 	Profiles *[]V2ProfileConfig `toml:"profiles" yaml:"profiles"`
+}
+
+type V2MCPLayer struct {
+	Servers         *[]V2MCPServerConfig         `toml:"servers"          yaml:"servers"`
+	ProfileBindings *[]V2MCPProfileBindingConfig `toml:"profile_bindings" yaml:"profile_bindings"`
 }
 
 type V2CollectorLayer struct {

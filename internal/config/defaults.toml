@@ -138,8 +138,60 @@ max_retries = 2
 
 # v2 ACP 进程沙箱隔离（每个进程独立 HOME/TMP/skills）。
 # 默认关闭；开启后会影响 agent 的认证/缓存目录位置。
+# provider:
+#   - "home_dir": 仅做宿主机目录隔离
+#   - "litebox":  通过 cmd/litebox-acp + LiteBox runner 包装 ACP 进程
+#
+# LiteBox 使用注意：
+# 1. `bridge_command` 应指向已构建的 `litebox-acp` 可执行文件。
+# 2. `runner_path` 应指向 LiteBox Windows runner，例如
+#    `D:\\tmp\\litebox-research\\target\\release\\litebox_runner_linux_on_windows_userland.exe`
+# 3. 被包装的 driver `launch_command` 必须是“LiteBox 可执行的 Linux 程序路径”，
+#    不能直接是 Windows `npx.exe`。
 [v2.sandbox]
 enabled = false
+provider = "home_dir"
+
+  [v2.sandbox.litebox]
+  bridge_command = "litebox-acp"
+  bridge_args = []
+  runner_path = ""
+  runner_args = []
+
+# 直接可用示例（按你的本地路径修改后，解开注释即可）：
+#
+# [v2.sandbox]
+# enabled = true
+# provider = "litebox"
+#
+#   [v2.sandbox.litebox]
+#   bridge_command = "D:\\tmp\\litebox-acp.exe"
+#   bridge_args = []
+#   runner_path = "D:\\tmp\\litebox-research\\target\\release\\litebox_runner_linux_on_windows_userland.exe"
+#   runner_args = ["--rootfs", "D:\\tmp\\litebox-rootfs"]
+#
+# [[v2.agents.drivers]]
+# id              = "codex-linux-litebox"
+# launch_command  = "D:\\tmp\\codex-acp-linux"
+# launch_args     = []
+# [v2.agents.drivers.capabilities_max]
+# fs_read  = true
+# fs_write = true
+# terminal = true
+#
+# [[v2.agents.profiles]]
+# id              = "worker-litebox"
+# name            = "Worker (LiteBox Codex Linux)"
+# driver          = "codex-linux-litebox"
+# role            = "worker"
+# capabilities    = ["dev.backend", "test"]
+# actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+# prompt_template = "implement"
+# skills          = ["executing-wave-plans"]
+# [v2.agents.profiles.session]
+# reuse     = false
+# max_turns = 12
+# idle_ttl  = "15m"
 
 # v2 会话复用（session.reuse=true）时的“增量提示词”。
 # 这些内容会作为同一 session 的后续消息发送，以复用已有上下文和 prompt cache，所以应尽量简短。

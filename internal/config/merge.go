@@ -353,6 +353,23 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			if sandbox.Enabled != nil {
 				cfg.V2.Sandbox.Enabled = *sandbox.Enabled
 			}
+			if sandbox.Provider != nil {
+				cfg.V2.Sandbox.Provider = *sandbox.Provider
+			}
+			if litebox := sandbox.LiteBox; litebox != nil {
+				if litebox.BridgeCommand != nil {
+					cfg.V2.Sandbox.LiteBox.BridgeCommand = *litebox.BridgeCommand
+				}
+				if litebox.BridgeArgs != nil {
+					cfg.V2.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(*litebox.BridgeArgs)
+				}
+				if litebox.RunnerPath != nil {
+					cfg.V2.Sandbox.LiteBox.RunnerPath = *litebox.RunnerPath
+				}
+				if litebox.RunnerArgs != nil {
+					cfg.V2.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(*litebox.RunnerArgs)
+				}
+			}
 		}
 		if agents := v2.Agents; agents != nil {
 			if agents.Drivers != nil {
@@ -434,6 +451,8 @@ func cloneStringMap(in map[string]string) map[string]string {
 
 func cloneV2Config(in V2Config) V2Config {
 	out := in
+	out.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(in.Sandbox.LiteBox.BridgeArgs)
+	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
 	out.Agents.Drivers = cloneV2Drivers(in.Agents.Drivers)
 	out.Agents.Profiles = cloneV2Profiles(in.Agents.Profiles)
 	return out

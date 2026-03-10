@@ -548,23 +548,7 @@ func buildServerAddress(host string, port int) string {
 }
 
 func buildV2Sandbox(cfg *config.Config, dataDir string) v2sandbox.Sandbox {
-	// Default: disabled (config-driven).
-	enabled := false
-	if cfg != nil && cfg.V2.Sandbox.Enabled {
-		enabled = true
-	}
-
-	// Optional env override (wins if explicitly set).
-	if raw := strings.TrimSpace(os.Getenv("AI_WORKFLOW_ACP_SANDBOX")); raw != "" {
-		switch strings.ToLower(raw) {
-		case "1", "true", "yes", "on":
-			enabled = true
-		case "0", "false", "no", "off":
-			enabled = false
-		}
-	}
-
-	if !enabled {
+	if cfg == nil || !cfg.V2.Sandbox.Enabled {
 		return v2sandbox.NoopSandbox{}
 	}
 
@@ -575,9 +559,26 @@ func buildV2Sandbox(cfg *config.Config, dataDir string) v2sandbox.Sandbox {
 			requireAuth = true
 		}
 	}
-	return v2sandbox.HomeDirSandbox{
+
+	homeSandbox := v2sandbox.HomeDirSandbox{
 		DataDir:          dataDir,
 		RequireCodexAuth: requireAuth,
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.V2.Sandbox.Provider)) {
+	case "", "home_dir":
+		return homeSandbox
+	case "litebox":
+		return v2sandbox.LiteBoxSandbox{
+			Base:          homeSandbox,
+			BridgeCommand: strings.TrimSpace(cfg.V2.Sandbox.LiteBox.BridgeCommand),
+			BridgeArgs:    append([]string(nil), cfg.V2.Sandbox.LiteBox.BridgeArgs...),
+			RunnerPath:    strings.TrimSpace(cfg.V2.Sandbox.LiteBox.RunnerPath),
+			RunnerArgs:    append([]string(nil), cfg.V2.Sandbox.LiteBox.RunnerArgs...),
+		}
+	default:
+		slog.Warn("v2 sandbox: unknown provider, fallback to home_dir", "provider", cfg.V2.Sandbox.Provider)
+		return homeSandbox
 	}
 }
 
