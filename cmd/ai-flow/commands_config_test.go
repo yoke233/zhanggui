@@ -136,7 +136,7 @@ func TestCLIConfigCommandUsageError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected usage error for missing config subcommand")
 	}
-	if !strings.Contains(err.Error(), "usage: ai-flow config <init> [--force]") {
+	if !strings.Contains(err.Error(), "usage: ai-flow config <init|validate>") {
 		t.Fatalf("unexpected usage error: %v", err)
 	}
 }

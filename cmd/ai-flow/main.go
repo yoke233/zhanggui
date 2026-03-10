@@ -87,11 +87,13 @@ func runWithArgs(args []string) error {
 		return cmdServer(args[1:])
 	case "config":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: ai-flow config <init> [--force]")
+			return fmt.Errorf("usage: ai-flow config <init|validate>")
 		}
 		switch args[1] {
 		case "init":
 			return cmdConfigInit(args[2:])
+		case "validate":
+			return cmdConfigValidate(args[2:])
 		default:
 			return fmt.Errorf("unknown config command: %s", args[1])
 		}
@@ -124,6 +126,7 @@ Usage:
   ai-flow github replay --delivery-id <id>
   ai-flow github validate
   ai-flow config init [--force]
+  ai-flow config validate
   ai-flow server [--port <port>]
   ai-flow mcp-serve                  (MCP server over stdio, requires AI_WORKFLOW_DB_PATH)
   ai-flow reset-db --yes              (drop all tables and recreate schema)`)

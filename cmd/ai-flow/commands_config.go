@@ -62,6 +62,23 @@ func cmdConfigInit(args []string) error {
 	return nil
 }
 
+func cmdConfigValidate(args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("usage: ai-flow config validate")
+	}
+	dataDir, err := resolveDataDir()
+	if err != nil {
+		return err
+	}
+	cfgPath := filepath.Join(dataDir, "config.toml")
+	secretsPath := secretsFilePath(dataDir)
+	if _, err := config.LoadGlobal(cfgPath, secretsPath); err != nil {
+		return err
+	}
+	fmt.Printf("Config valid: %s\n", cfgPath)
+	return nil
+}
+
 func loadDefaultConfigTemplate() ([]byte, error) {
 	return config.DefaultsTOML(), nil
 }

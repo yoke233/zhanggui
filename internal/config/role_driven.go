@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -15,6 +16,10 @@ func validateConfig(cfg *Config) error {
 	}
 
 	if err := validateWatchdogConfig(cfg.Scheduler.Watchdog); err != nil {
+		return err
+	}
+
+	if err := validateV2MCPConfig(cfg); err != nil {
 		return err
 	}
 
@@ -67,6 +72,103 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func validateV2MCPConfig(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	profileIDs := make(map[string]struct{}, len(cfg.V2.Agents.Profiles))
+	for _, profile := range cfg.V2.Agents.Profiles {
+		id := strings.TrimSpace(profile.ID)
+		if id == "" {
+			continue
+		}
+		profileIDs[id] = struct{}{}
+	}
+
+	serverIDs := make(map[string]struct{}, len(cfg.V2.MCP.Servers))
+	for _, server := range cfg.V2.MCP.Servers {
+		id := strings.TrimSpace(server.ID)
+		if id == "" {
+			return fmt.Errorf("v2.mcp.servers.id is required")
+		}
+		if _, exists := serverIDs[id]; exists {
+			return fmt.Errorf("duplicate v2.mcp.servers id %q", id)
+		}
+		serverIDs[id] = struct{}{}
+
+		kind := strings.ToLower(strings.TrimSpace(server.Kind))
+		transport := strings.ToLower(strings.TrimSpace(server.Transport))
+		switch kind {
+		case "", "internal", "external":
+		default:
+			return fmt.Errorf("v2.mcp.servers[%q].kind must be internal or external", id)
+		}
+		switch transport {
+		case "stdio":
+			if strings.TrimSpace(server.Command) == "" {
+				return fmt.Errorf("v2.mcp.servers[%q].command is required for stdio transport", id)
+			}
+		case "sse":
+			if kind != "internal" && strings.TrimSpace(server.Endpoint) == "" {
+				return fmt.Errorf("v2.mcp.servers[%q].endpoint is required for sse transport", id)
+			}
+		default:
+			return fmt.Errorf("v2.mcp.servers[%q].transport must be stdio or sse", id)
+		}
+	}
+
+	for _, binding := range cfg.V2.MCP.ProfileBindings {
+		profile := strings.TrimSpace(binding.Profile)
+		if profile == "" {
+			return fmt.Errorf("v2.mcp.profile_bindings.profile is required")
+		}
+		if _, ok := profileIDs[profile]; !ok {
+			return fmt.Errorf("v2.mcp.profile_bindings references missing profile %q", profile)
+		}
+		server := strings.TrimSpace(binding.Server)
+		if server == "" {
+			return fmt.Errorf("v2.mcp.profile_bindings.server is required")
+		}
+		if _, ok := serverIDs[server]; !ok {
+			return fmt.Errorf("v2.mcp.profile_bindings for profile %q references missing server %q", profile, server)
+		}
+		mode := strings.ToLower(strings.TrimSpace(binding.ToolMode))
+		switch mode {
+		case "", "all":
+		case "allow_list":
+			if len(binding.Tools) == 0 {
+				return fmt.Errorf("v2.mcp.profile_bindings for profile %q and server %q requires tools when tool_mode=allow_list", profile, server)
+			}
+		default:
+			return fmt.Errorf("v2.mcp.profile_bindings for profile %q and server %q has invalid tool_mode %q", profile, server, binding.ToolMode)
+		}
+		if hasDuplicateStrings(binding.Tools) {
+			return fmt.Errorf("v2.mcp.profile_bindings for profile %q and server %q contains duplicate tools", profile, server)
+		}
+	}
+
+	return nil
+}
+
+func hasDuplicateStrings(items []string) bool {
+	if len(items) <= 1 {
+		return false
+	}
+	seen := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if slices.Contains(seen, trimmed) {
+			return true
+		}
+		seen = append(seen, trimmed)
+	}
+	return false
 }
 
 func validateWatchdogConfig(cfg WatchdogConfig) error {

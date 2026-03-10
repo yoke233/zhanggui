@@ -18,6 +18,11 @@ import (
 type Secrets struct {
 	Tokens map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
 	GitHub GitHubSecrets         `toml:"github" yaml:"github"`
+
+	// Backwards-compatible top-level fine-grained PAT fields.
+	// For convenience, they can also be set under [github] and will be backfilled.
+	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
+	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
 }
 
 // TokenEntry defines a named token with scoped permissions.
@@ -48,6 +53,10 @@ type GitHubSecrets struct {
 	Token          string `toml:"token"            yaml:"token"`
 	PrivateKeyPath string `toml:"private_key_path" yaml:"private_key_path"`
 	WebhookSecret  string `toml:"webhook_secret"   yaml:"webhook_secret"`
+
+	// Optional fine-grained PATs for automation flows.
+	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
+	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
 }
 
 // AdminToken returns the token value for the "admin" role entry, or empty if none.
@@ -87,6 +96,14 @@ func LoadSecrets(path string) (*Secrets, error) {
 
 	if s.Tokens == nil {
 		s.Tokens = map[string]TokenEntry{}
+	}
+
+	// Backfill PATs from [github] section if present.
+	if strings.TrimSpace(s.CommitPAT) == "" && strings.TrimSpace(s.GitHub.CommitPAT) != "" {
+		s.CommitPAT = s.GitHub.CommitPAT
+	}
+	if strings.TrimSpace(s.MergePAT) == "" && strings.TrimSpace(s.GitHub.MergePAT) != "" {
+		s.MergePAT = s.GitHub.MergePAT
 	}
 	return s, nil
 }
