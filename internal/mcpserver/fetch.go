@@ -121,4 +121,3 @@ func isPrivateIP(host string) bool {
 
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
-

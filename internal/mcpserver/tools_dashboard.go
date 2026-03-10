@@ -22,7 +22,7 @@ type ProjectDashboardResult struct {
 }
 
 type ActionItem struct {
-	Type    string `json:"type"`    // review_needed / run_failed / action_required
+	Type    string `json:"type"` // review_needed / run_failed / action_required
 	IssueID string `json:"issue_id"`
 	RunID   string `json:"run_id,omitempty"`
 	Summary string `json:"summary"`

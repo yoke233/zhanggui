@@ -11,18 +11,18 @@ import (
 
 // Scope constants for permission checks.
 const (
-	ScopeAll          = "*"
-	ScopeIssuesRead   = "issues:read"
-	ScopeIssuesWrite  = "issues:write"
-	ScopeRunsRead     = "runs:read"
-	ScopeRunsWrite    = "runs:write"
-	ScopeProjectsRead = "projects:read"
+	ScopeAll           = "*"
+	ScopeIssuesRead    = "issues:read"
+	ScopeIssuesWrite   = "issues:write"
+	ScopeRunsRead      = "runs:read"
+	ScopeRunsWrite     = "runs:write"
+	ScopeProjectsRead  = "projects:read"
 	ScopeProjectsWrite = "projects:write"
-	ScopeChatRead     = "chat:read"
-	ScopeChatWrite    = "chat:write"
-	ScopeAdmin        = "admin"
-	ScopeMCP          = "mcp"
-	ScopeA2A          = "a2a"
+	ScopeChatRead      = "chat:read"
+	ScopeChatWrite     = "chat:write"
+	ScopeAdmin         = "admin"
+	ScopeMCP           = "mcp"
+	ScopeA2A           = "a2a"
 )
 
 type authContextKey string

@@ -67,13 +67,13 @@ type QueryProjectDetailInput struct {
 type QueryIssuesInput struct {
 	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
 	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
-	Status    string `json:"status,omitempty" jsonschema:"Filter by issue status"`
-	State     string `json:"state,omitempty" jsonschema:"Filter by issue state: open (default), closed, or all"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"Filter by chat session ID"`
-	ParentID  string `json:"parent_id,omitempty" jsonschema:"Filter by parent issue ID (for child issues)"`
-	Limit     int    `json:"limit,omitempty" jsonschema:"Max results to return"`
-	Offset    int    `json:"offset,omitempty" jsonschema:"Number of results to skip"`
-	Query     string `json:"query,omitempty" jsonschema:"Natural language search (filters by title/body keyword)"`
+	Status      string `json:"status,omitempty" jsonschema:"Filter by issue status"`
+	State       string `json:"state,omitempty" jsonschema:"Filter by issue state: open (default), closed, or all"`
+	SessionID   string `json:"session_id,omitempty" jsonschema:"Filter by chat session ID"`
+	ParentID    string `json:"parent_id,omitempty" jsonschema:"Filter by parent issue ID (for child issues)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Max results to return"`
+	Offset      int    `json:"offset,omitempty" jsonschema:"Number of results to skip"`
+	Query       string `json:"query,omitempty" jsonschema:"Natural language search (filters by title/body keyword)"`
 }
 
 type QueryIssueDetailInput struct {
@@ -83,11 +83,11 @@ type QueryIssueDetailInput struct {
 type QueryRunsInput struct {
 	ProjectID   string `json:"project_id,omitempty" jsonschema:"Project ID"`
 	ProjectName string `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
-	Status     string `json:"status,omitempty" jsonschema:"Filter by run status"`
-	Conclusion string `json:"conclusion,omitempty" jsonschema:"Filter: success/failure/timed_out/cancelled"`
-	IssueID    string `json:"issue_id,omitempty" jsonschema:"Filter by associated issue ID"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Max results to return"`
-	Offset     int    `json:"offset,omitempty" jsonschema:"Number of results to skip"`
+	Status      string `json:"status,omitempty" jsonschema:"Filter by run status"`
+	Conclusion  string `json:"conclusion,omitempty" jsonschema:"Filter: success/failure/timed_out/cancelled"`
+	IssueID     string `json:"issue_id,omitempty" jsonschema:"Filter by associated issue ID"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Max results to return"`
+	Offset      int    `json:"offset,omitempty" jsonschema:"Number of results to skip"`
 }
 
 type QueryRunDetailInput struct {
@@ -360,13 +360,13 @@ func queryProjectStatsHandler(store core.Store) func(context.Context, *mcp.CallT
 type SystemInfoInput struct{}
 
 type SystemInfoOutput struct {
-	ConfigDir    string            `json:"config_dir"`
-	ConfigFile   string            `json:"config_file"`
-	DefaultsFile string            `json:"defaults_file"`
-	DBPath       string            `json:"db_path"`
-	ServerAddr   string            `json:"server_addr,omitempty"`
-	DevMode      bool              `json:"dev_mode"`
-	SourceRoot   string            `json:"source_root,omitempty"`
+	ConfigDir     string            `json:"config_dir"`
+	ConfigFile    string            `json:"config_file"`
+	DefaultsFile  string            `json:"defaults_file"`
+	DBPath        string            `json:"db_path"`
+	ServerAddr    string            `json:"server_addr,omitempty"`
+	DevMode       bool              `json:"dev_mode"`
+	SourceRoot    string            `json:"source_root,omitempty"`
 	EditableFiles map[string]string `json:"editable_files"`
 }
 

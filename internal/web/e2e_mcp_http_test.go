@@ -185,8 +185,9 @@ func TestE2E_MCP_HTTP_MCPToolsConfig(t *testing.T) {
 // agent connects to MCP SSE endpoint → queries project status for decision-making.
 //
 // This is the exact path executed by startWebChatSession in chat_assistant_acp.go:
-//   effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
-//   client.NewSession(ctx, NewSessionRequest{McpServers: effectiveMCPServers})
+//
+//	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
+//	client.NewSession(ctx, NewSessionRequest{McpServers: effectiveMCPServers})
 func TestE2E_ACP_MCP_TeamLeaderFlow(t *testing.T) {
 	// 1. Setup: store with realistic project data
 	store := setupMCPTestStore(t)

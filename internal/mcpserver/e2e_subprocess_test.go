@@ -139,14 +139,14 @@ func TestE2E_Subprocess_ListTools(t *testing.T) {
 	}
 
 	want := map[string]bool{
-		"query_projects":      false,
+		"query_projects":       false,
 		"query_project_detail": false,
-		"query_issues":        false,
-		"query_issue_detail":  false,
-		"query_runs":          false,
-		"query_run_detail":    false,
-		"query_run_events":    false,
-		"query_project_stats": false,
+		"query_issues":         false,
+		"query_issue_detail":   false,
+		"query_runs":           false,
+		"query_run_detail":     false,
+		"query_run_events":     false,
+		"query_project_stats":  false,
 	}
 	for _, tool := range result.Tools {
 		if _, ok := want[tool.Name]; ok {

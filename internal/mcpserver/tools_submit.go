@@ -26,9 +26,9 @@ type FileAttachment struct {
 }
 
 type SubmitTaskResult struct {
-	Issue       *core.Issue          `json:"issue"`
+	Issue       *core.Issue            `json:"issue"`
 	Attachments []core.IssueAttachment `json:"attachments"`
-	Status      string               `json:"status"`
+	Status      string                 `json:"status"`
 }
 
 func registerSubmitTaskTool(server *mcp.Server, mgr IssueManager, store core.Store) {

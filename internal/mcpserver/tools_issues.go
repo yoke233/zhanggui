@@ -38,15 +38,15 @@ func registerIssueTools(server *mcp.Server, mgr IssueManager, store core.Store) 
 type CreateIssueToolInput struct {
 	ProjectID   string   `json:"project_id,omitempty" jsonschema:"Project ID (optional, can be assigned later)"`
 	ProjectName string   `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
-	Title      string   `json:"title" jsonschema:"Issue title (required)"`
-	Body       string   `json:"body" jsonschema:"Detailed description"`
-	Template   string   `json:"template,omitempty" jsonschema:"Pipeline template: standard, full, quick, hotfix (default: standard)"`
-	Labels     []string `json:"labels,omitempty" jsonschema:"Tags for the issue"`
-	AutoMerge  *bool    `json:"auto_merge,omitempty" jsonschema:"Auto-merge on completion (default: true)"`
-	FailPolicy string   `json:"fail_policy,omitempty" jsonschema:"Failure handling: block, skip, human (default: block)"`
-	SessionID  string   `json:"session_id,omitempty" jsonschema:"Chat session ID to group issues"`
-	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"IDs of issues this depends on"`
-	Priority   int      `json:"priority,omitempty" jsonschema:"Scheduling priority (higher = sooner)"`
+	Title       string   `json:"title" jsonschema:"Issue title (required)"`
+	Body        string   `json:"body" jsonschema:"Detailed description"`
+	Template    string   `json:"template,omitempty" jsonschema:"Pipeline template: standard, full, quick, hotfix (default: standard)"`
+	Labels      []string `json:"labels,omitempty" jsonschema:"Tags for the issue"`
+	AutoMerge   *bool    `json:"auto_merge,omitempty" jsonschema:"Auto-merge on completion (default: true)"`
+	FailPolicy  string   `json:"fail_policy,omitempty" jsonschema:"Failure handling: block, skip, human (default: block)"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"Chat session ID to group issues"`
+	DependsOn   []string `json:"depends_on,omitempty" jsonschema:"IDs of issues this depends on"`
+	Priority    int      `json:"priority,omitempty" jsonschema:"Scheduling priority (higher = sooner)"`
 }
 
 func createIssueHandler(mgr IssueManager, store core.Store) func(context.Context, *mcp.CallToolRequest, CreateIssueToolInput) (*mcp.CallToolResult, any, error) {
@@ -98,14 +98,14 @@ type UpdateIssueToolInput struct {
 	IssueID     string   `json:"issue_id" jsonschema:"Issue ID (required)"`
 	ProjectID   *string  `json:"project_id,omitempty" jsonschema:"Assign or change project"`
 	ProjectName string   `json:"project_name,omitempty" jsonschema:"Project name (alternative to project_id)"`
-	Title      string   `json:"title,omitempty" jsonschema:"New title"`
-	Body       string   `json:"body,omitempty" jsonschema:"New description (replaces existing)"`
-	Template   string   `json:"template,omitempty" jsonschema:"New pipeline template"`
-	Labels     []string `json:"labels,omitempty" jsonschema:"New labels (replaces existing)"`
-	Priority   *int     `json:"priority,omitempty" jsonschema:"New priority"`
-	FailPolicy string   `json:"fail_policy,omitempty" jsonschema:"New failure policy: block, skip, human"`
-	AutoMerge  *bool    `json:"auto_merge,omitempty" jsonschema:"New auto-merge setting"`
-	Reason     string   `json:"reason,omitempty" jsonschema:"Reason for the update (recorded in change history)"`
+	Title       string   `json:"title,omitempty" jsonschema:"New title"`
+	Body        string   `json:"body,omitempty" jsonschema:"New description (replaces existing)"`
+	Template    string   `json:"template,omitempty" jsonschema:"New pipeline template"`
+	Labels      []string `json:"labels,omitempty" jsonschema:"New labels (replaces existing)"`
+	Priority    *int     `json:"priority,omitempty" jsonschema:"New priority"`
+	FailPolicy  string   `json:"fail_policy,omitempty" jsonschema:"New failure policy: block, skip, human"`
+	AutoMerge   *bool    `json:"auto_merge,omitempty" jsonschema:"New auto-merge setting"`
+	Reason      string   `json:"reason,omitempty" jsonschema:"Reason for the update (recorded in change history)"`
 }
 
 func updateIssueHandler(mgr IssueManager, store core.Store) func(context.Context, *mcp.CallToolRequest, UpdateIssueToolInput) (*mcp.CallToolResult, any, error) {
