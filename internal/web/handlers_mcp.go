@@ -16,6 +16,7 @@ func registerMCPRoutes(r chi.Router, cfg Config) {
 	}
 	deps := mcpserver.Deps{
 		Store:        cfg.Store,
+		ContextStore: cfg.ContextStore,
 		IssueManager: cfg.MCPDeps.IssueManager,
 		RunExecutor:  cfg.MCPDeps.RunExecutor,
 	}

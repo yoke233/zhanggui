@@ -113,6 +113,7 @@ type Config struct {
 	A2ABridge              A2ABridge
 	Frontend               fs.FS
 	Store                  core.Store
+	ContextStore           core.ContextStore
 	IssueManager           IssueManager
 	DecomposePlanner       DecomposePlanner
 	ProposalIssueCreator   ProposalIssueCreator

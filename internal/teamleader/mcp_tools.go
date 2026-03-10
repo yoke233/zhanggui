@@ -14,6 +14,7 @@ type MCPEnvConfig struct {
 	DevMode    bool
 	SourceRoot string
 	ServerAddr string // e.g. "http://127.0.0.1:8080" — when set, prefer SSE over stdio
+	AuthToken  string // bearer token for SSE MCP (optional)
 }
 
 // MCPToolsFromRoleConfig returns an McpServer config for the ACP session.
@@ -27,12 +28,16 @@ func MCPToolsFromRoleConfig(role acpclient.RoleProfile, mcpEnv MCPEnvConfig, age
 	// SSE mode: connect to the running web server's MCP endpoint directly.
 	if addr := strings.TrimSpace(mcpEnv.ServerAddr); addr != "" && agentSupportsSSE {
 		url := strings.TrimRight(addr, "/") + "/api/v1/mcp"
+		headers := []acpproto.HttpHeader{}
+		if tok := strings.TrimSpace(mcpEnv.AuthToken); tok != "" {
+			headers = append(headers, acpproto.HttpHeader{Name: "Authorization", Value: "Bearer " + tok})
+		}
 		return []acpproto.McpServer{{
 			Sse: &acpproto.McpServerSseInline{
 				Name:    "ai-workflow-query",
 				Type:    "sse",
 				Url:     url,
-				Headers: []acpproto.HttpHeader{},
+				Headers: headers,
 			},
 		}}
 	}

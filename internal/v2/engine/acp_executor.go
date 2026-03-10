@@ -12,6 +12,7 @@ import (
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 )
 
@@ -21,6 +22,7 @@ type ACPExecutorConfig struct {
 	Store          core.Store
 	Bus            core.EventBus
 	DefaultWorkDir string
+	MCPEnv         teamleader.MCPEnvConfig
 }
 
 // NewACPStepExecutor creates a StepExecutor that spawns ACP agent processes.
@@ -74,9 +76,19 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 			return fmt.Errorf("initialize ACP agent %q: %w", driver.ID, err)
 		}
 
+		var mcpServers []acpproto.McpServer
+		if profile.MCP.Enabled {
+			roleProfile := acpclient.RoleProfile{
+				ID:         profile.ID,
+				MCPEnabled: true,
+				MCPTools:   append([]string(nil), profile.MCP.Tools...),
+			}
+			mcpServers = teamleader.MCPToolsFromRoleConfig(roleProfile, cfg.MCPEnv, client.SupportsSSEMCP())
+		}
+
 		sessionID, err := client.NewSession(ctx, acpproto.NewSessionRequest{
 			Cwd:        workDir,
-			McpServers: []acpproto.McpServer{},
+			McpServers: mcpServers,
 		})
 		if err != nil {
 			return fmt.Errorf("create ACP session: %w", err)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
+	contextsqlite "github.com/yoke233/ai-workflow/internal/plugins/context-sqlite"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 )
 
@@ -26,7 +27,12 @@ func cmdMCPServe() error {
 	configDir, _ := resolveDataDir()
 	// Stdio mode: only Store is available (no IssueManager/RunExecutor).
 	// Write tools will not be registered.
-	deps := mcpserver.Deps{Store: store}
+	var contextStore *contextsqlite.Store
+	if s, err := contextsqlite.New(".ai-workflow/context.db"); err == nil {
+		contextStore = s
+		defer contextStore.Close()
+	}
+	deps := mcpserver.Deps{Store: store, ContextStore: contextStore}
 	server := mcpserver.NewServer(deps, mcpserver.Options{
 		DevMode:    os.Getenv("AI_WORKFLOW_DEV_MODE") == "true",
 		SourceRoot: os.Getenv("AI_WORKFLOW_SOURCE_ROOT"),

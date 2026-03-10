@@ -58,6 +58,11 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	mcpEnv := teamleader.MCPEnvConfig{
 		DBPath: expandStorePath(cfg.Store.Path),
 	}
+	if dataDir, err := resolveDataDir(); err == nil {
+		if secrets, err := config.LoadSecrets(secretsFilePath(dataDir)); err == nil {
+			mcpEnv.AuthToken = strings.TrimSpace(secrets.AdminToken())
+		}
+	}
 	exec.SetMCPServerResolver(func(role acpclient.RoleProfile, sseSupported bool) []acpproto.McpServer {
 		return teamleader.MCPToolsFromRoleConfig(role, mcpEnv, sseSupported)
 	})

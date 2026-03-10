@@ -28,6 +28,9 @@ func NewServer(deps Deps, opts Options) *mcp.Server {
 		registerProjectTools(server, deps.Store)
 		registerDashboardTools(server, deps.Store)
 	}
+	if deps.ContextStore != nil {
+		registerContextTools(server, deps.ContextStore)
+	}
 	registerSystemInfoTool(server, opts)
 	if deps.IssueManager != nil {
 		registerIssueTools(server, deps.IssueManager, deps.Store)

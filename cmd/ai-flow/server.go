@@ -21,6 +21,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
 	ghwebhook "github.com/yoke233/ai-workflow/internal/github"
+	contextsqlite "github.com/yoke233/ai-workflow/internal/plugins/context-sqlite"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	v2api "github.com/yoke233/ai-workflow/internal/v2/api"
@@ -180,6 +181,10 @@ func runServer(ctx context.Context, args []string) error {
 		return fmt.Errorf("load secrets: %w", err)
 	}
 	tokenRegistry := web.NewTokenRegistry(secrets.Tokens)
+	if tokenRegistry.IsEmpty() {
+		return fmt.Errorf("auth is required: no tokens configured in %s", secretsFilePath(configDir))
+	}
+	adminToken := strings.TrimSpace(secrets.AdminToken())
 
 	port = resolveServerPort(port, cfg.Server.Port)
 	listenAddr := buildServerAddress(cfg.Server.Host, port)
@@ -246,8 +251,21 @@ func runServer(ctx context.Context, args []string) error {
 		MCPEnv: teamleader.MCPEnvConfig{
 			DBPath:     expandStorePath(cfg.Store.Path),
 			ServerAddr: "http://" + listenAddr,
+			AuthToken:  adminToken,
 		},
 	})
+
+	// Ensure ContextStore is available for MCP context_* tools.
+	// Prefer configured plugin; otherwise default to local context-sqlite store.
+	contextStore := bootstrapSet.ContextStore
+	if contextStore == nil {
+		if s, err := contextsqlite.New(".ai-workflow/context.db"); err == nil {
+			contextStore = s
+		}
+	}
+	if contextStore != nil {
+		defer contextStore.Close()
+	}
 	var decomposePlanner *teamleader.DecomposePlanner
 	if chatAssistant != nil {
 		decomposePlanner = teamleader.NewDecomposePlanner(func(ctx context.Context, projectID, systemPrompt, userMessage string) (string, error) {
@@ -313,7 +331,12 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	// --- V2 Engine Bootstrap ---
-	_, _, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(cfg.Store.Path), bootstrapSet.RoleResolver, cfg)
+	v2MCPEnv := teamleader.MCPEnvConfig{
+		DBPath:     expandStorePath(cfg.Store.Path),
+		ServerAddr: "http://" + listenAddr,
+		AuthToken:  adminToken,
+	}
+	_, _, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(cfg.Store.Path), bootstrapSet.RoleResolver, cfg, v2MCPEnv)
 	if v2Cleanup != nil {
 		defer v2Cleanup()
 	}
@@ -334,6 +357,7 @@ func runServer(ctx context.Context, args []string) error {
 		A2AVersion:           cfg.A2A.Version,
 		Frontend:             frontendFS,
 		Store:                store,
+		ContextStore:         contextStore,
 		A2ABridge:            a2aBridge,
 		IssueManager:         issueManager,
 		DecomposePlanner:     decomposePlanner,
@@ -641,7 +665,7 @@ func inferV2Role(name string) v2core.AgentRole {
 
 // bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
 // Returns the v2 store (for lifecycle), the agent registry, a cleanup func, and a route registrar for mounting.
-func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*v2sqlite.Store, v2core.AgentRegistry, func(), func(chi.Router)) {
+func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig) (*v2sqlite.Store, v2core.AgentRegistry, func(), func(chi.Router)) {
 	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
 	v2Store, err := v2sqlite.New(v2DBPath)
 	if err != nil {
@@ -670,6 +694,7 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		Registry: registry,
 		Store:    v2Store,
 		Bus:      v2Bus,
+		MCPEnv:   mcpEnv,
 	})
 
 	wsProvider := v2engine.NewCompositeProvider()

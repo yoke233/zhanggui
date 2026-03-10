@@ -10,6 +10,7 @@ import (
 // Store is required; other fields are optional (write tools are skipped when nil).
 type Deps struct {
 	Store        core.Store
+	ContextStore core.ContextStore
 	IssueManager IssueManager
 	RunExecutor  RunExecutor
 }
