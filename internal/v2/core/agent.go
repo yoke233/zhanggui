@@ -1,5 +1,7 @@
 package core
 
+import "time"
+
 // AgentRole is the role classification for an agent.
 type AgentRole string
 
@@ -27,15 +29,32 @@ const (
 	ActionExpandFlow   Action = "expand_flow"
 )
 
-// AgentProfile defines an agent's identity, capabilities, and constraints.
+// AgentProfile defines an agent's identity, role, capabilities, and constraints.
+// It references an AgentDriver by DriverID for process launch configuration.
 type AgentProfile struct {
-	ID              string    `json:"id"`
-	Role            AgentRole `json:"role"`
-	Driver          string    `json:"driver"`                    // claude | codex | human
-	LaunchCommand   string    `json:"launch_command,omitempty"`
-	LaunchArgs      []string  `json:"launch_args,omitempty"`
-	Capabilities    []string  `json:"capabilities,omitempty"`    // capability tags (dev.backend, test.qa, ...)
-	ActionsAllowed  []Action  `json:"actions_allowed,omitempty"` // permitted actions
+	ID             string    `json:"id"`
+	Name           string    `json:"name,omitempty"`
+	DriverID       string    `json:"driver_id"`
+	Role           AgentRole `json:"role"`
+	Capabilities   []string  `json:"capabilities,omitempty"`    // capability tags (dev.backend, test.qa, ...)
+	ActionsAllowed []Action  `json:"actions_allowed,omitempty"` // permitted actions
+	PromptTemplate string    `json:"prompt_template,omitempty"`
+
+	Session ProfileSession `json:"session,omitempty"`
+	MCP     ProfileMCP     `json:"mcp,omitempty"`
+}
+
+// ProfileSession configures session management for this profile.
+type ProfileSession struct {
+	Reuse    bool          `json:"reuse,omitempty"`
+	MaxTurns int           `json:"max_turns,omitempty"`
+	IdleTTL  time.Duration `json:"idle_ttl,omitempty"`
+}
+
+// ProfileMCP configures MCP tool access for this profile.
+type ProfileMCP struct {
+	Enabled bool     `json:"enabled,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 // DefaultActions returns the default action whitelist for a role.
@@ -87,4 +106,28 @@ func (p *AgentProfile) MatchesRequirements(required []string) bool {
 		}
 	}
 	return true
+}
+
+// EffectiveCapabilities returns the ACP capabilities derived from the profile's actions.
+func (p *AgentProfile) EffectiveCapabilities() DriverCapabilities {
+	var caps DriverCapabilities
+	for _, a := range p.EffectiveActions() {
+		switch a {
+		case ActionReadContext, ActionSearchFiles:
+			caps.FSRead = true
+		case ActionFSWrite:
+			caps.FSWrite = true
+		case ActionTerminal:
+			caps.Terminal = true
+		}
+	}
+	return caps
+}
+
+// EffectiveActions returns ActionsAllowed if set, otherwise DefaultActions for the role.
+func (p *AgentProfile) EffectiveActions() []Action {
+	if len(p.ActionsAllowed) > 0 {
+		return p.ActionsAllowed
+	}
+	return DefaultActions(p.Role)
 }

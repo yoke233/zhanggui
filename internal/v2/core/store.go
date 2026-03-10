@@ -10,6 +10,23 @@ type FlowStore interface {
 	UpdateFlowStatus(ctx context.Context, id int64, status FlowStatus) error
 }
 
+// ProjectStore persists Project aggregates.
+type ProjectStore interface {
+	CreateProject(ctx context.Context, p *Project) (int64, error)
+	GetProject(ctx context.Context, id int64) (*Project, error)
+	ListProjects(ctx context.Context, limit, offset int) ([]*Project, error)
+	UpdateProject(ctx context.Context, p *Project) error
+	DeleteProject(ctx context.Context, id int64) error
+}
+
+// ResourceBindingStore persists ResourceBinding records.
+type ResourceBindingStore interface {
+	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
+	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
+	ListResourceBindings(ctx context.Context, projectID int64) ([]*ResourceBinding, error)
+	DeleteResourceBinding(ctx context.Context, id int64) error
+}
+
 // StepStore persists Step aggregates.
 type StepStore interface {
 	CreateStep(ctx context.Context, s *Step) (int64, error)
@@ -59,6 +76,8 @@ type EventStore interface {
 
 // Store is the aggregate interface combining all sub-stores.
 type Store interface {
+	ProjectStore
+	ResourceBindingStore
 	FlowStore
 	StepStore
 	ExecutionStore
@@ -71,6 +90,7 @@ type Store interface {
 
 // FlowFilter constrains Flow queries.
 type FlowFilter struct {
+	ProjectID *int64
 	Status *FlowStatus
 	Limit  int
 	Offset int

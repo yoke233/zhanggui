@@ -132,6 +132,7 @@ type Config struct {
 	MCPServerOpts          MCPServerOptions
 	MCPDeps                MCPDeps
 	RoleResolver           *acpclient.RoleResolver
+	V2RouteRegistrar       func(chi.Router) // optional: registers v2 API routes under /api/v2
 }
 
 // MCPDeps carries business-layer dependencies for MCP write tools.
@@ -202,6 +203,16 @@ func NewServer(cfg Config) *Server {
 	// Public routes (no auth)
 	if cfg.A2AEnabled {
 		r.Get("/.well-known/agent-card.json", handleA2AAgentCard(cfg))
+	}
+
+	// V2 API routes (Flow/Step/Execution model)
+	if cfg.V2RouteRegistrar != nil {
+		r.Route("/api/v2", func(r chi.Router) {
+			if cfg.Auth != nil && !cfg.Auth.IsEmpty() {
+				r.Use(TokenAuthMiddleware(cfg.Auth))
+			}
+			cfg.V2RouteRegistrar(r)
+		})
 	}
 
 	// All API routes under /api/v1 with unified auth

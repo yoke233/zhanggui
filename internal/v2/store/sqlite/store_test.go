@@ -405,5 +405,179 @@ func TestEventCRUD(t *testing.T) {
 	}
 }
 
+func TestProjectCRUD_NewFields(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	p := &core.Project{
+		Name:        "营销Q3",
+		Kind:        core.ProjectGeneral,
+		Description: "第三季度营销活动",
+		Metadata:    map[string]string{"team": "marketing", "quarter": "Q3"},
+	}
+	id, err := s.CreateProject(ctx, p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if id <= 0 {
+		t.Fatal("expected positive id")
+	}
+
+	got, err := s.GetProject(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Name != "营销Q3" {
+		t.Fatalf("unexpected name: %s", got.Name)
+	}
+	if got.Kind != core.ProjectGeneral {
+		t.Fatalf("unexpected kind: %s", got.Kind)
+	}
+	if got.Description != "第三季度营销活动" {
+		t.Fatalf("unexpected description: %s", got.Description)
+	}
+	if got.Metadata["team"] != "marketing" || got.Metadata["quarter"] != "Q3" {
+		t.Fatalf("metadata not preserved: %v", got.Metadata)
+	}
+
+	// Default kind when empty
+	p2 := &core.Project{Name: "default-kind"}
+	id2, err := s.CreateProject(ctx, p2)
+	if err != nil {
+		t.Fatalf("create p2: %v", err)
+	}
+	got2, _ := s.GetProject(ctx, id2)
+	if got2.Kind != core.ProjectGeneral {
+		t.Fatalf("expected general kind, got %s", got2.Kind)
+	}
+
+	// List
+	projects, err := s.ListProjects(ctx, 50, 0)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+}
+
+func TestProjectUpdate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := s.CreateProject(ctx, &core.Project{Name: "old-name", Kind: core.ProjectGeneral})
+	got, _ := s.GetProject(ctx, id)
+
+	got.Name = "new-name"
+	got.Kind = core.ProjectDev
+	got.Description = "updated desc"
+	got.Metadata = map[string]string{"env": "prod"}
+	if err := s.UpdateProject(ctx, got); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	updated, _ := s.GetProject(ctx, id)
+	if updated.Name != "new-name" || updated.Kind != core.ProjectDev {
+		t.Fatalf("update not applied: %+v", updated)
+	}
+	if updated.Description != "updated desc" {
+		t.Fatalf("description not updated: %s", updated.Description)
+	}
+	if updated.Metadata["env"] != "prod" {
+		t.Fatalf("metadata not updated: %v", updated.Metadata)
+	}
+
+	// Update non-existent
+	if err := s.UpdateProject(ctx, &core.Project{ID: 9999, Name: "x", Kind: "general"}); err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestProjectDelete(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := s.CreateProject(ctx, &core.Project{Name: "to-delete", Kind: core.ProjectGeneral})
+	if err := s.DeleteProject(ctx, id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	_, err := s.GetProject(ctx, id)
+	if err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+
+	// Delete non-existent
+	if err := s.DeleteProject(ctx, 9999); err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestResourceBindingCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	pID, _ := s.CreateProject(ctx, &core.Project{Name: "proj", Kind: core.ProjectDev})
+
+	rb := &core.ResourceBinding{
+		ProjectID: pID,
+		Kind:      "git",
+		URI:       "D:/repos/test-repo",
+		Config:    map[string]any{"default_branch": "main"},
+		Label:     "源码",
+	}
+	id, err := s.CreateResourceBinding(ctx, rb)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if id <= 0 {
+		t.Fatal("expected positive id")
+	}
+
+	got, err := s.GetResourceBinding(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Kind != "git" || got.URI != "D:/repos/test-repo" {
+		t.Fatalf("unexpected binding: %+v", got)
+	}
+	if got.Label != "源码" {
+		t.Fatalf("label not preserved: %s", got.Label)
+	}
+	if got.Config["default_branch"] != "main" {
+		t.Fatalf("config not preserved: %v", got.Config)
+	}
+
+	// Create second binding
+	rb2 := &core.ResourceBinding{
+		ProjectID: pID,
+		Kind:      "local_fs",
+		URI:       "D:/data/assets",
+	}
+	s.CreateResourceBinding(ctx, rb2)
+
+	// List
+	bindings, err := s.ListResourceBindings(ctx, pID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(bindings) != 2 {
+		t.Fatalf("expected 2 bindings, got %d", len(bindings))
+	}
+
+	// Delete
+	if err := s.DeleteResourceBinding(ctx, id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	_, err = s.GetResourceBinding(ctx, id)
+	if err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	// Delete non-existent
+	if err := s.DeleteResourceBinding(ctx, 9999); err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 // Verify Store implements core.Store interface.
 var _ core.Store = (*Store)(nil)

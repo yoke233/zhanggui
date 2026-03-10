@@ -78,6 +78,7 @@ func cloneConfig(in Config) Config {
 	out.Roles = cloneRoles(in.Roles)
 	out.RoleBinds = cloneRoleBindings(in.RoleBinds)
 	out.GitHub = cloneGitHubConfig(in.GitHub)
+	out.V2 = cloneV2Config(in.V2)
 	return out
 }
 
@@ -330,6 +331,33 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			cfg.Log.MaxAgeDays = *log.MaxAgeDays
 		}
 	}
+
+	if v2 := layer.V2; v2 != nil {
+		if collector := v2.Collector; collector != nil {
+			if collector.MaxRetries != nil {
+				cfg.V2.Collector.MaxRetries = *collector.MaxRetries
+			}
+			if openaiCfg := collector.OpenAI; openaiCfg != nil {
+				if openaiCfg.BaseURL != nil {
+					cfg.V2.Collector.OpenAI.BaseURL = *openaiCfg.BaseURL
+				}
+				if openaiCfg.APIKey != nil {
+					cfg.V2.Collector.OpenAI.APIKey = *openaiCfg.APIKey
+				}
+				if openaiCfg.Model != nil {
+					cfg.V2.Collector.OpenAI.Model = *openaiCfg.Model
+				}
+			}
+		}
+		if agents := v2.Agents; agents != nil {
+			if agents.Drivers != nil {
+				cfg.V2.Agents.Drivers = cloneV2Drivers(*agents.Drivers)
+			}
+			if agents.Profiles != nil {
+				cfg.V2.Agents.Profiles = cloneV2Profiles(*agents.Profiles)
+			}
+		}
+	}
 }
 
 func cloneRoles(in []RoleConfig) []RoleConfig {
@@ -387,6 +415,50 @@ func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneV2Config(in V2Config) V2Config {
+	out := in
+	out.Agents.Drivers = cloneV2Drivers(in.Agents.Drivers)
+	out.Agents.Profiles = cloneV2Profiles(in.Agents.Profiles)
+	return out
+}
+
+func cloneV2Drivers(in []V2DriverConfig) []V2DriverConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]V2DriverConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].LaunchArgs != nil {
+			out[i].LaunchArgs = append([]string(nil), in[i].LaunchArgs...)
+		}
+		if in[i].Env != nil {
+			out[i].Env = cloneStringMap(in[i].Env)
+		}
+	}
+	return out
+}
+
+func cloneV2Profiles(in []V2ProfileConfig) []V2ProfileConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]V2ProfileConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].Capabilities != nil {
+			out[i].Capabilities = cloneStringSlice(in[i].Capabilities)
+		}
+		if in[i].ActionsAllowed != nil {
+			out[i].ActionsAllowed = cloneStringSlice(in[i].ActionsAllowed)
+		}
+		if in[i].MCP.Tools != nil {
+			out[i].MCP.Tools = cloneStringSlice(in[i].MCP.Tools)
+		}
 	}
 	return out
 }

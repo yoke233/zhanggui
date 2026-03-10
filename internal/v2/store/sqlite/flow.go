@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/v2/core"
@@ -17,9 +18,9 @@ func (s *Store) CreateFlow(ctx context.Context, f *core.Flow) (int64, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO flows (name, status, parent_step_id, metadata, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		f.Name, f.Status, f.ParentStepID, meta, now, now,
+		`INSERT INTO flows (project_id, name, status, parent_step_id, metadata, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		f.ProjectID, f.Name, f.Status, f.ParentStepID, meta, now, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert flow: %w", err)
@@ -35,9 +36,9 @@ func (s *Store) GetFlow(ctx context.Context, id int64) (*core.Flow, error) {
 	f := &core.Flow{}
 	var meta sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, status, parent_step_id, metadata, created_at, updated_at
+		`SELECT id, project_id, name, status, parent_step_id, metadata, created_at, updated_at
 		 FROM flows WHERE id = ?`, id,
-	).Scan(&f.ID, &f.Name, &f.Status, &f.ParentStepID, &meta, &f.CreatedAt, &f.UpdatedAt)
+	).Scan(&f.ID, &f.ProjectID, &f.Name, &f.Status, &f.ParentStepID, &meta, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, core.ErrNotFound
 	}
@@ -51,11 +52,19 @@ func (s *Store) GetFlow(ctx context.Context, id int64) (*core.Flow, error) {
 }
 
 func (s *Store) ListFlows(ctx context.Context, filter core.FlowFilter) ([]*core.Flow, error) {
-	query := `SELECT id, name, status, parent_step_id, metadata, created_at, updated_at FROM flows`
+	query := `SELECT id, project_id, name, status, parent_step_id, metadata, created_at, updated_at FROM flows`
 	var args []any
+	var conditions []string
+	if filter.ProjectID != nil {
+		conditions = append(conditions, `project_id = ?`)
+		args = append(args, *filter.ProjectID)
+	}
 	if filter.Status != nil {
-		query += ` WHERE status = ?`
+		conditions = append(conditions, `status = ?`)
 		args = append(args, *filter.Status)
+	}
+	if len(conditions) > 0 {
+		query += ` WHERE ` + strings.Join(conditions, " AND ")
 	}
 	query += ` ORDER BY id DESC`
 	if filter.Limit > 0 {
@@ -75,7 +84,7 @@ func (s *Store) ListFlows(ctx context.Context, filter core.FlowFilter) ([]*core.
 	for rows.Next() {
 		f := &core.Flow{}
 		var meta sql.NullString
-		if err := rows.Scan(&f.ID, &f.Name, &f.Status, &f.ParentStepID, &meta, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Status, &f.ParentStepID, &meta, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan flow: %w", err)
 		}
 		if meta.Valid {

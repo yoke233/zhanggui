@@ -7,6 +7,7 @@ type FlowStatus string
 
 const (
 	FlowPending   FlowStatus = "pending"
+	FlowQueued    FlowStatus = "queued"
 	FlowRunning   FlowStatus = "running"
 	FlowBlocked   FlowStatus = "blocked"
 	FlowFailed    FlowStatus = "failed"
@@ -18,6 +19,7 @@ const (
 // Entry steps are those whose DependsOn is empty — derived by the engine, not stored.
 type Flow struct {
 	ID           int64             `json:"id"`
+	ProjectID    *int64            `json:"project_id,omitempty"`
 	Name         string            `json:"name"`
 	Status       FlowStatus        `json:"status"`
 	ParentStepID *int64            `json:"parent_step_id,omitempty"` // sub-Flow points to parent composite Step

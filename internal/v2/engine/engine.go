@@ -15,14 +15,15 @@ type StepExecutor func(ctx context.Context, step *core.Step, exec *core.Executio
 
 // FlowEngine orchestrates Flow execution: DAG scheduling, state transitions, events.
 type FlowEngine struct {
-	store     core.Store
-	bus       core.EventBus
-	sem       *Semaphore
-	executor  StepExecutor
-	resolver  Resolver           // optional: agent selection
-	briefer   BriefingBuilder    // optional: briefing assembly
-	collector Collector          // optional: metadata extraction
-	expander  CompositeExpander  // optional: composite decomposition
+	store      core.Store
+	bus        core.EventBus
+	sem        *Semaphore
+	executor   StepExecutor
+	resolver   Resolver           // optional: agent selection
+	briefer    BriefingBuilder    // optional: briefing assembly
+	collector  Collector          // optional: metadata extraction
+	expander   CompositeExpander  // optional: composite decomposition
+	wsProvider core.WorkspaceProvider // optional: workspace isolation
 }
 
 // Option configures the FlowEngine.
@@ -55,6 +56,11 @@ func WithExpander(x CompositeExpander) Option {
 	return func(e *FlowEngine) { e.expander = x }
 }
 
+// WithWorkspaceProvider sets the workspace provider for flow execution.
+func WithWorkspaceProvider(p core.WorkspaceProvider) Option {
+	return func(e *FlowEngine) { e.wsProvider = p }
+}
+
 // New creates a FlowEngine.
 func New(store core.Store, bus core.EventBus, executor StepExecutor, opts ...Option) *FlowEngine {
 	e := &FlowEngine{
@@ -75,8 +81,8 @@ func (e *FlowEngine) Run(ctx context.Context, flowID int64) error {
 	if err != nil {
 		return fmt.Errorf("get flow: %w", err)
 	}
-	if flow.Status != core.FlowPending {
-		return fmt.Errorf("flow %d is %s, expected pending", flowID, flow.Status)
+	if flow.Status != core.FlowPending && flow.Status != core.FlowQueued {
+		return fmt.Errorf("flow %d is %s, expected pending or queued", flowID, flow.Status)
 	}
 
 	steps, err := e.store.ListStepsByFlow(ctx, flowID)
@@ -91,6 +97,26 @@ func (e *FlowEngine) Run(ctx context.Context, flowID int64) error {
 		return err
 	}
 
+	// Prepare workspace if project has resource bindings.
+	if flow.ProjectID != nil && e.wsProvider != nil {
+		project, err := e.store.GetProject(ctx, *flow.ProjectID)
+		if err != nil {
+			return fmt.Errorf("get project %d for workspace: %w", *flow.ProjectID, err)
+		}
+		bindings, err := e.store.ListResourceBindings(ctx, *flow.ProjectID)
+		if err != nil {
+			return fmt.Errorf("list resource bindings for project %d: %w", *flow.ProjectID, err)
+		}
+		if len(bindings) > 0 {
+			ws, err := e.wsProvider.Prepare(ctx, project, bindings, flowID)
+			if err != nil {
+				return fmt.Errorf("prepare workspace for flow %d: %w", flowID, err)
+			}
+			defer e.wsProvider.Release(ctx, ws)
+			ctx = ContextWithWorkspace(ctx, ws)
+		}
+	}
+
 	// Transition flow to running.
 	if err := e.store.UpdateFlowStatus(ctx, flowID, core.FlowRunning); err != nil {
 		return fmt.Errorf("start flow: %w", err)
@@ -101,8 +127,11 @@ func (e *FlowEngine) Run(ctx context.Context, flowID int64) error {
 		Timestamp: time.Now().UTC(),
 	})
 
-	// Mark entry steps as ready.
+	// Mark pending entry steps as ready.
 	for _, s := range EntrySteps(steps) {
+		if s.Status != core.StepPending {
+			continue
+		}
 		if err := e.transitionStep(ctx, s, core.StepReady); err != nil {
 			return err
 		}

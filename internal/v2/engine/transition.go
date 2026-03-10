@@ -4,7 +4,8 @@ import "github.com/yoke233/ai-workflow/internal/v2/core"
 
 // validFlowTransitions defines legal Flow status transitions.
 var validFlowTransitions = map[core.FlowStatus][]core.FlowStatus{
-	core.FlowPending: {core.FlowRunning, core.FlowCancelled},
+	core.FlowPending: {core.FlowQueued, core.FlowRunning, core.FlowCancelled},
+	core.FlowQueued:  {core.FlowRunning, core.FlowCancelled},
 	core.FlowRunning: {core.FlowBlocked, core.FlowFailed, core.FlowDone, core.FlowCancelled},
 	core.FlowBlocked: {core.FlowRunning, core.FlowFailed, core.FlowCancelled},
 }

@@ -20,6 +20,11 @@ func (e *FlowEngine) ExpandComposite(ctx context.Context, step *core.Step, child
 		Status:       core.FlowPending,
 		ParentStepID: &step.ID,
 	}
+	// Inherit ProjectID from parent flow.
+	parentFlow, err := e.store.GetFlow(ctx, step.FlowID)
+	if err == nil && parentFlow.ProjectID != nil {
+		subFlow.ProjectID = parentFlow.ProjectID
+	}
 	subFlowID, err := e.store.CreateFlow(ctx, subFlow)
 	if err != nil {
 		return 0, fmt.Errorf("create sub-flow: %w", err)

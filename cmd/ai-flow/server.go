@@ -15,12 +15,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
 	ghwebhook "github.com/yoke233/ai-workflow/internal/github"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
+	v2api "github.com/yoke233/ai-workflow/internal/v2/api"
+	v2core "github.com/yoke233/ai-workflow/internal/v2/core"
+	v2engine "github.com/yoke233/ai-workflow/internal/v2/engine"
+	v2sqlite "github.com/yoke233/ai-workflow/internal/v2/store/sqlite"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -305,6 +311,12 @@ func runServer(ctx context.Context, args []string) error {
 		return fmt.Errorf("start child completion handler: %w", err)
 	}
 
+	// --- V2 Engine Bootstrap ---
+	_, _, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(cfg.Store.Path), bootstrapSet.RoleResolver, cfg)
+	if v2Cleanup != nil {
+		defer v2Cleanup()
+	}
+
 	restartCh := make(chan struct{}, 1)
 	restartFunc := func() {
 		select {
@@ -339,8 +351,9 @@ func runServer(ctx context.Context, args []string) error {
 			ServerAddr: "http://" + listenAddr,
 			ConfigDir:  configDir,
 		},
-		MCPDeps:      buildMCPDeps(issueManager, exec, store),
-		RoleResolver: bootstrapSet.RoleResolver,
+		MCPDeps:          buildMCPDeps(issueManager, exec, store),
+		RoleResolver:     bootstrapSet.RoleResolver,
+		V2RouteRegistrar: v2RouteRegistrar,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -528,6 +541,199 @@ func secretsFilePath(dataDir string) string {
 		return yamlPath
 	}
 	return tomlPath // default to .toml for new installations
+}
+
+// buildV2Registry creates a v2 ConfigRegistry from config.
+// If v2.agents is configured in TOML, use that; otherwise fall back to v1 RoleResolver data.
+func buildV2Registry(cfg *config.Config, v1Resolver *acpclient.RoleResolver) *v2engine.ConfigRegistry {
+	// Primary: use v2-native agent config if present.
+	if cfg != nil && len(cfg.V2.Agents.Drivers) > 0 {
+		reg := v2engine.NewConfigRegistryFromConfig(cfg.V2.Agents)
+		slog.Info("v2 registry: loaded from v2.agents config",
+			"drivers", len(cfg.V2.Agents.Drivers),
+			"profiles", len(cfg.V2.Agents.Profiles))
+		return reg
+	}
+
+	// Fallback: derive from v1 agents.profiles + roles config.
+	if cfg != nil && len(cfg.EffectiveAgentProfiles()) > 0 {
+		reg := v2engine.NewConfigRegistry()
+		// Convert v1 agent profiles → v2 drivers.
+		for _, ap := range cfg.EffectiveAgentProfiles() {
+			reg.LoadDrivers([]*v2core.AgentDriver{{
+				ID:            ap.Name,
+				LaunchCommand: ap.LaunchCommand,
+				LaunchArgs:    ap.LaunchArgs,
+				Env:           ap.Env,
+				CapabilitiesMax: v2core.DriverCapabilities{
+					FSRead:   ap.CapabilitiesMax.FSRead,
+					FSWrite:  ap.CapabilitiesMax.FSWrite,
+					Terminal: ap.CapabilitiesMax.Terminal,
+				},
+			}})
+		}
+		// Convert v1 roles → v2 profiles.
+		for _, rc := range cfg.Roles {
+			var actions []v2core.Action
+			if rc.Capabilities.FSRead {
+				actions = append(actions, v2core.ActionReadContext, v2core.ActionSearchFiles)
+			}
+			if rc.Capabilities.FSWrite {
+				actions = append(actions, v2core.ActionFSWrite)
+			}
+			if rc.Capabilities.Terminal {
+				actions = append(actions, v2core.ActionTerminal)
+			}
+			role := inferV2Role(rc.Name)
+			reg.LoadProfiles([]*v2core.AgentProfile{{
+				ID:             rc.Name,
+				Name:           rc.Name,
+				DriverID:       rc.Agent,
+				Role:           role,
+				ActionsAllowed: actions,
+				PromptTemplate: rc.PromptTemplate,
+				Session: v2core.ProfileSession{
+					Reuse:    rc.Session.Reuse,
+					MaxTurns: rc.Session.MaxTurns,
+				},
+				MCP: v2core.ProfileMCP{
+					Enabled: rc.MCP.Enabled,
+					Tools:   rc.MCP.Tools,
+				},
+			}})
+		}
+		slog.Info("v2 registry: derived from v1 config",
+			"drivers", len(cfg.EffectiveAgentProfiles()),
+			"profiles", len(cfg.Roles))
+		return reg
+	}
+
+	slog.Warn("v2 registry: no agent config available")
+	return nil
+}
+
+// inferV2Role maps v1 role names to v2 AgentRole.
+func inferV2Role(name string) v2core.AgentRole {
+	switch name {
+	case "team_leader":
+		return v2core.RoleLead
+	case "reviewer", "aggregator":
+		return v2core.RoleGate
+	case "worker", "plan_parser":
+		return v2core.RoleWorker
+	default:
+		return v2core.RoleWorker
+	}
+}
+
+// bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
+// Returns the v2 store (for lifecycle), the agent registry, a cleanup func, and a route registrar for mounting.
+func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*v2sqlite.Store, *v2engine.ConfigRegistry, func(), func(chi.Router)) {
+	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
+	v2Store, err := v2sqlite.New(v2DBPath)
+	if err != nil {
+		slog.Error("v2 bootstrap: failed to open store", "path", v2DBPath, "error", err)
+		return nil, nil, nil, nil
+	}
+
+	v2Bus := v2engine.NewMemBus()
+
+	// Event persister: subscribe to bus → write to store.
+	persister := v2engine.NewEventPersister(v2Store, v2Bus)
+	if err := persister.Start(context.Background()); err != nil {
+		slog.Error("v2 bootstrap: failed to start event persister", "error", err)
+		v2Store.Close()
+		return nil, nil, nil, nil
+	}
+
+	// Build v2 AgentRegistry from config (primary) with v1 RoleResolver fallback.
+	registry := buildV2Registry(bootstrapCfg, roleResolver)
+
+	// Step executor: ACP agent process spawning.
+	var executor v2engine.StepExecutor
+	if registry != nil {
+		executor = v2engine.NewACPStepExecutor(v2engine.ACPExecutorConfig{
+			Registry: registry,
+			Store:    v2Store,
+			Bus:      v2Bus,
+		})
+	} else {
+		// Fallback: no-op executor that just succeeds.
+		executor = func(ctx context.Context, step *v2core.Step, exec *v2core.Execution) error {
+			slog.Warn("v2: no agent registry configured, step execution is a no-op", "step_id", step.ID)
+			return nil
+		}
+	}
+
+	wsProvider := v2engine.NewCompositeProvider()
+
+	// Optional: metadata collector (extracts JSON from step markdown artifacts).
+	var engOpts []v2engine.Option
+	engOpts = append(engOpts, v2engine.WithWorkspaceProvider(wsProvider))
+	if bootstrapCfg != nil {
+		openaiCfg := bootstrapCfg.V2.Collector.OpenAI
+		if strings.TrimSpace(openaiCfg.APIKey) != "" && strings.TrimSpace(openaiCfg.Model) != "" {
+			completer, err := v2engine.NewOpenAICompleter(v2engine.OpenAICompleterConfig{
+				BaseURL:    openaiCfg.BaseURL,
+				APIKey:     openaiCfg.APIKey,
+				Model:      openaiCfg.Model,
+				MaxRetries: bootstrapCfg.V2.Collector.MaxRetries,
+			})
+			if err != nil {
+				slog.Warn("v2 bootstrap: collector disabled (invalid openai config)", "error", err)
+			} else {
+				engOpts = append(engOpts, v2engine.WithCollector(v2engine.NewLLMCollector(completer.Complete)))
+				slog.Info("v2 bootstrap: collector enabled")
+			}
+		}
+	}
+
+	eng := v2engine.New(v2Store, v2Bus, executor, engOpts...)
+
+	// Flow scheduler: queue + concurrency control.
+	scheduler := v2engine.NewFlowScheduler(eng, v2Store, v2Bus, v2engine.FlowSchedulerConfig{
+		MaxConcurrentFlows: 2,
+	})
+	schedCtx, schedCancel := context.WithCancel(context.Background())
+	go scheduler.Start(schedCtx)
+
+	// Recover interrupted flows from previous process.
+	if n, err := v2engine.RecoverInterruptedFlows(context.Background(), v2Store, scheduler); err != nil {
+		slog.Warn("v2 bootstrap: flow recovery error", "error", err)
+	} else if n > 0 {
+		slog.Info("v2 bootstrap: recovered interrupted flows", "count", n)
+	}
+
+	// Lead agent: direct chat entry point.
+	var leadAgent *v2engine.LeadAgent
+	if registry != nil {
+		leadAgent = v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
+			Registry: registry,
+			Bus:      v2Bus,
+		})
+	}
+
+	handler := v2api.NewHandler(v2Store, v2Bus, eng,
+		v2api.WithLeadAgent(leadAgent),
+		v2api.WithScheduler(scheduler),
+		v2api.WithRegistry(registry),
+	)
+	registrar := func(r chi.Router) {
+		handler.Register(r)
+	}
+
+	cleanup := func() {
+		if leadAgent != nil {
+			leadAgent.Shutdown()
+		}
+		schedCancel()
+		scheduler.Shutdown()
+		persister.Stop()
+		v2Store.Close()
+	}
+
+	slog.Info("v2 engine bootstrapped", "db", v2DBPath)
+	return v2Store, registry, cleanup, registrar
 }
 
 func buildScheduler(exec *engine.Executor, store core.Store) (*engine.Scheduler, error) {

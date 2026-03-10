@@ -12,6 +12,7 @@ import (
 // createFlowRequest is the request body for POST /flows.
 type createFlowRequest struct {
 	Name     string            `json:"name"`
+	ProjectID *int64           `json:"project_id,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
@@ -26,8 +27,20 @@ func (h *Handler) createFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ProjectID != nil {
+		if _, err := h.store.GetProject(r.Context(), *req.ProjectID); err != nil {
+			if err == core.ErrNotFound {
+				writeError(w, http.StatusNotFound, "project not found", "PROJECT_NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+			return
+		}
+	}
+
 	f := &core.Flow{
 		Name:     req.Name,
+		ProjectID: req.ProjectID,
 		Status:   core.FlowPending,
 		Metadata: req.Metadata,
 	}
@@ -64,6 +77,9 @@ func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
 		Limit:  queryInt(r, "limit", 50),
 		Offset: queryInt(r, "offset", 0),
 	}
+	if projectID, ok := queryInt64(r, "project_id"); ok {
+		filter.ProjectID = &projectID
+	}
 	if s := r.URL.Query().Get("status"); s != "" {
 		status := core.FlowStatus(s)
 		filter.Status = &status
@@ -81,6 +97,7 @@ func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
 }
 
 // runFlow triggers async execution of a flow. Returns immediately.
+// If a scheduler is configured, the flow is queued; otherwise it runs directly.
 func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "flowID")
 	if !ok {
@@ -102,8 +119,21 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run in background goroutine with a detached context
-	// (the HTTP request context is cancelled after the response is sent).
+	// If scheduler is available, submit to queue.
+	if h.scheduler != nil {
+		if err := h.scheduler.Submit(r.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "SCHEDULER_ERROR")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"flow_id": id,
+			"status":  "queued",
+			"message": "flow queued for execution",
+		})
+		return
+	}
+
+	// Fallback: run directly in background goroutine.
 	go func() {
 		ctx := context.Background()
 		if err := h.engine.Run(ctx, id); err != nil {
@@ -130,7 +160,15 @@ func (h *Handler) cancelFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.engine.Cancel(r.Context(), id); err != nil {
+	// If scheduler is available, cancel via scheduler (handles both queued and running).
+	var err error
+	if h.scheduler != nil {
+		err = h.scheduler.Cancel(r.Context(), id)
+	} else {
+		err = h.engine.Cancel(r.Context(), id)
+	}
+
+	if err != nil {
 		if err == core.ErrInvalidTransition {
 			writeError(w, http.StatusConflict, "flow cannot be cancelled in current state", "INVALID_STATE")
 			return

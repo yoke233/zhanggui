@@ -123,6 +123,74 @@ max_project_runs  = 2
   stuck_merge_ttl = "15m"
   queue_stale_ttl = "60m"
 
+# ─── V2 Engine ────────────────────────────────────────────────────
+# v2 引擎的元数据抽取（Collector）默认关闭：需要提供 OpenAI 配置后才会启用。
+[v2.collector]
+max_retries = 2
+
+  [v2.collector.openai]
+  # 例如: "https://api.openai.com/v1"；留空则使用 SDK 默认值。
+  base_url = "https://api.openai.com/v1"
+  # 注意：不建议把密钥提交到版本库。
+  api_key  = "xxxxxxxxxxxx"
+  # 例如: "gpt-4o-mini"
+  model    = "deepseek-v3.2"
+
+# ─── V2 Agent Drivers & Profiles ─────────────────────────────────
+# Driver = 进程启动配置（共享二进制）
+# Profile = 角色实例（绑定 driver + 能力 + 动作白名单）
+#
+# 如果 v2.agents 为空，v2 引擎会自动从 v1 的 agents.profiles + roles 推导。
+
+# [[v2.agents.drivers]]
+# id              = "claude-acp"
+# launch_command  = "npx"
+# launch_args     = ["-y", "@anthropics/claude-code-acp@latest"]
+# [v2.agents.drivers.capabilities_max]
+# fs_read  = true
+# fs_write = true
+# terminal = true
+#
+# [[v2.agents.drivers]]
+# id              = "codex-acp"
+# launch_command  = "npx"
+# launch_args     = ["-y", "@openai/codex-acp"]
+# [v2.agents.drivers.capabilities_max]
+# fs_read  = true
+# fs_write = true
+# terminal = true
+#
+# [[v2.agents.profiles]]
+# id              = "lead"
+# name            = "Lead Agent"
+# driver          = "claude-acp"
+# role            = "lead"
+# capabilities    = ["planning", "code.review", "dev.fullstack"]
+# actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "create_step", "expand_flow", "submit"]
+# prompt_template = "team_leader"
+# [v2.agents.profiles.session]
+# reuse     = true
+# max_turns = 50
+# idle_ttl  = "30m"
+# [v2.agents.profiles.mcp]
+# enabled = true
+#
+# [[v2.agents.profiles]]
+# id              = "worker-claude"
+# name            = "Worker (Claude)"
+# driver          = "claude-acp"
+# role            = "worker"
+# capabilities    = ["dev.backend", "dev.frontend", "test"]
+# actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+#
+# [[v2.agents.profiles]]
+# id              = "gate-claude"
+# name            = "Reviewer (Claude)"
+# driver          = "claude-acp"
+# role            = "gate"
+# capabilities    = ["code.review", "security.review"]
+# actions_allowed = ["read_context", "search_files", "approve", "reject", "submit"]
+
 # ─── Team Leader ─────────────────────────────────────────────────
 [team_leader]
 review_gate_plugin = "review-ai-panel"

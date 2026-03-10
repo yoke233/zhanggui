@@ -30,7 +30,7 @@ func New(path string) (*Store, error) {
 			return nil, fmt.Errorf("exec %s: %w", pragma, err)
 		}
 	}
-	if _, err := db.Exec(schemaV1); err != nil {
+	if err := runMigrations(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}

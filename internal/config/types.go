@@ -37,12 +37,69 @@ type Config struct {
 	Context    ContextConfig    `toml:"context"      yaml:"context"`
 	Log        LogConfig        `toml:"log"          yaml:"log"`
 	LLMFilter  LLMFilterConfig  `toml:"llm_filter"   yaml:"llm_filter"`
+	V2         V2Config         `toml:"v2"           yaml:"v2"`
 }
 
 type LLMFilterConfig struct {
 	Enabled  bool   `toml:"enabled"  yaml:"enabled"`
 	Provider string `toml:"provider" yaml:"provider"` // anthropic / openai / local
 	Model    string `toml:"model"    yaml:"model"`
+}
+
+// V2Config holds configuration for the v2 engine runtime.
+type V2Config struct {
+	Collector V2CollectorConfig `toml:"collector" yaml:"collector"`
+	Agents    V2AgentsConfig    `toml:"agents"    yaml:"agents"`
+}
+
+// V2AgentsConfig defines agent drivers and profiles for the v2 engine.
+type V2AgentsConfig struct {
+	Drivers  []V2DriverConfig  `toml:"drivers"  yaml:"drivers"`
+	Profiles []V2ProfileConfig `toml:"profiles" yaml:"profiles"`
+}
+
+// V2DriverConfig defines an ACP agent driver (process launch configuration).
+type V2DriverConfig struct {
+	ID              string             `toml:"id"               yaml:"id"`
+	LaunchCommand   string             `toml:"launch_command"   yaml:"launch_command"`
+	LaunchArgs      []string           `toml:"launch_args"      yaml:"launch_args"`
+	Env             map[string]string  `toml:"env"              yaml:"env"`
+	CapabilitiesMax CapabilitiesConfig `toml:"capabilities_max" yaml:"capabilities_max"`
+}
+
+// V2ProfileConfig defines an agent profile (role instance) for the v2 engine.
+type V2ProfileConfig struct {
+	ID             string          `toml:"id"              yaml:"id"`
+	Name           string          `toml:"name"            yaml:"name"`
+	Driver         string          `toml:"driver"          yaml:"driver"`
+	Role           string          `toml:"role"            yaml:"role"`
+	Capabilities   []string        `toml:"capabilities"    yaml:"capabilities"`
+	ActionsAllowed []string        `toml:"actions_allowed" yaml:"actions_allowed"`
+	PromptTemplate string          `toml:"prompt_template" yaml:"prompt_template"`
+	Session        V2SessionConfig `toml:"session"         yaml:"session"`
+	MCP            MCPConfig       `toml:"mcp"             yaml:"mcp"`
+}
+
+// V2SessionConfig configures session management for a v2 profile.
+type V2SessionConfig struct {
+	Reuse    bool     `toml:"reuse"     yaml:"reuse"`
+	MaxTurns int      `toml:"max_turns" yaml:"max_turns"`
+	IdleTTL  Duration `toml:"idle_ttl"  yaml:"idle_ttl"`
+}
+
+// V2CollectorConfig configures the v2 metadata collector.
+type V2CollectorConfig struct {
+	// MaxRetries controls how many additional attempts the collector makes
+	// for transient OpenAI API errors. 0 means no retry.
+	MaxRetries int            `toml:"max_retries" yaml:"max_retries"`
+	OpenAI     V2OpenAIConfig `toml:"openai"       yaml:"openai"`
+}
+
+// V2OpenAIConfig configures the OpenAI client used by the v2 collector.
+type V2OpenAIConfig struct {
+	BaseURL string `toml:"base_url" yaml:"base_url"`
+	APIKey  string `toml:"api_key"  yaml:"api_key"`
+	Model   string `toml:"model"    yaml:"model"`
 }
 
 type AgentsConfig struct {
@@ -168,6 +225,28 @@ type ConfigLayer struct {
 	Store      *StoreLayer        `toml:"store"          yaml:"store"`
 	Context    *ContextLayer      `toml:"context"        yaml:"context"`
 	Log        *LogLayer          `toml:"log"            yaml:"log"`
+	V2         *V2Layer           `toml:"v2"             yaml:"v2"`
+}
+
+type V2Layer struct {
+	Collector *V2CollectorLayer  `toml:"collector" yaml:"collector"`
+	Agents    *V2AgentsLayerCfg  `toml:"agents"    yaml:"agents"`
+}
+
+type V2AgentsLayerCfg struct {
+	Drivers  *[]V2DriverConfig  `toml:"drivers"  yaml:"drivers"`
+	Profiles *[]V2ProfileConfig `toml:"profiles" yaml:"profiles"`
+}
+
+type V2CollectorLayer struct {
+	MaxRetries *int           `toml:"max_retries" yaml:"max_retries"`
+	OpenAI     *V2OpenAILayer `toml:"openai"      yaml:"openai"`
+}
+
+type V2OpenAILayer struct {
+	BaseURL *string `toml:"base_url" yaml:"base_url"`
+	APIKey  *string `toml:"api_key"  yaml:"api_key"`
+	Model   *string `toml:"model"    yaml:"model"`
 }
 
 type AgentsLayer struct {
