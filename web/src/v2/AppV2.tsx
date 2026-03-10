@@ -4,65 +4,52 @@ import SystemEventBanner from "@/components/SystemEventBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { createA2AClient, type A2AClient } from "@/lib/a2aClient";
-import { createApiClient, type ApiClient } from "@/lib/apiClient";
+import { createApiClientV2, type ApiClientV2 } from "@/lib/apiClientV2";
 import { cn } from "@/lib/utils";
 import { createWsClient, type WsClient } from "@/lib/wsClient";
-import type { Project } from "@/types/workflow";
-import type { WsEnvelope } from "@/types/ws";
-import V3IssuesView from "@/v3/views/IssuesView";
-import V3OpsView from "@/v3/views/OpsView";
-import V3OverviewView from "@/v3/views/OverviewView";
-import V3RunsView from "@/v3/views/RunsView";
-import V3SessionsView from "@/v3/views/SessionsView";
-import AppV2 from "@/v2/AppV2";
+import type { Project, ResourceBinding } from "@/types/apiV2";
+import V2ArtifactView from "@/v2/views/ArtifactView";
+import V2BriefingView from "@/v2/views/BriefingView";
+import V2ChatView from "@/v2/views/ChatView";
+import V2EventsView from "@/v2/views/EventsView";
+import V2ExecutionsView from "@/v2/views/ExecutionsView";
+import V2FlowsView from "@/v2/views/FlowsView";
+import V2OpsView from "@/v2/views/OpsView";
+import V2StepsView from "@/v2/views/StepsView";
+import V2OverviewView from "@/v2/views/OverviewView";
 
-type AppView = "overview" | "chat" | "board" | "runs" | "ops";
+type AppView = "overview" | "chat" | "flows" | "steps" | "ops";
 
 const VIEW_LABELS: Record<AppView, string> = {
   overview: "总览",
   chat: "会话",
-  board: "项目 / Issue",
-  runs: "Run",
+  flows: "任务列表",
+  steps: "步骤",
   ops: "协议 / 运维",
 };
 
 const VIEW_DESCRIPTIONS: Record<AppView, string> = {
-  overview: "将项目、Issue、Run 和协议健康放到同一视角。",
-  chat: "从会话里提炼目标、范围和验收条件，再决定是否进入 DAG / Issue 流程。",
-  board: "查看 Issue 队列、操作详情时间线，并继续推进 review / run 流程。",
-  runs: "把阶段推进、运行事件流和 GitHub 关联状态集中到一个只读视图。",
-  ops: "集中查看审计、workflow profile 和危险操作入口，避免在业务页散落高权限动作。",
+  overview: "保持 v3 信息架构与视觉布局，在同一视角里看项目、Flow 进度与系统健康。",
+  chat: "Lead Chat（WebSocket 流式），从对话里沉淀目标并驱动 Flow。",
+  flows: "Flow 工作台：创建、筛选、选择，并进入 Step/Execution/事件流。",
+  steps: "围绕选中的 Flow/Step 查看 Steps、Executions、Events、Artifact、Briefing。",
+  ops: "项目、资源绑定、统计与控制性接口统一收口在本页。",
 };
 
 const VIEW_EYEBROWS: Record<AppView, string> = {
   overview: "命令中心",
   chat: "会话 / 线程",
-  board: "项目 / Issue 工作台",
-  runs: "Run 详情与事件流",
+  flows: "任务列表 / Flow",
+  steps: "步骤 / 执行与事件流",
   ops: "协议 / 审计 / 运维",
 };
 
-const ISSUE_RUN_EVENT_TYPES = new Set([
-  "run_started",
-  "run_update",
-  "run_completed",
-  "run_failed",
-  "run_cancelled",
-  "auto_merged",
-  "issue_created",
-  "issue_reviewing",
-  "review_done",
-  "issue_approved",
-  "issue_queued",
-  "issue_ready",
-  "issue_executing",
-  "issue_done",
-  "issue_failed",
-  "issue_dependency_changed",
-]);
+const API_BASE_URL =
+  import.meta.env.VITE_API_V2_BASE_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  "/api/v2";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "/api/v1";
 const TOKEN_STORAGE_KEY = "ai-workflow-api-token";
 
 type TokenSource = "query" | "storage" | "missing";
@@ -70,20 +57,6 @@ type TokenSource = "query" | "storage" | "missing";
 interface ResolvedToken {
   token: string | null;
   source: TokenSource;
-}
-
-interface ViewProps {
-  apiClient: ApiClient;
-  a2aClient: A2AClient;
-  wsClient: WsClient;
-  projectId: string | null;
-  refreshToken: number;
-  a2aEnabled: boolean;
-  projects: Project[];
-  selectedProject: Project | null;
-  onNavigate: (view: "chat" | "board" | "runs" | "ops") => void;
-  onProjectCreated: (projectId?: string) => Promise<void>;
-  wsStatus: ReturnType<WsClient["getStatus"]>;
 }
 
 const resolveA2AEnabledFromEnv = (): boolean => {
@@ -97,12 +70,10 @@ const parseViewFromLocation = (): AppView => {
   }
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
-  if (view === "overview" || view === "chat" || view === "board" || view === "runs" || view === "ops") {
+  if (view === "overview" || view === "chat" || view === "flows" || view === "steps" || view === "ops") {
     return view as AppView;
   }
-  if (params.get("issue")) {
-    return "board";
-  }
+
   return "overview";
 };
 
@@ -163,101 +134,26 @@ const getErrorMessage = (error: unknown): string => {
   return "请求失败，请稍后重试";
 };
 
-const renderView = (
-  {
-    apiClient,
-    a2aClient,
-    wsClient,
-    projectId,
-    refreshToken,
-    a2aEnabled,
-    projects,
-    selectedProject,
-    onNavigate,
-    onProjectCreated,
-    wsStatus,
-  }: ViewProps,
-  view: AppView,
-) => {
-  switch (view) {
-    case "overview":
-      return (
-        <V3OverviewView
-          apiClient={apiClient}
-          projectId={projectId}
-          projects={projects}
-          selectedProject={selectedProject}
-          refreshToken={refreshToken}
-          onNavigate={onNavigate}
-        />
-      );
-    case "chat":
-      if (!projectId) {
-        return null;
-      }
-      return (
-        <V3SessionsView
-          apiClient={apiClient}
-          a2aClient={a2aClient}
-          wsClient={wsClient}
-          projectId={projectId}
-          a2aEnabled={a2aEnabled}
-        />
-      );
-    case "board":
-      if (!projectId) {
-        return null;
-      }
-      return <V3IssuesView apiClient={apiClient} projectId={projectId} refreshToken={refreshToken} />;
-    case "runs":
-      if (!projectId) {
-        return null;
-      }
-      return <V3RunsView apiClient={apiClient} projectId={projectId} refreshToken={refreshToken} />;
-    case "ops":
-      return (
-        <V3OpsView
-          apiClient={apiClient}
-          wsClient={wsClient}
-          wsStatus={wsStatus}
-          projectId={projectId}
-          refreshToken={refreshToken}
-          onProjectCreated={onProjectCreated}
-        />
-      );
-    default:
-      return null;
-  }
-};
-
-interface AppProps {
-  a2aEnabledOverride?: boolean;
-  uiVersionOverride?: "v2" | "v3";
+interface AppV2Props {
+  apiBaseUrlOverride?: string;
+  uiA2AEnabledOverride?: boolean;
 }
 
-const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
-  const a2aEnabled = a2aEnabledOverride ?? resolveA2AEnabledFromEnv();
+const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) => {
   const tokenRef = useRef<string | null>(null);
-  const apiClient = useMemo(
+  const apiClient: ApiClientV2 = useMemo(
     () =>
-      createApiClient({
-        baseUrl: API_BASE_URL,
+      createApiClientV2({
+        baseUrl: apiBaseUrlOverride ?? API_BASE_URL,
         getToken: () => tokenRef.current,
       }),
-    [],
+    [apiBaseUrlOverride],
   );
-  const wsClient = useMemo(
+
+  const wsClient: WsClient = useMemo(
     () =>
       createWsClient({
-        baseUrl: API_BASE_URL,
-        getToken: () => tokenRef.current,
-      }),
-    [],
-  );
-  const a2aClient = useMemo(
-    () =>
-      createA2AClient({
-        baseUrl: import.meta.env.VITE_A2A_BASE_URL || "/api/v1",
+        baseUrl: WS_BASE_URL,
         getToken: () => tokenRef.current,
       }),
     [],
@@ -268,24 +164,36 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [activeView, setActiveView] = useState<AppView>(() => parseViewFromLocation());
   const [refreshToken, setRefreshToken] = useState(0);
   const [wsStatus, setWsStatus] = useState(wsClient.getStatus());
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const selectedProjectIdRef = useRef<string | null>(selectedProjectId);
-  useEffect(() => {
-    selectedProjectIdRef.current = selectedProjectId;
-  }, [selectedProjectId]);
+  const [projectResources, setProjectResources] = useState<ResourceBinding[]>([]);
+  const [projectResourcesLoading, setProjectResourcesLoading] = useState(false);
+  const [projectResourcesError, setProjectResourcesError] = useState<string | null>(null);
 
-  const applyProjects = useCallback((nextProjects: Project[], preferredProjectId?: string | null) => {
+  const [selectedFlowId, setSelectedFlowId] = useState<number | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
+  const [selectedExecId, setSelectedExecId] = useState<number | null>(null);
+
+  const selectedProject = selectedProjectId
+    ? projects.find((project) => project.id === selectedProjectId) ?? null
+    : null;
+
+  const selectedWorkspace = useMemo(() => {
+    const local = projectResources.find((r) => r.kind === "local_fs") ?? null;
+    return local ?? projectResources[0] ?? null;
+  }, [projectResources]);
+
+  const applyProjects = useCallback((nextProjects: Project[], preferredProjectId?: number | null) => {
     setProjects(nextProjects);
     setSelectedProjectId((current) => {
-      if (preferredProjectId && nextProjects.some((project) => project.id === preferredProjectId)) {
+      if (preferredProjectId != null && nextProjects.some((project) => project.id === preferredProjectId)) {
         return preferredProjectId;
       }
-      if (current && nextProjects.some((project) => project.id === current)) {
+      if (current != null && nextProjects.some((project) => project.id === current)) {
         return current;
       }
       return nextProjects[0]?.id ?? null;
@@ -293,19 +201,18 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   }, []);
 
   const fetchProjects = useCallback(async (): Promise<Project[]> => {
-    const listedProjects = await apiClient.listProjects();
-    return Array.isArray(listedProjects) ? listedProjects : [];
+    const listed = await apiClient.listProjects({ limit: 200, offset: 0 });
+    return Array.isArray(listed) ? listed : [];
   }, [apiClient]);
 
   const loadProjects = useCallback(
-    async (preferredProjectId?: string | null) => {
+    async (preferredProjectId?: number | null) => {
       if (authStatus !== "ready") {
         return;
       }
 
       setProjectsLoading(true);
       setProjectsError(null);
-
       try {
         const nextProjects = await fetchProjects();
         applyProjects(nextProjects, preferredProjectId);
@@ -319,6 +226,13 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   );
 
   useEffect(() => {
+    const unsub = wsClient.onStatusChange((status) => {
+      setWsStatus(status);
+    });
+    return unsub;
+  }, [wsClient]);
+
+  useEffect(() => {
     const resolvedToken = resolveTokenFromLocation();
     if (!resolvedToken.token) {
       setAuthStatus("error");
@@ -327,6 +241,7 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
     }
 
     tokenRef.current = resolvedToken.token;
+    wsClient.connect();
 
     let cancelled = false;
     const bootstrap = async (): Promise<void> => {
@@ -334,7 +249,6 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
       setAuthError(null);
       setProjectsLoading(true);
       setProjectsError(null);
-
       try {
         const nextProjects = await fetchProjects();
         if (cancelled) {
@@ -363,40 +277,45 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
     };
 
     void bootstrap();
-
     return () => {
       cancelled = true;
+      wsClient.disconnect();
     };
-  }, [applyProjects, fetchProjects]);
+  }, [applyProjects, fetchProjects, wsClient]);
 
   useEffect(() => {
-    if (authStatus !== "ready") {
+    if (selectedProjectId == null) {
+      setProjectResources([]);
+      setProjectResourcesError(null);
       return;
     }
 
-    const unsubscribeStatus = wsClient.onStatusChange((status) => {
-      setWsStatus(status);
-    });
-    const unsubscribeAll = wsClient.subscribe<WsEnvelope>("*", (payload) => {
-      const envelope = payload as WsEnvelope;
-      if (!ISSUE_RUN_EVENT_TYPES.has(envelope.type)) {
-        return;
+    let cancelled = false;
+    const load = async () => {
+      setProjectResourcesLoading(true);
+      setProjectResourcesError(null);
+      try {
+        const listed = await apiClient.listProjectResources(selectedProjectId);
+        if (!cancelled) {
+          setProjectResources(Array.isArray(listed) ? listed : []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setProjectResources([]);
+          setProjectResourcesError(getErrorMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setProjectResourcesLoading(false);
+        }
       }
-      const projectID = selectedProjectIdRef.current;
-      if (projectID && envelope.project_id && envelope.project_id.trim().length > 0 && envelope.project_id !== projectID) {
-        return;
-      }
-      setRefreshToken((current) => current + 1);
-    });
-
-    wsClient.connect();
-
-    return () => {
-      unsubscribeAll();
-      unsubscribeStatus();
-      wsClient.disconnect(1000, "app_unmount");
     };
-  }, [authStatus, wsClient]);
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, selectedProjectId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -421,15 +340,10 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
       return;
     }
     url.searchParams.set("view", activeView);
-    if (activeView !== "board") {
-      url.searchParams.delete("issue");
-    }
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, [activeView]);
 
-  const selectedProject = selectedProjectId
-    ? projects.find((project) => project.id === selectedProjectId) ?? null
-    : null;
+  const a2aEnabled = uiA2AEnabledOverride ?? resolveA2AEnabledFromEnv();
 
   if (authStatus !== "ready") {
     return (
@@ -453,17 +367,17 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-3 py-3 text-slate-900 md:px-4">
+    <main className="min-h-screen bg-slate-50 text-slate-900">
       <SystemEventBanner wsClient={wsClient} />
-      <div className="mx-auto grid min-h-[calc(100vh-1.5rem)] w-full max-w-[1440px] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 lg:grid-cols-[248px_minmax(0,1fr)]">
-        <aside className="flex min-h-full flex-col bg-[#0b1730] px-5 py-5 text-white">
+      <div className="grid min-h-screen w-full gap-0 overflow-hidden bg-slate-50 lg:grid-cols-[248px_minmax(0,1fr)]">
+        <aside className="flex min-h-full flex-col bg-[#13284a] px-5 py-5 text-white">
           <div className="flex items-center gap-3 rounded-xl px-1">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2563eb] text-xs font-semibold">
               OS
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold">AI Workflow</p>
-              <p className="mt-0.5 text-[11px] text-slate-400">v3 操作台</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">v3 风格 · v2 模型</p>
             </div>
           </div>
 
@@ -480,16 +394,16 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
                   }}
                   className={cn(
                     "flex items-center justify-between rounded-xl px-3 py-3 text-left transition",
-                    activeView === view ? "bg-[#162b5b] text-white" : "bg-[#0f1a33] text-slate-300 hover:text-white",
+                    activeView === view ? "bg-[#24437a] text-white" : "bg-[#162a4d] text-slate-200 hover:text-white",
                   )}
                 >
                   <div>
                     <p className="text-sm font-medium">{VIEW_LABELS[view]}</p>
                     <p className="mt-0.5 text-[11px] text-slate-400">{VIEW_EYEBROWS[view]}</p>
                   </div>
-                  {view === "board" ? (
-                    <span className="rounded-full bg-blue-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-200">
-                      进行中
+                  {view === "flows" ? (
+                    <span className="rounded-full bg-[#1d4ed8] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
+                      Flow
                     </span>
                   ) : null}
                 </button>
@@ -500,27 +414,40 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
           <div className="mt-auto space-y-3">
             <div>
               <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">当前上下文</p>
-              <div className="mt-3 rounded-2xl bg-[#0f1a33] p-4">
+              <div className="mt-3 rounded-2xl bg-[#162a4d] p-4">
                 <p className="text-sm font-semibold text-slate-100">
                   {selectedProject ? `项目 ${selectedProject.name}` : "尚未选择项目"}
                 </p>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  {selectedProject ? selectedProject.repo_path : "请先在运维页创建或刷新项目"}
+                  {selectedProject
+                    ? `kind=${selectedProject.kind}${selectedProject.description ? ` · ${selectedProject.description}` : ""}`
+                    : "请先在运维页创建或刷新项目"}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {selectedWorkspace
+                    ? `workspace: ${selectedWorkspace.kind} · ${selectedWorkspace.uri}`
+                    : projectResourcesLoading
+                      ? "workspace: 加载中..."
+                      : projectResourcesError
+                        ? `workspace: 加载失败：${projectResourcesError}`
+                        : "workspace: 未绑定（请在 Ops 添加 resources）"}
                 </p>
               </div>
             </div>
-            <div className="rounded-2xl bg-[#0f1a33] p-4">
+            <div className="rounded-2xl bg-[#162a4d] p-4">
               <p className="text-sm font-semibold text-slate-100">{activeView === "ops" ? "管理员注意" : "系统状态"}</p>
               <p className="mt-1 text-[11px] leading-5 text-slate-400">
                 {activeView === "ops"
-                  ? "仅在本页暴露高权限动作与审计操作。"
-                  : "默认优先处理待审 Issue、阻塞 Run 和会话收敛。"}
+                  ? "仅在本页暴露高权限动作与资源绑定入口。"
+                  : a2aEnabled
+                    ? "A2A 已启用（仅影响 v1 会话）。v2 Lead Chat 与 Flow 模型在当前工作台内。"
+                    : "默认优先处理待运行 Flow、阻塞 Step 和会话收敛。"}
               </p>
             </div>
           </div>
         </aside>
 
-        <section className="flex min-h-0 flex-col bg-slate-50">
+        <section className="flex min-h-0 flex-1 flex-col bg-slate-50">
           <header className="border-b border-slate-200 bg-white px-7 py-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-2">
@@ -528,14 +455,17 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
                   <Badge variant="secondary" className="bg-indigo-50 text-indigo-600">
                     {VIEW_EYEBROWS[activeView]}
                   </Badge>
-                  {selectedProject ? (
-                    <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                      {selectedProject.name}
-                    </Badge>
-                  ) : null}
+                  <Badge
+                    variant="outline"
+                    className={wsStatus === "open" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}
+                  >
+                    WS {wsStatus}
+                  </Badge>
                 </div>
                 <div>
-                  <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-slate-950">{VIEW_LABELS[activeView]}</h1>
+                  <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-slate-950">
+                    {VIEW_LABELS[activeView]}
+                  </h1>
                   <p className="mt-1 text-sm leading-6 text-slate-500">{VIEW_DESCRIPTIONS[activeView]}</p>
                 </div>
               </div>
@@ -543,26 +473,24 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
               <div className="grid gap-3 xl:min-w-[520px]">
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                    API {API_BASE_URL}
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      "uppercase",
-                      wsStatus === "open" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600",
-                    )}
-                  >
-                    WS {wsStatus}
+                    API {apiBaseUrlOverride ?? API_BASE_URL}
                   </Badge>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      void loadProjects();
+                    onClick={async () => {
+                      await loadProjects();
                     }}
                     disabled={projectsLoading}
                   >
                     刷新项目
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRefreshToken((current) => current + 1)}
+                  >
+                    全局刷新
                   </Button>
                   <div className="relative">
                     <Button
@@ -585,10 +513,13 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
                     <Select
                       id="project-select"
                       aria-label="当前项目"
-                      value={selectedProjectId ?? ""}
+                      value={selectedProjectId != null ? String(selectedProjectId) : ""}
                       onChange={(event) => {
-                        const value = event.target.value;
-                        setSelectedProjectId(value.length > 0 ? value : null);
+                        const next = Number.parseInt(event.target.value, 10);
+                        setSelectedProjectId(Number.isFinite(next) ? next : null);
+                        setSelectedFlowId(null);
+                        setSelectedStepId(null);
+                        setSelectedExecId(null);
                       }}
                       disabled={projectsLoading}
                       className="h-11 rounded-xl border-slate-200 bg-slate-50"
@@ -605,7 +536,7 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
                     </Select>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
-                    项目创建、审计和危险操作已统一收口到“协议 / 运维”页面。
+                    项目创建/资源绑定/控制性入口已收口到“协议 / 运维”页面。
                   </div>
                 </div>
 
@@ -620,31 +551,123 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
 
           {!selectedProjectId && activeView !== "ops" && activeView !== "overview" ? (
             <section className="m-7 rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-600 shadow-none">
-              暂无可用项目。请先进入“协议 / 运维”创建项目，或点击“刷新项目”重试。
+              暂无可用项目。请先进入“协议 / 运维”创建项目并绑定资源，或点击“刷新项目”重试。
             </section>
           ) : (
             <div className="min-h-0 p-7">
-              {renderView(
-                {
-                  apiClient,
-                  a2aClient,
-                  wsClient,
-                  projectId: selectedProjectId,
-                  refreshToken,
-                  a2aEnabled,
-                  projects,
-                  selectedProject,
-                  onNavigate: (view) => {
-                    setActiveView(view);
-                  },
-                  onProjectCreated: async (projectId) => {
-                    await loadProjects(projectId);
+              {activeView === "overview" ? (
+                <V2OverviewView
+                  apiClient={apiClient}
+                  projectId={selectedProjectId}
+                  projects={projects}
+                  selectedProject={selectedProject}
+                  refreshToken={refreshToken}
+                  onNavigate={(view) => setActiveView(view)}
+                />
+              ) : null}
+
+              {activeView === "chat" ? (
+                <V2ChatView
+                  apiClient={apiClient}
+                  apiBaseUrl={apiBaseUrlOverride ?? API_BASE_URL}
+                  getToken={() => tokenRef.current}
+                  defaultWorkDir={selectedWorkspace?.kind === "local_fs" ? selectedWorkspace.uri : undefined}
+                />
+              ) : null}
+
+              {activeView === "flows" ? (
+                <V2FlowsView
+                  apiClient={apiClient}
+                  projectId={selectedProjectId}
+                  project={selectedProject}
+                  selectedFlowId={selectedFlowId}
+                  refreshToken={refreshToken}
+                  onSelectFlow={(flowId) => {
+                    setSelectedFlowId(flowId);
+                    setSelectedStepId(null);
+                    setSelectedExecId(null);
+                    setActiveView("steps");
+                  }}
+                />
+              ) : null}
+
+              {activeView === "steps" ? (
+                <div className="grid gap-4">
+                  {selectedFlowId != null ? (
+                    <V2StepsView
+                      apiClient={apiClient}
+                      flowId={selectedFlowId}
+                      selectedStepId={selectedStepId}
+                      refreshToken={refreshToken}
+                      onSelectStep={(stepId) => {
+                        setSelectedStepId(stepId);
+                        setSelectedExecId(null);
+                      }}
+                    />
+                  ) : (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-600 shadow-none">
+                      请先在“任务列表”中选择一个 Flow。
+                    </section>
+                  )}
+
+                  {selectedStepId != null ? (
+                    <V2ExecutionsView
+                      apiClient={apiClient}
+                      stepId={selectedStepId}
+                      refreshToken={refreshToken}
+                      onSelectExecution={(execId) => setSelectedExecId(execId)}
+                    />
+                  ) : null}
+
+                  {selectedFlowId != null ? (
+                    <V2EventsView
+                      apiClient={apiClient}
+                      apiBaseUrl={apiBaseUrlOverride ?? API_BASE_URL}
+                      getToken={() => tokenRef.current}
+                      flowId={selectedFlowId}
+                      refreshToken={refreshToken}
+                    />
+                  ) : null}
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <V2ArtifactView apiClient={apiClient} stepId={selectedStepId} execId={selectedExecId} />
+                    <V2BriefingView apiClient={apiClient} stepId={selectedStepId} />
+                  </div>
+                </div>
+              ) : null}
+
+              {activeView === "ops" ? (
+                <V2OpsView
+                  apiClient={apiClient}
+                  projects={projects}
+                  projectsLoading={projectsLoading}
+                  projectsError={projectsError}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProject={setSelectedProjectId}
+                  onRefreshProjects={() => void loadProjects()}
+                  onProjectCreated={async (projectId) => {
+                    await loadProjects(projectId ?? null);
                     setActiveView("ops");
-                  },
-                  wsStatus,
-                },
-                activeView,
-              )}
+                  }}
+                  resources={projectResources}
+                  resourcesLoading={projectResourcesLoading}
+                  resourcesError={projectResourcesError}
+                  onRefreshResources={async () => {
+                    if (selectedProjectId == null) return;
+                    setProjectResourcesLoading(true);
+                    setProjectResourcesError(null);
+                    try {
+                      const listed = await apiClient.listProjectResources(selectedProjectId);
+                      setProjectResources(Array.isArray(listed) ? listed : []);
+                    } catch (err) {
+                      setProjectResources([]);
+                      setProjectResourcesError(getErrorMessage(err));
+                    } finally {
+                      setProjectResourcesLoading(false);
+                    }
+                  }}
+                />
+              ) : null}
             </div>
           )}
         </section>
@@ -653,17 +676,4 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   );
 };
 
-const resolveUIVersion = (): "v2" | "v3" => {
-  const raw = String(import.meta.env.VITE_UI_VERSION ?? "").trim().toLowerCase();
-  return raw === "v3" ? "v3" : "v2";
-};
-
-const App = (props: AppProps = {}) => {
-  const uiVersion = props.uiVersionOverride ?? resolveUIVersion();
-  if (uiVersion === "v3") {
-    return <AppV3 {...props} />;
-  }
-  return <AppV2 />;
-};
-
-export default App;
+export default AppV2;

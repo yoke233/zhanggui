@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WsEnvelope } from "./types/ws";
 
@@ -59,6 +59,38 @@ const mocks = vi.hoisted(() => {
     sendSystemEvent: vi.fn(),
   };
 
+  const apiClientV2 = {
+    request: vi.fn(),
+    getStats: vi.fn().mockResolvedValue({
+      total_flows: 0,
+      active_flows: 0,
+      success_rate: 0,
+      avg_duration: "0s",
+    }),
+    sendSystemEvent: vi.fn().mockResolvedValue({ status: "ok" }),
+    listProjects: vi.fn().mockResolvedValue([]),
+    createProject: vi.fn(),
+    getProject: vi.fn(),
+    updateProject: vi.fn(),
+    deleteProject: vi.fn(),
+    listProjectResources: vi.fn().mockResolvedValue([]),
+    createProjectResource: vi.fn(),
+    getResource: vi.fn(),
+    deleteResource: vi.fn(),
+    listFlows: vi.fn().mockResolvedValue([]),
+    createFlow: vi.fn(),
+    getFlow: vi.fn(),
+    runFlow: vi.fn(),
+    cancelFlow: vi.fn(),
+    listSteps: vi.fn().mockResolvedValue([]),
+    createStep: vi.fn(),
+    getStep: vi.fn(),
+    listExecutions: vi.fn().mockResolvedValue([]),
+    getExecution: vi.fn(),
+    listEvents: vi.fn().mockResolvedValue([]),
+    listFlowEvents: vi.fn().mockResolvedValue([]),
+  };
+
   const wsClient = {
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -106,6 +138,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     apiClient,
+    apiClientV2,
     wsClient,
     a2aClient,
     commandCenterProps,
@@ -137,6 +170,46 @@ vi.mock("./lib/a2aClient", () => {
     createA2AClient: vi.fn(() => mocks.a2aClient),
   };
 });
+
+vi.mock("./lib/apiClientV2", () => {
+  return {
+    createApiClientV2: vi.fn(() => mocks.apiClientV2),
+  };
+});
+
+vi.mock("./v2/views/FlowsView", () => ({
+  default: (props: Record<string, unknown>) => {
+    return <div>V2 Flows View Mock {String((props.selectedFlowId as any) ?? "")}</div>;
+  },
+}));
+
+vi.mock("./v2/views/StepsView", () => ({
+  default: () => <div>V2 Steps View Mock</div>,
+}));
+
+vi.mock("./v2/views/ExecutionsView", () => ({
+  default: () => <div>V2 Executions View Mock</div>,
+}));
+
+vi.mock("./v2/views/EventsView", () => ({
+  default: () => <div>V2 Events View Mock</div>,
+}));
+
+vi.mock("./v2/views/ChatView", () => ({
+  default: () => <div>V2 Chat View Mock</div>,
+}));
+
+vi.mock("./v2/views/ArtifactView", () => ({
+  default: () => <div>V2 Artifact View Mock</div>,
+}));
+
+vi.mock("./v2/views/BriefingView", () => ({
+  default: () => <div>V2 Briefing View Mock</div>,
+}));
+
+vi.mock("./v2/views/OpsView", () => ({
+  default: () => <div>V2 Ops View Mock</div>,
+}));
 
 vi.mock("./v3/views/OverviewView", () => ({
   default: (props: Record<string, unknown>) => {
@@ -271,7 +344,7 @@ describe("App", () => {
   });
 
   it("加载项目、支持项目切换与双视图切换", async () => {
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -296,7 +369,7 @@ describe("App", () => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.history.replaceState(null, "", "/");
 
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     expect(
       screen.getByText("缺少访问 token，请使用 ?token=xxxx 访问。"),
@@ -310,7 +383,7 @@ describe("App", () => {
     window.history.replaceState(null, "", "/?token=bad-token&view=board");
     mocks.listProjects.mockRejectedValueOnce(new Error("unauthorized"));
 
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(screen.getByText("Token 校验失败：unauthorized")).toBeTruthy();
@@ -324,7 +397,7 @@ describe("App", () => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.history.replaceState(null, "", "/?token=good-token&view=board");
 
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -355,7 +428,7 @@ describe("App", () => {
       message: "创建完成",
     });
 
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -397,7 +470,7 @@ describe("App", () => {
       error: "权限不足",
     });
 
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -427,7 +500,7 @@ describe("App", () => {
   });
 
   it("来源切换逻辑在 App 中可正常工作", async () => {
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -448,7 +521,7 @@ describe("App", () => {
 
   it("listProjects 返回 null 时会回退为空数组并保持可交互", async () => {
     mocks.listProjects.mockResolvedValueOnce(null);
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -458,7 +531,7 @@ describe("App", () => {
     expect(screen.getByText("当前没有可展示的业务总览")).toBeTruthy();
   });
   it("默认关闭 A2A 时走 legacy ChatView", async () => {
-    render(<App />);
+    render(<App uiVersionOverride="v3" />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -472,7 +545,7 @@ describe("App", () => {
   });
 
   it("显式开启 A2A 时走 A2AChatView 入口", async () => {
-    render(<App a2aEnabledOverride={true} />);
+    render(<App uiVersionOverride="v3" a2aEnabledOverride={true} />);
 
     await waitFor(() => {
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -484,6 +557,33 @@ describe("App", () => {
     expect(mocks.a2aViewProps.length).toBeGreaterThan(0);
   });
 
+});
+
+describe("App (V2)", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/?view=flows");
+    localStorage.setItem(TOKEN_STORAGE_KEY, "local-token");
+    mocks.apiClientV2.listProjects.mockResolvedValue([
+      {
+        id: 1,
+        name: "demo",
+        kind: "general",
+        description: "demo project",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+  });
+
+  it("默认 v2 会调用 listProjects 并渲染 Flows 视图", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.apiClientV2.listProjects).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText(/V2 Flows View Mock/)).toBeTruthy();
+  });
 });
 
 

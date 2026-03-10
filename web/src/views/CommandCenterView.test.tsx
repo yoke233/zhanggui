@@ -129,6 +129,10 @@ const createMockApiClient = (): ApiClient =>
     getRepoStatus: vi.fn(),
     getRepoDiff: vi.fn(),
     listRunEvents: vi.fn(),
+    fetchIssueGates: vi.fn(),
+    resolveGate: vi.fn(),
+    fetchIssueDecisions: vi.fn(),
+    fetchDecision: vi.fn(),
   }) as ApiClient;
 
 describe("CommandCenterView", () => {
