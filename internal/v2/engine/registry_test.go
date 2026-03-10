@@ -228,10 +228,10 @@ func TestConfigRegistry_ResolveForStep(t *testing.T) {
 	})
 
 	tests := []struct {
-		name      string
-		step      *core.Step
-		wantID    string
-		wantErr   error
+		name    string
+		step    *core.Step
+		wantID  string
+		wantErr error
 	}{
 		{
 			name:   "match by role",

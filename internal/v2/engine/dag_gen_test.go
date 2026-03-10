@@ -357,4 +357,3 @@ func TestDagGenSchema_NoProfiles(t *testing.T) {
 		t.Fatal("capability items should NOT have enum constraint when no profiles")
 	}
 }
-

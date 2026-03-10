@@ -12,14 +12,14 @@ func TestValidateTransition(t *testing.T) {
 		to   RunStatus
 	}{
 		{StatusQueued, StatusInProgress},
-		{StatusQueued, StatusCompleted},          // abort
+		{StatusQueued, StatusCompleted}, // abort
 		{StatusInProgress, StatusCompleted},
 		{StatusInProgress, StatusActionRequired},
-		{StatusInProgress, StatusQueued},          // re-enqueue
+		{StatusInProgress, StatusQueued}, // re-enqueue
 		{StatusActionRequired, StatusInProgress},
 		{StatusActionRequired, StatusCompleted},
-		{StatusActionRequired, StatusQueued},      // re-enqueue
-		{StatusCompleted, StatusInProgress},        // retry
+		{StatusActionRequired, StatusQueued}, // re-enqueue
+		{StatusCompleted, StatusInProgress},  // retry
 	}
 	for _, tt := range valid {
 		if err := ValidateTransition(tt.from, tt.to); err != nil {

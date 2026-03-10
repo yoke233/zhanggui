@@ -6,12 +6,12 @@ import (
 )
 
 var (
-	ErrDriverNotFound      = errors.New("agent driver not found")
-	ErrProfileNotFound     = errors.New("agent profile not found")
-	ErrDuplicateDriver     = errors.New("duplicate agent driver ID")
-	ErrDuplicateProfile    = errors.New("duplicate agent profile ID")
-	ErrCapabilityOverflow  = errors.New("profile capabilities exceed driver capabilities_max")
-	ErrDriverInUse         = errors.New("driver is referenced by one or more profiles")
+	ErrDriverNotFound     = errors.New("agent driver not found")
+	ErrProfileNotFound    = errors.New("agent profile not found")
+	ErrDuplicateDriver    = errors.New("duplicate agent driver ID")
+	ErrDuplicateProfile   = errors.New("duplicate agent profile ID")
+	ErrCapabilityOverflow = errors.New("profile capabilities exceed driver capabilities_max")
+	ErrDriverInUse        = errors.New("driver is referenced by one or more profiles")
 )
 
 // AgentRegistry manages agent drivers and profiles with CRUD and resolution.

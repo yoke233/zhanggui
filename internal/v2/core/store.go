@@ -92,9 +92,9 @@ type Store interface {
 // FlowFilter constrains Flow queries.
 type FlowFilter struct {
 	ProjectID *int64
-	Status *FlowStatus
-	Limit  int
-	Offset int
+	Status    *FlowStatus
+	Limit     int
+	Offset    int
 }
 
 // EventFilter constrains Event queries.

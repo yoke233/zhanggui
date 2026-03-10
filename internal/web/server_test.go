@@ -45,7 +45,7 @@ func TestAPIV1HealthEndpointReturns200(t *testing.T) {
 
 func TestStatsEndpointReturns401WithoutToken(t *testing.T) {
 	srv := NewServer(Config{
-		Token:       "test-token",
+		Token: "test-token",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -69,7 +69,7 @@ func TestStatsEndpointReturns401WithoutToken(t *testing.T) {
 
 func TestStatsEndpointReturns200WithValidToken(t *testing.T) {
 	srv := NewServer(Config{
-		Token:       "test-token",
+		Token: "test-token",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

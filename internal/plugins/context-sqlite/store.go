@@ -62,8 +62,8 @@ func New(path string) (*Store, error) {
 }
 
 func (s *Store) Name() string               { return "context-sqlite" }
-func (s *Store) Init(context.Context) error  { return nil }
-func (s *Store) Close() error                { return s.db.Close() }
+func (s *Store) Init(context.Context) error { return nil }
+func (s *Store) Close() error               { return s.db.Close() }
 
 func (s *Store) Read(ctx context.Context, uri string) ([]byte, error) {
 	var content []byte

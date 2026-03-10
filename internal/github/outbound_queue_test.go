@@ -15,16 +15,16 @@ import (
 func TestOutboundQueue_RespectsTokenBucketRate(t *testing.T) {
 	clock := newFakeClock(time.Unix(0, 0))
 	queue := NewOutboundQueue(OutboundQueueOptions{
-		RateLimitRPS: 1,
+		RateLimitRPS:   1,
 		RateLimitBurst: 1,
-		Now: clock.Now,
-		Sleep: clock.Sleep,
+		Now:            clock.Now,
+		Sleep:          clock.Sleep,
 	})
 
 	firstCalls := int32(0)
 	if err := queue.Do(context.Background(), OutboundWriteRequest{
 		IssueNumber: 101,
-		Operation: "first",
+		Operation:   "first",
 		Execute: func(context.Context) (*ghapi.Response, error) {
 			atomic.AddInt32(&firstCalls, 1)
 			return nil, nil
@@ -36,7 +36,7 @@ func TestOutboundQueue_RespectsTokenBucketRate(t *testing.T) {
 	secondCalls := int32(0)
 	if err := queue.Do(context.Background(), OutboundWriteRequest{
 		IssueNumber: 101,
-		Operation: "second",
+		Operation:   "second",
 		Execute: func(context.Context) (*ghapi.Response, error) {
 			atomic.AddInt32(&secondCalls, 1)
 			return nil, nil
@@ -56,17 +56,17 @@ func TestOutboundQueue_RespectsTokenBucketRate(t *testing.T) {
 func TestOutboundQueue_RetryWithBackoffOn429(t *testing.T) {
 	clock := newFakeClock(time.Unix(0, 0))
 	queue := NewOutboundQueue(OutboundQueueOptions{
-		RateLimitRPS: 100,
-		RateLimitBurst: 100,
+		RateLimitRPS:        100,
+		RateLimitBurst:      100,
 		MaxRateLimitRetries: 3,
-		Now: clock.Now,
-		Sleep: clock.Sleep,
+		Now:                 clock.Now,
+		Sleep:               clock.Sleep,
 	})
 
 	attempts := int32(0)
 	err := queue.Do(context.Background(), OutboundWriteRequest{
 		IssueNumber: 101,
-		Operation: "429-retry",
+		Operation:   "429-retry",
 		Execute: func(context.Context) (*ghapi.Response, error) {
 			current := atomic.AddInt32(&attempts, 1)
 			if current == 1 {
@@ -90,17 +90,17 @@ func TestOutboundQueue_RetryWithBackoffOn429(t *testing.T) {
 func TestOutboundQueue_RetryWithBackoffOn403SecondaryLimit(t *testing.T) {
 	clock := newFakeClock(time.Unix(0, 0))
 	queue := NewOutboundQueue(OutboundQueueOptions{
-		RateLimitRPS: 100,
-		RateLimitBurst: 100,
+		RateLimitRPS:        100,
+		RateLimitBurst:      100,
 		MaxRateLimitRetries: 3,
-		Now: clock.Now,
-		Sleep: clock.Sleep,
+		Now:                 clock.Now,
+		Sleep:               clock.Sleep,
 	})
 
 	attempts := int32(0)
 	err := queue.Do(context.Background(), OutboundWriteRequest{
 		IssueNumber: 102,
-		Operation: "403-secondary",
+		Operation:   "403-secondary",
 		Execute: func(context.Context) (*ghapi.Response, error) {
 			current := atomic.AddInt32(&attempts, 1)
 			if current == 1 {
@@ -124,17 +124,17 @@ func TestOutboundQueue_RetryWithBackoffOn403SecondaryLimit(t *testing.T) {
 func TestOutboundQueue_RetryAtMost3TimesOnRateLimit(t *testing.T) {
 	clock := newFakeClock(time.Unix(0, 0))
 	queue := NewOutboundQueue(OutboundQueueOptions{
-		RateLimitRPS: 100,
-		RateLimitBurst: 100,
+		RateLimitRPS:        100,
+		RateLimitBurst:      100,
 		MaxRateLimitRetries: 3,
-		Now: clock.Now,
-		Sleep: clock.Sleep,
+		Now:                 clock.Now,
+		Sleep:               clock.Sleep,
 	})
 
 	attempts := int32(0)
 	err := queue.Do(context.Background(), OutboundWriteRequest{
 		IssueNumber: 103,
-		Operation: "retry-limit",
+		Operation:   "retry-limit",
 		Execute: func(context.Context) (*ghapi.Response, error) {
 			atomic.AddInt32(&attempts, 1)
 			return githubHTTPResponse(429, "1"), errors.New("rate limited")
@@ -150,7 +150,7 @@ func TestOutboundQueue_RetryAtMost3TimesOnRateLimit(t *testing.T) {
 
 func TestOutboundQueue_PreservesPerIssueOrdering(t *testing.T) {
 	queue := NewOutboundQueue(OutboundQueueOptions{
-		RateLimitRPS: 100,
+		RateLimitRPS:   100,
 		RateLimitBurst: 100,
 	})
 
@@ -165,7 +165,7 @@ func TestOutboundQueue_PreservesPerIssueOrdering(t *testing.T) {
 	go func() {
 		doneFirst <- queue.Do(context.Background(), OutboundWriteRequest{
 			IssueNumber: 200,
-			Operation: "first",
+			Operation:   "first",
 			Execute: func(context.Context) (*ghapi.Response, error) {
 				mu.Lock()
 				order = append(order, "first")
@@ -187,7 +187,7 @@ func TestOutboundQueue_PreservesPerIssueOrdering(t *testing.T) {
 	go func() {
 		doneSecond <- queue.Do(context.Background(), OutboundWriteRequest{
 			IssueNumber: 200,
-			Operation: "second",
+			Operation:   "second",
 			Execute: func(context.Context) (*ghapi.Response, error) {
 				mu.Lock()
 				order = append(order, "second")
@@ -239,7 +239,7 @@ func githubHTTPResponse(statusCode int, retryAfter string) *ghapi.Response {
 	return &ghapi.Response{
 		Response: &http.Response{
 			StatusCode: statusCode,
-			Header: headers,
+			Header:     headers,
 		},
 	}
 }

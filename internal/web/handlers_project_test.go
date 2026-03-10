@@ -29,7 +29,7 @@ func TestProjectsRequiresAuthWhenEnabled(t *testing.T) {
 	}
 
 	srv := NewServer(Config{
-		Store:       store,
+		Store: store,
 		Token: "secret-token",
 	})
 	ts := httptest.NewServer(srv.Handler())

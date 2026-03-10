@@ -909,8 +909,8 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 
 	// --- Update step B: rename + change depends_on ---
 	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sB.ID), map[string]any{
-		"name":      "step-B-renamed",
-		"agent_role": "gate",
+		"name":                "step-B-renamed",
+		"agent_role":          "gate",
 		"acceptance_criteria": []string{"all tests pass"},
 	})
 	requireStatus(t, resp, http.StatusOK)

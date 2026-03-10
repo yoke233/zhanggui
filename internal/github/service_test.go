@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
-	"sync/atomic"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 

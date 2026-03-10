@@ -27,8 +27,8 @@ func New() *Store {
 }
 
 func (s *Store) Name() string               { return "context-mock" }
-func (s *Store) Init(context.Context) error  { return nil }
-func (s *Store) Close() error                { return nil }
+func (s *Store) Init(context.Context) error { return nil }
+func (s *Store) Close() error               { return nil }
 
 func (s *Store) Read(_ context.Context, uri string) ([]byte, error) {
 	s.mu.RLock()

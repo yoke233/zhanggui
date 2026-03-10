@@ -81,13 +81,13 @@ func addDescriptions(schema *jsonschema.Schema) {
 		"RoleConfig": {
 			"name": "角色名称（唯一）", "agent": "引用的 agent 名称",
 			"prompt_template": "提示词模板名（对应 prompt_templates/{name}.tmpl）",
-			"capabilities": "角色能力（必须 ≤ agent capabilities_max）",
-			"session": "ACP 会话策略", "permission_policy": "文件/终端权限规则",
+			"capabilities":    "角色能力（必须 ≤ agent capabilities_max）",
+			"session":         "ACP 会话策略", "permission_policy": "文件/终端权限规则",
 			"mcp": "MCP 工具注入配置",
 		},
 		"RunConfig": {
 			"default_template": "默认 run 模板（standard / fast_release 等）",
-			"global_timeout": "单次 run 全局超时", "auto_infer_template": "是否自动推断模板",
+			"global_timeout":   "单次 run 全局超时", "auto_infer_template": "是否自动推断模板",
 			"max_total_retries": "最大重试次数",
 		},
 		"SchedulerConfig": {

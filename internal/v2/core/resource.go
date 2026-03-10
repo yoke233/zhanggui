@@ -6,7 +6,7 @@ import "time"
 type ResourceBinding struct {
 	ID        int64          `json:"id"`
 	ProjectID int64          `json:"project_id"`
-	Kind      string         `json:"kind"`   // "git" | "local_fs" | "s3" | ...
+	Kind      string         `json:"kind"` // "git" | "local_fs" | "s3" | ...
 	URI       string         `json:"uri"`
 	Config    map[string]any `json:"config,omitempty"`
 	Label     string         `json:"label,omitempty"`

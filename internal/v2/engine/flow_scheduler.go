@@ -20,10 +20,10 @@ type FlowScheduler struct {
 
 	maxConcurrent int // max flows running in parallel
 
-	mu       sync.Mutex
-	queue    []int64                    // flow IDs waiting to run
-	running  map[int64]context.CancelFunc // flow ID → cancel func
-	closed   bool
+	mu      sync.Mutex
+	queue   []int64                      // flow IDs waiting to run
+	running map[int64]context.CancelFunc // flow ID → cancel func
+	closed  bool
 
 	// notify is signalled when a flow finishes or a new flow is submitted.
 	notify chan struct{}

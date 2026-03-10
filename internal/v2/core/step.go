@@ -37,9 +37,9 @@ type Step struct {
 	SubFlowID   *int64     `json:"sub_flow_id,omitempty"` // composite -> child Flow
 
 	// Agent binding
-	AgentRole            string   `json:"agent_role,omitempty"`             // lead | worker | gate | support
-	RequiredCapabilities []string `json:"required_capabilities,omitempty"`  // capability tags for agent matching
-	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`    // what "done" looks like (gate evaluation)
+	AgentRole            string   `json:"agent_role,omitempty"`            // lead | worker | gate | support
+	RequiredCapabilities []string `json:"required_capabilities,omitempty"` // capability tags for agent matching
+	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`   // what "done" looks like (gate evaluation)
 
 	// Execution constraints
 	Timeout    time.Duration  `json:"timeout,omitempty"`

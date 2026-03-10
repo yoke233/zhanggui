@@ -45,9 +45,9 @@ func (r *e2eStageResults) next() error {
 
 type e2eFakeWorkspace struct{}
 
-func (e2eFakeWorkspace) Name() string                    { return "fake-workspace" }
-func (e2eFakeWorkspace) Init(context.Context) error      { return nil }
-func (e2eFakeWorkspace) Close() error                    { return nil }
+func (e2eFakeWorkspace) Name() string               { return "fake-workspace" }
+func (e2eFakeWorkspace) Init(context.Context) error { return nil }
+func (e2eFakeWorkspace) Close() error               { return nil }
 func (e2eFakeWorkspace) Setup(_ context.Context, req core.WorkspaceSetupRequest) (core.WorkspaceSetupResult, error) {
 	return core.WorkspaceSetupResult{
 		BranchName:   "ai-flow/" + req.RunID,

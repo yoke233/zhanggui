@@ -9,10 +9,10 @@ import (
 )
 
 type statsResponse struct {
-	TotalFlows   int     `json:"total_flows"`
-	ActiveFlows  int     `json:"active_flows"`
-	SuccessRate  float64 `json:"success_rate"`
-	AvgDuration  string  `json:"avg_duration"`
+	TotalFlows  int     `json:"total_flows"`
+	ActiveFlows int     `json:"active_flows"`
+	SuccessRate float64 `json:"success_rate"`
+	AvgDuration string  `json:"avg_duration"`
 }
 
 func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {

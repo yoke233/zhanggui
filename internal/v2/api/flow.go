@@ -11,9 +11,9 @@ import (
 
 // createFlowRequest is the request body for POST /flows.
 type createFlowRequest struct {
-	Name     string            `json:"name"`
-	ProjectID *int64           `json:"project_id,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Name      string            `json:"name"`
+	ProjectID *int64            `json:"project_id,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 func (h *Handler) createFlow(w http.ResponseWriter, r *http.Request) {
@@ -39,10 +39,10 @@ func (h *Handler) createFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f := &core.Flow{
-		Name:     req.Name,
+		Name:      req.Name,
 		ProjectID: req.ProjectID,
-		Status:   core.FlowPending,
-		Metadata: req.Metadata,
+		Status:    core.FlowPending,
+		Metadata:  req.Metadata,
 	}
 	id, err := h.store.CreateFlow(r.Context(), f)
 	if err != nil {

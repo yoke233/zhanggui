@@ -20,7 +20,7 @@ type EventBus interface {
 // Subscription represents an active event subscription.
 type Subscription struct {
 	C        <-chan Event // consumer reads events from this channel
-	CancelFn func()      // called by Unsubscribe to release resources
+	CancelFn func()       // called by Unsubscribe to release resources
 }
 
 // Unsubscribe cancels the subscription and releases resources.

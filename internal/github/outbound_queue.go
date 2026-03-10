@@ -23,13 +23,13 @@ const (
 
 // OutboundQueueOptions controls queue rate limiting and retry behavior.
 type OutboundQueueOptions struct {
-	RateLimitRPS       float64
-	RateLimitBurst     int
+	RateLimitRPS        float64
+	RateLimitBurst      int
 	MaxRateLimitRetries int
-	MaxServerRetries   int
-	ServerBackoffBase  time.Duration
-	Now                func() time.Time
-	Sleep              func(time.Duration)
+	MaxServerRetries    int
+	ServerBackoffBase   time.Duration
+	Now                 func() time.Time
+	Sleep               func(time.Duration)
 }
 
 // OutboundWriteRequest is one GitHub write operation routed by outbound queue.

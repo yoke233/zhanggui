@@ -4,8 +4,9 @@
 // using a real codex-acp agent with our MCP server configured.
 //
 // Run manually:
-//   go test -tags probe ./cmd/acp-probe/ -run TestBootstrapGateBlock -v -timeout 300s
-//   go test -tags probe ./cmd/acp-probe/ -run TestBootstrapFullFlow -v -timeout 600s
+//
+//	go test -tags probe ./cmd/acp-probe/ -run TestBootstrapGateBlock -v -timeout 300s
+//	go test -tags probe ./cmd/acp-probe/ -run TestBootstrapFullFlow -v -timeout 600s
 package main
 
 import (

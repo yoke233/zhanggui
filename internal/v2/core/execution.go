@@ -17,9 +17,9 @@ const (
 type ErrorKind string
 
 const (
-	ErrKindTransient  ErrorKind = "transient"  // retry is worthwhile
-	ErrKindPermanent  ErrorKind = "permanent"  // no point retrying
-	ErrKindNeedHelp   ErrorKind = "need_help"  // requires human/lead intervention
+	ErrKindTransient ErrorKind = "transient" // retry is worthwhile
+	ErrKindPermanent ErrorKind = "permanent" // no point retrying
+	ErrKindNeedHelp  ErrorKind = "need_help" // requires human/lead intervention
 )
 
 // Execution is a single attempt to run a Step. A Step may have multiple Executions (retries).

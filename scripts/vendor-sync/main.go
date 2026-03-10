@@ -21,9 +21,9 @@ import (
 
 // preset defines default parameters for well-known repositories.
 type preset struct {
-	Repo       string
-	DocsSrc    string
-	DocsDst    string
+	Repo    string
+	DocsSrc string
+	DocsDst string
 }
 
 var presets = map[string]preset{
@@ -68,14 +68,14 @@ type refInfo struct {
 
 func main() {
 	var (
-		repoFlag    string
-		presetFlag  string
-		refFlag     string
-		docsSrc     string
-		docsDst     string
-		targetPath  string
-		force       bool
-		depth1      bool
+		repoFlag   string
+		presetFlag string
+		refFlag    string
+		docsSrc    string
+		docsDst    string
+		targetPath string
+		force      bool
+		depth1     bool
 	)
 
 	flag.StringVar(&repoFlag, "repo", "", "GitHub repository (owner/repo or full URL)")
