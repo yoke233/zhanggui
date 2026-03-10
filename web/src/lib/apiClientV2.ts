@@ -23,6 +23,7 @@ import type {
   UpdateStepRequest,
   UpdateProjectRequest,
 } from "../types/apiV2";
+import type { SandboxSupportResponse } from "../types/system";
 
 type Primitive = string | number | boolean;
 
@@ -122,6 +123,7 @@ export interface ApiClientV2 {
   ): Promise<TResponse>;
 
   getStats(): Promise<StatsResponse>;
+  getSandboxSupport(): Promise<SandboxSupportResponse>;
   sendSystemEvent(body: AdminSystemEventRequest): Promise<AdminSystemEventResponse>;
 
   listProjects(params?: { limit?: number; offset?: number }): Promise<Project[]>;
@@ -232,6 +234,10 @@ export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
     getStats: () =>
       request<StatsResponse>({
         path: "/stats",
+      }),
+    getSandboxSupport: () =>
+      request<SandboxSupportResponse>({
+        path: "/system/sandbox-support",
       }),
     sendSystemEvent: (body) =>
       request<AdminSystemEventResponse, AdminSystemEventRequest>({

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	v2skills "github.com/yoke233/ai-workflow/internal/v2/skills"
 )
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -57,7 +56,7 @@ func (h *skillsHandler) skillsRoot() (string, error) {
 	if h.root != "" {
 		return filepath.Clean(h.root), nil
 	}
-	return v2skills.ResolveSkillsRoot()
+	return "", errors.New("skills root is not configured")
 }
 
 func (h *skillsHandler) listSkills(w http.ResponseWriter, r *http.Request) {

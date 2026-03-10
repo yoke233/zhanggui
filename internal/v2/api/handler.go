@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 	"github.com/yoke233/ai-workflow/internal/v2/engine"
+	v2sandbox "github.com/yoke233/ai-workflow/internal/v2/sandbox"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -20,6 +21,7 @@ type Handler struct {
 	registry   core.AgentRegistry
 	dagGen     *engine.DAGGenerator
 	skillsRoot string
+	sandbox    v2sandbox.SupportInspector
 }
 
 // NewHandler creates the v2 API handler.
@@ -55,9 +57,14 @@ func WithDAGGenerator(g *engine.DAGGenerator) HandlerOption {
 }
 
 // WithSkillsRoot sets the filesystem root directory for managing ai-workflow skills.
-// If empty, the handler will fall back to $AI_WORKFLOW_DATA_DIR/skills or $CWD/.ai-workflow/skills.
+// This should point to the global shared skills repository, not a sandbox-local skills dir.
 func WithSkillsRoot(root string) HandlerOption {
 	return func(h *Handler) { h.skillsRoot = root }
+}
+
+// WithSandboxInspector sets the runtime sandbox support inspector.
+func WithSandboxInspector(inspector v2sandbox.SupportInspector) HandlerOption {
+	return func(h *Handler) { h.sandbox = inspector }
 }
 
 // Register mounts all v2 routes onto the given chi router.
@@ -66,6 +73,7 @@ func (h *Handler) Register(r chi.Router) {
 	// Scheduler stats
 	r.Get("/stats", h.getStats)
 	r.Get("/scheduler/stats", h.getSchedulerStats)
+	r.Get("/system/sandbox-support", h.getSandboxSupport)
 
 	// Projects
 	r.Post("/projects", h.createProject)

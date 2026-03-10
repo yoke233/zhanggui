@@ -46,21 +46,24 @@ func (s LiteBoxSandbox) Prepare(ctx context.Context, in PrepareInput) (acpclient
 		return launch, fmt.Errorf("litebox sandbox: target program is required")
 	}
 
-	runnerArgs := normalizeLiteBoxRunnerArgs(s.RunnerArgs)
-	args := make([]string, 0, len(s.BridgeArgs)+2+(len(runnerArgs)*2)+2+(len(launch.Args)*2))
-	args = append(args, s.BridgeArgs...)
+	launch.Command = bridgeCommand
+	launch.Args = buildLiteBoxArgs(s.BridgeArgs, runnerPath, s.RunnerArgs, program, launch.Args)
+	return launch, nil
+}
+
+func buildLiteBoxArgs(bridgeArgs []string, runnerPath string, runnerArgs []string, program string, programArgs []string) []string {
+	runnerArgs = normalizeLiteBoxRunnerArgs(runnerArgs)
+	args := make([]string, 0, len(bridgeArgs)+2+(len(runnerArgs)*2)+2+(len(programArgs)*2))
+	args = append(args, bridgeArgs...)
 	args = append(args, "-runner", runnerPath)
 	for _, arg := range runnerArgs {
 		args = append(args, "-runner-arg", arg)
 	}
 	args = append(args, "-program", program)
-	for _, arg := range launch.Args {
+	for _, arg := range programArgs {
 		args = append(args, "-program-arg", arg)
 	}
-
-	launch.Command = bridgeCommand
-	launch.Args = args
-	return launch, nil
+	return args
 }
 
 func normalizeLiteBoxRunnerArgs(args []string) []string {

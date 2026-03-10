@@ -69,4 +69,35 @@ describe("apiClientV2", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("DELETE");
   });
+
+  it("getSandboxSupport 会命中 /system/sandbox-support", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          os: "windows",
+          arch: "amd64",
+          enabled: false,
+          current_provider: "noop",
+          current_supported: false,
+          providers: {
+            home_dir: { supported: true },
+            litebox: { supported: true, reason: "ok" },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.getSandboxSupport();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/v2/system/sandbox-support");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("GET");
+  });
 });

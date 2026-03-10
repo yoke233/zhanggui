@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 	"github.com/yoke233/ai-workflow/internal/v2/engine"
+	v2sandbox "github.com/yoke233/ai-workflow/internal/v2/sandbox"
 	"github.com/yoke233/ai-workflow/internal/v2/store/sqlite"
 )
 
@@ -34,7 +35,7 @@ func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
 	}
 	eng := engine.New(store, bus, executor, engine.WithConcurrency(2))
 
-	h := NewHandler(store, bus, eng)
+	h := NewHandler(store, bus, eng, WithSandboxInspector(v2sandbox.NewDefaultSupportInspector(false, "")))
 	r := chi.NewRouter()
 	h.Register(r)
 	ts := httptest.NewServer(r)
@@ -390,6 +391,45 @@ func TestAPI_WebSocket(t *testing.T) {
 	}
 	if ev.FlowID != 42 {
 		t.Fatalf("expected flow_id=42, got %d", ev.FlowID)
+	}
+}
+
+func TestAPI_GetSandboxSupport(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, err := get(ts, "/system/sandbox-support")
+	if err != nil {
+		t.Fatalf("get sandbox support: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got struct {
+		OS               string `json:"os"`
+		Arch             string `json:"arch"`
+		Enabled          bool   `json:"enabled"`
+		CurrentProvider  string `json:"current_provider"`
+		CurrentSupported bool   `json:"current_supported"`
+		Providers        map[string]struct {
+			Supported bool   `json:"supported"`
+			Reason    string `json:"reason"`
+		} `json:"providers"`
+	}
+	if err := decodeJSON(resp, &got); err != nil {
+		t.Fatalf("decode sandbox support: %v", err)
+	}
+	if got.OS == "" || got.Arch == "" {
+		t.Fatalf("expected os/arch in response, got %#v", got)
+	}
+	if got.CurrentProvider != "noop" {
+		t.Fatalf("current_provider = %q, want noop", got.CurrentProvider)
+	}
+	if got.CurrentSupported {
+		t.Fatal("current_supported = true, want false for disabled sandbox")
+	}
+	if !got.Providers["home_dir"].Supported {
+		t.Fatal("home_dir should be reported as supported")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/yoke233/ai-workflow/internal/appdata"
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 )
 
@@ -70,7 +71,7 @@ func EnsureSkillsLinked(skillsRoot, targetSkillsDir string, skillNames []string)
 }
 
 // EnsureProfileSkills ensures the given profile's skills are available to the agent process
-// by linking `.ai-workflow/skills/<skill>` into the agent home skills directory.
+// by linking the global shared skills root into the agent home skills directory.
 //
 // Target locations:
 //   - codex-acp:  $CODEX_HOME/skills
@@ -96,22 +97,34 @@ func EnsureProfileSkills(profile *core.AgentProfile, driver *core.AgentDriver) e
 }
 
 func resolveSkillsRoot() (string, error) {
-	dataDir := strings.TrimSpace(os.Getenv("AI_WORKFLOW_DATA_DIR"))
-	if dataDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("getwd: %w", err)
-		}
-		dataDir = filepath.Join(cwd, ".ai-workflow")
+	dataDir, err := appdata.ResolveDataDir()
+	if err != nil {
+		return "", err
 	}
 	root := filepath.Join(dataDir, "skills")
 	return filepath.Clean(root), nil
 }
 
 // ResolveSkillsRoot returns the on-disk directory where ai-workflow stores skills.
-// Default: $AI_WORKFLOW_DATA_DIR/skills, or $CWD/.ai-workflow/skills when env is unset.
+// Default: <dataDir>/skills, where dataDir is resolved by appdata.ResolveDataDir().
 func ResolveSkillsRoot() (string, error) {
 	return resolveSkillsRoot()
+}
+
+// EnsureProfileSkillsFromRoot ensures the given profile's skills are linked from an explicit
+// global shared skills root into the target agent home skills directory.
+func EnsureProfileSkillsFromRoot(profile *core.AgentProfile, driver *core.AgentDriver, skillsRoot string) error {
+	if profile == nil || driver == nil {
+		return nil
+	}
+	if len(profile.Skills) == 0 {
+		return nil
+	}
+	targetSkillsDir, err := resolveTargetSkillsDir(driver)
+	if err != nil {
+		return err
+	}
+	return EnsureSkillsLinked(skillsRoot, targetSkillsDir, profile.Skills)
 }
 
 func resolveTargetSkillsDir(driver *core.AgentDriver) (string, error) {

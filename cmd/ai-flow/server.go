@@ -15,21 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
-	ghwebhook "github.com/yoke233/ai-workflow/internal/github"
-	contextsqlite "github.com/yoke233/ai-workflow/internal/plugins/context-sqlite"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
-	v2api "github.com/yoke233/ai-workflow/internal/v2/api"
-	v2core "github.com/yoke233/ai-workflow/internal/v2/core"
-	v2engine "github.com/yoke233/ai-workflow/internal/v2/engine"
-	v2llm "github.com/yoke233/ai-workflow/internal/v2/llm"
-	v2sandbox "github.com/yoke233/ai-workflow/internal/v2/sandbox"
-	v2sqlite "github.com/yoke233/ai-workflow/internal/v2/store/sqlite"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -170,177 +160,29 @@ func runServer(ctx context.Context, args []string) error {
 	defer store.Close()
 	defer bus.Close()
 
-	cfg, err := loadBootstrapConfig()
+	launch, err := prepareServerLaunch(port)
 	if err != nil {
 		return err
 	}
 
-	configDir, _ := resolveDataDir()
-
-	secrets, err := config.LoadSecrets(secretsFilePath(configDir))
-	if err != nil {
-		return fmt.Errorf("load secrets: %w", err)
-	}
-	tokenRegistry := web.NewTokenRegistry(secrets.Tokens)
-	if tokenRegistry.IsEmpty() {
-		return fmt.Errorf("auth is required: no tokens configured in %s", secretsFilePath(configDir))
-	}
-	adminToken := strings.TrimSpace(secrets.AdminToken())
-
-	port = resolveServerPort(port, cfg.Server.Port)
-	listenAddr := buildServerAddress(cfg.Server.Host, port)
-	frontendFS, err := resolveServerFrontendFS()
+	runtime, err := setupServerRuntime(ctx, exec, bootstrapSet, bus, launch.cfg, launch.listenAddr, launch.adminToken)
 	if err != nil {
 		return err
 	}
-
-	scheduler, err := newServerScheduler(exec, store)
-	if err != nil {
-		return err
-	}
-	if err := scheduler.Start(ctx); err != nil {
-		return err
-	}
-
-	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.Scheduler.Watchdog, cfg.TeamLeader, cfg.RoleBinds)
-	if err != nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		stopErr := scheduler.Stop(stopCtx)
-		return errors.Join(err, stopErr)
-	}
-	if issueManager == nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		stopErr := scheduler.Stop(stopCtx)
-		return errors.Join(errors.New("issue manager is not configured"), stopErr)
-	}
-	if err := issueManager.Start(ctx); err != nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		managerStopErr := issueManager.Stop(stopCtx)
-		stopErr := scheduler.Stop(stopCtx)
-		return errors.Join(err, managerStopErr, stopErr)
-	}
-
-	var a2aBridge web.A2ABridge
-	if adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter); ok {
-		bridge, bridgeErr := teamleader.NewA2ABridge(store, adapter.manager)
-		if bridgeErr != nil {
-			slog.Warn("A2ABridge creation failed, A2A endpoint will be unavailable", "error", bridgeErr)
-		} else {
-			a2aBridge = bridge
-			slog.Info("A2ABridge created successfully")
+	runtimeActive := true
+	defer func() {
+		if runtimeActive {
+			_ = runtime.stop(nil)
 		}
-	} else {
-		slog.Warn("issueManager is not teamLeaderIssueManagerAdapter, A2A bridge unavailable", "type", fmt.Sprintf("%T", issueManager))
-	}
-
-	hub := web.NewHub()
-	if bootstrapSet.RoleResolver == nil {
-		return errors.New("chat assistant requires role resolver")
-	}
-	var runEventRecorder teamleader.ChatRunEventRecorder
-	if recorder, ok := store.(teamleader.ChatRunEventRecorder); ok {
-		runEventRecorder = recorder
-	}
-	chatAssistant := web.NewACPChatAssistantWithDeps(web.ACPChatAssistantDeps{
-		DefaultRoleID:    resolveTeamLeaderRoleID(cfg.RoleBinds),
-		RoleResolver:     bootstrapSet.RoleResolver,
-		EventPublisher:   bus,
-		RunEventRecorder: runEventRecorder,
-		MCPEnv: teamleader.MCPEnvConfig{
-			DBPath:     expandStorePath(cfg.Store.Path),
-			ServerAddr: "http://" + listenAddr,
-			AuthToken:  adminToken,
-		},
-	})
-
-	// Ensure ContextStore is available for MCP context_* tools.
-	// Prefer configured plugin; otherwise default to local context-sqlite store.
-	contextStore := bootstrapSet.ContextStore
-	if contextStore == nil {
-		if s, err := contextsqlite.New(".ai-workflow/context.db"); err == nil {
-			contextStore = s
-		}
-	}
-	if contextStore != nil {
-		defer contextStore.Close()
-	}
-	var decomposePlanner *teamleader.DecomposePlanner
-	if chatAssistant != nil {
-		decomposePlanner = teamleader.NewDecomposePlanner(func(ctx context.Context, projectID, systemPrompt, userMessage string) (string, error) {
-			var workDir string
-			if trimmedProjectID := strings.TrimSpace(projectID); trimmedProjectID != "" {
-				project, err := store.GetProject(trimmedProjectID)
-				if err == nil && project != nil {
-					workDir = strings.TrimSpace(project.RepoPath)
-				}
-			}
-			resp, err := chatAssistant.Reply(ctx, web.ChatAssistantRequest{
-				Message:   systemPrompt + "\n\nUser request:\n" + userMessage,
-				ProjectID: strings.TrimSpace(projectID),
-				WorkDir:   workDir,
-			})
-			if err != nil {
-				return "", err
-			}
-			return resp.Reply, nil
-		})
-	}
-	var proposalIssueCreator web.ProposalIssueCreator
-
-	var merger teamleader.PRMerger
-	if cfg.GitHub.Enabled {
-		merger = ghwebhook.NewPRLifecycle(store, bootstrapSet.SCM)
-	}
-	autoMerger := teamleader.NewAutoMergeHandler(store, bus, merger)
-	tlTriageHandler := teamleader.NewTLTriageHandler(store, bus, 3)
-
-	// Decompose handler: listens for EventIssueDecomposing and creates child issues.
-	decomposeHandler := teamleader.NewDecomposeHandler(store, bus, func(ctx context.Context, parent *core.Issue) ([]teamleader.DecomposeSpec, error) {
-		return nil, fmt.Errorf("decomposer agent not configured for issue %s", parent.ID)
-	})
-	if adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter); ok {
-		decomposeHandler.SetReviewSubmitter(adapter.manager)
-		proposalIssueCreator = adapter.manager
-	}
-
-	childCompletionHandler := teamleader.NewChildCompletionHandler(store, bus)
-
-	wsBroadcaster := newWSBroadcaster(hub, bus)
-	if err := wsBroadcaster.Start(ctx); err != nil {
-		return fmt.Errorf("start ws broadcaster: %w", err)
-	}
-
-	eventPersister := newEventPersister(store, bus)
-	if err := eventPersister.Start(ctx); err != nil {
-		return fmt.Errorf("start event persister: %w", err)
-	}
-
-	if err := autoMerger.Start(ctx); err != nil {
-		return fmt.Errorf("start auto merger: %w", err)
-	}
-	if err := tlTriageHandler.Start(ctx); err != nil {
-		return fmt.Errorf("start tl triage handler: %w", err)
-	}
-	if err := decomposeHandler.Start(ctx); err != nil {
-		return fmt.Errorf("start decompose handler: %w", err)
-	}
-	if err := childCompletionHandler.Start(ctx); err != nil {
-		return fmt.Errorf("start child completion handler: %w", err)
-	}
+	}()
 
 	// --- V2 Engine Bootstrap ---
 	v2MCPEnv := teamleader.MCPEnvConfig{
-		DBPath:     expandStorePath(cfg.Store.Path),
-		ServerAddr: "http://" + listenAddr,
-		AuthToken:  adminToken,
+		DBPath:     expandStorePath(launch.cfg.Store.Path),
+		ServerAddr: "http://" + launch.listenAddr,
+		AuthToken:  launch.adminToken,
 	}
-	_, _, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(cfg.Store.Path), bootstrapSet.RoleResolver, cfg, v2MCPEnv, v2GitHubTokens{
-		CommitPAT: strings.TrimSpace(secrets.CommitPAT),
-		MergePAT:  strings.TrimSpace(secrets.MergePAT),
-	})
+	_, _, runtimeManager, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(launch.cfg.Store.Path), bootstrapSet.RoleResolver, launch.cfg, v2MCPEnv, launch.githubTokens)
 	if v2Cleanup != nil {
 		defer v2Cleanup()
 	}
@@ -354,35 +196,36 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	apiSrv := newAPIServer(web.Config{
-		Addr:                 listenAddr,
-		Auth:                 tokenRegistry,
-		WebhookSecret:        cfg.GitHub.WebhookSecret,
-		A2AEnabled:           cfg.A2A.Enabled,
-		A2AVersion:           cfg.A2A.Version,
-		Frontend:             frontendFS,
+		Addr:                 launch.listenAddr,
+		Auth:                 launch.tokenRegistry,
+		WebhookSecret:        launch.cfg.GitHub.WebhookSecret,
+		A2AEnabled:           launch.cfg.A2A.Enabled,
+		A2AVersion:           launch.cfg.A2A.Version,
+		Frontend:             launch.frontendFS,
 		Store:                store,
-		ContextStore:         contextStore,
-		A2ABridge:            a2aBridge,
-		IssueManager:         issueManager,
-		DecomposePlanner:     decomposePlanner,
-		ProposalIssueCreator: proposalIssueCreator,
-		ChatAssistant:        chatAssistant,
+		ContextStore:         runtime.contextStore,
+		A2ABridge:            runtime.a2aBridge,
+		IssueManager:         runtime.issueManager,
+		DecomposePlanner:     runtime.decomposePlanner,
+		ProposalIssueCreator: runtime.proposalIssueCreator,
+		ChatAssistant:        runtime.chatAssistant,
 		EventPublisher:       bus,
 		RunExec:              exec,
 		StageSessionMgr:      exec,
-		RunstageRoles:        cfg.RoleBinds.Run.StageRoles,
-		IssueParserRoleID:    strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
+		RunstageRoles:        launch.cfg.RoleBinds.Run.StageRoles,
+		IssueParserRoleID:    strings.TrimSpace(launch.cfg.RoleBinds.PlanParser.Role),
 		SCM:                  bootstrapSet.SCM,
-		Hub:                  hub,
+		Hub:                  runtime.hub,
 		RestartFunc:          restartFunc,
 		MCPServerOpts: web.MCPServerOptions{
-			DBPath:     expandStorePath(cfg.Store.Path),
-			ServerAddr: "http://" + listenAddr,
-			ConfigDir:  configDir,
+			DBPath:     expandStorePath(launch.cfg.Store.Path),
+			ServerAddr: "http://" + launch.listenAddr,
+			ConfigDir:  launch.configDir,
 		},
-		MCPDeps:          buildMCPDeps(issueManager, exec, store),
+		MCPDeps:          buildMCPDeps(runtime.issueManager, exec, store),
 		RoleResolver:     bootstrapSet.RoleResolver,
 		V2RouteRegistrar: v2RouteRegistrar,
+		RuntimeConfig:    runtimeManager,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -390,16 +233,14 @@ func runServer(ctx context.Context, args []string) error {
 		serverErrCh <- apiSrv.Start()
 	}()
 
-	fmt.Printf("Server started on %s (ws: /api/v1/ws). Press Ctrl+C to stop.\n", listenAddr)
+	fmt.Printf("Server started on %s (ws: /api/v1/ws). Press Ctrl+C to stop.\n", launch.listenAddr)
 
 	select {
 	case serverErr := <-serverErrCh:
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		managerStopErr := issueManager.Stop(stopCtx)
-		stopErr := scheduler.Stop(stopCtx)
-		stopHandlers(stopCtx, childCompletionHandler, decomposeHandler, tlTriageHandler, autoMerger, eventPersister, wsBroadcaster)
-		return errors.Join(serverErr, managerStopErr, stopErr)
+		runtimeActive = false
+		return errors.Join(serverErr, runtime.stop(stopCtx))
 	case <-restartCh:
 		fmt.Println("Restart signal received, shutting down for restart...")
 	case <-ctx.Done():
@@ -412,13 +253,10 @@ func runServer(ctx context.Context, args []string) error {
 	if err := apiSrv.Shutdown(stopCtx); err != nil {
 		shutdownErr = err
 	}
-	if err := issueManager.Stop(stopCtx); err != nil && shutdownErr == nil {
+	runtimeActive = false
+	if err := runtime.stop(stopCtx); err != nil && shutdownErr == nil {
 		shutdownErr = err
 	}
-	if err := scheduler.Stop(stopCtx); err != nil && shutdownErr == nil {
-		shutdownErr = err
-	}
-	stopHandlers(stopCtx, childCompletionHandler, decomposeHandler, tlTriageHandler, autoMerger, eventPersister, wsBroadcaster)
 
 	select {
 	case serverErr := <-serverErrCh:
@@ -547,40 +385,6 @@ func buildServerAddress(host string, port int) string {
 	return net.JoinHostPort(trimmedHost, strconv.Itoa(port))
 }
 
-func buildV2Sandbox(cfg *config.Config, dataDir string) v2sandbox.Sandbox {
-	// Default: disabled (config-driven).
-	enabled := false
-	if cfg != nil && cfg.V2.Sandbox.Enabled {
-		enabled = true
-	}
-
-	// Optional env override (wins if explicitly set).
-	if raw := strings.TrimSpace(os.Getenv("AI_WORKFLOW_ACP_SANDBOX")); raw != "" {
-		switch strings.ToLower(raw) {
-		case "1", "true", "yes", "on":
-			enabled = true
-		case "0", "false", "no", "off":
-			enabled = false
-		}
-	}
-
-	if !enabled {
-		return v2sandbox.NoopSandbox{}
-	}
-
-	requireAuth := false
-	if raw := strings.ToLower(strings.TrimSpace(os.Getenv("AI_WORKFLOW_CODEX_REQUIRE_AUTH"))); raw != "" {
-		switch raw {
-		case "1", "true", "yes", "on":
-			requireAuth = true
-		}
-	}
-	return v2sandbox.HomeDirSandbox{
-		DataDir:          dataDir,
-		RequireCodexAuth: requireAuth,
-	}
-}
-
 func buildMCPDeps(issueManager serverIssueManager, exec *engine.Executor, store core.Store) web.MCPDeps {
 	var deps web.MCPDeps
 	if adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter); ok {
@@ -604,340 +408,6 @@ func secretsFilePath(dataDir string) string {
 		return yamlPath
 	}
 	return tomlPath // default to .toml for new installations
-}
-
-// seedV2Registry seeds agent drivers and profiles into the SQLite store from TOML config.
-// Uses upsert so TOML always acts as the source of truth for configured agents,
-// while runtime additions via API are also persisted.
-func seedV2Registry(ctx context.Context, store *v2sqlite.Store, cfg *config.Config, v1Resolver *acpclient.RoleResolver) {
-	if cfg == nil {
-		return
-	}
-
-	var drivers []*v2core.AgentDriver
-	var profiles []*v2core.AgentProfile
-
-	// Primary: use v2-native agent config if present.
-	if len(cfg.V2.Agents.Drivers) > 0 {
-		reg := v2engine.NewConfigRegistryFromConfig(cfg.V2.Agents)
-		drivers, _ = reg.ListDrivers(ctx)
-		profiles, _ = reg.ListProfiles(ctx)
-	} else if len(cfg.EffectiveAgentProfiles()) > 0 {
-		// Fallback: derive from v1 agents.profiles + roles config.
-		for _, ap := range cfg.EffectiveAgentProfiles() {
-			drivers = append(drivers, &v2core.AgentDriver{
-				ID:            ap.Name,
-				LaunchCommand: ap.LaunchCommand,
-				LaunchArgs:    ap.LaunchArgs,
-				Env:           ap.Env,
-				CapabilitiesMax: v2core.DriverCapabilities{
-					FSRead:   ap.CapabilitiesMax.FSRead,
-					FSWrite:  ap.CapabilitiesMax.FSWrite,
-					Terminal: ap.CapabilitiesMax.Terminal,
-				},
-			})
-		}
-		for _, rc := range cfg.Roles {
-			var actions []v2core.Action
-			if rc.Capabilities.FSRead {
-				actions = append(actions, v2core.ActionReadContext, v2core.ActionSearchFiles)
-			}
-			if rc.Capabilities.FSWrite {
-				actions = append(actions, v2core.ActionFSWrite)
-			}
-			if rc.Capabilities.Terminal {
-				actions = append(actions, v2core.ActionTerminal)
-			}
-			role := inferV2Role(rc.Name)
-			profiles = append(profiles, &v2core.AgentProfile{
-				ID:             rc.Name,
-				Name:           rc.Name,
-				DriverID:       rc.Agent,
-				Role:           role,
-				ActionsAllowed: actions,
-				PromptTemplate: rc.PromptTemplate,
-				Session: v2core.ProfileSession{
-					Reuse:    rc.Session.Reuse,
-					MaxTurns: rc.Session.MaxTurns,
-				},
-				MCP: v2core.ProfileMCP{
-					Enabled: rc.MCP.Enabled,
-					Tools:   rc.MCP.Tools,
-				},
-			})
-		}
-	}
-
-	if len(drivers) == 0 {
-		slog.Warn("v2 registry: no agent config to seed")
-		return
-	}
-
-	// Ensure PR automation reviewer profile exists (gate role + terminal capability) for v2 flows.
-	drivers, profiles = ensureV2PRReviewer(drivers, profiles)
-
-	// Upsert drivers first (profiles reference them).
-	for _, d := range drivers {
-		if err := store.UpsertDriver(ctx, d); err != nil {
-			slog.Warn("v2 registry: seed driver failed", "id", d.ID, "error", err)
-		}
-	}
-	for _, p := range profiles {
-		if err := store.UpsertProfile(ctx, p); err != nil {
-			slog.Warn("v2 registry: seed profile failed", "id", p.ID, "error", err)
-		}
-	}
-	slog.Info("v2 registry: seeded from config", "drivers", len(drivers), "profiles", len(profiles))
-}
-
-func ensureV2PRReviewer(drivers []*v2core.AgentDriver, profiles []*v2core.AgentProfile) ([]*v2core.AgentDriver, []*v2core.AgentProfile) {
-	const reviewerID = "pr-reviewer"
-	for _, p := range profiles {
-		if p != nil && p.ID == reviewerID {
-			return drivers, profiles
-		}
-	}
-
-	// Prefer existing "codex" driver from v1-derived config; otherwise, seed a default codex driver.
-	hasCodex := false
-	for _, d := range drivers {
-		if d != nil && strings.TrimSpace(d.ID) == "codex" {
-			hasCodex = true
-			break
-		}
-	}
-	if !hasCodex {
-		drivers = append(drivers, &v2core.AgentDriver{
-			ID:            "codex",
-			LaunchCommand: "npx",
-			LaunchArgs:    []string{"-y", "@zed-industries/codex-acp"},
-			CapabilitiesMax: v2core.DriverCapabilities{
-				FSRead:   true,
-				FSWrite:  true,
-				Terminal: true,
-			},
-		})
-	}
-
-	profiles = append(profiles, &v2core.AgentProfile{
-		ID:       reviewerID,
-		Name:     "PR Reviewer (Codex)",
-		DriverID: "codex",
-		Role:     v2core.RoleGate,
-		// Used to ensure selection when RequiredCapabilities includes "pr.review".
-		Capabilities: []string{"pr.review"},
-		// Gate needs terminal to run git status/diff.
-		ActionsAllowed: []v2core.Action{
-			v2core.ActionReadContext,
-			v2core.ActionSearchFiles,
-			v2core.ActionTerminal,
-			v2core.ActionApprove,
-			v2core.ActionReject,
-			v2core.ActionSubmit,
-		},
-		PromptTemplate: "review",
-		Session: v2core.ProfileSession{
-			Reuse:    true,
-			MaxTurns: 12,
-		},
-	})
-
-	return drivers, profiles
-}
-
-// inferV2Role maps v1 role names to v2 AgentRole.
-func inferV2Role(name string) v2core.AgentRole {
-	switch name {
-	case "team_leader":
-		return v2core.RoleLead
-	case "reviewer", "aggregator":
-		return v2core.RoleGate
-	case "worker", "plan_parser":
-		return v2core.RoleWorker
-	default:
-		return v2core.RoleWorker
-	}
-}
-
-// bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
-// Returns the v2 store (for lifecycle), the agent registry, a cleanup func, and a route registrar for mounting.
-type v2GitHubTokens struct {
-	CommitPAT string
-	MergePAT  string
-}
-
-func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig, ghTokens v2GitHubTokens) (*v2sqlite.Store, v2core.AgentRegistry, func(), func(chi.Router)) {
-	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
-	v2Store, err := v2sqlite.New(v2DBPath)
-	if err != nil {
-		slog.Error("v2 bootstrap: failed to open store", "path", v2DBPath, "error", err)
-		return nil, nil, nil, nil
-	}
-
-	v2Bus := v2engine.NewMemBus()
-	acpPool := v2engine.NewACPSessionPool(v2Store, v2Bus)
-
-	// Event persister: subscribe to bus → write to store.
-	persister := v2engine.NewEventPersister(v2Store, v2Bus)
-	if err := persister.Start(context.Background()); err != nil {
-		slog.Error("v2 bootstrap: failed to start event persister", "error", err)
-		v2Store.Close()
-		return nil, nil, nil, nil
-	}
-
-	// Seed agent drivers/profiles from TOML config into SQLite (upsert).
-	seedV2Registry(context.Background(), v2Store, bootstrapCfg, roleResolver)
-
-	// The store itself implements AgentRegistry (SQLite-backed).
-	var registry v2core.AgentRegistry = v2Store
-
-	dataDir := ""
-	if dd, err := resolveDataDir(); err == nil {
-		dataDir = dd
-	}
-	sb := buildV2Sandbox(bootstrapCfg, dataDir)
-
-	// Step executor: by default spawns ACP agent processes. Optionally use a mock executor
-	// for environments without external agent credentials.
-	mockEnabled := false
-	if bootstrapCfg != nil && bootstrapCfg.V2.MockExecutor {
-		mockEnabled = true
-	} else if raw := strings.TrimSpace(os.Getenv("AI_WORKFLOW_V2_MOCK_EXECUTOR")); raw != "" {
-		switch strings.ToLower(raw) {
-		case "1", "true", "yes", "on":
-			mockEnabled = true
-		}
-	}
-
-	// Builtin executors (git commit/push, open PR, etc.) are handled by a composite executor
-	// that can fall back to ACP for general steps.
-	var executor v2engine.StepExecutor
-	if mockEnabled {
-		slog.Warn("v2 bootstrap: using mock step executor (no ACP processes will be spawned)")
-		executor = v2engine.NewMockStepExecutor(v2Store, v2Bus)
-	} else {
-		executor = v2engine.NewACPStepExecutor(v2engine.ACPExecutorConfig{
-			Registry:    registry,
-			Store:       v2Store,
-			Bus:         v2Bus,
-			MCPEnv:      mcpEnv,
-			SessionPool: acpPool,
-			Sandbox:     sb,
-			ReworkFollowupTemplate: func() string {
-				if bootstrapCfg == nil {
-					return ""
-				}
-				return bootstrapCfg.V2.Prompts.ReworkFollowup
-			}(),
-			ContinueFollowupTemplate: func() string {
-				if bootstrapCfg == nil {
-					return ""
-				}
-				return bootstrapCfg.V2.Prompts.ContinueFollowup
-			}(),
-		})
-	}
-
-	wsProvider := v2engine.NewCompositeProvider()
-
-	// Optional: shared LLM client for collector + DAG generator.
-	var llmClient *v2llm.Client
-	var engOpts []v2engine.Option
-	engOpts = append(engOpts, v2engine.WithWorkspaceProvider(wsProvider))
-	engOpts = append(engOpts, v2engine.WithGitHubTokens(v2engine.GitHubTokens{
-		CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
-		MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
-	}))
-	if bootstrapCfg != nil {
-		openaiCfg := bootstrapCfg.V2.Collector.OpenAI
-		if strings.TrimSpace(openaiCfg.APIKey) != "" && strings.TrimSpace(openaiCfg.Model) != "" {
-			c, err := v2llm.New(v2llm.Config{
-				BaseURL:    openaiCfg.BaseURL,
-				APIKey:     openaiCfg.APIKey,
-				Model:      openaiCfg.Model,
-				MaxRetries: bootstrapCfg.V2.Collector.MaxRetries,
-			})
-			if err != nil {
-				slog.Warn("v2 bootstrap: LLM client disabled (invalid openai config)", "error", err)
-			} else {
-				llmClient = c
-				engOpts = append(engOpts, v2engine.WithCollector(v2engine.NewLLMCollector(llmClient.Complete)))
-				slog.Info("v2 bootstrap: LLM client enabled (collector + DAG generator)")
-			}
-		}
-	}
-
-	executor = v2engine.NewCompositeStepExecutor(v2engine.CompositeStepExecutorConfig{
-		Store: v2Store,
-		Bus:   v2Bus,
-		GitHubTokens: v2engine.GitHubTokens{
-			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
-			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
-		},
-		ACPExecutor: executor,
-	})
-
-	engOpts = append(engOpts, v2engine.WithBriefingBuilder(v2engine.NewBriefingBuilder(v2Store)))
-	eng := v2engine.New(v2Store, v2Bus, executor, engOpts...)
-
-	// Flow scheduler: queue + concurrency control.
-	scheduler := v2engine.NewFlowScheduler(eng, v2Store, v2Bus, v2engine.FlowSchedulerConfig{
-		MaxConcurrentFlows: 2,
-	})
-	schedCtx, schedCancel := context.WithCancel(context.Background())
-	go scheduler.Start(schedCtx)
-
-	// Recover interrupted flows from previous process.
-	if n, err := v2engine.RecoverInterruptedFlows(context.Background(), v2Store, scheduler); err != nil {
-		slog.Warn("v2 bootstrap: flow recovery error", "error", err)
-	} else if n > 0 {
-		slog.Info("v2 bootstrap: recovered interrupted flows", "count", n)
-	}
-
-	// Lead agent: direct chat entry point.
-	leadAgent := v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
-		Registry: registry,
-		Bus:      v2Bus,
-		Sandbox:  sb,
-	})
-
-	// DAG generator: AI-powered step decomposition.
-	var dagGen *v2engine.DAGGenerator
-	if llmClient != nil {
-		dagGen = v2engine.NewDAGGenerator(llmClient, registry)
-	}
-
-	handler := v2api.NewHandler(v2Store, v2Bus, eng,
-		v2api.WithLeadAgent(leadAgent),
-		v2api.WithScheduler(scheduler),
-		v2api.WithRegistry(registry),
-		v2api.WithDAGGenerator(dagGen),
-		func() v2api.HandlerOption {
-			if dataDir, err := resolveDataDir(); err == nil {
-				return v2api.WithSkillsRoot(filepath.Join(dataDir, "skills"))
-			}
-			return v2api.WithSkillsRoot("")
-		}(),
-	)
-	registrar := func(r chi.Router) {
-		handler.Register(r)
-	}
-
-	cleanup := func() {
-		if acpPool != nil {
-			acpPool.Close()
-		}
-		if leadAgent != nil {
-			leadAgent.Shutdown()
-		}
-		schedCancel()
-		scheduler.Shutdown()
-		persister.Stop()
-		v2Store.Close()
-	}
-
-	slog.Info("v2 engine bootstrapped", "db", v2DBPath)
-	return v2Store, registry, cleanup, registrar
 }
 
 func buildScheduler(exec *engine.Executor, store core.Store) (*engine.Scheduler, error) {

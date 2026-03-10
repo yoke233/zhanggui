@@ -12,6 +12,7 @@ import (
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/appdata"
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
@@ -58,7 +59,7 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, cor
 	mcpEnv := teamleader.MCPEnvConfig{
 		DBPath: expandStorePath(cfg.Store.Path),
 	}
-	if dataDir, err := resolveDataDir(); err == nil {
+	if dataDir, err := appdata.ResolveDataDir(); err == nil {
 		if secrets, err := config.LoadSecrets(secretsFilePath(dataDir)); err == nil {
 			mcpEnv.AuthToken = strings.TrimSpace(secrets.AdminToken())
 		}
@@ -86,21 +87,8 @@ func memoryFromStore(store core.Store) core.Memory {
 	return storesqlite.NewSQLiteMemory(sqliteStore)
 }
 
-// resolveDataDir returns the data directory for config, secrets, and database.
-// Priority: $AI_WORKFLOW_DATA_DIR > $CWD/.ai-workflow
-func resolveDataDir() (string, error) {
-	if env := os.Getenv("AI_WORKFLOW_DATA_DIR"); env != "" {
-		return filepath.Abs(env)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cwd, ".ai-workflow"), nil
-}
-
 func loadBootstrapConfig() (*config.Config, error) {
-	dataDir, err := resolveDataDir()
+	dataDir, err := appdata.ResolveDataDir()
 	if err != nil {
 		return nil, err
 	}

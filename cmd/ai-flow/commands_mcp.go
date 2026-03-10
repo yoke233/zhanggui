@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/yoke233/ai-workflow/internal/appdata"
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
 	contextsqlite "github.com/yoke233/ai-workflow/internal/plugins/context-sqlite"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
@@ -24,13 +26,15 @@ func cmdMCPServe() error {
 	}
 	defer store.Close()
 
-	configDir, _ := resolveDataDir()
+	configDir, _ := appdata.ResolveDataDir()
 	// Stdio mode: only Store is available (no IssueManager/RunExecutor).
 	// Write tools will not be registered.
 	var contextStore *contextsqlite.Store
-	if s, err := contextsqlite.New(".ai-workflow/context.db"); err == nil {
-		contextStore = s
-		defer contextStore.Close()
+	if dataDir, err := appdata.ResolveDataDir(); err == nil {
+		if s, err := contextsqlite.New(filepath.Join(dataDir, "context.db")); err == nil {
+			contextStore = s
+			defer contextStore.Close()
+		}
 	}
 	deps := mcpserver.Deps{Store: store, ContextStore: contextStore}
 	server := mcpserver.NewServer(deps, mcpserver.Options{

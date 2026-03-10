@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/appdata"
 	v2skills "github.com/yoke233/ai-workflow/internal/v2/skills"
 )
 
@@ -24,8 +25,12 @@ import (
 //   - links profile skills into <home>/skills
 //   - links baseline auth/config files from the base home directory when present
 type HomeDirSandbox struct {
-	// DataDir points to `.ai-workflow/`. If empty, resolves from $AI_WORKFLOW_DATA_DIR or $CWD/.ai-workflow.
+	// DataDir points to the runtime data directory. If empty, uses appdata.ResolveDataDir().
 	DataDir string
+
+	// SkillsRoot points to the global shared skills repository (<dataDir>/skills).
+	// It must not point at the sandbox-local skills directory.
+	SkillsRoot string
 
 	// RequireCodexAuth enforces presence of auth.json when running codex-acp.
 	RequireCodexAuth bool
@@ -46,9 +51,17 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 		return launch, err
 	}
 
-	dataDir, err := resolveDataDir(s.DataDir)
-	if err != nil {
-		return launch, err
+	dataDir := filepath.Clean(s.DataDir)
+	if strings.TrimSpace(dataDir) == "" {
+		var err error
+		dataDir, err = appdata.ResolveDataDir()
+		if err != nil {
+			return launch, err
+		}
+	}
+	skillsRoot := filepath.Clean(s.SkillsRoot)
+	if strings.TrimSpace(skillsRoot) == "" {
+		skillsRoot = filepath.Join(dataDir, "skills")
 	}
 
 	profileID := sanitizeComponent(in.Profile.ID)
@@ -71,8 +84,8 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	// Link baseline files from base home if present.
 	switch kind {
 	case "codex":
-		_ = linkDirIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"))
-		if err := linkIfMissing(filepath.Join(home, "auth.json"), filepath.Join(baseHome, "auth.json")); err != nil {
+		_ = linkPathIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"), true)
+		if err := linkPathIfMissing(filepath.Join(home, "auth.json"), filepath.Join(baseHome, "auth.json"), false); err != nil {
 			return launch, err
 		}
 		if s.RequireCodexAuth {
@@ -84,17 +97,13 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 			}
 		}
 	case "claude":
-		_ = linkDirIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"))
-		_ = linkIfMissing(filepath.Join(home, "CLAUDE.md"), filepath.Join(baseHome, "CLAUDE.md"))
+		_ = linkPathIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"), true)
+		_ = linkPathIfMissing(filepath.Join(home, "CLAUDE.md"), filepath.Join(baseHome, "CLAUDE.md"), false)
 	}
 
 	// Install profile skills into the isolated home.
 	if len(in.Profile.Skills) > 0 {
-		root, err := v2skills.ResolveSkillsRoot()
-		if err != nil {
-			return launch, fmt.Errorf("resolve skills root: %w", err)
-		}
-		if err := v2skills.EnsureSkillsLinked(root, skillsDir, in.Profile.Skills); err != nil {
+		if err := v2skills.EnsureSkillsLinked(skillsRoot, skillsDir, in.Profile.Skills); err != nil {
 			return launch, fmt.Errorf("ensure skills linked: %w", err)
 		}
 	}
@@ -105,23 +114,6 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	launch.Env["TEMP"] = tmpDir
 
 	return launch, nil
-}
-
-func resolveDataDir(explicit string) (string, error) {
-	if strings.TrimSpace(explicit) != "" {
-		return filepath.Clean(explicit), nil
-	}
-	if env := strings.TrimSpace(os.Getenv("AI_WORKFLOW_DATA_DIR")); env != "" {
-		if abs, err := filepath.Abs(env); err == nil {
-			return abs, nil
-		}
-		return filepath.Clean(env), nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getwd: %w", err)
-	}
-	return filepath.Join(cwd, ".ai-workflow"), nil
 }
 
 func detectHome(driverID string, driverEnv, launchEnv map[string]string) (homeKey, baseHome, kind string, err error) {
@@ -206,7 +198,7 @@ func sanitizeComponent(s string) string {
 	return s
 }
 
-func linkIfMissing(dst, src string) error {
+func linkPathIfMissing(dst, src string, wantDir bool) error {
 	if _, err := os.Lstat(dst); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -219,54 +211,26 @@ func linkIfMissing(dst, src string) error {
 		}
 		return fmt.Errorf("stat %s: %w", src, err)
 	}
-	if fi.IsDir() {
+	if fi.IsDir() != wantDir {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
 	}
-	// Symlink is fine for files on Windows too; junction is only for dirs.
 	if err := os.Symlink(src, dst); err == nil {
 		return nil
 	} else if runtime.GOOS != "windows" {
 		return err
 	}
-	// Windows without symlink privilege: fallback to copy.
-	b, rErr := os.ReadFile(src)
-	if rErr != nil {
-		return fmt.Errorf("read %s: %w", src, rErr)
+
+	if wantDir {
+		return createWindowsJunction(dst, src)
 	}
-	if wErr := os.WriteFile(dst, b, 0o600); wErr != nil {
-		return fmt.Errorf("write %s: %w", dst, wErr)
-	}
-	return nil
+
+	return copyFile(dst, src)
 }
 
-func linkDirIfMissing(dst, src string) error {
-	if _, err := os.Lstat(dst); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("lstat %s: %w", dst, err)
-	}
-	fi, err := os.Stat(src)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("stat %s: %w", src, err)
-	}
-	if !fi.IsDir() {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
-	}
-	if err := os.Symlink(src, dst); err == nil {
-		return nil
-	} else if runtime.GOOS != "windows" {
-		return err
-	}
-	// Windows junction fallback.
+func createWindowsJunction(dst, src string) error {
 	cmd := exec.Command("cmd", "/c", "mklink", "/J", dst, src)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -275,6 +239,17 @@ func linkDirIfMissing(dst, src string) error {
 			msg = err.Error()
 		}
 		return fmt.Errorf("mklink /J failed: %s", msg)
+	}
+	return nil
+}
+
+func copyFile(dst, src string) error {
+	b, rErr := os.ReadFile(src)
+	if rErr != nil {
+		return fmt.Errorf("read %s: %w", src, rErr)
+	}
+	if wErr := os.WriteFile(dst, b, 0o600); wErr != nil {
+		return fmt.Errorf("write %s: %w", dst, wErr)
 	}
 	return nil
 }
