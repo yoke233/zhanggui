@@ -1,0 +1,103 @@
+import { NavLink } from "react-router-dom";
+import { cn } from "@/lib/utils";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  GitBranch,
+  Bot,
+  FolderOpen,
+  Settings,
+  ChevronsUpDown,
+} from "lucide-react";
+import { useState } from "react";
+
+const navItems = [
+  { to: "/", icon: LayoutDashboard, label: "仪表盘" },
+  { to: "/chat", icon: MessageSquare, label: "对话" },
+  { to: "/flows", icon: GitBranch, label: "流程" },
+  { to: "/agents", icon: Bot, label: "代理" },
+  { to: "/projects", icon: FolderOpen, label: "项目" },
+  { to: "/settings", icon: Settings, label: "设置" },
+];
+
+const mockProjects = [
+  { id: 1, name: "ai-workflow" },
+  { id: 2, name: "auth-service" },
+  { id: 3, name: "infra-deploy" },
+];
+
+export function AppSidebar() {
+  const [currentProject, setCurrentProject] = useState(mockProjects[0]);
+  const [showPicker, setShowPicker] = useState(false);
+
+  return (
+    <aside className="flex h-screen w-56 flex-col border-r bg-sidebar">
+      {/* Logo */}
+      <div className="flex h-14 items-center gap-2.5 border-b px-5">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <GitBranch className="h-4 w-4" />
+        </div>
+        <span className="text-sm font-semibold tracking-tight">AI Workflow</span>
+      </div>
+
+      {/* Project switcher */}
+      <div className="px-3 pt-3">
+        <div className="relative">
+          <button
+            onClick={() => setShowPicker(!showPicker)}
+            className="flex w-full items-center gap-2 rounded-md border bg-background px-2.5 py-2 text-sm transition-colors hover:bg-muted"
+          >
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-indigo-50">
+              <GitBranch className="h-3.5 w-3.5 text-indigo-500" />
+            </div>
+            <span className="flex-1 truncate text-left text-[13px] font-medium">{currentProject.name}</span>
+            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
+
+          {showPicker && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border bg-popover p-1 shadow-md">
+              {mockProjects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setCurrentProject(p); setShowPicker(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent",
+                    p.id === currentProject.id && "bg-accent",
+                  )}
+                >
+                  <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="truncate">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 px-3 py-3">
+        <div className="mb-2 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          导航
+        </div>
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )
+            }
+          >
+            <item.icon className="h-4 w-4" />
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
+  );
+}

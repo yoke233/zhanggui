@@ -86,11 +86,21 @@ Pipeline execution uses ACP (Agent Communication Protocol) over stdio:
 - `stageEventBridge` converts ACP session updates into `core.Event` published on `eventbus.Bus`.
 
 ### Frontend (`web/`)
-React + Vite + Tailwind + Zustand. Embedded into Go binary via `web/embed.go`.
-- Views: `ChatView`, `A2AChatView`, `BoardView`, `RunView` (in `src/views/`)
-- State: Zustand stores in `src/stores/` (projects, runs, chat)
-- API clients: `src/lib/apiClient.ts` (REST), `src/lib/wsClient.ts` (WebSocket), `src/lib/a2aClient.ts` (A2A)
-- Types mirror backend in `src/types/` (api, workflow, ws, a2a)
+React 18 + Vite + Tailwind + Zustand. Embedded into Go binary via `web/embed.go`.
+
+Two UI versions coexist, selected via `VITE_UI_VERSION` (default `v2`):
+- **V3** (`src/v3/`) — V1 model views: OverviewView, SessionsView, IssuesView, RunsView, OpsView. Query-param routing in `App.tsx` (`?view=chat`).
+- **V2** (`src/v2/`) — V2 Flow model views: ChatView, FlowsView, StepsView, ExecutionsView, ArtifactView, BriefingView, EventsView, OpsView. Entry in `src/v2/AppV2.tsx`.
+- **New pages** (`src/pages/`) — Redesigned standalone pages (DashboardPage, FlowsPage, AgentsPage, ChatPage, etc.) with `src/layouts/AppLayout.tsx` sidebar shell.
+- **Archived** (`src/_archived/`) — Deprecated code from earlier iterations.
+
+Key layers:
+- **State**: Zustand stores in `src/stores/` — projectsStore, runsStore, chatStore, settingsStore
+- **API clients**: `src/lib/apiClient.ts` (REST v1), `src/lib/apiClientV2.ts` (REST v2), `src/lib/wsClient.ts` (WebSocket with auto-reconnect), `src/lib/a2aClient.ts` (JSON-RPC 2.0 + SSE)
+- **Types**: `src/types/` mirrors backend — workflow.ts (domain), api.ts (v1 request/response), apiV2.ts (v2 Flow/Step/Execution), ws.ts (events), a2a.ts
+- **UI primitives**: `src/components/ui/` — button, badge, card, dialog, input, select, table, textarea, separator
+- **Path alias**: `@` → `./src` (configured in vite.config.ts and tsconfig)
+- **Dev proxy**: `/api` → Go backend (default `http://127.0.0.1:8080`, override with `VITE_API_PROXY_TARGET`)
 
 ### Configuration
 - Project-local config: `.ai-workflow/config.yaml` (generated via `ai-flow config init`)
@@ -109,3 +119,6 @@ React + Vite + Tailwind + Zustand. Embedded into Go binary via `web/embed.go`.
 - `AI_WORKFLOW_DB_PATH` — SQLite database path (required for `mcp-serve`)
 - `AI_WORKFLOW_CHAT_PROVIDER` — chat backend selection
 - `VITE_API_TOKEN` — frontend API token (dev only)
+- `VITE_API_PROXY_TARGET` — dev proxy target for `/api` (default `http://127.0.0.1:8080`)
+- `VITE_UI_VERSION` — UI version switch: `v2` (Flow model, default) or `v3` (Issue model)
+- `VITE_A2A_ENABLED` — enable A2A protocol UI (`true`/`false`)
