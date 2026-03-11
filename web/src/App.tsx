@@ -12,6 +12,7 @@ import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
 import { FlowDetailPage } from "@/pages/FlowDetailPage";
 import { FlowsPage } from "@/pages/FlowsPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
+import { SkillsPage } from "@/pages/SkillsPage";
 
 interface AppProps {
   a2aEnabledOverride?: boolean;
@@ -63,6 +64,7 @@ const WorkbenchRoutes = () => {
           <Route path="/flows/:flowId" element={<FlowDetailPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
           <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/new" element={<CreateProjectPage />} />
         </Route>

@@ -295,6 +295,10 @@ export interface CreateSkillRequest {
   skill_md?: string;
 }
 
+export interface UpdateSkillRequest {
+  skill_md: string;
+}
+
 export interface ImportGitHubSkillRequest {
   repo_url: string;
   skill_name: string;

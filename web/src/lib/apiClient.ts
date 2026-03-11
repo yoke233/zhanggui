@@ -29,6 +29,7 @@ import type {
   SkillDetail,
   SkillInfo,
   Step,
+  UpdateSkillRequest,
   UpdateStepRequest,
   UpdateProjectRequest,
 } from "../types/apiV2";
@@ -203,6 +204,8 @@ export interface ApiClient {
   listSkills(): Promise<SkillInfo[]>;
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
+  updateSkill(name: string, body: UpdateSkillRequest): Promise<SkillDetail>;
+  deleteSkill(name: string): Promise<void>;
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
 }
 
@@ -497,6 +500,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/skills",
         method: "POST",
         body,
+      }),
+    updateSkill: (name, body) =>
+      request<SkillDetail, UpdateSkillRequest>({
+        path: `/skills/${encodeURIComponent(name)}`,
+        method: "PUT",
+        body,
+      }),
+    deleteSkill: (name) =>
+      request<void>({
+        path: `/skills/${encodeURIComponent(name)}`,
+        method: "DELETE",
       }),
     importGitHubSkill: (body) =>
       request<SkillInfo, ImportGitHubSkillRequest>({
