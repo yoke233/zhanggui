@@ -82,6 +82,15 @@ type EventStore interface {
 	GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType EventType) (*time.Time, error)
 }
 
+// DAGTemplateStore persists DAGTemplate records.
+type DAGTemplateStore interface {
+	CreateDAGTemplate(ctx context.Context, t *DAGTemplate) (int64, error)
+	GetDAGTemplate(ctx context.Context, id int64) (*DAGTemplate, error)
+	ListDAGTemplates(ctx context.Context, filter DAGTemplateFilter) ([]*DAGTemplate, error)
+	UpdateDAGTemplate(ctx context.Context, t *DAGTemplate) error
+	DeleteDAGTemplate(ctx context.Context, id int64) error
+}
+
 // ExecutionProbeStore persists probe records and execution routing metadata.
 type ExecutionProbeStore interface {
 	CreateExecutionProbe(ctx context.Context, probe *ExecutionProbe) (int64, error)
@@ -106,6 +115,7 @@ type Store interface {
 	AgentContextStore
 	EventStore
 	ExecutionProbeStore
+	DAGTemplateStore
 	Close() error
 }
 

@@ -22,6 +22,7 @@ import {
   Loader2,
   Pause,
   AlertCircle,
+  FileStack,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -156,8 +157,9 @@ export function FlowDetailPage() {
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(false);
-  const [runningAction, setRunningAction] = useState<"idle" | "run" | "cancel">("idle");
+  const [runningAction, setRunningAction] = useState<"idle" | "run" | "cancel" | "save_template">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [templateSaved, setTemplateSaved] = useState(false);
 
   useEffect(() => {
     if (!Number.isFinite(numericFlowId)) {
@@ -255,6 +257,23 @@ export function FlowDetailPage() {
     }
   };
 
+  const saveAsTemplate = async () => {
+    if (!flow || steps.length === 0) return;
+    setRunningAction("save_template");
+    setError(null);
+    try {
+      await apiClient.saveFlowAsTemplate(flow.id, {
+        name: flow.name,
+        description: flow.metadata?.description,
+      });
+      setTemplateSaved(true);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setRunningAction("idle");
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
@@ -275,6 +294,16 @@ export function FlowDetailPage() {
             <span className="text-sm text-muted-foreground">Flow #{flow?.id ?? flowId}</span>
             <span className="text-sm text-muted-foreground">· {steps.length} 步骤</span>
             {flow ? <span className="text-sm text-muted-foreground">· {formatFlowDuration(flow)}</span> : null}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={runningAction !== "idle" || steps.length === 0 || templateSaved}
+              onClick={() => void saveAsTemplate()}
+              title="保存为模板"
+            >
+              <FileStack className="mr-2 h-3 w-3" />
+              {runningAction === "save_template" ? "保存中..." : templateSaved ? "已保存模板" : "存为模板"}
+            </Button>
             <Button variant="outline" size="sm" disabled={runningAction !== "idle"} onClick={() => void runAction("cancel")}>
               <Square className="mr-2 h-3 w-3" />
               {runningAction === "cancel" ? "取消中..." : "取消"}

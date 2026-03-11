@@ -31,6 +31,12 @@ import type {
   Step,
   UpdateStepRequest,
   UpdateProjectRequest,
+  DAGTemplate,
+  CreateDAGTemplateRequest,
+  UpdateDAGTemplateRequest,
+  SaveFlowAsTemplateRequest,
+  CreateFlowFromTemplateRequest,
+  CreateFlowFromTemplateResponse,
 } from "../types/apiV2";
 import type { SandboxSupportResponse } from "../types/system";
 
@@ -204,6 +210,21 @@ export interface ApiClient {
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
+
+  // DAG Templates
+  listDAGTemplates(params?: {
+    project_id?: number;
+    tag?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DAGTemplate[]>;
+  createDAGTemplate(body: CreateDAGTemplateRequest): Promise<DAGTemplate>;
+  getDAGTemplate(templateId: number): Promise<DAGTemplate>;
+  updateDAGTemplate(templateId: number, body: UpdateDAGTemplateRequest): Promise<DAGTemplate>;
+  deleteDAGTemplate(templateId: number): Promise<void>;
+  saveFlowAsTemplate(flowId: number, body: SaveFlowAsTemplateRequest): Promise<DAGTemplate>;
+  createFlowFromTemplate(templateId: number, body: CreateFlowFromTemplateRequest): Promise<CreateFlowFromTemplateResponse>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -501,6 +522,52 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     importGitHubSkill: (body) =>
       request<SkillInfo, ImportGitHubSkillRequest>({
         path: "/skills/import/github",
+        method: "POST",
+        body,
+      }),
+
+    // DAG Templates
+    listDAGTemplates: (params) =>
+      request<DAGTemplate[]>({
+        path: "/templates",
+        query: {
+          project_id: params?.project_id,
+          tag: params?.tag,
+          search: params?.search,
+          limit: params?.limit,
+          offset: params?.offset,
+        },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createDAGTemplate: (body) =>
+      request<DAGTemplate, CreateDAGTemplateRequest>({
+        path: "/templates",
+        method: "POST",
+        body,
+      }),
+    getDAGTemplate: (templateId) =>
+      request<DAGTemplate>({
+        path: `/templates/${templateId}`,
+      }),
+    updateDAGTemplate: (templateId, body) =>
+      request<DAGTemplate, UpdateDAGTemplateRequest>({
+        path: `/templates/${templateId}`,
+        method: "PUT",
+        body,
+      }),
+    deleteDAGTemplate: (templateId) =>
+      request<void>({
+        path: `/templates/${templateId}`,
+        method: "DELETE",
+      }),
+    saveFlowAsTemplate: (flowId, body) =>
+      request<DAGTemplate, SaveFlowAsTemplateRequest>({
+        path: `/flows/${flowId}/save-as-template`,
+        method: "POST",
+        body,
+      }),
+    createFlowFromTemplate: (templateId, body) =>
+      request<CreateFlowFromTemplateResponse, CreateFlowFromTemplateRequest>({
+        path: `/templates/${templateId}/create-flow`,
         method: "POST",
         body,
       }),

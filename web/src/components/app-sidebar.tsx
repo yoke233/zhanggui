@@ -7,6 +7,7 @@ import {
   GitBranch,
   Bot,
   FolderOpen,
+  FileStack,
   ChevronsUpDown,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
@@ -15,6 +16,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/chat", icon: MessageSquare, label: "对话" },
   { to: "/flows", icon: GitBranch, label: "流程" },
+  { to: "/templates", icon: FileStack, label: "模板" },
   { to: "/agents", icon: Bot, label: "代理" },
   { to: "/projects", icon: FolderOpen, label: "项目" },
 ];

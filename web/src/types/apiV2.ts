@@ -410,3 +410,64 @@ export interface AdminSystemEventRequest {
 export interface AdminSystemEventResponse {
   status: string;
 }
+
+// --- DAG Templates ---
+
+export interface DAGTemplateStep {
+  name: string;
+  description?: string;
+  type: "exec" | "gate" | "composite" | string;
+  depends_on?: string[];
+  agent_role?: string;
+  required_capabilities?: string[];
+  acceptance_criteria?: string[];
+  profile_id?: string;
+}
+
+export interface DAGTemplate {
+  id: number;
+  name: string;
+  description?: string;
+  project_id?: number | null;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps: DAGTemplateStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDAGTemplateRequest {
+  name: string;
+  description?: string;
+  project_id?: number;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps: DAGTemplateStep[];
+}
+
+export interface UpdateDAGTemplateRequest {
+  name?: string;
+  description?: string;
+  project_id?: number;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps?: DAGTemplateStep[];
+}
+
+export interface SaveFlowAsTemplateRequest {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface CreateFlowFromTemplateRequest {
+  name?: string;
+  project_id?: number;
+  metadata?: Record<string, string>;
+}
+
+export interface CreateFlowFromTemplateResponse {
+  flow: Flow;
+  steps: Step[];
+}

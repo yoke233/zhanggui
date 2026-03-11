@@ -275,6 +275,19 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_issues_flow ON issues(flow_id)`,
+		// dag_templates table (reusable DAG template storage).
+		`CREATE TABLE IF NOT EXISTS dag_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            project_id INTEGER,
+            tags TEXT,
+            metadata TEXT,
+            steps TEXT NOT NULL DEFAULT '[]',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_dag_templates_project ON dag_templates(project_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

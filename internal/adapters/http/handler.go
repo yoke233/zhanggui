@@ -135,6 +135,17 @@ func (h *Handler) Register(r chi.Router) {
 	// DAG generation (AI-powered)
 	r.Post("/flows/{flowID}/generate-steps", h.generateSteps)
 
+	// Save flow as template
+	r.Post("/flows/{flowID}/save-as-template", h.saveFlowAsTemplate)
+
+	// DAG Templates
+	r.Post("/templates", h.createDAGTemplate)
+	r.Get("/templates", h.listDAGTemplates)
+	r.Get("/templates/{templateID}", h.getDAGTemplate)
+	r.Put("/templates/{templateID}", h.updateDAGTemplate)
+	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
+	r.Post("/templates/{templateID}/create-flow", h.createFlowFromTemplate)
+
 	// Executions
 	r.Get("/steps/{stepID}/executions", h.listExecutions)
 	r.Get("/executions/{execID}", h.getExecution)
