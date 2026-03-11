@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	cronapp "github.com/yoke233/ai-workflow/internal/application/cron"
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
@@ -13,6 +15,7 @@ import (
 type bootstrapLifecycle struct {
 	runtimeWatchCancel context.CancelFunc
 	probeWatchCancel   context.CancelFunc
+	cronCancel         context.CancelFunc
 }
 
 func startBootstrapLifecycle(
@@ -24,8 +27,12 @@ func startBootstrapLifecycle(
 	lifecycle := &bootstrapLifecycle{}
 	startRuntimeWatcher(lifecycle, base.runtimeManager)
 	startProbeWatchdog(lifecycle, base.store, apiStack.probeSvc, bootstrapCfg)
+	startCronTrigger(lifecycle, base.store, base.bus, flow.scheduler, bootstrapCfg)
 
 	return func() {
+		if lifecycle.cronCancel != nil {
+			lifecycle.cronCancel()
+		}
 		if lifecycle.runtimeWatchCancel != nil {
 			lifecycle.runtimeWatchCancel()
 		}
@@ -81,4 +88,24 @@ func startProbeWatchdog(
 	watchCtx, cancel := context.WithCancel(context.Background())
 	lifecycle.probeWatchCancel = cancel
 	go probeWatchdog.Start(watchCtx)
+}
+
+func startCronTrigger(
+	lifecycle *bootstrapLifecycle,
+	store core.Store,
+	bus core.EventBus,
+	scheduler *flowapp.FlowScheduler,
+	bootstrapCfg *config.Config,
+) {
+	if bootstrapCfg == nil || !bootstrapCfg.Runtime.Cron.Enabled {
+		return
+	}
+
+	trigger := cronapp.New(store, scheduler, bus, cronapp.Config{
+		Enabled:  true,
+		Interval: bootstrapCfg.Runtime.Cron.Interval.Duration,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	lifecycle.cronCancel = cancel
+	go trigger.Start(ctx)
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
+  CalendarClock,
   Clock,
   Loader2,
   RefreshCw,
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, formatRelativeTime } from "@/lib/v2Workbench";
-import type { AnalyticsSummary } from "@/types/apiV2";
+import type { AnalyticsSummary, CronStatus } from "@/types/apiV2";
 
 const TIME_RANGES = [
   { label: "24h", value: 1 },
@@ -78,20 +79,24 @@ export function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState(7);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [cronFlows, setCronFlows] = useState<CronStatus[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const since =
-        rangeDays > 0
-          ? new Date(Date.now() - rangeDays * 86400000).toISOString()
-          : undefined;
-      const resp = await apiClient.getAnalyticsSummary({
-        project_id: selectedProjectId ?? undefined,
-        since,
-      });
+      const [resp, cronResp] = await Promise.all([
+        apiClient.getAnalyticsSummary({
+          project_id: selectedProjectId ?? undefined,
+          since:
+            rangeDays > 0
+              ? new Date(Date.now() - rangeDays * 86400000).toISOString()
+              : undefined,
+        }),
+        apiClient.listCronFlows(),
+      ]);
       setData(resp);
+      setCronFlows(cronResp);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -457,6 +462,58 @@ export function AnalyticsPage() {
                     <TableCell className="text-muted-foreground">{formatDuration(f.duration_s)}</TableCell>
                     <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={f.error_message}>
                       {f.error_message || "-"}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Cron scheduled flows */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-indigo-500" />
+            定时任务
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Flow ID</TableHead>
+                <TableHead>Cron 表达式</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>最大并发</TableHead>
+                <TableHead>上次触发</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {cronFlows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    暂无定时任务。可通过 API 对 Flow 设置 cron 触发：POST /api/flows/:id/cron
+                  </TableCell>
+                </TableRow>
+              ) : (
+                cronFlows.map((c) => (
+                  <TableRow key={c.flow_id}>
+                    <TableCell>
+                      <Link to={`/flows/${c.flow_id}`} className="text-blue-600 hover:underline">
+                        #{c.flow_id}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{c.schedule}</TableCell>
+                    <TableCell>
+                      <Badge variant={c.enabled ? "success" : "secondary"} className="text-xs">
+                        {c.enabled ? "已启用" : "已停用"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{c.max_instances ?? 1}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {c.last_triggered ? formatRelativeTime(c.last_triggered) : "从未触发"}
                     </TableCell>
                   </TableRow>
                 ))

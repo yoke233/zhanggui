@@ -488,3 +488,19 @@ export interface AnalyticsFilter {
   until?: string;
   limit?: number;
 }
+
+// Cron types
+
+export interface CronStatus {
+  flow_id: number;
+  enabled: boolean;
+  is_template: boolean;
+  schedule?: string;
+  max_instances?: number;
+  last_triggered?: string;
+}
+
+export interface SetupCronRequest {
+  schedule: string;
+  max_instances?: number;
+}

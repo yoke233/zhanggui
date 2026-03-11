@@ -161,6 +161,12 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/analytics/recent-failures", h.getRecentFailures)
 	r.Get("/analytics/status-distribution", h.getFlowStatusDistribution)
 
+	// Cron (scheduled flows)
+	r.Get("/cron/flows", h.listCronFlows)
+	r.Get("/flows/{flowID}/cron", h.getFlowCronStatus)
+	r.Post("/flows/{flowID}/cron", h.setupFlowCron)
+	r.Delete("/flows/{flowID}/cron", h.disableFlowCron)
+
 	// WebSocket
 	r.Get("/ws", h.wsEvents)
 

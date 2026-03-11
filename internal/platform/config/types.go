@@ -53,6 +53,13 @@ type RuntimeConfig struct {
 	Prompts        RuntimePromptsConfig        `toml:"prompts"   yaml:"prompts" json:"prompts"`
 	SessionManager RuntimeSessionManagerConfig `toml:"session_manager" yaml:"session_manager" json:"session_manager"`
 	ExecutionProbe RuntimeExecutionProbeConfig `toml:"execution_probe" yaml:"execution_probe" json:"execution_probe"`
+	Cron           RuntimeCronConfig           `toml:"cron"            yaml:"cron" json:"cron"`
+}
+
+// RuntimeCronConfig configures the cron trigger for scheduled flows.
+type RuntimeCronConfig struct {
+	Enabled  bool     `toml:"enabled"  yaml:"enabled" json:"enabled"`
+	Interval Duration `toml:"interval" yaml:"interval" json:"interval"` // scan interval (default "1m")
 }
 
 // RuntimeSessionManagerConfig configures the session manager mode.

@@ -43,6 +43,10 @@ idle_after = "10m"
 timeout = "45s"
 max_attempts = 1
 
+[runtime.cron]
+enabled = false
+interval = "1m"
+
 [runtime.prompts]
 rework_followup = """
 # Rework Requested

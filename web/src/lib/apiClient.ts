@@ -4,6 +4,8 @@ import type {
   AgentProfile,
   AnalyticsFilter,
   AnalyticsSummary,
+  CronStatus,
+  SetupCronRequest,
   CreateSkillRequest,
   Artifact,
   Briefing,
@@ -208,6 +210,11 @@ export interface ApiClient {
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
 
   getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
+
+  listCronFlows(): Promise<CronStatus[]>;
+  getFlowCronStatus(flowId: number): Promise<CronStatus>;
+  setupFlowCron(flowId: number, body: SetupCronRequest): Promise<CronStatus>;
+  disableFlowCron(flowId: number): Promise<CronStatus>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -518,6 +525,26 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           until: params?.until,
           limit: params?.limit,
         },
+      }),
+
+    listCronFlows: () =>
+      request<CronStatus[]>({
+        path: "/cron/flows",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getFlowCronStatus: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+      }),
+    setupFlowCron: (flowId, body) =>
+      request<CronStatus, SetupCronRequest>({
+        path: `/flows/${flowId}/cron`,
+        method: "POST",
+        body,
+      }),
+    disableFlowCron: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+        method: "DELETE",
       }),
   };
 };
