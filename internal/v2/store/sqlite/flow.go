@@ -74,8 +74,6 @@ func (s *Store) ListFlows(ctx context.Context, filter core.FlowFilter) ([]*core.
 		} else {
 			conditions = append(conditions, `archived_at IS NULL`)
 		}
-	} else if !filter.IncludeArchived {
-		conditions = append(conditions, `archived_at IS NULL`)
 	}
 	if len(conditions) > 0 {
 		query += ` WHERE ` + strings.Join(conditions, " AND ")
@@ -129,23 +127,63 @@ func (s *Store) UpdateFlowStatus(ctx context.Context, id int64, status core.Flow
 	return nil
 }
 
+func (s *Store) PrepareFlowRun(ctx context.Context, id int64, queuedStatus core.FlowStatus) error {
+	if queuedStatus != core.FlowQueued && queuedStatus != core.FlowRunning {
+		return core.ErrInvalidTransition
+	}
+
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE flows
+		 SET status = ?, updated_at = ?
+		 WHERE id = ? AND status = ? AND archived_at IS NULL`,
+		queuedStatus, now, id, core.FlowPending,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare flow run: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		return nil
+	}
+
+	if _, err := s.GetFlow(ctx, id); err != nil {
+		return err
+	}
+	return core.ErrInvalidTransition
+}
+
 func (s *Store) SetFlowArchived(ctx context.Context, id int64, archived bool) error {
 	now := time.Now().UTC()
 	var archivedAt any
+	var res sql.Result
+	var err error
 	if archived {
 		archivedAt = now
+		res, err = s.db.ExecContext(ctx,
+			`UPDATE flows
+			 SET archived_at = ?, updated_at = ?
+			 WHERE id = ? AND archived_at IS NULL AND status NOT IN (?, ?, ?)`,
+			archivedAt, now, id, core.FlowQueued, core.FlowRunning, core.FlowBlocked,
+		)
+	} else {
+		res, err = s.db.ExecContext(ctx,
+			`UPDATE flows
+			 SET archived_at = NULL, updated_at = ?
+			 WHERE id = ? AND archived_at IS NOT NULL`,
+			now, id,
+		)
 	}
-
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE flows SET archived_at = ?, updated_at = ? WHERE id = ?`,
-		archivedAt, now, id,
-	)
 	if err != nil {
 		return fmt.Errorf("set flow archived: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	if n == 0 {
-		return core.ErrNotFound
+	if n > 0 {
+		return nil
 	}
-	return nil
+
+	if _, err := s.GetFlow(ctx, id); err != nil {
+		return err
+	}
+	return core.ErrInvalidTransition
 }

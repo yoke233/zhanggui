@@ -78,17 +78,8 @@ func (s *FlowScheduler) Submit(ctx context.Context, flowID int64) error {
 	}
 	s.mu.Unlock()
 
-	// Validate flow state.
-	flow, err := s.store.GetFlow(ctx, flowID)
-	if err != nil {
-		return err
-	}
-	if flow.Status != core.FlowPending {
-		return fmt.Errorf("flow %d is %s, expected pending", flowID, flow.Status)
-	}
-
-	// Transition to queued.
-	if err := s.store.UpdateFlowStatus(ctx, flowID, core.FlowQueued); err != nil {
+	// Atomically transition pending, unarchived flows to queued.
+	if err := s.store.PrepareFlowRun(ctx, flowID, core.FlowQueued); err != nil {
 		return fmt.Errorf("queue flow %d: %w", flowID, err)
 	}
 	s.bus.Publish(ctx, core.Event{

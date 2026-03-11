@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -97,7 +98,6 @@ func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
 			filter.Archived = &archived
 		case "all":
 			filter.Archived = nil
-			filter.IncludeArchived = true
 		default:
 			writeError(w, http.StatusBadRequest, "invalid archived filter", "BAD_ARCHIVED_FILTER")
 			return
@@ -148,8 +148,12 @@ func (h *Handler) setFlowArchived(w http.ResponseWriter, r *http.Request, archiv
 	}
 
 	if err := h.store.SetFlowArchived(r.Context(), id, archived); err != nil {
-		if err == core.ErrNotFound {
+		if errors.Is(err, core.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			return
+		}
+		if errors.Is(err, core.ErrInvalidTransition) {
+			writeError(w, http.StatusConflict, "flow cannot be archived in current state", "INVALID_STATE")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
@@ -177,27 +181,22 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := h.store.GetFlow(r.Context(), id)
-	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-	if f.Status != core.FlowPending {
-		writeError(w, http.StatusConflict, "flow is not pending", "INVALID_STATE")
-		return
-	}
-	if f.ArchivedAt != nil {
-		writeError(w, http.StatusConflict, "archived flow cannot be executed", "FLOW_ARCHIVED")
-		return
-	}
-
 	// If scheduler is available, submit to queue.
 	if h.scheduler != nil {
 		if err := h.scheduler.Submit(r.Context(), id); err != nil {
+			switch {
+			case errors.Is(err, core.ErrNotFound):
+				writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+				return
+			case errors.Is(err, core.ErrInvalidTransition):
+				f, getErr := h.store.GetFlow(r.Context(), id)
+				if getErr == nil && f.ArchivedAt != nil {
+					writeError(w, http.StatusConflict, "archived flow cannot be executed", "FLOW_ARCHIVED")
+					return
+				}
+				writeError(w, http.StatusConflict, "flow is not pending", "INVALID_STATE")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error(), "SCHEDULER_ERROR")
 			return
 		}
@@ -207,6 +206,25 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 			"message": "flow queued for execution",
 		})
 		return
+	}
+
+	if err := h.store.PrepareFlowRun(r.Context(), id, core.FlowQueued); err != nil {
+		switch {
+		case errors.Is(err, core.ErrNotFound):
+			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			return
+		case errors.Is(err, core.ErrInvalidTransition):
+			f, getErr := h.store.GetFlow(r.Context(), id)
+			if getErr == nil && f.ArchivedAt != nil {
+				writeError(w, http.StatusConflict, "archived flow cannot be executed", "FLOW_ARCHIVED")
+				return
+			}
+			writeError(w, http.StatusConflict, "flow is not pending", "INVALID_STATE")
+			return
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+			return
+		}
 	}
 
 	// Fallback: run directly in background goroutine.

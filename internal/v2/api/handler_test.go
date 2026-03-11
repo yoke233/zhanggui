@@ -254,6 +254,32 @@ func TestAPI_RunFlow_Archived(t *testing.T) {
 	}
 }
 
+func TestAPI_GetStats_IncludesArchivedFlows(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/flows", map[string]any{"name": "done-flow"})
+	var flow core.Flow
+	decodeJSON(resp, &flow)
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, "/stats")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 stats, got %d", resp.StatusCode)
+	}
+
+	var stats struct {
+		TotalFlows int `json:"total_flows"`
+	}
+	decodeJSON(resp, &stats)
+	if stats.TotalFlows != 1 {
+		t.Fatalf("expected stats to include archived flow, got %d", stats.TotalFlows)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Step CRUD Tests
 // ---------------------------------------------------------------------------

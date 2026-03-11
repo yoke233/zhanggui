@@ -51,6 +51,9 @@ func TestFlowCRUD(t *testing.T) {
 	if got.Status != core.FlowRunning {
 		t.Fatalf("expected running, got %s", got.Status)
 	}
+	if err := s.UpdateFlowStatus(ctx, id, core.FlowDone); err != nil {
+		t.Fatalf("update status to done: %v", err)
+	}
 
 	flows, err := s.ListFlows(ctx, core.FlowFilter{Limit: 10})
 	if err != nil {
@@ -89,12 +92,12 @@ func TestFlowCRUD(t *testing.T) {
 		t.Fatalf("expected 0 unarchived flows, got %d", len(flows))
 	}
 
-	flows, err = s.ListFlows(ctx, core.FlowFilter{IncludeArchived: true, Limit: 10})
+	flows, err = s.ListFlows(ctx, core.FlowFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("list include archived: %v", err)
+		t.Fatalf("list all flows by default: %v", err)
 	}
 	if len(flows) != 1 {
-		t.Fatalf("expected 1 total flow with include archived, got %d", len(flows))
+		t.Fatalf("expected 1 total flow by default, got %d", len(flows))
 	}
 }
 
