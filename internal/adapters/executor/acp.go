@@ -152,8 +152,8 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		}
 
 		// Persist structured usage record for analytics.
-		totalTokens := result.InputTokens + result.OutputTokens +
-			result.CacheReadTokens + result.CacheWriteTokens + result.ReasoningTokens
+		// Cache and reasoning tokens are breakdowns within input/output, not additive.
+		totalTokens := result.InputTokens + result.OutputTokens
 		if totalTokens > 0 {
 			var durationMs int64
 			if exec.StartedAt != nil {

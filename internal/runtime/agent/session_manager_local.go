@@ -285,6 +285,15 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 	if result.Usage != nil {
 		out.InputTokens = int64(result.Usage.InputTokens)
 		out.OutputTokens = int64(result.Usage.OutputTokens)
+		if result.Usage.CachedReadTokens != nil {
+			out.CacheReadTokens = int64(*result.Usage.CachedReadTokens)
+		}
+		if result.Usage.CachedWriteTokens != nil {
+			out.CacheWriteTokens = int64(*result.Usage.CachedWriteTokens)
+		}
+		if result.Usage.ThoughtTokens != nil {
+			out.ReasoningTokens = int64(*result.Usage.ThoughtTokens)
+		}
 	}
 	if lh.agentCtx != nil && lh.agentCtx.ID > 0 {
 		id := lh.agentCtx.ID
