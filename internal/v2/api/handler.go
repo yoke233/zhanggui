@@ -99,6 +99,8 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/flows", h.listFlows)
 	r.Get("/flows/{flowID}", h.getFlow)
 	r.Post("/flows/{flowID}/bootstrap-pr", h.bootstrapPRFlow)
+	r.Post("/flows/{flowID}/archive", h.archiveFlow)
+	r.Post("/flows/{flowID}/unarchive", h.unarchiveFlow)
 	r.Post("/flows/{flowID}/run", h.runFlow)
 	r.Post("/flows/{flowID}/cancel", h.cancelFlow)
 

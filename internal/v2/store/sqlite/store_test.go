@@ -59,6 +59,43 @@ func TestFlowCRUD(t *testing.T) {
 	if len(flows) != 1 {
 		t.Fatalf("expected 1 flow, got %d", len(flows))
 	}
+
+	if err := s.SetFlowArchived(ctx, id, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	got, err = s.GetFlow(ctx, id)
+	if err != nil {
+		t.Fatalf("get archived flow: %v", err)
+	}
+	if got.ArchivedAt == nil {
+		t.Fatal("expected archived_at to be set")
+	}
+
+	archived := true
+	flows, err = s.ListFlows(ctx, core.FlowFilter{Archived: &archived, Limit: 10})
+	if err != nil {
+		t.Fatalf("list archived: %v", err)
+	}
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 archived flow, got %d", len(flows))
+	}
+
+	archived = false
+	flows, err = s.ListFlows(ctx, core.FlowFilter{Archived: &archived, Limit: 10})
+	if err != nil {
+		t.Fatalf("list unarchived: %v", err)
+	}
+	if len(flows) != 0 {
+		t.Fatalf("expected 0 unarchived flows, got %d", len(flows))
+	}
+
+	flows, err = s.ListFlows(ctx, core.FlowFilter{IncludeArchived: true, Limit: 10})
+	if err != nil {
+		t.Fatalf("list include archived: %v", err)
+	}
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 total flow with include archived, got %d", len(flows))
+	}
 }
 
 func TestFlowNotFound(t *testing.T) {

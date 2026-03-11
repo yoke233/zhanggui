@@ -134,16 +134,40 @@ func TestAPI_ListFlows(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	post(ts, "/flows", map[string]any{"name": "flow-1"})
-	post(ts, "/flows", map[string]any{"name": "flow-2"})
+	resp, _ := post(ts, "/flows", map[string]any{"name": "flow-2"})
+	var archivedFlow core.Flow
+	decodeJSON(resp, &archivedFlow)
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", archivedFlow.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
+	}
 
-	resp, _ := get(ts, "/flows")
+	resp, _ = get(ts, "/flows")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	var flows []*core.Flow
 	decodeJSON(resp, &flows)
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 unarchived flow, got %d", len(flows))
+	}
+
+	resp, _ = get(ts, "/flows?archived=true")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 archived list, got %d", resp.StatusCode)
+	}
+	decodeJSON(resp, &flows)
+	if len(flows) != 1 {
+		t.Fatalf("expected 1 archived flow, got %d", len(flows))
+	}
+
+	resp, _ = get(ts, "/flows?archived=all")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 all list, got %d", resp.StatusCode)
+	}
+	decodeJSON(resp, &flows)
 	if len(flows) != 2 {
-		t.Fatalf("expected 2 flows, got %d", len(flows))
+		t.Fatalf("expected 2 total flows, got %d", len(flows))
 	}
 }
 
@@ -164,6 +188,69 @@ func TestAPI_ListFlows_FilterStatus(t *testing.T) {
 	decodeJSON(resp, &flows)
 	if len(flows) != 0 {
 		t.Fatalf("expected 0 running, got %d", len(flows))
+	}
+}
+
+func TestAPI_ArchiveFlow(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/flows", map[string]any{"name": "archive-test"})
+	var flow core.Flow
+	decodeJSON(resp, &flow)
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var archivedFlow core.Flow
+	decodeJSON(resp, &archivedFlow)
+	if archivedFlow.ArchivedAt == nil {
+		t.Fatal("expected archived_at to be set")
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/unarchive", flow.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on unarchive, got %d", resp.StatusCode)
+	}
+	var unarchivedFlow core.Flow
+	decodeJSON(resp, &unarchivedFlow)
+	if unarchivedFlow.ArchivedAt != nil {
+		t.Fatal("expected archived_at to be cleared")
+	}
+}
+
+func TestAPI_ArchiveFlow_RejectsActiveFlow(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/flows", map[string]any{"name": "running-flow"})
+	var flow core.Flow
+	decodeJSON(resp, &flow)
+
+	if err := h.store.UpdateFlowStatus(context.Background(), flow.ID, core.FlowRunning); err != nil {
+		t.Fatalf("set flow running: %v", err)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPI_RunFlow_Archived(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/flows", map[string]any{"name": "archived-run"})
+	var flow core.Flow
+	decodeJSON(resp, &flow)
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 running archived flow, got %d", resp.StatusCode)
 	}
 }
 

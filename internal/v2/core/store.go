@@ -8,6 +8,7 @@ type FlowStore interface {
 	GetFlow(ctx context.Context, id int64) (*Flow, error)
 	ListFlows(ctx context.Context, filter FlowFilter) ([]*Flow, error)
 	UpdateFlowStatus(ctx context.Context, id int64, status FlowStatus) error
+	SetFlowArchived(ctx context.Context, id int64, archived bool) error
 }
 
 // ProjectStore persists Project aggregates.
@@ -91,10 +92,12 @@ type Store interface {
 
 // FlowFilter constrains Flow queries.
 type FlowFilter struct {
-	ProjectID *int64
-	Status    *FlowStatus
-	Limit     int
-	Offset    int
+	ProjectID       *int64
+	Status          *FlowStatus
+	Archived        *bool
+	IncludeArchived bool
+	Limit           int
+	Offset          int
 }
 
 // EventFilter constrains Event queries.

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS flows (
     status TEXT NOT NULL DEFAULT 'pending',
     parent_step_id INTEGER,
     metadata TEXT,
+    archived_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -183,6 +184,7 @@ func runMigrations(db *sql.DB) error {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
 		`ALTER TABLE flows ADD COLUMN project_id INTEGER`,
+		`ALTER TABLE flows ADD COLUMN archived_at DATETIME`,
 		`CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id)`,
 		// Upgrade old projects table: add new columns (ignore if already present).
 		`ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'`,

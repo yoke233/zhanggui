@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/v2/core"
@@ -73,9 +74,11 @@ func (h *Handler) getFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
+	archived := false
 	filter := core.FlowFilter{
-		Limit:  queryInt(r, "limit", 50),
-		Offset: queryInt(r, "offset", 0),
+		Archived: &archived,
+		Limit:    queryInt(r, "limit", 50),
+		Offset:   queryInt(r, "offset", 0),
 	}
 	if projectID, ok := queryInt64(r, "project_id"); ok {
 		filter.ProjectID = &projectID
@@ -83,6 +86,22 @@ func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("status"); s != "" {
 		status := core.FlowStatus(s)
 		filter.Status = &status
+	}
+	if raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("archived"))); raw != "" {
+		switch raw {
+		case "true", "1", "yes":
+			archived = true
+			filter.Archived = &archived
+		case "false", "0", "no":
+			archived = false
+			filter.Archived = &archived
+		case "all":
+			filter.Archived = nil
+			filter.IncludeArchived = true
+		default:
+			writeError(w, http.StatusBadRequest, "invalid archived filter", "BAD_ARCHIVED_FILTER")
+			return
+		}
 	}
 
 	flows, err := h.store.ListFlows(r.Context(), filter)
@@ -94,6 +113,59 @@ func (h *Handler) listFlows(w http.ResponseWriter, r *http.Request) {
 		flows = []*core.Flow{}
 	}
 	writeJSON(w, http.StatusOK, flows)
+}
+
+func (h *Handler) archiveFlow(w http.ResponseWriter, r *http.Request) {
+	h.setFlowArchived(w, r, true)
+}
+
+func (h *Handler) unarchiveFlow(w http.ResponseWriter, r *http.Request) {
+	h.setFlowArchived(w, r, false)
+}
+
+func (h *Handler) setFlowArchived(w http.ResponseWriter, r *http.Request, archived bool) {
+	id, ok := urlParamInt64(r, "flowID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		return
+	}
+
+	f, err := h.store.GetFlow(r.Context(), id)
+	if err == core.ErrNotFound {
+		writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if archived {
+		switch f.Status {
+		case core.FlowQueued, core.FlowRunning, core.FlowBlocked:
+			writeError(w, http.StatusConflict, "active flow cannot be archived", "INVALID_STATE")
+			return
+		}
+	}
+
+	if err := h.store.SetFlowArchived(r.Context(), id, archived); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	f, err = h.store.GetFlow(r.Context(), id)
+	if err == core.ErrNotFound {
+		writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
 }
 
 // runFlow triggers async execution of a flow. Returns immediately.
@@ -116,6 +188,10 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	if f.Status != core.FlowPending {
 		writeError(w, http.StatusConflict, "flow is not pending", "INVALID_STATE")
+		return
+	}
+	if f.ArchivedAt != nil {
+		writeError(w, http.StatusConflict, "archived flow cannot be executed", "FLOW_ARCHIVED")
 		return
 	}
 

@@ -24,6 +24,7 @@ type Flow struct {
 	Status       FlowStatus        `json:"status"`
 	ParentStepID *int64            `json:"parent_step_id,omitempty"` // sub-Flow points to parent composite Step
 	Metadata     map[string]string `json:"metadata,omitempty"`
+	ArchivedAt   *time.Time        `json:"archived_at,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
