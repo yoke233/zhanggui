@@ -101,6 +101,13 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/resources/{resourceID}", h.getResourceBinding)
 	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
 
+	// Issues
+	r.Post("/issues", h.createIssue)
+	r.Get("/issues", h.listIssues)
+	r.Get("/issues/{issueID}", h.getIssue)
+	r.Put("/issues/{issueID}", h.updateIssue)
+	r.Delete("/issues/{issueID}", h.deleteIssue)
+
 	// Flows
 	r.Post("/flows", h.createFlow)
 	r.Get("/flows", h.listFlows)

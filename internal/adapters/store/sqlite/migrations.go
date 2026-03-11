@@ -173,6 +173,24 @@ CREATE TABLE IF NOT EXISTS agent_drivers (
      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS issues (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER,
+    title       TEXT    NOT NULL,
+    body        TEXT    NOT NULL DEFAULT '',
+    status      TEXT    NOT NULL DEFAULT 'open',
+    priority    TEXT    NOT NULL DEFAULT 'medium',
+    labels      TEXT,
+    flow_id     INTEGER,
+    metadata    TEXT,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+CREATE INDEX IF NOT EXISTS idx_issues_status  ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_flow    ON issues(flow_id);
+
 CREATE INDEX IF NOT EXISTS idx_steps_flow ON steps(flow_id);
 CREATE INDEX IF NOT EXISTS idx_executions_step ON executions(step_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_exec ON artifacts(execution_id);
@@ -240,6 +258,23 @@ func runMigrations(db *sql.DB) error {
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id)`,
+		// issues table (runtime schema upgrade for existing DBs).
+		`CREATE TABLE IF NOT EXISTS issues (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id  INTEGER,
+            title       TEXT    NOT NULL,
+            body        TEXT    NOT NULL DEFAULT '',
+            status      TEXT    NOT NULL DEFAULT 'open',
+            priority    TEXT    NOT NULL DEFAULT 'medium',
+            labels      TEXT,
+            flow_id     INTEGER,
+            metadata    TEXT,
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_flow ON issues(flow_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

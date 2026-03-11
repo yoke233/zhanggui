@@ -97,6 +97,7 @@ type ExecutionProbeStore interface {
 type Store interface {
 	ProjectStore
 	ResourceBindingStore
+	IssueStore
 	FlowStore
 	StepStore
 	ExecutionStore
