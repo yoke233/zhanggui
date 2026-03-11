@@ -15,6 +15,10 @@ type CompositeStepExecutorConfig struct {
 
 	GitHubTokens GitHubTokens
 
+	// UpgradeFunc is called by the self_upgrade builtin to trigger a restart
+	// with a newly built binary. If nil, self_upgrade is disabled.
+	UpgradeFunc UpgradeFunc
+
 	ACPExecutor StepExecutor
 }
 
@@ -42,6 +46,8 @@ func NewCompositeStepExecutor(cfg CompositeStepExecutorConfig) StepExecutor {
 			return runBuiltinGitCommitPush(ctx, cfg.Store, cfg.Bus, cfg.GitHubTokens, step, exec)
 		case "scm_open_pr", "github_open_pr":
 			return runBuiltinSCMOpenPR(ctx, cfg.Store, cfg.Bus, cfg.GitHubTokens, step, exec)
+		case "self_upgrade":
+			return runBuiltinSelfUpgrade(ctx, cfg.Store, cfg.Bus, step, exec, cfg.UpgradeFunc)
 		default:
 			return fmt.Errorf("unknown builtin executor: %s", builtin)
 		}

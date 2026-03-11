@@ -176,23 +176,28 @@ func runServer(ctx context.Context, args []string) error {
 		}
 	}()
 
+	restartCh := make(chan struct{}, 1)
+	var pendingUpgradeBinary string
+	restartFunc := func() {
+		select {
+		case restartCh <- struct{}{}:
+		default:
+		}
+	}
+	upgradeFunc := func(binaryPath string) {
+		pendingUpgradeBinary = binaryPath
+		restartFunc()
+	}
+
 	// --- V2 Engine Bootstrap ---
 	v2MCPEnv := teamleader.MCPEnvConfig{
 		DBPath:     expandStorePath(launch.cfg.Store.Path),
 		ServerAddr: "http://" + launch.listenAddr,
 		AuthToken:  launch.adminToken,
 	}
-	_, _, runtimeManager, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(launch.cfg.Store.Path), bootstrapSet.RoleResolver, launch.cfg, v2MCPEnv, launch.githubTokens)
+	_, _, runtimeManager, v2Cleanup, v2RouteRegistrar := bootstrapV2(expandStorePath(launch.cfg.Store.Path), bootstrapSet.RoleResolver, launch.cfg, v2MCPEnv, launch.githubTokens, upgradeFunc)
 	if v2Cleanup != nil {
 		defer v2Cleanup()
-	}
-
-	restartCh := make(chan struct{}, 1)
-	restartFunc := func() {
-		select {
-		case restartCh <- struct{}{}:
-		default:
-		}
 	}
 
 	apiSrv := newAPIServer(web.Config{
@@ -264,6 +269,14 @@ func runServer(ctx context.Context, args []string) error {
 			shutdownErr = serverErr
 		}
 	case <-stopCtx.Done():
+	}
+
+	// If a self_upgrade built a new binary, exec it to replace the current process.
+	if pendingUpgradeBinary != "" {
+		fmt.Printf("Self-upgrade: exec %s\n", pendingUpgradeBinary)
+		execErr := syscall.Exec(pendingUpgradeBinary, os.Args, os.Environ())
+		// If syscall.Exec returns, it failed.
+		return fmt.Errorf("self-upgrade exec failed: %w", execErr)
 	}
 
 	return shutdownErr

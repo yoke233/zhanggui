@@ -55,7 +55,7 @@ type v2GitHubTokens struct {
 
 // bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
 // Returns the v2 store (for lifecycle), the agent registry, runtime manager, cleanup func, and route registrar.
-func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig, ghTokens v2GitHubTokens) (*v2sqlite.Store, v2core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
+func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig, ghTokens v2GitHubTokens, upgradeFn v2engine.UpgradeFunc) (*v2sqlite.Store, v2core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
 	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
 	v2Store, err := v2sqlite.New(v2DBPath)
 	if err != nil {
@@ -166,6 +166,7 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
 			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
 		},
+		UpgradeFunc: upgradeFn,
 		ACPExecutor: executor,
 	})
 
