@@ -23,7 +23,8 @@ func registerChatRoutes(r chi.Router, lead LeadChatService) {
 	r.Post("/chat", h.sendMessage)
 	r.Get("/chat/{sessionID}", h.getSession)
 	r.Post("/chat/{sessionID}/cancel", h.cancelChat)
-	r.Delete("/chat/{sessionID}", h.closeSession)
+	r.Post("/chat/{sessionID}/close", h.closeSession)
+	r.Delete("/chat/{sessionID}", h.deleteSession)
 	r.Get("/chat/{sessionID}/status", h.getStatus)
 }
 
@@ -79,7 +80,7 @@ func (h *chatHandlers) cancelChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DELETE /chat/{sessionID} — close the session.
+// POST /chat/{sessionID}/close — close the session (recycle agent, keep workspace).
 func (h *chatHandlers) closeSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
 	if sessionID == "" {
@@ -90,6 +91,20 @@ func (h *chatHandlers) closeSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"session_id": sessionID,
 		"status":     "closed",
+	})
+}
+
+// DELETE /chat/{sessionID} — permanently delete session and clean up workspace.
+func (h *chatHandlers) deleteSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id is required", "BAD_REQUEST")
+		return
+	}
+	h.lead.DeleteSession(sessionID)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"session_id": sessionID,
+		"status":     "deleted",
 	})
 }
 

@@ -51,6 +51,8 @@ import type {
   CreateGitTagResponse,
   PushGitTagRequest,
   PushGitTagResponse,
+  UsageAnalyticsSummary,
+  UsageRecord,
 } from "../types/apiV2";
 import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
@@ -232,6 +234,8 @@ export interface ApiClient {
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
 
   getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
+  getUsageSummary(params?: AnalyticsFilter): Promise<UsageAnalyticsSummary>;
+  getUsageByExecution(execId: number): Promise<UsageRecord>;
 
   listCronFlows(): Promise<CronStatus[]>;
   getFlowCronStatus(flowId: number): Promise<CronStatus>;
@@ -598,6 +602,20 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           until: params?.until,
           limit: params?.limit,
         },
+      }),
+    getUsageSummary: (params) =>
+      request<UsageAnalyticsSummary>({
+        path: "/analytics/usage",
+        query: {
+          project_id: params?.project_id,
+          since: params?.since,
+          until: params?.until,
+          limit: params?.limit,
+        },
+      }),
+    getUsageByExecution: (execId) =>
+      request<UsageRecord>({
+        path: `/executions/${execId}/usage`,
       }),
 
     listCronFlows: () =>

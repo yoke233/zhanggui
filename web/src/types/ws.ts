@@ -142,11 +142,19 @@ export interface WsClientMessage {
   issue_id?: string;
   session_id?: string;
   message?: string;
+  attachments?: ChatAttachment[];
   work_dir?: string;
   project_id?: number;
   project_name?: string;
   profile_id?: string;
   driver_id?: string;
+}
+
+export interface ChatAttachment {
+  name: string;
+  mime_type: string;
+  /** Base64-encoded content. */
+  data: string;
 }
 
 export type WsEventHandler<TPayload = unknown> = (

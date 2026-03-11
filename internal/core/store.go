@@ -118,6 +118,7 @@ type Store interface {
 	ExecutionProbeStore
 	AnalyticsStore
 	DAGTemplateStore
+	UsageStore
 	Close() error
 }
 

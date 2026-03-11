@@ -82,13 +82,17 @@ type natsInvocationMessage struct {
 
 // natsInvocationResult is the payload published to the result subject.
 type natsInvocationResult struct {
-	InvocationID   string `json:"invocation_id"`
-	Text           string `json:"text"`
-	StopReason     string `json:"stop_reason"`
-	InputTokens    int64  `json:"input_tokens"`
-	OutputTokens   int64  `json:"output_tokens"`
-	AgentContextID *int64 `json:"agent_context_id,omitempty"`
-	Error          string `json:"error,omitempty"`
+	InvocationID     string `json:"invocation_id"`
+	Text             string `json:"text"`
+	StopReason       string `json:"stop_reason"`
+	InputTokens      int64  `json:"input_tokens"`
+	OutputTokens     int64  `json:"output_tokens"`
+	CacheReadTokens  int64  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64  `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  int64  `json:"reasoning_tokens,omitempty"`
+	ModelID          string `json:"model_id,omitempty"`
+	AgentContextID   *int64 `json:"agent_context_id,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 // natsEventMessage wraps a streaming event for NATS transport.
@@ -303,11 +307,15 @@ func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID st
 			}
 
 			return &runtimeapp.ExecutionResult{
-				Text:           result.Text,
-				StopReason:     result.StopReason,
-				InputTokens:    result.InputTokens,
-				OutputTokens:   result.OutputTokens,
-				AgentContextID: result.AgentContextID,
+				Text:             result.Text,
+				StopReason:       result.StopReason,
+				InputTokens:      result.InputTokens,
+				OutputTokens:     result.OutputTokens,
+				CacheReadTokens:  result.CacheReadTokens,
+				CacheWriteTokens: result.CacheWriteTokens,
+				ReasoningTokens:  result.ReasoningTokens,
+				ModelID:          result.ModelID,
+				AgentContextID:   result.AgentContextID,
 			}, nil
 		}
 

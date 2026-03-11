@@ -23,6 +23,8 @@ type persistedLeadSession struct {
 	SessionID         string                     `json:"session_id"`
 	Scope             string                     `json:"scope"`
 	WorkDir           string                     `json:"work_dir,omitempty"`
+	Isolation         string                     `json:"isolation,omitempty"`
+	RepoPath          string                     `json:"repo_path,omitempty"`
 	Title             string                     `json:"title,omitempty"`
 	ProjectID         int64                      `json:"project_id,omitempty"`
 	ProjectName       string                     `json:"project_name,omitempty"`

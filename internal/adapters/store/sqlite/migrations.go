@@ -288,6 +288,30 @@ func runMigrations(db *sql.DB) error {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_dag_templates_project ON dag_templates(project_id)`,
+		// usage_records table (token usage tracking per execution).
+		`CREATE TABLE IF NOT EXISTS usage_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_id INTEGER NOT NULL REFERENCES executions(id),
+            flow_id INTEGER NOT NULL,
+            step_id INTEGER NOT NULL,
+            project_id INTEGER,
+            agent_id TEXT NOT NULL DEFAULT '',
+            profile_id TEXT NOT NULL DEFAULT '',
+            model_id TEXT NOT NULL DEFAULT '',
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_records_execution ON usage_records(execution_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_records_project ON usage_records(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_records_agent ON usage_records(agent_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_records_profile ON usage_records(profile_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_records_created ON usage_records(created_at)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

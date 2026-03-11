@@ -206,6 +206,7 @@ func (h *Handler) handleWSChatSend(msg wsMessage, writeJSON func(v any) error) {
 	accepted, err := h.lead.StartChat(context.Background(), chatapp.Request{
 		SessionID:   strings.TrimSpace(req.SessionID),
 		Message:     req.Message,
+		Attachments: req.Attachments,
 		WorkDir:     req.WorkDir,
 		ProjectID:   req.ProjectID,
 		ProjectName: strings.TrimSpace(req.ProjectName),
@@ -248,14 +249,15 @@ type wsOutboundMessage struct {
 }
 
 type wsChatSendRequest struct {
-	RequestID   string `json:"request_id,omitempty"`
-	SessionID   string `json:"session_id,omitempty"`
-	Message     string `json:"message"`
-	WorkDir     string `json:"work_dir,omitempty"`
-	ProjectID   int64  `json:"project_id,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	ProfileID   string `json:"profile_id,omitempty"`
-	DriverID    string `json:"driver_id,omitempty"`
+	RequestID   string                `json:"request_id,omitempty"`
+	SessionID   string                `json:"session_id,omitempty"`
+	Message     string                `json:"message"`
+	Attachments []chatapp.Attachment  `json:"attachments,omitempty"`
+	WorkDir     string                `json:"work_dir,omitempty"`
+	ProjectID   int64                 `json:"project_id,omitempty"`
+	ProjectName string                `json:"project_name,omitempty"`
+	ProfileID   string                `json:"profile_id,omitempty"`
+	DriverID    string                `json:"driver_id,omitempty"`
 }
 
 type wsChatAckPayload struct {

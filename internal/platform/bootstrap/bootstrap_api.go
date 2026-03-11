@@ -21,11 +21,17 @@ func buildAPIStack(
 	bootstrapCfg *config.Config,
 ) *apiStack {
 	sb := buildSandbox(bootstrapCfg, base.runtimeManager, base.dataDir)
+	var llmCompleter chatacp.TextCompleter
+	if flow.llmClient != nil {
+		llmCompleter = flow.llmClient
+	}
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
-		Registry: base.registry,
-		Bus:      base.bus,
-		Sandbox:  sb,
-		DataDir:  base.dataDir,
+		Registry:             base.registry,
+		Bus:                  base.bus,
+		ResourceBindingStore: base.store,
+		LLM:                  llmCompleter,
+		Sandbox:              sb,
+		DataDir:              base.dataDir,
 	})
 
 	var dagGen api.DAGGenerator

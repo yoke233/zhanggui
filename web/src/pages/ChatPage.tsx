@@ -13,11 +13,13 @@ import {
   ListTodo,
   Loader2,
   MoreHorizontal,
+  Paperclip,
   Plus,
   Search,
   Send,
   User,
   Workflow,
+  X,
   Wrench,
 } from "lucide-react";
 import type {
@@ -745,6 +747,8 @@ export function ChatPage() {
   const [loadedSessions, setLoadedSessions] = useState<Record<string, boolean>>({});
   const [sessionSearch, setSessionSearch] = useState("");
   const [messageInput, setMessageInput] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [leadProfiles, setLeadProfiles] = useState<AgentProfile[]>([]);
   const [draftProjectId, setDraftProjectId] = useState<number | null>(selectedProjectId);
@@ -1326,9 +1330,36 @@ export function ChatPage() {
     );
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const newFiles: File[] = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) newFiles.push(file);
+      }
+    }
+    if (newFiles.length > 0) {
+      setPendingFiles((prev) => [...prev, ...newFiles]);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...Array.from(files)]);
+    }
+    e.target.value = "";
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const sendMessage = async () => {
     const content = messageInput.trim();
-    if (!content || currentSession?.status === "running") {
+    if ((!content && pendingFiles.length === 0) || currentSession?.status === "running") {
       return;
     }
 
@@ -1348,8 +1379,20 @@ export function ChatPage() {
       return;
     }
 
-    appendMessage(workingSessionId, "user", content);
+    // Convert pending files to base64 attachments.
+    const attachments: { name: string; mime_type: string; data: string }[] = [];
+    for (const file of pendingFiles) {
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      attachments.push({ name: file.name, mime_type: file.type || "application/octet-stream", data: b64 });
+    }
+
+    const displayContent = content + (attachments.length > 0
+      ? `\n[附件: ${attachments.map((a) => a.name).join(", ")}]`
+      : "");
+    appendMessage(workingSessionId, "user", displayContent);
     setMessageInput("");
+    setPendingFiles([]);
     setSubmitting(true);
     setError(null);
 
@@ -1361,7 +1404,8 @@ export function ChatPage() {
         data: {
           request_id: requestId,
           session_id: workingSessionId ?? undefined,
-          message: content,
+          message: content || "(附件)",
+          attachments: attachments.length > 0 ? attachments : undefined,
           project_id: resolvedProjectId,
           project_name: resolvedProjectName,
           profile_id: resolvedProfileId,
@@ -1702,6 +1746,7 @@ export function ChatPage() {
                       value={messageInput}
                       disabled={submitting || !draftSessionReady}
                       onChange={(event) => setMessageInput(event.target.value)}
+                      onPaste={handlePaste}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
                           event.preventDefault();
@@ -1709,6 +1754,18 @@ export function ChatPage() {
                         }
                       }}
                     />
+                    {pendingFiles.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {pendingFiles.map((file, idx) => (
+                          <Badge key={idx} variant="secondary" className="gap-1 text-xs">
+                            {file.name}
+                            <button type="button" onClick={() => removePendingFile(idx)} className="ml-1 hover:text-red-500">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary" className="text-[10px]">
@@ -1718,16 +1775,28 @@ export function ChatPage() {
                           Lead · {currentDriverLabel}
                         </Badge>
                       </div>
-                      <Button
-                        className="h-10 gap-2 px-4"
-                        disabled={submitting || !draftSessionReady}
-                        onClick={() => void sendMessage()}
-                      >
-                        <Send className="h-4 w-4" />
-                        发送
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 shrink-0"
+                          disabled={submitting || !draftSessionReady}
+                          onClick={() => fileInputRef.current?.click()}
+                          title="上传文件或图片"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          className="h-10 gap-2 px-4"
+                          disabled={submitting || !draftSessionReady}
+                          onClick={() => void sendMessage()}
+                        >
+                          <Send className="h-4 w-4" />
+                          发送
+                        </Button>
+                      </div>
                     </div>
-                    <div className="text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行</div>
+                    <div className="text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行 · 可粘贴图片</div>
                   </div>
                   {leadProfiles.length === 0 ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1854,6 +1923,18 @@ export function ChatPage() {
 
         {!isDraftSessionView ? (
           <div className="border-t p-4">
+          {pendingFiles.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {pendingFiles.map((file, idx) => (
+                <Badge key={idx} variant="secondary" className="gap-1 text-xs">
+                  {file.name}
+                  <button type="button" onClick={() => removePendingFile(idx)} className="ml-1 hover:text-red-500">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
           <div className="flex items-end gap-3">
             <div className="relative flex-1">
               <Input
@@ -1866,6 +1947,7 @@ export function ChatPage() {
                 value={messageInput}
                 disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
                 onChange={(event) => setMessageInput(event.target.value)}
+                onPaste={handlePaste}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -1875,6 +1957,16 @@ export function ChatPage() {
               />
             </div>
             <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 shrink-0"
+              disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
+              onClick={() => fileInputRef.current?.click()}
+              title="上传文件或图片"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <Button
               size="icon"
               className="h-10 w-10 shrink-0"
               disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
@@ -1883,9 +1975,17 @@ export function ChatPage() {
               <Send className="h-4 w-4" />
             </Button>
           </div>
-          <div className="mt-2 text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行</div>
+          <div className="mt-2 text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行 · 可粘贴图片</div>
           </div>
         ) : null}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,.txt,.md,.json,.csv,.pdf,.yaml,.yml,.toml,.xml,.html,.css,.js,.ts,.tsx,.jsx,.go,.py,.rs,.java,.c,.cpp,.h,.hpp,.sh,.bat,.ps1,.sql,.log"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
       </div>
     </div>
   );

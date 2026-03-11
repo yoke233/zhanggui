@@ -30,15 +30,26 @@ type ConfigOption struct {
 	Options      []ConfigOptionValue `json:"options,omitempty"`
 }
 
+// Attachment is an image or file uploaded alongside a chat message.
+type Attachment struct {
+	// Name is the original filename (e.g. "screenshot.png").
+	Name string `json:"name"`
+	// MimeType is the MIME type (e.g. "image/png", "text/plain").
+	MimeType string `json:"mime_type"`
+	// Data is base64-encoded content.
+	Data string `json:"data"`
+}
+
 // Request is the input for a direct chat message.
 type Request struct {
-	SessionID   string `json:"session_id"`
-	Message     string `json:"message"`
-	WorkDir     string `json:"work_dir,omitempty"`
-	ProjectID   int64  `json:"project_id,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	ProfileID   string `json:"profile_id,omitempty"`
-	DriverID    string `json:"driver_id,omitempty"`
+	SessionID   string       `json:"session_id"`
+	Message     string       `json:"message"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	WorkDir     string       `json:"work_dir,omitempty"`
+	ProjectID   int64        `json:"project_id,omitempty"`
+	ProjectName string       `json:"project_name,omitempty"`
+	ProfileID   string       `json:"profile_id,omitempty"`
+	DriverID    string       `json:"driver_id,omitempty"`
 }
 
 // Response is the output from a direct chat message.
