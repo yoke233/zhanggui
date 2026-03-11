@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
   Sparkles,
   Shield,
+  LogOut,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
@@ -28,7 +29,7 @@ const navItems = [
 ];
 
 export function AppSidebar() {
-  const { projects, selectedProjectId, setSelectedProjectId } = useWorkbench();
+  const { projects, selectedProjectId, setSelectedProjectId, logout } = useWorkbench();
   const [showPicker, setShowPicker] = useState(false);
   const currentProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -108,6 +109,17 @@ export function AppSidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Logout */}
+      <div className="border-t px-3 py-3">
+        <button
+          onClick={logout}
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <LogOut className="h-4 w-4" />
+          Logout
+        </button>
+      </div>
     </aside>
   );
 }
