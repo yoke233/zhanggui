@@ -238,6 +238,10 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		resultMsg.StopReason = result.StopReason
 		resultMsg.InputTokens = result.InputTokens
 		resultMsg.OutputTokens = result.OutputTokens
+		resultMsg.CacheReadTokens = result.CacheReadTokens
+		resultMsg.CacheWriteTokens = result.CacheWriteTokens
+		resultMsg.ReasoningTokens = result.ReasoningTokens
+		resultMsg.ModelID = result.ModelID
 		resultMsg.AgentContextID = result.AgentContextID
 	}
 

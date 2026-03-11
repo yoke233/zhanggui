@@ -88,11 +88,15 @@ type SessionHandle struct {
 
 // ExecutionResult contains the outcome of an execution.
 type ExecutionResult struct {
-	Text           string
-	StopReason     string
-	InputTokens    int64
-	OutputTokens   int64
-	AgentContextID *int64
+	Text             string
+	StopReason       string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	ReasoningTokens  int64
+	ModelID          string
+	AgentContextID   *int64
 }
 
 // ExecutionRuntimeStatus represents the state of an execution invocation for recovery.

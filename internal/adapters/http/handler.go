@@ -177,6 +177,13 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/analytics/recent-failures", h.getRecentFailures)
 	r.Get("/analytics/status-distribution", h.getFlowStatusDistribution)
 
+	// Usage analytics
+	r.Get("/analytics/usage", h.getUsageSummary)
+	r.Get("/analytics/usage/by-project", h.getUsageByProject)
+	r.Get("/analytics/usage/by-agent", h.getUsageByAgent)
+	r.Get("/analytics/usage/by-profile", h.getUsageByProfile)
+	r.Get("/executions/{execID}/usage", h.getUsageByExecution)
+
 	// Cron (scheduled flows)
 	r.Get("/cron/flows", h.listCronFlows)
 	r.Get("/flows/{flowID}/cron", h.getFlowCronStatus)

@@ -23,6 +23,7 @@ type Store interface {
 	core.ExecutionProbeStore
 	core.AnalyticsStore
 	core.DAGTemplateStore
+	core.UsageStore
 	Close() error
 }
 

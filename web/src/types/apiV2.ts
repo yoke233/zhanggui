@@ -503,6 +503,83 @@ export interface AnalyticsFilter {
   limit?: number;
 }
 
+// --- Usage / Token Tracking ---
+
+export interface UsageRecord {
+  id: number;
+  execution_id: number;
+  flow_id: number;
+  step_id: number;
+  project_id?: number | null;
+  agent_id: string;
+  profile_id?: string;
+  model_id?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  reasoning_tokens?: number;
+  total_tokens: number;
+  duration_ms?: number;
+  created_at: string;
+}
+
+export interface ProjectUsageSummary {
+  project_id: number;
+  project_name: string;
+  execution_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+export interface AgentUsageSummary {
+  agent_id: string;
+  project_id?: number | null;
+  project_name?: string;
+  execution_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+export interface ProfileUsageSummary {
+  profile_id: string;
+  agent_id: string;
+  project_id?: number | null;
+  project_name?: string;
+  execution_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+export interface UsageTotalSummary {
+  execution_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+
+export interface UsageAnalyticsSummary {
+  totals: UsageTotalSummary;
+  by_project: ProjectUsageSummary[];
+  by_agent: AgentUsageSummary[];
+  by_profile: ProfileUsageSummary[];
+}
+
 // Cron types
 
 export interface CronStatus {

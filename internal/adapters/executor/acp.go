@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
@@ -150,10 +151,47 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			exec.Output["output_tokens"] = result.OutputTokens
 		}
 
+		// Persist structured usage record for analytics.
+		totalTokens := result.InputTokens + result.OutputTokens +
+			result.CacheReadTokens + result.CacheWriteTokens + result.ReasoningTokens
+		if totalTokens > 0 {
+			var durationMs int64
+			if exec.StartedAt != nil {
+				// Approximate duration from exec start to now.
+				durationMs = time.Since(*exec.StartedAt).Milliseconds()
+			}
+			var projectID *int64
+			if flow, fErr := cfg.Store.GetFlow(ctx, step.FlowID); fErr == nil && flow.ProjectID != nil {
+				projectID = flow.ProjectID
+			}
+			usageRec := &core.UsageRecord{
+				ExecutionID:      exec.ID,
+				FlowID:           step.FlowID,
+				StepID:           step.ID,
+				ProjectID:        projectID,
+				AgentID:          profile.ID,
+				ProfileID:        profile.ID,
+				ModelID:          result.ModelID,
+				InputTokens:      result.InputTokens,
+				OutputTokens:     result.OutputTokens,
+				CacheReadTokens:  result.CacheReadTokens,
+				CacheWriteTokens: result.CacheWriteTokens,
+				ReasoningTokens:  result.ReasoningTokens,
+				TotalTokens:      totalTokens,
+				DurationMs:       durationMs,
+			}
+			if _, uErr := cfg.Store.CreateUsageRecord(ctx, usageRec); uErr != nil {
+				slog.Warn("failed to persist usage record",
+					"exec_id", exec.ID, "error", uErr)
+			}
+		}
+
 		slog.Info("runtime ACP step executed",
 			"step_id", step.ID, "agent", profile.ID,
 			"output_len", len(replyText),
-			"stop_reason", result.StopReason)
+			"stop_reason", result.StopReason,
+			"input_tokens", result.InputTokens,
+			"output_tokens", result.OutputTokens)
 
 		return nil
 	}
