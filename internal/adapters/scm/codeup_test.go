@@ -38,6 +38,9 @@ func TestCodeupProviderEnsureOpen_CreatesChangeRequest(t *testing.T) {
 	var gotBody map[string]any
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/changeRequests", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	})
 	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/repositories/5f6ea0829cffa29cfdd39a7f%2Fxiaoin%2Fxiaoin-rag-service/changeRequests", func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotToken = r.Header.Get("x-yunxiao-token")

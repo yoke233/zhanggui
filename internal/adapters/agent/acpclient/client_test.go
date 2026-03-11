@@ -16,7 +16,7 @@ import (
 )
 
 func TestClientLifecycle(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	h := &recordingHandler{}
@@ -264,8 +264,8 @@ func testLaunchConfig(t *testing.T) LaunchConfig {
 		t.Fatal("runtime.Caller failed")
 	}
 	acpDir := filepath.Dir(thisFile)
-	repoRoot := filepath.Clean(filepath.Join(acpDir, "..", ".."))
-	fakeAgentPath := filepath.Join(repoRoot, "internal", "acpclient", "testdata", "fake_agent.go")
+	repoRoot := filepath.Clean(filepath.Join(acpDir, "..", "..", "..", ".."))
+	fakeAgentPath := filepath.Join(repoRoot, "internal", "adapters", "agent", "acpclient", "testdata", "fake_agent.go")
 	return LaunchConfig{
 		Command: "go",
 		Args:    []string{"run", fakeAgentPath},

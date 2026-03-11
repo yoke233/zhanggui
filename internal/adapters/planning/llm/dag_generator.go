@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/adapters/llm"
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	planningapp "github.com/yoke233/ai-workflow/internal/application/planning"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -27,6 +28,10 @@ func NewDAGGenerator(client *llm.Client, registry core.AgentRegistry) *DAGGenera
 type GeneratedStep = planningapp.GeneratedStep
 
 type GeneratedDAG = planningapp.GeneratedDAG
+
+func ValidateDAG(steps []*core.Step) error {
+	return flowapp.ValidateDAG(steps)
+}
 
 // Generate calls the LLM to decompose a task description into a DAG of Steps.
 // Returns the generated steps with name-based dependencies (not ID-based — caller

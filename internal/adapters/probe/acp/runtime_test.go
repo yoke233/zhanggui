@@ -18,9 +18,9 @@ func fixtureProbeLaunchConfig(t *testing.T, scenario string) acpclient.LaunchCon
 		t.Fatal("runtime.Caller failed")
 	}
 	engineDir := filepath.Dir(thisFile)
-	repoRoot := filepath.Clean(filepath.Join(engineDir, "..", "..", ".."))
-	fixtureAgent := filepath.Join(repoRoot, "internal", "acpclient", "testdata", "fixture_agent.go")
-	fixtureJSON := filepath.Join(repoRoot, "internal", "acpclient", "testdata", "codex_fixtures.json")
+	repoRoot := filepath.Clean(filepath.Join(engineDir, "..", "..", "..", ".."))
+	fixtureAgent := filepath.Join(repoRoot, "internal", "adapters", "agent", "acpclient", "testdata", "fixture_agent.go")
+	fixtureJSON := filepath.Join(repoRoot, "internal", "adapters", "agent", "acpclient", "testdata", "codex_fixtures.json")
 	return acpclient.LaunchConfig{
 		Command: "go",
 		Args:    []string{"run", fixtureAgent, fixtureJSON, scenario},

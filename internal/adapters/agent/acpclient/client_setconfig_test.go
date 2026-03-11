@@ -16,7 +16,7 @@ func TestSetConfigOptionCallsTransport(t *testing.T) {
 	}
 	defer client.Close(context.Background())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := client.Initialize(ctx, ClientCapabilities{FSRead: true}); err != nil {

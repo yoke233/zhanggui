@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/yoke233/ai-workflow/internal/platform/config"
-	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func TestManager_WriteRawRejectsInvalidAndKeepsCurrent(t *testing.T) {
@@ -117,7 +116,7 @@ func newManagerForTest(t *testing.T) (*Manager, string) {
 	if err := os.WriteFile(secretsPath, []byte(""), 0o600); err != nil {
 		t.Fatalf("write secrets: %v", err)
 	}
-	manager, err := NewManager(cfgPath, secretsPath, teamleader.MCPEnvConfig{}, nil, nil)
+	manager, err := NewManager(cfgPath, secretsPath, DisabledMCPEnv(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
@@ -126,4 +125,3 @@ func newManagerForTest(t *testing.T) (*Manager, string) {
 	})
 	return manager, string(raw)
 }
-

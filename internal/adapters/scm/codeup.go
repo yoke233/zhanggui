@@ -517,6 +517,9 @@ func boolFromAny(v any) (bool, bool) {
 }
 
 func stringFromAny(v any) string {
+	if v == nil {
+		return ""
+	}
 	switch vv := v.(type) {
 	case string:
 		return vv

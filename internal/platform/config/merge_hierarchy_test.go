@@ -2,6 +2,8 @@ package config
 
 import "testing"
 
+func ptr[T any](v T) *T { return &v }
+
 func TestMergeHierarchy_RuntimeAndGitHub(t *testing.T) {
 	global := &Config{
 		GitHub: GitHubConfig{

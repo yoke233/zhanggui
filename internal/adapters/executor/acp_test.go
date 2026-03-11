@@ -7,13 +7,14 @@ import (
 
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 func TestBuildExecutionInputFromBriefing(t *testing.T) {
 	t.Run("basic execution input", func(t *testing.T) {
 		step := &core.Step{Name: "implement auth"}
-		executionInput := buildExecutionInputFromBriefing("Implement JWT authentication", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step)
 		if !strings.Contains(executionInput, "# Task") {
 			t.Error("execution input should start with # Task header")
 		}
@@ -30,7 +31,7 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 				"No security vulnerabilities",
 			},
 		}
-		executionInput := buildExecutionInputFromBriefing("Implement JWT authentication", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step)
 		if !strings.Contains(executionInput, "# Acceptance Criteria") {
 			t.Error("execution input should contain acceptance criteria header")
 		}
@@ -44,7 +45,7 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 
 	t.Run("empty acceptance criteria", func(t *testing.T) {
 		step := &core.Step{Name: "simple task"}
-		executionInput := buildExecutionInputFromBriefing("Do something", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step)
 		if strings.Contains(executionInput, "Acceptance Criteria") {
 			t.Error("execution input should not contain acceptance criteria when empty")
 		}
