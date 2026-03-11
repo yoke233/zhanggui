@@ -1,4 +1,4 @@
-package engine
+package agentruntime
 
 import (
 	"context"
@@ -97,4 +97,3 @@ func (s *stubAgentRegistry) ResolveByID(ctx context.Context, profileID string) (
 	}
 	return s.profile, s.driver, nil
 }
-

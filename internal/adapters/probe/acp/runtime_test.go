@@ -1,4 +1,4 @@
-package engine
+package acp
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func TestRunACPExecutionProbe_LoadsExistingSession(t *testing.T) {
 		t.Fatalf("initial prompt: %v", err)
 	}
 
-	result, err := runACPExecutionProbe(ctx, acpExecutionProbeTarget{
+	result, err := Run(ctx, Target{
 		Launch:     launch,
 		Caps:       caps,
 		WorkDir:    workDir,
@@ -78,4 +78,3 @@ func TestRunACPExecutionProbe_LoadsExistingSession(t *testing.T) {
 		t.Fatal("expected non-empty probe reply")
 	}
 }
-

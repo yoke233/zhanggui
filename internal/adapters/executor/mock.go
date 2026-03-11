@@ -1,4 +1,4 @@
-package engine
+package executor
 
 import (
 	"context"
@@ -64,4 +64,3 @@ func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecut
 		return nil
 	}
 }
-

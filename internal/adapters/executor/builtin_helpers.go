@@ -1,4 +1,4 @@
-package engine
+package executor
 
 import (
 	"context"
@@ -113,4 +113,3 @@ func isAuthError(err error) bool {
 	}
 	return false
 }
-

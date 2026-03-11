@@ -1,4 +1,4 @@
-package engine
+package executor
 
 import membus "github.com/yoke233/ai-workflow/internal/adapters/events/memory"
 

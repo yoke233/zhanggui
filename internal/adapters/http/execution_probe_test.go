@@ -14,34 +14,34 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
+	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/engine"
 )
 
 type probeRuntimeStub struct {
-	result *engine.ExecutionProbeRuntimeResult
+	result *runtimeapp.ExecutionProbeRuntimeResult
 }
 
-func (s *probeRuntimeStub) Acquire(context.Context, engine.SessionAcquireInput) (*engine.SessionHandle, error) {
+func (s *probeRuntimeStub) Acquire(context.Context, runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) StartExecution(context.Context, *engine.SessionHandle, string) (string, error) {
+func (s *probeRuntimeStub) StartExecution(context.Context, *runtimeapp.SessionHandle, string) (string, error) {
 	return "", nil
 }
-func (s *probeRuntimeStub) WatchExecution(context.Context, string, int64, engine.EventSink) (*engine.ExecutionResult, error) {
+func (s *probeRuntimeStub) WatchExecution(context.Context, string, int64, runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) RecoverExecutions(context.Context, time.Time) ([]engine.ExecutionRuntimeStatus, error) {
+func (s *probeRuntimeStub) RecoverExecutions(context.Context, time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) ProbeExecution(context.Context, engine.ExecutionProbeRuntimeRequest) (*engine.ExecutionProbeRuntimeResult, error) {
+func (s *probeRuntimeStub) ProbeExecution(context.Context, runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
 	return s.result, nil
 }
-func (s *probeRuntimeStub) Release(context.Context, *engine.SessionHandle) error { return nil }
-func (s *probeRuntimeStub) CleanupFlow(int64)                                    {}
-func (s *probeRuntimeStub) DrainActive(context.Context) error                    { return nil }
-func (s *probeRuntimeStub) ActiveCount() int                                     { return 0 }
-func (s *probeRuntimeStub) Close()                                               {}
+func (s *probeRuntimeStub) Release(context.Context, *runtimeapp.SessionHandle) error { return nil }
+func (s *probeRuntimeStub) CleanupFlow(int64)                                        {}
+func (s *probeRuntimeStub) DrainActive(context.Context) error                        { return nil }
+func (s *probeRuntimeStub) ActiveCount() int                                         { return 0 }
+func (s *probeRuntimeStub) Close()                                                   {}
 
 func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "api-probe.db")
@@ -75,7 +75,7 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 	probeSvc := probeapp.NewExecutionProbeService(probeapp.ExecutionProbeServiceConfig{
 		Store: store,
 		SessionManager: &probeRuntimeStub{
-			result: &engine.ExecutionProbeRuntimeResult{
+			result: &runtimeapp.ExecutionProbeRuntimeResult{
 				Reachable:  true,
 				Answered:   true,
 				ReplyText:  "alive",

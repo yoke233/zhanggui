@@ -16,8 +16,8 @@ import (
 	membus "github.com/yoke233/ai-workflow/internal/adapters/events/memory"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/engine"
 )
 
 func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
@@ -34,7 +34,7 @@ func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
 	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
 		return nil // noop executor for API tests
 	}
-	eng := engine.New(store, bus, executor, engine.WithConcurrency(2))
+	eng := flowapp.New(store, bus, executor, flowapp.WithConcurrency(2))
 
 	h := NewHandler(store, bus, eng, WithSandboxInspector(v2sandbox.NewDefaultSupportInspector(false, "")))
 	r := chi.NewRouter()

@@ -19,7 +19,6 @@ import (
 	agentapp "github.com/yoke233/ai-workflow/internal/application/agent"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/engine"
 )
 
 // ---------------------------------------------------------------------------

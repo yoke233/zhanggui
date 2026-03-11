@@ -1,4 +1,4 @@
-package engine
+package llm
 
 import (
 	"context"
@@ -6,12 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	basellm "github.com/yoke233/ai-workflow/internal/adapters/llm"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 func TestLLMCollector_ExecExtraction(t *testing.T) {
 	// Simulate LLM returning tool_use JSON.
-	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []ToolDef) (json.RawMessage, error) {
+	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []basellm.ToolDef) (json.RawMessage, error) {
 		if len(tools) != 1 || tools[0].Name != "extract_exec_metadata" {
 			t.Fatalf("expected extract_exec_metadata tool, got %v", tools)
 		}
@@ -32,7 +33,7 @@ func TestLLMCollector_ExecExtraction(t *testing.T) {
 }
 
 func TestLLMCollector_GateExtraction(t *testing.T) {
-	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []ToolDef) (json.RawMessage, error) {
+	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []basellm.ToolDef) (json.RawMessage, error) {
 		if tools[0].Name != "extract_gate_metadata" {
 			t.Fatalf("expected extract_gate_metadata tool, got %s", tools[0].Name)
 		}
@@ -52,7 +53,7 @@ func TestLLMCollector_GateExtraction(t *testing.T) {
 }
 
 func TestLLMCollector_CompositeExtraction(t *testing.T) {
-	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []ToolDef) (json.RawMessage, error) {
+	collector := NewLLMCollector(func(ctx context.Context, prompt string, tools []basellm.ToolDef) (json.RawMessage, error) {
 		if tools[0].Name != "extract_composite_metadata" {
 			t.Fatalf("expected extract_composite_metadata tool, got %s", tools[0].Name)
 		}
@@ -112,4 +113,3 @@ func TestExtractionTools(t *testing.T) {
 		}
 	}
 }
-

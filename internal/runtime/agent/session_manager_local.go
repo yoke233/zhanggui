@@ -1,4 +1,4 @@
-package engine
+package agentruntime
 
 import (
 	"context"
@@ -10,9 +10,11 @@ import (
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
-	"github.com/yoke233/ai-workflow/internal/core"
-	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
+	probeacp "github.com/yoke233/ai-workflow/internal/adapters/probe/acp"
+	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
+	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 // LocalSessionManager manages ACP sessions in the same process.
@@ -61,8 +63,8 @@ type localInvocation struct {
 	execID    int64
 	flowID    int64
 	stepID    int64
-	status    ExecutionRuntimeState
-	result    *ExecutionResult
+	status    runtimeapp.ExecutionRuntimeState
+	result    *runtimeapp.ExecutionResult
 	err       error
 	done      chan struct{} // closed when execution completes
 	events    []localInvocationEvent
@@ -86,7 +88,7 @@ func (m *LocalSessionManager) nextHandleID() string {
 }
 
 // Acquire gets or creates an ACP session.
-func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInput) (*SessionHandle, error) {
+func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
 	sb := m.sandbox
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
@@ -178,7 +180,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 		lh.mcpServers = append([]acpproto.McpServer(nil), mcpServers...)
 	}
 
-	handle := &SessionHandle{ID: handleID}
+	handle := &runtimeapp.SessionHandle{ID: handleID}
 	if lh.agentCtx != nil && lh.agentCtx.ID > 0 {
 		id := lh.agentCtx.ID
 		handle.AgentContextID = &id
@@ -196,7 +198,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 
 // StartExecution executes synchronously in local mode.
 // Returns an invocation ID; the result is available immediately via WatchExecution.
-func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *SessionHandle, text string) (string, error) {
+func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	lh, ok := m.handles[handle.ID]
 	if !ok {
@@ -211,7 +213,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *Sessio
 		execID:    lh.execID,
 		flowID:    lh.flowID,
 		stepID:    lh.stepID,
-		status:    ExecutionRunning,
+		status:    runtimeapp.ExecutionRunning,
 		done:      make(chan struct{}),
 		createdAt: time.Now().UTC(),
 	}
@@ -226,10 +228,10 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *Sessio
 
 	m.mu.Lock()
 	if err != nil {
-		inv.status = ExecutionFailed
+		inv.status = runtimeapp.ExecutionFailed
 		inv.err = err
 	} else {
-		inv.status = ExecutionDone
+		inv.status = runtimeapp.ExecutionDone
 		inv.result = result
 	}
 	close(inv.done)
@@ -244,7 +246,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *Sessio
 	return invocationID, nil
 }
 
-func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*ExecutionResult, error) {
+func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*runtimeapp.ExecutionResult, error) {
 	// Capture events for the invocation record.
 	collector := &eventCollector{inv: inv, mu: &m.mu}
 
@@ -276,7 +278,7 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 		m.pool.NoteTurn(ctx, lh.agentCtx, lh.pooled)
 	}
 
-	out := &ExecutionResult{
+	out := &runtimeapp.ExecutionResult{
 		Text:       strings.TrimSpace(result.Text),
 		StopReason: string(result.StopReason),
 	}
@@ -293,7 +295,7 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 
 // WatchExecution returns the result of a completed execution (local mode completes synchronously).
 // If the execution is still running (shouldn't happen in local mode), it waits.
-func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink EventSink) (*ExecutionResult, error) {
+func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
 	m.mu.Lock()
 	inv, ok := m.invocations[invocationID]
 	m.mu.Unlock()
@@ -328,16 +330,16 @@ func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID s
 }
 
 // RecoverExecutions returns recent execution statuses (local mode: only in-memory).
-func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Time) ([]ExecutionRuntimeStatus, error) {
+func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var out []ExecutionRuntimeStatus
+	var out []runtimeapp.ExecutionRuntimeStatus
 	for _, inv := range m.invocations {
 		if inv.createdAt.Before(since) {
 			continue
 		}
-		status := ExecutionRuntimeStatus{
+		status := runtimeapp.ExecutionRuntimeStatus{
 			InvocationID: inv.id,
 			ExecID:       inv.execID,
 			FlowID:       inv.flowID,
@@ -357,7 +359,7 @@ func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Ti
 }
 
 // ProbeExecution sends a side-channel probe to a currently running local execution.
-func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error) {
+func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
 	m.mu.Lock()
 	var handle *localHandle
 	for _, candidate := range m.handles {
@@ -369,14 +371,14 @@ func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req ExecutionP
 	m.mu.Unlock()
 
 	if handle == nil {
-		return &ExecutionProbeRuntimeResult{
+		return &runtimeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "execution route is not active",
 			ObservedAt: time.Now().UTC(),
 		}, nil
 	}
 
-	return runACPExecutionProbe(ctx, acpExecutionProbeTarget{
+	return probeacp.Run(ctx, probeacp.Target{
 		Launch:     handle.launch,
 		Caps:       handle.caps,
 		WorkDir:    handle.workDir,
@@ -388,7 +390,7 @@ func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req ExecutionP
 }
 
 // Release marks a session handle as no longer active.
-func (m *LocalSessionManager) Release(ctx context.Context, handle *SessionHandle) error {
+func (m *LocalSessionManager) Release(ctx context.Context, handle *runtimeapp.SessionHandle) error {
 	m.mu.Lock()
 	lh, ok := m.handles[handle.ID]
 	if ok {
@@ -462,4 +464,3 @@ func (c *eventCollector) HandleSessionUpdate(ctx context.Context, update acpclie
 	c.mu.Unlock()
 	return nil
 }
-

@@ -1,4 +1,4 @@
-package engine
+package executor
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -23,7 +24,7 @@ type ACPExecutorConfig struct {
 	Bus                      core.EventBus
 	DefaultWorkDir           string
 	MCPResolver              func(profileID string, agentSupportsSSE bool) []acpproto.McpServer
-	SessionManager           SessionManager
+	SessionManager           runtimeapp.SessionManager
 	ReworkFollowupTemplate   string
 	ContinueFollowupTemplate string
 }
@@ -73,7 +74,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 
 		reuse := profile.Session.Reuse
 
-		handle, err := cfg.SessionManager.Acquire(ctx, SessionAcquireInput{
+		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
 			Profile: profile,
 			Driver:  driver,
 			Launch:  launchCfg,

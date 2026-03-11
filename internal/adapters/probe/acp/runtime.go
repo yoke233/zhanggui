@@ -1,4 +1,4 @@
-package engine
+package acp
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
+	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 )
 
-type acpExecutionProbeTarget struct {
+type Target struct {
 	Launch     acpclient.LaunchConfig
 	Caps       acpclient.ClientCapabilities
 	WorkDir    string
@@ -21,16 +22,16 @@ type acpExecutionProbeTarget struct {
 	Timeout    time.Duration
 }
 
-func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (*ExecutionProbeRuntimeResult, error) {
+func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeResult, error) {
 	if strings.TrimSpace(string(target.SessionID)) == "" {
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "missing session route",
 			ObservedAt: time.Now().UTC(),
 		}, nil
 	}
 	if strings.TrimSpace(target.Question) == "" {
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "probe question is required",
 			ObservedAt: time.Now().UTC(),
@@ -48,7 +49,7 @@ func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (
 	handler.SetSuppressEvents(true)
 	client, err := acpclient.New(target.Launch, handler)
 	if err != nil {
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("launch probe client: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -57,7 +58,7 @@ func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (
 	defer client.Close(context.Background())
 
 	if err := client.Initialize(probeCtx, target.Caps); err != nil {
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("initialize probe client: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -70,7 +71,7 @@ func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (
 		McpServers: target.MCPServers,
 	})
 	if err != nil {
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("load probe session: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -87,14 +88,14 @@ func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (
 	observedAt := time.Now().UTC()
 	if err != nil {
 		if probeCtx.Err() == context.DeadlineExceeded || ctx.Err() == context.DeadlineExceeded {
-			return &ExecutionProbeRuntimeResult{
+			return &probeapp.ExecutionProbeRuntimeResult{
 				Reachable:  true,
 				Answered:   false,
 				Error:      "probe timeout",
 				ObservedAt: observedAt,
 			}, nil
 		}
-		return &ExecutionProbeRuntimeResult{
+		return &probeapp.ExecutionProbeRuntimeResult{
 			Reachable:  true,
 			Answered:   false,
 			Error:      fmt.Sprintf("probe prompt failed: %v", err),
@@ -102,11 +103,10 @@ func runACPExecutionProbe(ctx context.Context, target acpExecutionProbeTarget) (
 		}, nil
 	}
 
-	return &ExecutionProbeRuntimeResult{
+	return &probeapp.ExecutionProbeRuntimeResult{
 		Reachable:  true,
 		Answered:   true,
 		ReplyText:  strings.TrimSpace(result.Text),
 		ObservedAt: observedAt,
 	}, nil
 }
-

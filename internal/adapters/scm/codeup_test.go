@@ -1,4 +1,4 @@
-package engine
+package scm
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 )
 
 func TestCodeupProviderDetect_SSHRemote(t *testing.T) {
@@ -53,12 +55,12 @@ func TestCodeupProviderEnsureOpen_CreatesChangeRequest(t *testing.T) {
 	})
 	provider.httpClient = srv.Client()
 
-	cr, created, err := provider.EnsureOpen(context.Background(), ChangeRequestRepo{
+	cr, created, err := provider.EnsureOpen(context.Background(), flowapp.ChangeRequestRepo{
 		Kind:      "codeup",
 		Host:      "codeup.aliyun.com",
 		Namespace: "5f6ea0829cffa29cfdd39a7f/xiaoin",
 		Name:      "xiaoin-rag-service",
-	}, EnsureOpenInput{
+	}, flowapp.EnsureOpenInput{
 		Head:  "feature/test",
 		Base:  "main",
 		Title: "test title",
@@ -119,12 +121,12 @@ func TestCodeupProviderMerge_UsesConfiguredEndpoint(t *testing.T) {
 	})
 	provider.httpClient = srv.Client()
 
-	err := provider.Merge(context.Background(), ChangeRequestRepo{
+	err := provider.Merge(context.Background(), flowapp.ChangeRequestRepo{
 		Kind:      "codeup",
 		Host:      "codeup.aliyun.com",
 		Namespace: "5f6ea0829cffa29cfdd39a7f/xiaoin",
 		Name:      "xiaoin-rag-service",
-	}, 23, MergeInput{
+	}, 23, flowapp.MergeInput{
 		Method:        "merge",
 		CommitMessage: "merge now",
 		Extra: map[string]any{

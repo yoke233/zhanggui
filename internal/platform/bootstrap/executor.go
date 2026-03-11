@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
 func RunExecutor(args []string) error {
@@ -51,7 +51,7 @@ func RunExecutor(args []string) error {
 	if cfg.Runtime.SessionManager.NATS.StreamPrefix != "" {
 		streamPrefix = cfg.Runtime.SessionManager.NATS.StreamPrefix
 	}
-	worker, err := engine.NewExecutorWorker(engine.ExecutorWorkerConfig{
+	worker, err := agentruntime.NewExecutorWorker(agentruntime.ExecutorWorkerConfig{
 		NATSConn:       nc,
 		StreamPrefix:   streamPrefix,
 		WorkerID:       cfg.Runtime.SessionManager.ServerID,

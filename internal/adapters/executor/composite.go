@@ -1,4 +1,4 @@
-package engine
+package executor
 
 import (
 	"context"
@@ -59,4 +59,3 @@ func NewCompositeStepExecutor(cfg CompositeStepExecutorConfig) flowapp.StepExecu
 		return cfg.ACPExecutor(ctx, step, exec)
 	}
 }
-

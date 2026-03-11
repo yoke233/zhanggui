@@ -1,4 +1,4 @@
-package engine
+package scm
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 )
 
 func TestGitHubProviderMerge_405NotMergedReturnsError(t *testing.T) {
@@ -31,10 +33,10 @@ func TestGitHubProviderMerge_405NotMergedReturnsError(t *testing.T) {
 		baseURL:    srv.URL + "/",
 	}
 
-	err := provider.Merge(context.Background(), ChangeRequestRepo{
+	err := provider.Merge(context.Background(), flowapp.ChangeRequestRepo{
 		Namespace: "acme",
 		Name:      "demo",
-	}, 7, MergeInput{Method: "squash"})
+	}, 7, flowapp.MergeInput{Method: "squash"})
 	if err == nil {
 		t.Fatal("expected merge error when PR is not merged")
 	}
@@ -63,10 +65,10 @@ func TestGitHubProviderMerge_405AlreadyMergedReturnsNil(t *testing.T) {
 		baseURL:    srv.URL + "/",
 	}
 
-	if err := provider.Merge(context.Background(), ChangeRequestRepo{
+	if err := provider.Merge(context.Background(), flowapp.ChangeRequestRepo{
 		Namespace: "acme",
 		Name:      "demo",
-	}, 8, MergeInput{Method: "squash"}); err != nil {
+	}, 8, flowapp.MergeInput{Method: "squash"}); err != nil {
 		t.Fatalf("expected merged PR to be treated as success, got: %v", err)
 	}
 }

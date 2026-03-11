@@ -1,4 +1,4 @@
-package engine
+package agentruntime
 
 import (
 	"context"
@@ -14,8 +14,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
+	probeacp "github.com/yoke233/ai-workflow/internal/adapters/probe/acp"
 	natsprobe "github.com/yoke233/ai-workflow/internal/adapters/probe/nats"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
+	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -257,7 +259,7 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	}
 }
 
-func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*ExecutionResult, error) {
+func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*runtimeapp.ExecutionResult, error) {
 	workDir := invocation.WorkDir
 	if workDir == "" {
 		workDir = w.cfg.DefaultWorkDir
@@ -364,7 +366,7 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 		w.touchExecutionOwner(ctx, agentCtx)
 	}
 
-	out := &ExecutionResult{
+	out := &runtimeapp.ExecutionResult{
 		Text:       strings.TrimSpace(result.Text),
 		StopReason: string(result.StopReason),
 	}
@@ -448,7 +450,7 @@ func (w *ExecutorWorker) handleProbeRequest(msg *nats.Msg) {
 		return
 	}
 
-	res, err := runACPExecutionProbe(context.Background(), acpExecutionProbeTarget{
+	res, err := probeacp.Run(context.Background(), probeacp.Target{
 		Launch:     target.Launch,
 		Caps:       target.Caps,
 		WorkDir:    target.WorkDir,

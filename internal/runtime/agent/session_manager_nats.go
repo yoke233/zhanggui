@@ -1,4 +1,4 @@
-package engine
+package agentruntime
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	natsprobe "github.com/yoke233/ai-workflow/internal/adapters/probe/nats"
+	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -62,21 +63,21 @@ type NATSSessionManager struct {
 
 type natsHandle struct {
 	id        string
-	sessionIn SessionAcquireInput
+	sessionIn runtimeapp.SessionAcquireInput
 }
 
 // natsInvocationMessage is the payload published to the execution submission subject.
 type natsInvocationMessage struct {
-	InvocationID string              `json:"invocation_id"`
-	HandleID     string              `json:"handle_id"`
-	Text         string              `json:"text"`
-	Input        SessionAcquireInput `json:"-"` // serialized separately
-	FlowID       int64               `json:"flow_id"`
-	StepID       int64               `json:"step_id"`
-	ExecID       int64               `json:"execution_id"`
-	AgentID      string              `json:"agent_id"`
-	ProfileID    string              `json:"profile_id"`
-	WorkDir      string              `json:"work_dir"`
+	InvocationID string                         `json:"invocation_id"`
+	HandleID     string                         `json:"handle_id"`
+	Text         string                         `json:"text"`
+	Input        runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
+	FlowID       int64                          `json:"flow_id"`
+	StepID       int64                          `json:"step_id"`
+	ExecID       int64                          `json:"execution_id"`
+	AgentID      string                         `json:"agent_id"`
+	ProfileID    string                         `json:"profile_id"`
+	WorkDir      string                         `json:"work_dir"`
 }
 
 // natsInvocationResult is the payload published to the result subject.
@@ -179,7 +180,7 @@ func (m *NATSSessionManager) ensureStreams(ctx context.Context) error {
 }
 
 // Acquire stores session metadata locally — actual ACP session creation happens on the executor.
-func (m *NATSSessionManager) Acquire(_ context.Context, in SessionAcquireInput) (*SessionHandle, error) {
+func (m *NATSSessionManager) Acquire(_ context.Context, in runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
 	m.mu.Lock()
 	m.nextID++
 	handleID := fmt.Sprintf("nats-%d", m.nextID)
@@ -190,11 +191,11 @@ func (m *NATSSessionManager) Acquire(_ context.Context, in SessionAcquireInput) 
 	m.handles[handleID] = nh
 	m.mu.Unlock()
 
-	return &SessionHandle{ID: handleID}, nil
+	return &runtimeapp.SessionHandle{ID: handleID}, nil
 }
 
 // StartExecution publishes the execution request to JetStream for remote execution.
-func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *SessionHandle, text string) (string, error) {
+func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	nh, ok := m.handles[handle.ID]
 	if !ok {
@@ -246,7 +247,7 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *Session
 
 // WatchExecution subscribes to the result and event subjects for a given invocation.
 // It blocks until the result is received or ctx is cancelled.
-func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink EventSink) (*ExecutionResult, error) {
+func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
 	defer func() {
 		m.activeCount.Add(-1)
 		m.drainWg.Done()
@@ -301,7 +302,7 @@ func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID st
 				return nil, fmt.Errorf("remote execution failed: %s", result.Error)
 			}
 
-			return &ExecutionResult{
+			return &runtimeapp.ExecutionResult{
 				Text:           result.Text,
 				StopReason:     result.StopReason,
 				InputTokens:    result.InputTokens,
@@ -316,7 +317,7 @@ func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID st
 	}
 }
 
-func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstream.Consumer, lastEventSeq int64, sink EventSink) {
+func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstream.Consumer, lastEventSeq int64, sink runtimeapp.EventSink) {
 	for {
 		msgs, err := consumer.Fetch(10, jetstream.FetchMaxWait(2*time.Second))
 		if err != nil {
@@ -344,7 +345,7 @@ func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstre
 }
 
 // RecoverExecutions queries NATS for executions that may have been in-flight during a restart.
-func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.Time) ([]ExecutionRuntimeStatus, error) {
+func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
 	// In NATS mode, executions that were published but not yet consumed are still in the stream.
 	// Executions that were being executed will have their results published by the executor.
 	// We return an empty list here — the executor worker handles recovery by re-publishing results.
@@ -353,9 +354,9 @@ func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.T
 }
 
 // ProbeExecution routes a probe request to the owning remote worker over NATS request-reply.
-func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error) {
+func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
 	if strings.TrimSpace(req.OwnerID) == "" {
-		return &ExecutionProbeRuntimeResult{
+		return &runtimeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "missing execution owner",
 			ObservedAt: time.Now().UTC(),
@@ -383,7 +384,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req ExecutionPr
 
 	msg, err := m.nc.RequestWithContext(replyCtx, subject, payload)
 	if err != nil {
-		return &ExecutionProbeRuntimeResult{
+		return &runtimeapp.ExecutionProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("probe owner unreachable: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -395,7 +396,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req ExecutionPr
 		return nil, fmt.Errorf("unmarshal probe response: %w", err)
 	}
 
-	return &ExecutionProbeRuntimeResult{
+	return &runtimeapp.ExecutionProbeRuntimeResult{
 		Reachable:  res.Reachable,
 		Answered:   res.Answered,
 		ReplyText:  res.ReplyText,
@@ -405,7 +406,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req ExecutionPr
 }
 
 // Release is a no-op in NATS mode — sessions are managed by executors.
-func (m *NATSSessionManager) Release(_ context.Context, handle *SessionHandle) error {
+func (m *NATSSessionManager) Release(_ context.Context, handle *runtimeapp.SessionHandle) error {
 	m.mu.Lock()
 	delete(m.handles, handle.ID)
 	m.mu.Unlock()
