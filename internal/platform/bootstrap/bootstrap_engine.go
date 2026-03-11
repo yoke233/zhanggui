@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	llmcollector "github.com/yoke233/ai-workflow/internal/adapters/collector/llm"
 	executoradapter "github.com/yoke233/ai-workflow/internal/adapters/executor"
 	"github.com/yoke233/ai-workflow/internal/adapters/llm"
@@ -34,7 +35,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens G
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
-	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, bootstrapCfg, ghTokens, upgradeFn)
+	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, ghTokens, upgradeFn)
 	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, ghTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
 	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, flowapp.FlowSchedulerConfig{MaxConcurrentFlows: 2})
@@ -77,6 +78,7 @@ func buildStepExecutor(
 	bus core.EventBus,
 	registry core.AgentRegistry,
 	sessionMgr runtimeapp.SessionManager,
+	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
 	ghTokens GitHubTokens,
 	upgradeFn executoradapter.UpgradeFunc,
@@ -84,6 +86,11 @@ func buildStepExecutor(
 	mockEnabled := bootstrapCfg != nil && bootstrapCfg.Runtime.MockExecutor
 	if !mockEnabled {
 		mockEnabled = envMockExecutorEnabled()
+	}
+
+	var mcpResolver func(string, bool) []acpproto.McpServer
+	if runtimeManager != nil {
+		mcpResolver = runtimeManager.ResolveMCPServers
 	}
 
 	var executor flowapp.StepExecutor
@@ -96,6 +103,7 @@ func buildStepExecutor(
 			Store:                    store,
 			Bus:                      bus,
 			SessionManager:           sessionMgr,
+			MCPResolver:              mcpResolver,
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
 		})
