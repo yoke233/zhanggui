@@ -9,6 +9,12 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
+type apiStack struct {
+	leadAgent *chatacp.LeadAgent
+	probeSvc  *probeapp.ExecutionProbeService
+	registrar func(chi.Router)
+}
+
 func buildAPIStack(
 	base *bootstrapBase,
 	flow *flowStack,

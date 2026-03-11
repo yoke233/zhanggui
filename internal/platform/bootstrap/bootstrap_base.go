@@ -10,9 +10,21 @@ import (
 	membus "github.com/yoke233/ai-workflow/internal/adapters/events/memory"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
+	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
+
+type bootstrapBase struct {
+	runtimeDBPath  string
+	store          *sqlite.Store
+	bus            core.EventBus
+	persister      *flowapp.EventPersister
+	registry       core.AgentRegistry
+	runtimeManager *configruntime.Manager
+	dataDir        string
+}
 
 func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*bootstrapBase, error) {
 	runtimeDBPath := strings.TrimSuffix(storePath, filepath.Ext(storePath)) + "_runtime.db"

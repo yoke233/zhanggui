@@ -19,6 +19,15 @@ import (
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
+type flowStack struct {
+	sessionMode   string
+	sessionMgr    runtimeapp.SessionManager
+	llmClient     *llm.Client
+	engine        *flowapp.FlowEngine
+	scheduler     *flowapp.FlowScheduler
+	schedulerStop context.CancelFunc
+}
+
 func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
 	sb := buildSandbox(bootstrapCfg, base.dataDir)
 	acpPool := agentruntime.NewACPSessionPool(base.store, base.bus)

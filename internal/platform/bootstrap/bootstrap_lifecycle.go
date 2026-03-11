@@ -10,6 +10,11 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
 
+type bootstrapLifecycle struct {
+	runtimeWatchCancel context.CancelFunc
+	probeWatchCancel   context.CancelFunc
+}
+
 func startBootstrapLifecycle(
 	base *bootstrapBase,
 	flow *flowStack,
