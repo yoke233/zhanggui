@@ -61,13 +61,11 @@ func (h *Handler) setupFlowCron(w http.ResponseWriter, r *http.Request) {
 		flow.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
 	}
 
-	// We need to persist metadata. Since there's no UpdateFlowMetadata,
-	// we'll use the status update path — but we actually need a metadata update.
-	// For now, create a new flow with updated metadata (re-create pattern).
-	// TODO: Add UpdateFlowMetadata to FlowStore interface.
+	if err := h.store.UpdateFlowMetadata(r.Context(), flowID, flow.Metadata); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
 
-	// Workaround: We store the cron config in flow metadata.
-	// The flow stays in "pending" and is never submitted itself — only clones are.
 	writeJSON(w, http.StatusOK, cronStatusResponse{
 		FlowID:       flowID,
 		Enabled:      true,
@@ -97,6 +95,10 @@ func (h *Handler) disableFlowCron(w http.ResponseWriter, r *http.Request) {
 
 	if flow.Metadata != nil {
 		flow.Metadata[cronapp.MetaEnabled] = "false"
+		if err := h.store.UpdateFlowMetadata(r.Context(), flowID, flow.Metadata); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, cronStatusResponse{

@@ -91,3 +91,56 @@ func TestCronShouldFireNeverFired(t *testing.T) {
 		t.Error("should not fire at :30 for '0 * * * *'")
 	}
 }
+
+func TestNextAfter(t *testing.T) {
+	// "0 8 * * *" — every day at 08:00
+	sched, err := parseCron("0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC)
+	next := sched.nextAfter(base)
+	want := time.Date(2026, 3, 12, 8, 0, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("nextAfter(08:00) = %v, want %v", next, want)
+	}
+
+	// Next after 07:59 should be same day 08:00.
+	before := time.Date(2026, 3, 11, 7, 59, 0, 0, time.UTC)
+	next2 := sched.nextAfter(before)
+	want2 := time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC)
+	if !next2.Equal(want2) {
+		t.Errorf("nextAfter(07:59) = %v, want %v", next2, want2)
+	}
+}
+
+func TestNextAfterStep(t *testing.T) {
+	// "*/15 * * * *" — every 15 minutes
+	sched, err := parseCron("*/15 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC)
+	next := sched.nextAfter(base)
+	want := time.Date(2026, 3, 11, 8, 15, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("nextAfter(08:00) = %v, want %v", next, want)
+	}
+}
+
+func TestShouldFireLargeGap(t *testing.T) {
+	// "0 8 * * *" — daily at 08:00
+	// lastFired 3 days ago, now is 08:01 — should fire
+	sched, err := parseCron("0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lastFired := time.Date(2026, 3, 8, 8, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 3, 11, 8, 1, 0, 0, time.UTC)
+	if !sched.shouldFire(lastFired, now) {
+		t.Error("should fire after 3-day gap")
+	}
+}

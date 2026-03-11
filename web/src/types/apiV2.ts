@@ -158,6 +158,32 @@ export interface CreateFlowRequest {
   metadata?: Record<string, string>;
 }
 
+export type IssueStatus = "open" | "accepted" | "in_progress" | "done" | "closed";
+export type IssuePriority = "low" | "medium" | "high" | "urgent";
+
+export interface Issue {
+  id: number;
+  project_id?: number;
+  title: string;
+  body: string;
+  status: IssueStatus;
+  priority: IssuePriority;
+  labels?: string[];
+  flow_id?: number;
+  metadata?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateIssueRequest {
+  project_id?: number;
+  title: string;
+  body?: string;
+  priority?: IssuePriority;
+  labels?: string[];
+  metadata?: Record<string, string>;
+}
+
 export interface CreateProjectRequest {
   name: string;
   kind?: "dev" | "general" | string;

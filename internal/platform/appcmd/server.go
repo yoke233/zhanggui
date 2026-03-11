@@ -50,6 +50,9 @@ func RunServer(args []string) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start() }()
 	fmt.Printf("Server started on %s (api: /api).\n", listenAddr)
+	if adminToken := secrets.AdminToken(); adminToken != "" {
+		fmt.Printf("Admin token: %s\n", adminToken)
+	}
 	select {
 	case err := <-errCh:
 		if runtimeManager != nil {

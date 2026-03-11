@@ -22,6 +22,8 @@ import type {
   CreateResourceBindingRequest,
   CreateProjectRequest,
   CreateFlowRequest,
+  CreateIssueRequest,
+  Issue,
   CreateStepRequest,
   GenerateStepsRequest,
   Event,
@@ -186,6 +188,8 @@ export interface ApiClient {
   runFlow(flowId: number): Promise<RunFlowResponse>;
   cancelFlow(flowId: number): Promise<CancelFlowResponse>;
   bootstrapPRFlow(flowId: number, body?: BootstrapPRFlowRequest): Promise<BootstrapPRFlowResponse>;
+
+  createIssue(body: CreateIssueRequest): Promise<Issue>;
 
   listSteps(flowId: number): Promise<Step[]>;
   createStep(flowId: number, body: CreateStepRequest): Promise<Step>;
@@ -448,6 +452,13 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     bootstrapPRFlow: (flowId, body) =>
       request<BootstrapPRFlowResponse, BootstrapPRFlowRequest>({
         path: `/flows/${flowId}/bootstrap-pr`,
+        method: "POST",
+        body,
+      }),
+
+    createIssue: (body) =>
+      request<Issue, CreateIssueRequest>({
+        path: "/issues",
         method: "POST",
         body,
       }),
