@@ -1,5 +1,7 @@
 import type {
   CancelFlowResponse,
+  AgentDriver,
+  AgentProfile,
   Artifact,
   Briefing,
   StatsResponse,
@@ -19,6 +21,7 @@ import type {
   Project,
   ResourceBinding,
   RunFlowResponse,
+  SchedulerStats,
   Step,
   UpdateStepRequest,
   UpdateProjectRequest,
@@ -123,6 +126,7 @@ export interface ApiClientV2 {
   ): Promise<TResponse>;
 
   getStats(): Promise<StatsResponse>;
+  getSchedulerStats(): Promise<SchedulerStats>;
   getSandboxSupport(): Promise<SandboxSupportResponse>;
   sendSystemEvent(body: AdminSystemEventRequest): Promise<AdminSystemEventResponse>;
 
@@ -152,6 +156,7 @@ export interface ApiClientV2 {
   listFlows(params?: {
     project_id?: number;
     status?: string;
+    archived?: boolean | "all";
     limit?: number;
     offset?: number;
   }): Promise<Flow[]>;
@@ -181,6 +186,11 @@ export interface ApiClientV2 {
     flowId: number,
     params?: { types?: string[]; limit?: number; offset?: number },
   ): Promise<Event[]>;
+
+  listDrivers(): Promise<AgentDriver[]>;
+  createDriver(body: AgentDriver): Promise<AgentDriver>;
+  listProfiles(): Promise<AgentProfile[]>;
+  createProfile(body: AgentProfile): Promise<AgentProfile>;
 }
 
 export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
@@ -234,6 +244,10 @@ export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
     getStats: () =>
       request<StatsResponse>({
         path: "/stats",
+      }),
+    getSchedulerStats: () =>
+      request<SchedulerStats>({
+        path: "/scheduler/stats",
       }),
     getSandboxSupport: () =>
       request<SandboxSupportResponse>({
@@ -341,6 +355,7 @@ export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
         query: {
           project_id: params?.project_id,
           status: params?.status,
+          archived: params?.archived === undefined ? undefined : String(params.archived),
           limit: params?.limit,
           offset: params?.offset,
         },
@@ -427,5 +442,25 @@ export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
           offset: params?.offset,
         },
       }).then((items) => (Array.isArray(items) ? items : [])),
+    listDrivers: () =>
+      request<AgentDriver[]>({
+        path: "/agents/drivers",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createDriver: (body) =>
+      request<AgentDriver, AgentDriver>({
+        path: "/agents/drivers",
+        method: "POST",
+        body,
+      }),
+    listProfiles: () =>
+      request<AgentProfile[]>({
+        path: "/agents/profiles",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createProfile: (body) =>
+      request<AgentProfile, AgentProfile>({
+        path: "/agents/profiles",
+        method: "POST",
+        body,
+      }),
   };
 };

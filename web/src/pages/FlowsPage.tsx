@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,32 +13,55 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
-
-interface FlowItem {
-  id: number;
-  name: string;
-  project: string;
-  status: string;
-  steps: number;
-  created: string;
-  duration: string;
-}
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { formatFlowDuration, formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
+import type { Flow } from "@/types/apiV2";
 
 export function FlowsPage() {
+  const { apiClient, selectedProject, selectedProjectId } = useV2Workbench();
   const [search, setSearch] = useState("");
+  const [flows, setFlows] = useState<Flow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [flows] = useState<FlowItem[]>([
-    { id: 1, name: "后端 API 重构", project: "ai-workflow", status: "running", steps: 7, created: "10 分钟前", duration: "12m" },
-    { id: 2, name: "前端 UI 更新", project: "ai-workflow", status: "running", steps: 5, created: "20 分钟前", duration: "8m" },
-    { id: 3, name: "集成测试套件", project: "auth-service", status: "done", steps: 4, created: "1 小时前", duration: "25m" },
-    { id: 4, name: "数据库迁移", project: "ai-workflow", status: "done", steps: 3, created: "2 小时前", duration: "15m" },
-    { id: 5, name: "部署配置更新", project: "infra-deploy", status: "failed", steps: 6, created: "3 小时前", duration: "45m" },
-    { id: 6, name: "API 文档生成", project: "ai-workflow", status: "pending", steps: 2, created: "5 小时前", duration: "-" },
-  ]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const listed = await apiClient.listFlows({
+          project_id: selectedProjectId ?? undefined,
+          archived: false,
+          limit: 200,
+          offset: 0,
+        });
+        if (!cancelled) {
+          setFlows(listed);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, selectedProjectId]);
 
-  const filtered = flows.filter((f) =>
-    f.name.toLowerCase().includes(search.toLowerCase()) ||
-    f.project.toLowerCase().includes(search.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      flows.filter((flow) =>
+        flow.name.toLowerCase().includes(search.toLowerCase()) ||
+        String(flow.id).includes(search),
+      ),
+    [flows, search],
   );
 
   return (
@@ -46,7 +69,9 @@ export function FlowsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">流程</h1>
-          <p className="text-sm text-muted-foreground">管理和监控工作流程的执行</p>
+          <p className="text-sm text-muted-foreground">
+            {selectedProject ? `当前项目：${selectedProject.name}` : "当前展示全部项目的 flow"}
+          </p>
         </div>
         <Link to="/flows/new">
           <Button>
@@ -56,20 +81,25 @@ export function FlowsPage() {
         </Link>
       </div>
 
+      {loading ? <p className="text-sm text-muted-foreground">加载 flow 列表中...</p> : null}
+      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
       <Card>
         <CardHeader className="flex flex-row items-center gap-4 space-y-0">
           <CardTitle className="flex items-center gap-2">
             <GitBranch className="h-5 w-5" />
             全部流程
           </CardTitle>
-          <div className="relative ml-auto w-72">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索流程..."
-              className="pl-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="ml-auto flex w-72 items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="搜索流程..."
+                className="pl-9"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -77,30 +107,36 @@ export function FlowsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>流程名称</TableHead>
-                <TableHead>项目</TableHead>
                 <TableHead>状态</TableHead>
-                <TableHead>步骤数</TableHead>
                 <TableHead>创建时间</TableHead>
+                <TableHead>最近更新</TableHead>
                 <TableHead>耗时</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((flow) => (
-                <TableRow key={flow.id}>
-                  <TableCell className="font-medium">
-                    <Link to={`/flows/${flow.id}`} className="hover:underline">
-                      {flow.name}
-                    </Link>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    当前没有可展示的 flow
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{flow.project}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={flow.status} />
-                  </TableCell>
-                  <TableCell>{flow.steps}</TableCell>
-                  <TableCell className="text-muted-foreground">{flow.created}</TableCell>
-                  <TableCell className="text-muted-foreground">{flow.duration}</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                filtered.map((flow) => (
+                  <TableRow key={flow.id}>
+                    <TableCell className="font-medium">
+                      <Link to={`/flows/${flow.id}`} className="hover:underline">
+                        {flow.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={flow.status} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatRelativeTime(flow.created_at)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatRelativeTime(flow.updated_at)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatFlowDuration(flow)}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

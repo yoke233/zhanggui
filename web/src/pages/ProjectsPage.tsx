@@ -1,70 +1,91 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search, FolderOpen, GitBranch, Server, Cloud } from "lucide-react";
+import { Plus, Search, FolderOpen, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { getErrorMessage } from "@/lib/v2Workbench";
 
-interface ProjectItem {
-  id: number;
-  name: string;
-  kind: string;
-  description: string;
-  icon: React.ReactNode;
-  status: "active" | "archived";
+interface ProjectMetrics {
+  flowCount: number;
+  activeFlowCount: number;
+  successRate: number | null;
   resources: string[];
-  flows: number;
-  running: number;
-  successRate: number;
 }
 
 export function ProjectsPage() {
+  const { apiClient, projects, selectedProjectId, setSelectedProjectId, reloadProjects } = useV2Workbench();
   const [search, setSearch] = useState("");
+  const [metrics, setMetrics] = useState<Record<number, ProjectMetrics>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [projects] = useState<ProjectItem[]>([
-    {
-      id: 1,
-      name: "ai-workflow",
-      kind: "dev",
-      description: "工作流编排引擎，目标打造 AI 全流程自动化",
-      icon: <GitBranch className="h-5 w-5" />,
-      status: "active",
-      resources: ["git", "local_fs"],
-      flows: 8,
-      running: 3,
-      successRate: 92,
-    },
-    {
-      id: 2,
-      name: "auth-service",
-      kind: "dev",
-      description: "认证授权微服务，基于 OAuth2.1",
-      icon: <Server className="h-5 w-5" />,
-      status: "active",
-      resources: ["git"],
-      flows: 5,
-      running: 1,
-      successRate: 88,
-    },
-    {
-      id: 3,
-      name: "infra-deploy",
-      kind: "general",
-      description: "基础设施部署配置和运维自动化",
-      icon: <Cloud className="h-5 w-5" />,
-      status: "active",
-      resources: ["s3"],
-      flows: 3,
-      running: 0,
-      successRate: 75,
-    },
-  ]);
+  useEffect(() => {
+    let cancelled = false;
 
-  const filtered = projects.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.description.toLowerCase().includes(search.toLowerCase()),
+    const loadMetrics = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const entries = await Promise.all(
+          projects.map(async (project) => {
+            const [flows, resources] = await Promise.all([
+              apiClient.listFlows({
+                project_id: project.id,
+                archived: false,
+                limit: 200,
+                offset: 0,
+              }),
+              apiClient.listProjectResources(project.id),
+            ]);
+            const finished = flows.filter((flow) => flow.status === "done" || flow.status === "failed" || flow.status === "cancelled");
+            const succeeded = finished.filter((flow) => flow.status === "done");
+            const successRate = finished.length > 0 ? Math.round((succeeded.length / finished.length) * 100) : null;
+            return [
+              project.id,
+              {
+                flowCount: flows.length,
+                activeFlowCount: flows.filter((flow) => flow.status === "queued" || flow.status === "running" || flow.status === "blocked").length,
+                successRate,
+                resources: resources.map((resource) => resource.kind),
+              },
+            ] as const;
+          }),
+        );
+        if (!cancelled) {
+          setMetrics(Object.fromEntries(entries));
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    if (projects.length > 0) {
+      void loadMetrics();
+    } else {
+      setMetrics({});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, projects]);
+
+  const filtered = useMemo(
+    () =>
+      projects.filter((project) =>
+        project.name.toLowerCase().includes(search.toLowerCase()) ||
+        (project.description ?? "").toLowerCase().includes(search.toLowerCase()),
+      ),
+    [projects, search],
   );
 
   return (
@@ -72,16 +93,19 @@ export function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">项目</h1>
-          <p className="text-sm text-muted-foreground">管理工作流项目和资源绑定</p>
+          <p className="text-sm text-muted-foreground">真实读取 v2 项目与资源绑定，支持切换当前工作区。</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={() => void reloadProjects(selectedProjectId)}>
+            刷新
+          </Button>
           <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索项目..."
               className="pl-9"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(event) => setSearch(event.target.value)}
             />
           </div>
           <Link to="/projects/new">
@@ -93,58 +117,64 @@ export function ProjectsPage() {
         </div>
       </div>
 
+      {loading ? <p className="text-sm text-muted-foreground">加载项目统计中...</p> : null}
+      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((project) => (
-          <Card key={project.id} className="group cursor-pointer transition-shadow hover:shadow-md">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                  {project.icon}
-                </div>
-                <Badge variant={project.status === "active" ? "success" : "secondary"}>
-                  {project.status === "active" ? "活跃" : "归档"}
-                </Badge>
-              </div>
-
-              <div className="mt-4">
-                <h3 className="font-semibold">{project.name}</h3>
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-                  {project.description}
-                </p>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="text-xs">{project.kind}</Badge>
-                {project.resources.map((r) => (
-                  <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>
-                ))}
-              </div>
-
-              <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
-                <div>
-                  <div className="text-lg font-bold">{project.flows}</div>
-                  <div className="text-xs text-muted-foreground">流程</div>
-                </div>
-                <div>
-                  <div className="text-lg font-bold">{project.running}</div>
-                  <div className="text-xs text-muted-foreground">运行中</div>
-                </div>
-                <div>
-                  <div className={cn(
-                    "text-lg font-bold",
-                    project.successRate >= 90 ? "text-emerald-600" :
-                    project.successRate >= 80 ? "text-amber-600" : "text-red-600",
-                  )}>
-                    {project.successRate}%
+        {filtered.map((project) => {
+          const projectMetrics = metrics[project.id];
+          const isSelected = project.id === selectedProjectId;
+          return (
+            <Card
+              key={project.id}
+              className={`group cursor-pointer transition-shadow hover:shadow-md ${isSelected ? "ring-2 ring-primary/30" : ""}`}
+              onClick={() => setSelectedProjectId(project.id)}
+            >
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                    <GitBranch className="h-5 w-5" />
                   </div>
-                  <div className="text-xs text-muted-foreground">成功率</div>
+                  <Badge variant={isSelected ? "success" : "secondary"}>
+                    {isSelected ? "当前项目" : project.kind}
+                  </Badge>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
 
-        {/* New project card */}
+                <div className="mt-4">
+                  <h3 className="font-semibold">{project.name}</h3>
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {project.description || "未填写项目描述"}
+                  </p>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-xs">{project.kind}</Badge>
+                  {(projectMetrics?.resources ?? []).map((resourceKind) => (
+                    <Badge key={resourceKind} variant="secondary" className="text-xs">{resourceKind}</Badge>
+                  ))}
+                </div>
+
+                <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
+                  <div>
+                    <div className="text-lg font-bold">{projectMetrics?.flowCount ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">流程</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold">{projectMetrics?.activeFlowCount ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">运行中</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold">
+                      {projectMetrics?.successRate == null ? "--" : `${projectMetrics.successRate}%`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">成功率</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+
         <Link to="/projects/new">
           <Card className="flex cursor-pointer items-center justify-center border-dashed transition-colors hover:border-primary hover:bg-muted/50">
             <CardContent className="flex flex-col items-center gap-2 p-6 text-muted-foreground">

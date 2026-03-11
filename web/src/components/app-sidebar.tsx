@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -8,7 +9,7 @@ import {
   FolderOpen,
   ChevronsUpDown,
 } from "lucide-react";
-import { useState } from "react";
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
@@ -18,15 +19,13 @@ const navItems = [
   { to: "/projects", icon: FolderOpen, label: "项目" },
 ];
 
-const mockProjects = [
-  { id: 1, name: "ai-workflow" },
-  { id: 2, name: "auth-service" },
-  { id: 3, name: "infra-deploy" },
-];
-
 export function AppSidebar() {
-  const [currentProject, setCurrentProject] = useState(mockProjects[0]);
+  const { projects, selectedProjectId, setSelectedProjectId } = useV2Workbench();
   const [showPicker, setShowPicker] = useState(false);
+  const currentProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
+    [projects, selectedProjectId],
+  );
 
   return (
     <aside className="flex h-screen w-56 flex-col border-r bg-sidebar">
@@ -48,27 +47,32 @@ export function AppSidebar() {
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-indigo-50">
               <GitBranch className="h-3.5 w-3.5 text-indigo-500" />
             </div>
-            <span className="flex-1 truncate text-left text-[13px] font-medium">{currentProject.name}</span>
+            <span className="flex-1 truncate text-left text-[13px] font-medium">
+              {currentProject?.name ?? "未选择项目"}
+            </span>
             <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </button>
 
-          {showPicker && (
+          {showPicker && projects.length > 0 ? (
             <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border bg-popover p-1 shadow-md">
-              {mockProjects.map((p) => (
+              {projects.map((project) => (
                 <button
-                  key={p.id}
-                  onClick={() => { setCurrentProject(p); setShowPicker(false); }}
+                  key={project.id}
+                  onClick={() => {
+                    setSelectedProjectId(project.id);
+                    setShowPicker(false);
+                  }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent",
-                    p.id === currentProject.id && "bg-accent",
+                    project.id === currentProject?.id && "bg-accent",
                   )}
                 >
                   <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="truncate">{p.name}</span>
+                  <span className="truncate">{project.name}</span>
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 

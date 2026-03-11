@@ -1,12 +1,12 @@
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
-  type Node,
   type Edge,
+  type Node,
   type NodeTypes,
   Handle,
   Position,
@@ -19,22 +19,23 @@ import {
   Clock,
   Bot,
   CheckCircle2,
-  AlertCircle,
   Loader2,
   Pause,
+  AlertCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
 import { cn } from "@/lib/utils";
+import { formatFlowDuration, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
+import type { Execution, Flow, Step } from "@/types/apiV2";
 
-/* ── Custom Step Node ── */
-interface StepNodeData {
+interface StepNodeData extends Record<string, unknown> {
   label: string;
-  type: "exec" | "gate" | "composite";
-  status: string;
+  type: Step["type"];
+  status: Step["status"];
   role?: string;
-  [key: string]: unknown;
 }
 
 const statusIcon: Record<string, React.ReactNode> = {
@@ -42,7 +43,9 @@ const statusIcon: Record<string, React.ReactNode> = {
   running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
   failed: <AlertCircle className="h-4 w-4 text-red-500" />,
   waiting_gate: <Pause className="h-4 w-4 text-amber-500" />,
+  blocked: <Pause className="h-4 w-4 text-amber-500" />,
   pending: <Clock className="h-4 w-4 text-zinc-400" />,
+  queued: <Clock className="h-4 w-4 text-zinc-400" />,
   ready: <Play className="h-4 w-4 text-blue-500" />,
 };
 
@@ -51,26 +54,28 @@ const statusBorder: Record<string, string> = {
   running: "border-blue-500",
   failed: "border-red-500",
   waiting_gate: "border-amber-500",
+  blocked: "border-amber-500",
   pending: "border-zinc-200",
+  queued: "border-zinc-200",
   ready: "border-blue-300",
 };
 
 function StepNode({ data }: { data: StepNodeData }) {
   return (
-    <div className={cn(
-      "rounded-lg border-2 bg-white px-4 py-3 shadow-sm min-w-[160px]",
-      statusBorder[data.status] ?? "border-zinc-200",
-    )}>
+    <div
+      className={cn(
+        "min-w-[180px] rounded-lg border-2 bg-white px-4 py-3 shadow-sm",
+        statusBorder[data.status] ?? "border-zinc-200",
+      )}
+    >
       <Handle type="target" position={Position.Top} className="!bg-zinc-400" />
       <div className="flex items-center gap-2">
         {statusIcon[data.status] ?? statusIcon.pending}
         <span className="text-sm font-medium">{data.label}</span>
       </div>
       <div className="mt-1 flex items-center gap-1.5">
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{data.type}</Badge>
-        {data.role && (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{data.role}</Badge>
-        )}
+        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">{normalizeStepTypeLabel(data.type)}</Badge>
+        {data.role ? <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{data.role}</Badge> : null}
       </div>
       <Handle type="source" position={Position.Bottom} className="!bg-zinc-400" />
     </div>
@@ -81,130 +86,230 @@ const nodeTypes: NodeTypes = {
   step: StepNode,
 };
 
-/* ── Mock data ── */
-const mockNodes: Node<StepNodeData>[] = [
-  { id: "1", type: "step", position: { x: 50, y: 0 }, data: { label: "需求分析", type: "exec", status: "done", role: "worker" } },
-  { id: "2", type: "step", position: { x: 0, y: 120 }, data: { label: "实现 API", type: "exec", status: "done", role: "worker" } },
-  { id: "3", type: "step", position: { x: 200, y: 120 }, data: { label: "编写测试", type: "exec", status: "running", role: "worker" } },
-  { id: "4", type: "step", position: { x: 100, y: 240 }, data: { label: "集成测试", type: "gate", status: "pending", role: "gate" } },
-  { id: "5", type: "step", position: { x: 0, y: 360 }, data: { label: "代码审查", type: "gate", status: "pending", role: "gate" } },
-  { id: "6", type: "step", position: { x: 200, y: 360 }, data: { label: "性能测试", type: "exec", status: "pending", role: "worker" } },
-  { id: "7", type: "step", position: { x: 100, y: 480 }, data: { label: "部署发布", type: "composite", status: "pending", role: "worker" } },
-];
+const buildGraph = (steps: Step[]): { nodes: Node<StepNodeData>[]; edges: Edge[] } => {
+  const depthMap = new Map<number, number>();
+  const stepMap = new Map(steps.map((step) => [step.id, step]));
 
-const mockEdges: Edge[] = [
-  { id: "e1-2", source: "1", target: "2", animated: false },
-  { id: "e1-3", source: "1", target: "3", animated: true },
-  { id: "e2-4", source: "2", target: "4" },
-  { id: "e3-4", source: "3", target: "4" },
-  { id: "e4-5", source: "4", target: "5" },
-  { id: "e4-6", source: "4", target: "6" },
-  { id: "e5-7", source: "5", target: "7" },
-  { id: "e6-7", source: "6", target: "7" },
-];
+  const resolveDepth = (step: Step): number => {
+    const cached = depthMap.get(step.id);
+    if (cached != null) {
+      return cached;
+    }
+    const dependsOn = step.depends_on ?? [];
+    if (dependsOn.length === 0) {
+      depthMap.set(step.id, 0);
+      return 0;
+    }
+    const depth = Math.max(
+      ...dependsOn.map((dependencyId) => {
+        const dependency = stepMap.get(dependencyId);
+        return dependency ? resolveDepth(dependency) + 1 : 0;
+      }),
+    );
+    depthMap.set(step.id, depth);
+    return depth;
+  };
 
-interface StepDetail {
-  id: string;
-  label: string;
-  type: string;
-  status: string;
-  role?: string;
-  capabilities: string[];
-  acceptance: string[];
-  agent?: string;
-  executions: { id: number; attempt: number; status: string; duration: string }[];
-}
+  const columns = new Map<number, Step[]>();
+  steps.forEach((step) => {
+    const depth = resolveDepth(step);
+    const list = columns.get(depth) ?? [];
+    list.push(step);
+    columns.set(depth, list);
+  });
 
-const mockDetail: StepDetail = {
-  id: "3",
-  label: "编写测试",
-  type: "exec",
-  status: "running",
-  role: "worker",
-  capabilities: ["backend", "testing"],
-  acceptance: ["覆盖 API 所有公共端点", "测试通过率 100%", "无已知缺陷"],
-  agent: "claude-worker",
-  executions: [
-    { id: 101, attempt: 1, status: "failed", duration: "3m 20s" },
-    { id: 102, attempt: 2, status: "running", duration: "1m 45s" },
-  ],
+  const nodes = steps.map((step) => {
+    const depth = depthMap.get(step.id) ?? 0;
+    const siblings = columns.get(depth) ?? [];
+    const rowIndex = siblings.findIndex((candidate) => candidate.id === step.id);
+    return {
+      id: String(step.id),
+      type: "step",
+      position: { x: depth * 260, y: rowIndex * 150 },
+      data: {
+        label: step.name,
+        type: step.type,
+        status: step.status,
+        role: step.agent_role,
+      },
+    } satisfies Node<StepNodeData>;
+  });
+
+  const edges = steps.flatMap((step) =>
+    (step.depends_on ?? []).map((dependencyId) => ({
+      id: `e${dependencyId}-${step.id}`,
+      source: String(dependencyId),
+      target: String(step.id),
+      animated: step.status === "running",
+    })),
+  );
+
+  return { nodes, edges };
 };
 
 export function FlowDetailPage() {
   const { flowId } = useParams();
-  const [selectedStep, setSelectedStep] = useState<string | null>("3");
-  const [nodes] = useState(mockNodes);
-  const [edges] = useState(mockEdges);
+  const { apiClient, projects } = useV2Workbench();
+  const numericFlowId = Number.parseInt(flowId ?? "", 10);
+  const [flow, setFlow] = useState<Flow | null>(null);
+  const [steps, setSteps] = useState<Step[]>([]);
+  const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
+  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [runningAction, setRunningAction] = useState<"idle" | "run" | "cancel">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(numericFlowId)) {
+      return;
+    }
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [flowResp, stepsResp] = await Promise.all([
+          apiClient.getFlow(numericFlowId),
+          apiClient.listSteps(numericFlowId),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setFlow(flowResp);
+        setSteps(stepsResp);
+        setSelectedStepId((current) => current ?? stepsResp[0]?.id ?? null);
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, numericFlowId]);
+
+  useEffect(() => {
+    if (selectedStepId == null) {
+      setExecutions([]);
+      return;
+    }
+    let cancelled = false;
+    const loadExecutions = async () => {
+      try {
+        const listed = await apiClient.listExecutions(selectedStepId);
+        if (!cancelled) {
+          const sorted = [...listed].sort((left, right) => right.attempt - left.attempt);
+          setExecutions(sorted);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError));
+        }
+      }
+    };
+    void loadExecutions();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, selectedStepId]);
+
+  const { nodes, edges } = useMemo(() => buildGraph(steps), [steps]);
+  const selectedStep = steps.find((step) => step.id === selectedStepId) ?? null;
+  const selectedProject = flow?.project_id == null
+    ? null
+    : projects.find((project) => project.id === flow.project_id) ?? null;
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedStep(node.id);
+    const nextStepId = Number.parseInt(node.id, 10);
+    if (Number.isFinite(nextStepId)) {
+      setSelectedStepId(nextStepId);
+    }
   }, []);
 
-  const detail = selectedStep ? mockDetail : null;
-
-  const edgeStyles = useMemo(() => ({
-    stroke: "#94a3b8",
-    strokeWidth: 1.5,
-  }), []);
+  const runAction = async (action: "run" | "cancel") => {
+    if (!flow) {
+      return;
+    }
+    setRunningAction(action);
+    setError(null);
+    try {
+      if (action === "run") {
+        await apiClient.runFlow(flow.id);
+      } else {
+        await apiClient.cancelFlow(flow.id);
+      }
+      const refreshed = await apiClient.getFlow(flow.id);
+      setFlow(refreshed);
+    } catch (actionError) {
+      setError(getErrorMessage(actionError));
+    } finally {
+      setRunningAction("idle");
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
       <div className="border-b px-8 py-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
           <Link to="/flows" className="hover:text-foreground">流程</Link>
           <ChevronRight className="h-3 w-3" />
-          <span>ai-workflow</span>
+          <span>{selectedProject?.name ?? "未指定项目"}</span>
           <ChevronRight className="h-3 w-3" />
-          <span className="text-foreground">后端 API 重构</span>
+          <span className="text-foreground">{flow?.name ?? `Flow #${flowId}`}</span>
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold">后端 API 重构</h1>
-            <StatusBadge status="running" />
+            <h1 className="text-xl font-bold">{flow?.name ?? `Flow #${flowId}`}</h1>
+            {flow ? <StatusBadge status={flow.status} /> : null}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Flow #{flowId ?? 1}</span>
-            <span className="text-sm text-muted-foreground">· 7 步骤</span>
-            <span className="text-sm text-muted-foreground">· 12 分钟</span>
-            <Button variant="outline" size="sm">
+            <span className="text-sm text-muted-foreground">Flow #{flow?.id ?? flowId}</span>
+            <span className="text-sm text-muted-foreground">· {steps.length} 步骤</span>
+            {flow ? <span className="text-sm text-muted-foreground">· {formatFlowDuration(flow)}</span> : null}
+            <Button variant="outline" size="sm" disabled={runningAction !== "idle"} onClick={() => void runAction("cancel")}>
               <Square className="mr-2 h-3 w-3" />
-              取消
+              {runningAction === "cancel" ? "取消中..." : "取消"}
             </Button>
-            <Button size="sm">
+            <Button size="sm" disabled={runningAction !== "idle"} onClick={() => void runAction("run")}>
               <Play className="mr-2 h-3 w-3" />
-              运行下一步
+              {runningAction === "run" ? "提交中..." : "运行"}
             </Button>
           </div>
         </div>
       </div>
 
-      {/* DAG + Detail panel */}
+      {loading ? <p className="px-8 py-4 text-sm text-muted-foreground">加载 flow 详情中...</p> : null}
+      {error ? <p className="mx-8 mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
       <div className="flex flex-1 overflow-hidden">
-        {/* DAG Canvas */}
-        <div className="flex-1 relative">
+        <div className="relative flex-1">
           <ReactFlow
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodeClick={onNodeClick}
-            defaultEdgeOptions={{ style: edgeStyles }}
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={{ padding: 0.2 }}
             proOptions={{ hideAttribution: true }}
           >
             <Background gap={16} size={1} color="#e2e8f0" />
-            <Controls
-              className="!bg-white !border !shadow-sm !rounded-lg"
-              showInteractive={false}
-            />
+            <Controls className="!rounded-lg !border !bg-white !shadow-sm" showInteractive={false} />
             <MiniMap
-              className="!bg-white !border !shadow-sm !rounded-lg"
-              nodeColor={(n) => {
-                const s = (n.data as StepNodeData)?.status;
-                if (s === "done") return "#10b981";
-                if (s === "running") return "#3b82f6";
-                if (s === "failed") return "#ef4444";
+              className="!rounded-lg !border !bg-white !shadow-sm"
+              nodeColor={(node) => {
+                const status = (node.data as unknown as StepNodeData)?.status;
+                if (status === "done") return "#10b981";
+                if (status === "running") return "#3b82f6";
+                if (status === "failed") return "#ef4444";
+                if (status === "waiting_gate" || status === "blocked") return "#f59e0b";
                 return "#d4d4d8";
               }}
               maskColor="rgba(0,0,0,0.05)"
@@ -212,71 +317,93 @@ export function FlowDetailPage() {
           </ReactFlow>
         </div>
 
-        {/* Step detail panel */}
-        {detail && (
-          <div className="w-80 border-l overflow-y-auto">
-            <div className="p-5 space-y-5">
+        {selectedStep ? (
+          <div className="w-80 overflow-y-auto border-l">
+            <div className="space-y-5 p-5">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="font-semibold">{detail.label}</h3>
-                  <StatusBadge status={detail.status} />
+                  <h3 className="font-semibold">{selectedStep.name}</h3>
+                  <StatusBadge status={selectedStep.status} />
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className="text-xs">{detail.type}</Badge>
-                  {detail.role && <Badge variant="info" className="text-xs">{detail.role}</Badge>}
+                  <Badge variant="outline" className="text-xs">{normalizeStepTypeLabel(selectedStep.type)}</Badge>
+                  {selectedStep.agent_role ? <Badge variant="info" className="text-xs">{selectedStep.agent_role}</Badge> : null}
                 </div>
+                {selectedStep.description ? (
+                  <p className="mt-3 text-sm text-muted-foreground">{selectedStep.description}</p>
+                ) : null}
               </div>
 
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">能力要求</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">能力要求</h4>
                 <div className="flex flex-wrap gap-1.5">
-                  {detail.capabilities.map((c) => (
-                    <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>
-                  ))}
+                  {(selectedStep.required_capabilities ?? []).length === 0 ? (
+                    <span className="text-sm text-muted-foreground">未设置</span>
+                  ) : (
+                    selectedStep.required_capabilities?.map((capability) => (
+                      <Badge key={capability} variant="secondary" className="text-xs">{capability}</Badge>
+                    ))
+                  )}
                 </div>
               </div>
 
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">验收标准</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">验收标准</h4>
                 <ul className="space-y-1.5">
-                  {detail.acceptance.map((a, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      {a}
-                    </li>
-                  ))}
+                  {(selectedStep.acceptance_criteria ?? []).length === 0 ? (
+                    <li className="text-sm text-muted-foreground">未设置</li>
+                  ) : (
+                    selectedStep.acceptance_criteria?.map((criteria, index) => (
+                      <li key={`${criteria}-${index}`} className="flex items-start gap-2 text-sm">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        {criteria}
+                      </li>
+                    ))
+                  )}
                 </ul>
               </div>
 
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">代理</h4>
-                <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">{detail.agent}</span>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">代理与约束</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-muted-foreground" />
+                    <span>{selectedStep.agent_role || "未指定"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span>{selectedStep.timeout ?? "未设置 timeout"}</span>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">执行历史</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">执行历史</h4>
                 <div className="space-y-2">
-                  {detail.executions.map((exec) => (
-                    <Link
-                      key={exec.id}
-                      to={`/executions/${exec.id}`}
-                      className="flex items-center justify-between rounded-md border p-2.5 text-sm hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">第 {exec.attempt} 次</span>
-                        <StatusBadge status={exec.status} />
-                      </div>
-                      <span className="text-xs text-muted-foreground">{exec.duration}</span>
-                    </Link>
-                  ))}
+                  {executions.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">还没有 execution</div>
+                  ) : (
+                    executions.map((execution) => (
+                      <Link
+                        key={execution.id}
+                        to={`/executions/${execution.id}`}
+                        className="flex items-center justify-between rounded-md border p-2.5 text-sm transition-colors hover:bg-muted/50"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">第 {execution.attempt} 次</span>
+                          <StatusBadge status={execution.status} />
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {execution.started_at ?? execution.created_at}
+                        </span>
+                      </Link>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

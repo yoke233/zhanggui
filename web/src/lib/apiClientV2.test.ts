@@ -100,4 +100,40 @@ describe("apiClientV2", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("GET");
   });
+
+  it("listFlows 会透传 archived 查询参数", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.listFlows({ project_id: 7, archived: false, limit: 20, offset: 10 });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v2/flows?project_id=7&archived=false&limit=20&offset=10",
+    );
+  });
+
+  it("listDrivers 会命中 /agents/drivers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.listDrivers();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/v2/agents/drivers");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("GET");
+  });
 });
