@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Settings2, Bot, X, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Settings2, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,25 +10,10 @@ import {
 import {
   Dialog, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
 } from "@/components/ui/dialog";
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
 import { cn } from "@/lib/utils";
-
-interface Driver {
-  id: string;
-  name: string;
-  command: string;
-  capabilitiesMax: string[];
-  profileCount: number;
-}
-
-interface Profile {
-  id: string;
-  name: string;
-  role: string;
-  driver: string;
-  capabilities: string[];
-  actions: string[];
-  maxTurns: number;
-}
+import { getErrorMessage } from "@/lib/v2Workbench";
+import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 
 const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "secondary"> = {
   worker: "info",
@@ -37,46 +22,100 @@ const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "seconda
   support: "secondary",
 };
 
-const ALL_CAPS = ["fs_read", "fs_write", "terminal"];
+const ALL_CAPS = ["fs_read", "fs_write", "terminal"] as const;
 
 export function AgentsPage() {
-  const [drivers] = useState<Driver[]>([
-    { id: "claude", name: "claude", command: "npx -y @anthropic-ai/claude-code-acp", capabilitiesMax: ["fs_read", "fs_write", "terminal"], profileCount: 3 },
-    { id: "codex", name: "codex", command: "npx -y @anthropic/codex-acp", capabilitiesMax: ["fs_read", "fs_write"], profileCount: 2 },
-  ]);
+  const { apiClient } = useV2Workbench();
+  const [drivers, setDrivers] = useState<AgentDriver[]>([]);
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [profiles] = useState<Profile[]>([
-    { id: "claude-worker", name: "claude-worker", role: "worker", driver: "claude", capabilities: ["backend", "frontend"], actions: ["implement", "test"], maxTurns: 12 },
-    { id: "claude-reviewer", name: "claude-reviewer", role: "gate", driver: "claude", capabilities: ["backend", "frontend"], actions: ["review"], maxTurns: 5 },
-    { id: "claude-lead", name: "claude-lead", role: "lead", driver: "claude", capabilities: ["backend", "frontend", "infra"], actions: ["plan", "delegate", "review"], maxTurns: 20 },
-    { id: "codex-worker", name: "codex-worker", role: "worker", driver: "codex", capabilities: ["backend"], actions: ["implement"], maxTurns: 8 },
-    { id: "codex-reviewer", name: "codex-reviewer", role: "gate", driver: "codex", capabilities: ["backend"], actions: ["review"], maxTurns: 5 },
-  ]);
-
-  /* ── Dialog state ── */
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
 
-  // Driver form
   const [driverName, setDriverName] = useState("");
   const [driverCmd, setDriverCmd] = useState("");
   const [driverArgs, setDriverArgs] = useState("");
   const [driverCaps, setDriverCaps] = useState<string[]>(["fs_read", "fs_write", "terminal"]);
 
-  // Profile form
   const [profileName, setProfileName] = useState("");
   const [profileRole, setProfileRole] = useState("worker");
-  const [profileDriver, setProfileDriver] = useState("claude");
-  const [profileCaps, setProfileCaps] = useState<string[]>(["backend", "frontend"]);
-  const [profileActions, setProfileActions] = useState<string[]>(["implement", "test"]);
+  const [profileDriver, setProfileDriver] = useState("");
+  const [profileCaps, setProfileCaps] = useState("backend,frontend");
+  const [profileActions, setProfileActions] = useState("read_context,search_files,fs_write,terminal,submit,mark_blocked,request_help");
   const [profileMaxTurns, setProfileMaxTurns] = useState("12");
-  const [newCap, setNewCap] = useState("");
-  const [newAction, setNewAction] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [driverResp, profileResp] = await Promise.all([
+        apiClient.listDrivers(),
+        apiClient.listProfiles(),
+      ]);
+      setDrivers(driverResp);
+      setProfiles(profileResp);
+      setProfileDriver((current) => current || driverResp[0]?.id || "");
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
 
   const toggleCap = (cap: string) => {
     setDriverCaps((prev) =>
-      prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap],
+      prev.includes(cap) ? prev.filter((item) => item !== cap) : [...prev, cap],
     );
+  };
+
+  const createDriver = async () => {
+    try {
+      await apiClient.createDriver({
+        id: driverName.trim(),
+        launch_command: driverCmd.trim(),
+        launch_args: driverArgs.split(" ").map((item) => item.trim()).filter(Boolean),
+        capabilities_max: {
+          fs_read: driverCaps.includes("fs_read"),
+          fs_write: driverCaps.includes("fs_write"),
+          terminal: driverCaps.includes("terminal"),
+        },
+      });
+      setDriverDialogOpen(false);
+      setDriverName("");
+      setDriverCmd("");
+      setDriverArgs("");
+      await load();
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    }
+  };
+
+  const createProfile = async () => {
+    try {
+      await apiClient.createProfile({
+        id: profileName.trim(),
+        name: profileName.trim(),
+        driver_id: profileDriver,
+        role: profileRole,
+        capabilities: profileCaps.split(",").map((item) => item.trim()).filter(Boolean),
+        actions_allowed: profileActions.split(",").map((item) => item.trim()).filter(Boolean),
+        session: {
+          reuse: true,
+          max_turns: Number.parseInt(profileMaxTurns, 10) || 12,
+        },
+      });
+      setProfileDialogOpen(false);
+      setProfileName("");
+      await load();
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    }
   };
 
   return (
@@ -84,7 +123,7 @@ export function AgentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">代理管理</h1>
-          <p className="text-sm text-muted-foreground">管理工作流中的代理配置和角色分配</p>
+          <p className="text-sm text-muted-foreground">读取和写入 v2 registry 中的 drivers 与 profiles。</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setDriverDialogOpen(true)}>
@@ -98,7 +137,9 @@ export function AgentsPage() {
         </div>
       </div>
 
-      {/* Drivers section */}
+      {loading ? <p className="text-sm text-muted-foreground">加载代理配置中...</p> : null}
+      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -113,38 +154,37 @@ export function AgentsPage() {
                 <TableHead>名称</TableHead>
                 <TableHead>启动命令</TableHead>
                 <TableHead>最大能力</TableHead>
-                <TableHead>配置数</TableHead>
-                <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {drivers.map((d) => (
-                <TableRow key={d.id}>
-                  <TableCell className="font-medium">{d.name}</TableCell>
-                  <TableCell>
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{d.command}</code>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {d.capabilitiesMax.map((c) => (
-                        <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>{d.profileCount}</TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+              {drivers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center text-muted-foreground">暂无驱动</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                drivers.map((driver) => (
+                  <TableRow key={driver.id}>
+                    <TableCell className="font-medium">{driver.id}</TableCell>
+                    <TableCell>
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
+                        {driver.launch_command} {(driver.launch_args ?? []).join(" ")}
+                      </code>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {ALL_CAPS.filter((cap) => driver.capabilities_max[cap]).map((cap) => (
+                          <Badge key={cap} variant="outline" className="text-xs">{cap}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* Profiles section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -160,70 +200,66 @@ export function AgentsPage() {
                 <TableHead>驱动</TableHead>
                 <TableHead>能力标签</TableHead>
                 <TableHead>操作权限</TableHead>
-                <TableHead>最大轮次</TableHead>
-                <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {profiles.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={roleBadgeVariant[p.role] ?? "secondary"}>{p.role}</Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{p.driver}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {p.capabilities.map((c) => (
-                        <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {p.actions.map((a) => (
-                        <Badge key={a} variant="secondary" className="text-xs">{a}</Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>{p.maxTurns}</TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+              {profiles.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">暂无 profile</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                profiles.map((profile) => (
+                  <TableRow key={profile.id}>
+                    <TableCell className="font-medium">{profile.name || profile.id}</TableCell>
+                    <TableCell>
+                      <Badge variant={roleBadgeVariant[profile.role] ?? "secondary"}>{profile.role}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{profile.driver_id}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(profile.capabilities ?? []).map((capability) => (
+                          <Badge key={capability} variant="outline" className="text-xs">{capability}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(profile.actions_allowed ?? []).map((action) => (
+                          <Badge key={action} variant="secondary" className="text-xs">{action}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* ── Create Driver Dialog ── */}
       <Dialog open={driverDialogOpen} onClose={() => setDriverDialogOpen(false)} className="max-w-md">
         <DialogHeader>
           <DialogTitle>新建驱动</DialogTitle>
-          <DialogDescription>添加一个新的 Agent 驱动进程配置</DialogDescription>
+          <DialogDescription>创建后直接写入 `/api/v2/agents/drivers`。</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">驱动名称</label>
-            <Input placeholder="例如：claude" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+            <label className="text-sm font-medium">驱动 ID</label>
+            <Input value={driverName} onChange={(event) => setDriverName(event.target.value)} />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">启动命令</label>
-            <Input placeholder="npx" className="font-mono" value={driverCmd} onChange={(e) => setDriverCmd(e.target.value)} />
+            <Input value={driverCmd} onChange={(event) => setDriverCmd(event.target.value)} />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">启动参数</label>
-            <Input placeholder="-y @anthropic-ai/claude-code-acp" value={driverArgs} onChange={(e) => setDriverArgs(e.target.value)} />
+            <Input value={driverArgs} onChange={(event) => setDriverArgs(event.target.value)} />
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">最大能力</label>
-            <p className="text-xs text-muted-foreground">该驱动允许的最高权限上限</p>
             <div className="flex gap-4">
               {ALL_CAPS.map((cap) => (
-                <label key={cap} className="flex items-center gap-2 cursor-pointer">
+                <label key={cap} className="flex cursor-pointer items-center gap-2">
                   <button
                     type="button"
                     onClick={() => toggleCap(cap)}
@@ -234,7 +270,7 @@ export function AgentsPage() {
                         : "border border-input",
                     )}
                   >
-                    {driverCaps.includes(cap) && <Check className="h-3 w-3" />}
+                    {driverCaps.includes(cap) ? "✓" : ""}
                   </button>
                   <span className="text-sm">{cap}</span>
                 </label>
@@ -244,117 +280,63 @@ export function AgentsPage() {
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => setDriverDialogOpen(false)}>取消</Button>
-          <Button>创建驱动</Button>
+          <Button onClick={() => void createDriver()}>创建驱动</Button>
         </DialogFooter>
       </Dialog>
 
-      {/* ── Create Profile Dialog ── */}
       <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} className="max-w-lg">
         <DialogHeader>
           <DialogTitle>新建配置</DialogTitle>
-          <DialogDescription>创建 Agent 角色配置，绑定驱动并设置能力</DialogDescription>
+          <DialogDescription>创建 profile 并绑定到现有 driver。</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">配置名称</label>
-              <Input placeholder="例如：claude-worker" value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+              <label className="text-sm font-medium">配置 ID</label>
+              <Input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">角色</label>
               <select
                 className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={profileRole}
-                onChange={(e) => setProfileRole(e.target.value)}
+                onChange={(event) => setProfileRole(event.target.value)}
               >
+                <option value="lead">lead</option>
                 <option value="worker">worker</option>
                 <option value="gate">gate</option>
-                <option value="lead">lead</option>
                 <option value="support">support</option>
               </select>
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">驱动</label>
+            <label className="text-sm font-medium">绑定驱动</label>
             <select
               className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
               value={profileDriver}
-              onChange={(e) => setProfileDriver(e.target.value)}
+              onChange={(event) => setProfileDriver(event.target.value)}
             >
-              {drivers.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
+              {drivers.map((driver) => (
+                <option key={driver.id} value={driver.id}>{driver.id}</option>
               ))}
             </select>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">能力标签</label>
-            <p className="text-xs text-muted-foreground">不能超出驱动的最大能力范围</p>
-            <div className="flex flex-wrap gap-2">
-              {profileCaps.map((c) => (
-                <span key={c} className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-medium">
-                  {c}
-                  <button onClick={() => setProfileCaps((prev) => prev.filter((x) => x !== c))}>
-                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                  </button>
-                </span>
-              ))}
-              <form
-                className="inline-flex"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (newCap.trim() && !profileCaps.includes(newCap.trim())) {
-                    setProfileCaps((prev) => [...prev, newCap.trim()]);
-                    setNewCap("");
-                  }
-                }}
-              >
-                <input
-                  className="w-16 rounded-full border px-3 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="+ 添加"
-                  value={newCap}
-                  onChange={(e) => setNewCap(e.target.value)}
-                />
-              </form>
-            </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">能力标签（逗号分隔）</label>
+            <Input value={profileCaps} onChange={(event) => setProfileCaps(event.target.value)} />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">操作权限</label>
-            <div className="flex flex-wrap gap-2">
-              {profileActions.map((a) => (
-                <span key={a} className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
-                  {a}
-                  <button onClick={() => setProfileActions((prev) => prev.filter((x) => x !== a))}>
-                    <X className="h-3 w-3 text-indigo-400 hover:text-indigo-600" />
-                  </button>
-                </span>
-              ))}
-              <form
-                className="inline-flex"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (newAction.trim() && !profileActions.includes(newAction.trim())) {
-                    setProfileActions((prev) => [...prev, newAction.trim()]);
-                    setNewAction("");
-                  }
-                }}
-              >
-                <input
-                  className="w-16 rounded-full border px-3 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="+ 添加"
-                  value={newAction}
-                  onChange={(e) => setNewAction(e.target.value)}
-                />
-              </form>
-            </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">允许动作（逗号分隔）</label>
+            <Input value={profileActions} onChange={(event) => setProfileActions(event.target.value)} />
           </div>
-          <div className="w-28 space-y-1.5">
+          <div className="space-y-1.5">
             <label className="text-sm font-medium">最大轮次</label>
-            <Input type="number" value={profileMaxTurns} onChange={(e) => setProfileMaxTurns(e.target.value)} />
+            <Input value={profileMaxTurns} onChange={(event) => setProfileMaxTurns(event.target.value)} />
           </div>
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>取消</Button>
-          <Button>创建配置</Button>
+          <Button onClick={() => void createProfile()}>创建配置</Button>
         </DialogFooter>
       </Dialog>
     </div>

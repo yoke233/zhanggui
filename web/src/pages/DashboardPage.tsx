@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Activity,
-  GitBranch,
+  ArrowUpRight,
   CheckCircle2,
   Clock,
+  GitBranch,
   Play,
-  ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
+import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
 import { cn } from "@/lib/utils";
+import {
+  formatFlowDuration,
+  formatRelativeTime,
+  getErrorMessage,
+  isActiveFlowStatus,
+} from "@/lib/v2Workbench";
+import type { Flow, SchedulerStats, StatsResponse } from "@/types/apiV2";
 
 interface StatCard {
   title: string;
@@ -30,45 +38,119 @@ interface StatCard {
   icon: React.ReactNode;
 }
 
-interface RunningFlow {
-  id: number;
-  name: string;
-  project: string;
-  status: string;
-  steps: string;
-  duration: string;
-}
-
-interface QueueItem {
-  id: number;
-  name: string;
-  status: "running" | "queued" | "idle";
-}
-
 export function DashboardPage() {
-  const [stats, setStats] = useState<StatCard[]>([
-    { title: "执行中流程", value: 3, change: "+2 较昨日", changeType: "up", icon: <Activity className="h-4 w-4 text-muted-foreground" /> },
-    { title: "完成流程", value: 5, change: "上次成功 1h 前", changeType: "neutral", icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" /> },
-    { title: "今日完成", value: 12, change: "成功率 92%", changeType: "up", icon: <GitBranch className="h-4 w-4 text-muted-foreground" /> },
-    { title: "排队子任务", value: 1, change: "预计 5 分钟", changeType: "neutral", icon: <Clock className="h-4 w-4 text-muted-foreground" /> },
-  ]);
-
-  const [flows] = useState<RunningFlow[]>([
-    { id: 1, name: "后端 API 重构", project: "ai-workflow", status: "running", steps: "4/7", duration: "12m" },
-    { id: 2, name: "前端 UI 更新", project: "ai-workflow", status: "running", steps: "2/5", duration: "8m" },
-    { id: 3, name: "集成测试套件", project: "auth-service", status: "running", steps: "1/3", duration: "3m" },
-  ]);
-
-  const [queueItems] = useState<QueueItem[]>([
-    { id: 1, name: "部署 API 服务", status: "running" },
-    { id: 2, name: "运行集成测试", status: "running" },
-    { id: 3, name: "代码审查", status: "queued" },
-  ]);
+  const { apiClient, selectedProject, selectedProjectId, projects } = useV2Workbench();
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [flows, setFlows] = useState<Flow[]>([]);
+  const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // TODO: fetch real stats from API
-    void setStats;
-  }, []);
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [statsResp, flowsResp, schedulerResp] = await Promise.all([
+          apiClient.getStats(),
+          apiClient.listFlows({
+            project_id: selectedProjectId ?? undefined,
+            archived: false,
+            limit: 50,
+            offset: 0,
+          }),
+          apiClient.getSchedulerStats(),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setStats(statsResp);
+        setFlows(flowsResp);
+        setSchedulerStats(schedulerResp);
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(getErrorMessage(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, selectedProjectId]);
+
+  const activeFlows = useMemo(() => flows.filter((flow) => isActiveFlowStatus(flow.status)), [flows]);
+  const doneFlows = useMemo(() => flows.filter((flow) => flow.status === "done"), [flows]);
+  const queueFlows = useMemo(
+    () => flows.filter((flow) => flow.status === "queued" || flow.status === "running").slice(0, 4),
+    [flows],
+  );
+
+  const statsCards: StatCard[] = useMemo(() => {
+    const successRate = typeof stats?.success_rate === "number" ? `${Math.round(stats.success_rate * 100)}%` : "--";
+    return [
+      {
+        title: "执行中流程",
+        value: activeFlows.length,
+        change: selectedProject ? `${selectedProject.name} 范围` : `${projects.length} 个项目`,
+        changeType: "neutral",
+        icon: <Activity className="h-4 w-4 text-muted-foreground" />,
+      },
+      {
+        title: "完成流程",
+        value: doneFlows.length,
+        change: stats ? `总计 ${stats.total_flows} 个 flow` : "等待统计",
+        changeType: "neutral",
+        icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
+      },
+      {
+        title: "成功率",
+        value: successRate,
+        change: stats ? `平均耗时 ${stats.avg_duration}` : "等待统计",
+        changeType: "up",
+        icon: <GitBranch className="h-4 w-4 text-muted-foreground" />,
+      },
+      {
+        title: "排队任务",
+        value: flows.filter((flow) => flow.status === "queued").length,
+        change: schedulerStats?.enabled ? "调度器已启用" : schedulerStats?.message ?? "调度器未启用",
+        changeType: "neutral",
+        icon: <Clock className="h-4 w-4 text-muted-foreground" />,
+      },
+    ];
+  }, [activeFlows.length, doneFlows.length, flows, projects.length, schedulerStats, selectedProject, stats]);
+
+  if (!selectedProjectId && projects.length === 0) {
+    return (
+      <div className="flex-1 space-y-6 p-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">仪表盘</h1>
+          <p className="text-sm text-muted-foreground">当前还没有项目，先创建项目并绑定资源。</p>
+        </div>
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle>尚未建立工作区</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-3">
+            <Link to="/projects/new">
+              <Button>
+                <Play className="mr-2 h-4 w-4" />
+                创建第一个项目
+              </Button>
+            </Link>
+            <p className="text-sm text-muted-foreground">创建完成后，仪表盘会自动展示真实的 v2 Flow 数据。</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 space-y-6 p-8">
@@ -76,7 +158,8 @@ export function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">仪表盘</h1>
           <p className="text-sm text-muted-foreground">
-            运行 3 个流程 / 已完成 67 个流程 / 队列 1 个任务
+            {selectedProject ? `当前项目：${selectedProject.name}` : "跨项目总览"}
+            {stats ? ` / 总计 ${stats.total_flows} 个流程` : ""}
           </p>
         </div>
         <Link to="/flows/new">
@@ -87,9 +170,8 @@ export function DashboardPage() {
         </Link>
       </div>
 
-      {/* Stats cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
+        {statsCards.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
@@ -97,22 +179,25 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stat.value}</div>
-              {stat.change && (
-                <p className={cn(
-                  "text-xs",
-                  stat.changeType === "up" ? "text-emerald-600" : "text-muted-foreground",
-                )}>
+              {stat.change ? (
+                <p
+                  className={cn(
+                    "text-xs",
+                    stat.changeType === "up" ? "text-emerald-600" : "text-muted-foreground",
+                  )}
+                >
                   {stat.change}
                 </p>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Main content row */}
+      {loading ? <p className="text-sm text-muted-foreground">加载仪表盘数据中...</p> : null}
+      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Running flows table */}
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>运行中流程</CardTitle>
@@ -125,91 +210,101 @@ export function DashboardPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>流程名称</TableHead>
-                  <TableHead>项目</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead>步骤</TableHead>
+                  <TableHead>创建时间</TableHead>
                   <TableHead>耗时</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {flows.map((flow) => (
-                  <TableRow key={flow.id}>
-                    <TableCell className="font-medium">
-                      <Link to={`/flows/${flow.id}`} className="hover:underline">
-                        {flow.name}
-                      </Link>
+                {activeFlows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      当前没有运行中的流程
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{flow.project}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={flow.status} />
-                    </TableCell>
-                    <TableCell>{flow.steps}</TableCell>
-                    <TableCell className="text-muted-foreground">{flow.duration}</TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  activeFlows.slice(0, 6).map((flow) => (
+                    <TableRow key={flow.id}>
+                      <TableCell className="font-medium">
+                        <Link to={`/flows/${flow.id}`} className="hover:underline">
+                          {flow.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={flow.status} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{formatRelativeTime(flow.created_at)}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatFlowDuration(flow)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
 
-        {/* Scheduler panel */}
         <Card className="overflow-hidden p-0">
-          {/* Header */}
           <div className="flex items-center justify-between border-b px-5 py-4">
             <h3 className="text-base font-semibold">调度器</h3>
-            <Badge variant="success">健康</Badge>
+            <Badge variant={schedulerStats?.enabled ? "success" : "secondary"}>
+              {schedulerStats?.enabled ? "已启用" : "未启用"}
+            </Badge>
           </div>
 
-          {/* Stats */}
           <div className="space-y-4 p-5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">最大并发</span>
-              <span className="font-semibold">2</span>
+              <span className="text-muted-foreground">项目</span>
+              <span className="font-semibold">{selectedProject?.name ?? "全部项目"}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">运行中</span>
-              <span className="font-semibold text-blue-500">2 / 2</span>
+              <span className="font-semibold text-blue-500">{activeFlows.length}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">排队中</span>
-              <span className="font-semibold text-amber-500">1</span>
+              <span className="font-semibold text-amber-500">
+                {flows.filter((flow) => flow.status === "queued").length}
+              </span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">平均耗时</span>
-              <span className="font-semibold">4m 32s</span>
+              <span className="font-semibold">{stats?.avg_duration ?? "-"}</span>
             </div>
           </div>
 
-          {/* Divider */}
           <div className="border-t" />
 
-          {/* Queue label */}
           <div className="px-5 py-2">
-            <span className="text-[11px] font-medium tracking-wider text-muted-foreground">队列</span>
+            <span className="text-[11px] font-medium tracking-wider text-muted-foreground">活跃队列</span>
           </div>
 
-          {/* Queue items */}
           <div>
-            {queueItems.map((item, i) => (
-              <div
-                key={item.id}
-                className={cn(
-                  "flex items-center gap-2.5 px-5 py-2.5",
-                  i < queueItems.length - 1 && "border-b",
-                )}
-              >
-                <div className={cn(
-                  "h-2 w-2 shrink-0 rounded-full",
-                  item.status === "running" ? "bg-blue-500" : "bg-amber-500",
-                )} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{item.name}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {item.status === "running" ? `步骤 ${item.id}/3 · 运行 ${item.id} 分钟` : "等待排队"}
+            {queueFlows.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">队列为空</div>
+            ) : (
+              queueFlows.map((flow, index) => (
+                <div
+                  key={flow.id}
+                  className={cn(
+                    "flex items-center gap-2.5 px-5 py-2.5",
+                    index < queueFlows.length - 1 && "border-b",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      flow.status === "running" ? "bg-blue-500" : "bg-amber-500",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{flow.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {flow.status === "running" ? "正在执行" : "等待调度"} · {formatRelativeTime(flow.updated_at)}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
       </div>

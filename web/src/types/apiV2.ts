@@ -1,5 +1,6 @@
 export type FlowStatus =
   | "pending"
+  | "queued"
   | "running"
   | "blocked"
   | "failed"
@@ -14,6 +15,7 @@ export interface Flow {
   status: FlowStatus;
   parent_step_id?: number | null;
   metadata?: Record<string, string>;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +47,7 @@ export interface Step {
   id: number;
   flow_id: number;
   name: string;
+  description?: string;
   type: StepType;
   status: StepStatus;
   depends_on?: number[];
@@ -94,6 +97,7 @@ export interface Execution {
 }
 
 export type EventType =
+  | "flow.queued"
   | "flow.started"
   | "flow.completed"
   | "flow.failed"
@@ -107,8 +111,10 @@ export type EventType =
   | "exec.started"
   | "exec.succeeded"
   | "exec.failed"
+  | "exec.agent_output"
   | "gate.passed"
   | "gate.rejected"
+  | "chat.output"
   | string;
 
 export interface Event {
@@ -188,15 +194,58 @@ export interface GenerateStepsRequest {
 export interface UpdateStepRequest {
   name?: string;
   type?: "exec" | "gate" | "composite";
-  status?: StepStatus;
   depends_on?: number[];
-  sub_flow_id?: number | null;
+  description?: string;
   agent_role?: string;
   required_capabilities?: string[];
   acceptance_criteria?: string[];
   timeout?: string;
   max_retries?: number;
   config?: Record<string, unknown>;
+}
+
+export interface DriverCapabilities {
+  fs_read: boolean;
+  fs_write: boolean;
+  terminal: boolean;
+}
+
+export interface AgentDriver {
+  id: string;
+  launch_command: string;
+  launch_args?: string[];
+  env?: Record<string, string>;
+  capabilities_max: DriverCapabilities;
+}
+
+export interface AgentProfileSession {
+  reuse?: boolean;
+  max_turns?: number;
+  idle_ttl?: string;
+}
+
+export interface AgentProfileMCP {
+  enabled?: boolean;
+  tools?: string[];
+}
+
+export interface AgentProfile {
+  id: string;
+  name?: string;
+  driver_id: string;
+  role: "lead" | "worker" | "gate" | "support" | string;
+  capabilities?: string[];
+  actions_allowed?: string[];
+  prompt_template?: string;
+  skills?: string[];
+  session?: AgentProfileSession;
+  mcp?: AgentProfileMCP;
+}
+
+export interface SchedulerStats {
+  enabled: boolean;
+  message?: string;
+  stats?: Record<string, unknown>;
 }
 
 export interface ChatRequest {
