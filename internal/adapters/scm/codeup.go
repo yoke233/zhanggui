@@ -29,6 +29,8 @@ type CodeupProvider struct {
 	httpClient     *http.Client
 }
 
+const defaultCodeupAPIBaseURL = "https://openapi-rdc.aliyuncs.com"
+
 func NewCodeupProvider(cfg CodeupProviderConfig) *CodeupProvider {
 	return &CodeupProvider{
 		token:          strings.TrimSpace(cfg.Token),
@@ -61,6 +63,10 @@ func (p *CodeupProvider) EnsureOpen(ctx context.Context, repo flowapp.ChangeRequ
 	}
 
 	reqInfo, err := p.resolveRequest(repo, input.Extra)
+	if err != nil {
+		return flowapp.ChangeRequest{}, false, err
+	}
+	reqInfo, err = p.ensureProjectIDs(ctx, reqInfo)
 	if err != nil {
 		return flowapp.ChangeRequest{}, false, err
 	}
@@ -174,6 +180,11 @@ func (i codeupRequestInfo) createURL() string {
 		url.PathEscape(i.OrganizationID), url.PathEscape(i.RepositoryID))
 }
 
+func (i codeupRequestInfo) repositoryURL() string {
+	return strings.TrimRight(i.BaseURL, "/") + fmt.Sprintf("/oapi/v1/codeup/organizations/%s/repositories/%s",
+		url.PathEscape(i.OrganizationID), url.PathEscape(i.RepositoryID))
+}
+
 func (i codeupRequestInfo) mergeURL(number int) string {
 	return strings.TrimRight(i.BaseURL, "/") + fmt.Sprintf("/oapi/v1/codeup/organizations/%s/repositories/%s/changeRequests/%d/merge",
 		url.PathEscape(i.OrganizationID), url.PathEscape(i.RepositoryID), number)
@@ -269,9 +280,6 @@ func (p *CodeupProvider) resolveRequest(repo flowapp.ChangeRequestRepo, extra ma
 	if targetProjectID == 0 {
 		targetProjectID = projectID
 	}
-	if sourceProjectID == 0 || targetProjectID == 0 {
-		return codeupRequestInfo{}, errors.New("codeup project_id or source/target_project_id is required")
-	}
 
 	repositoryID := strings.TrimSpace(stringFromAny(extra["repository_id"]))
 	if repositoryID == "" {
@@ -281,9 +289,9 @@ func (p *CodeupProvider) resolveRequest(repo flowapp.ChangeRequestRepo, extra ma
 		return codeupRequestInfo{}, errors.New("codeup repository_id is required")
 	}
 
-	baseURL := normalizeCodeupDomain(repo.Host)
-	if strings.TrimSpace(p.domain) != "" {
-		baseURL = p.domain
+	baseURL := p.domain
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultCodeupAPIBaseURL
 	}
 	return codeupRequestInfo{
 		BaseURL:         baseURL,
@@ -294,14 +302,41 @@ func (p *CodeupProvider) resolveRequest(repo flowapp.ChangeRequestRepo, extra ma
 	}, nil
 }
 
-func (p *CodeupProvider) findOpenChangeRequest(ctx context.Context, reqInfo codeupRequestInfo, head string, base string, title string) (flowapp.ChangeRequest, bool, error) {
-	var list struct {
-		Items []codeupChangeRequest `json:"items"`
+type codeupRepository struct {
+	ID int64 `json:"id"`
+}
+
+func (p *CodeupProvider) ensureProjectIDs(ctx context.Context, reqInfo codeupRequestInfo) (codeupRequestInfo, error) {
+	if reqInfo.SourceProjectID > 0 && reqInfo.TargetProjectID > 0 {
+		return reqInfo, nil
 	}
-	if err := p.doJSON(ctx, http.MethodGet, reqInfo.listURL(), nil, &list); err != nil {
+
+	var repoInfo codeupRepository
+	if err := p.doJSON(ctx, http.MethodGet, reqInfo.repositoryURL(), nil, &repoInfo); err != nil {
+		return codeupRequestInfo{}, fmt.Errorf("codeup resolve repository project id failed: %w", err)
+	}
+	if repoInfo.ID <= 0 {
+		return codeupRequestInfo{}, errors.New("codeup repository lookup returned empty id")
+	}
+	if reqInfo.SourceProjectID == 0 {
+		reqInfo.SourceProjectID = repoInfo.ID
+	}
+	if reqInfo.TargetProjectID == 0 {
+		reqInfo.TargetProjectID = repoInfo.ID
+	}
+	return reqInfo, nil
+}
+
+func (p *CodeupProvider) findOpenChangeRequest(ctx context.Context, reqInfo codeupRequestInfo, head string, base string, title string) (flowapp.ChangeRequest, bool, error) {
+	var raw json.RawMessage
+	if err := p.doJSON(ctx, http.MethodGet, reqInfo.listURL(), nil, &raw); err != nil {
 		return flowapp.ChangeRequest{}, false, err
 	}
-	for _, item := range list.Items {
+	items, err := parseCodeupChangeRequestList(raw)
+	if err != nil {
+		return flowapp.ChangeRequest{}, false, err
+	}
+	for _, item := range items {
 		if strings.TrimSpace(item.SourceBranch) == head && strings.TrimSpace(item.TargetBranch) == base {
 			return item.toChangeRequest(), true, nil
 		}
@@ -387,7 +422,7 @@ func (p *CodeupProvider) matchesHost(host string) bool {
 func normalizeCodeupDomain(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "https://codeup.aliyun.com"
+		return ""
 	}
 	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
 		return strings.TrimRight(raw, "/")
@@ -412,7 +447,7 @@ func parseCodeupRemote(originURL string) (codeupRemote, error) {
 			return codeupRemote{}, errors.New("invalid ssh remote")
 		}
 		segments := splitCodeupPath(parts[1])
-		if len(segments) < 3 {
+		if len(segments) < 2 {
 			return codeupRemote{}, errors.New("invalid codeup path")
 		}
 		return codeupRemote{
@@ -426,7 +461,7 @@ func parseCodeupRemote(originURL string) (codeupRemote, error) {
 		return codeupRemote{}, err
 	}
 	segments := splitCodeupPath(u.Path)
-	if len(segments) < 3 {
+	if len(segments) < 2 {
 		return codeupRemote{}, errors.New("invalid codeup path")
 	}
 	return codeupRemote{
@@ -476,6 +511,25 @@ func codeupMergeMethod(method string) string {
 	default:
 		return "no-fast-forward"
 	}
+}
+
+func parseCodeupChangeRequestList(raw json.RawMessage) ([]codeupChangeRequest, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var wrapped struct {
+		Items []codeupChangeRequest `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil && wrapped.Items != nil {
+		return wrapped.Items, nil
+	}
+
+	var items []codeupChangeRequest
+	if err := json.Unmarshal(raw, &items); err == nil {
+		return items, nil
+	}
+	return nil, fmt.Errorf("decode codeup change request list failed: %s", strings.TrimSpace(string(raw)))
 }
 
 func stringSliceFromAny(v any) []string {

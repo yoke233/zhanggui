@@ -2,8 +2,6 @@ package scm
 
 import (
 	"context"
-	"os"
-	"strings"
 
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 )
@@ -12,9 +10,7 @@ func NewChangeRequestProviders(token string) []flowapp.ChangeRequestProvider {
 	return []flowapp.ChangeRequestProvider{
 		NewGitHubProvider(token),
 		NewCodeupProvider(CodeupProviderConfig{
-			Token:          token,
-			Domain:         strings.TrimSpace(os.Getenv("AI_WORKFLOW_CODEUP_DOMAIN")),
-			OrganizationID: strings.TrimSpace(os.Getenv("AI_WORKFLOW_CODEUP_ORGANIZATION_ID")),
+			Token: token,
 		}),
 	}
 }

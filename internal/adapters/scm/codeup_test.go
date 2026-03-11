@@ -32,6 +32,27 @@ func TestCodeupProviderDetect_SSHRemote(t *testing.T) {
 	}
 }
 
+func TestCodeupProviderDetect_HTTPSRemoteTwoSegments(t *testing.T) {
+	provider := NewCodeupProvider(CodeupProviderConfig{})
+
+	repo, ok, err := provider.Detect(context.Background(), "https://codeup.aliyun.com/5f6ea0829cffa29cfdd39a7f/test-workflow.git")
+	if err != nil {
+		t.Fatalf("Detect error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected codeup remote to be detected")
+	}
+	if repo.Host != "codeup.aliyun.com" {
+		t.Fatalf("host = %q", repo.Host)
+	}
+	if repo.Namespace != "5f6ea0829cffa29cfdd39a7f" {
+		t.Fatalf("namespace = %q", repo.Namespace)
+	}
+	if repo.Name != "test-workflow" {
+		t.Fatalf("name = %q", repo.Name)
+	}
+}
+
 func TestCodeupProviderEnsureOpen_CreatesChangeRequest(t *testing.T) {
 	var gotPath string
 	var gotToken string
@@ -101,6 +122,94 @@ func TestCodeupProviderEnsureOpen_CreatesChangeRequest(t *testing.T) {
 	}
 	if gotBody["repositoryId"] != nil {
 		t.Fatalf("unexpected repositoryId in body: %#v", gotBody["repositoryId"])
+	}
+}
+
+func TestCodeupProviderEnsureOpen_InfersProjectIDFromRepository(t *testing.T) {
+	var gotBody map[string]any
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/repositories/5f6ea0829cffa29cfdd39a7f%2Ftest-workflow", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":2369234}`))
+	})
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/changeRequests", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	})
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/repositories/5f6ea0829cffa29cfdd39a7f%2Ftest-workflow/changeRequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"localId":18,"webUrl":"https://codeup.aliyun.com/cr/18","sha":"def456"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	provider := NewCodeupProvider(CodeupProviderConfig{
+		Token:  "codeup-token",
+		Domain: srv.URL,
+	})
+	provider.httpClient = srv.Client()
+
+	_, created, err := provider.EnsureOpen(context.Background(), flowapp.ChangeRequestRepo{
+		Kind:      "codeup",
+		Host:      "codeup.aliyun.com",
+		Namespace: "5f6ea0829cffa29cfdd39a7f",
+		Name:      "test-workflow",
+	}, flowapp.EnsureOpenInput{
+		Head:  "feature/test",
+		Base:  "master",
+		Title: "test title",
+		Body:  "desc",
+	})
+	if err != nil {
+		t.Fatalf("EnsureOpen error: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true")
+	}
+	if gotBody["sourceProjectId"] != float64(2369234) {
+		t.Fatalf("sourceProjectId = %#v", gotBody["sourceProjectId"])
+	}
+	if gotBody["targetProjectId"] != float64(2369234) {
+		t.Fatalf("targetProjectId = %#v", gotBody["targetProjectId"])
+	}
+}
+
+func TestCodeupProviderEnsureOpen_AcceptsArrayListResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/repositories/5f6ea0829cffa29cfdd39a7f%2Ftest-workflow", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":2369234}`))
+	})
+	mux.HandleFunc("/oapi/v1/codeup/organizations/5f6ea0829cffa29cfdd39a7f/changeRequests", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"localId":19,"sourceBranch":"feature/test","targetBranch":"master","webUrl":"https://codeup.aliyun.com/cr/19","sha":"ghi789"}]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	provider := NewCodeupProvider(CodeupProviderConfig{
+		Token:  "codeup-token",
+		Domain: srv.URL,
+	})
+	provider.httpClient = srv.Client()
+
+	cr, created, err := provider.EnsureOpen(context.Background(), flowapp.ChangeRequestRepo{
+		Kind:      "codeup",
+		Host:      "codeup.aliyun.com",
+		Namespace: "5f6ea0829cffa29cfdd39a7f",
+		Name:      "test-workflow",
+	}, flowapp.EnsureOpenInput{
+		Head:  "feature/test",
+		Base:  "master",
+		Title: "test title",
+	})
+	if err != nil {
+		t.Fatalf("EnsureOpen error: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false when open change request already exists")
+	}
+	if cr.Number != 19 {
+		t.Fatalf("number = %d", cr.Number)
 	}
 }
 

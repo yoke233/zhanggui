@@ -18,9 +18,10 @@ import (
 type Secrets struct {
 	Tokens map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
 	GitHub GitHubSecrets         `toml:"github" yaml:"github"`
+	Codeup CodeupSecrets         `toml:"codeup" yaml:"codeup"`
 
 	// Backwards-compatible top-level fine-grained PAT fields.
-	// For convenience, they can also be set under [github] and will be backfilled.
+	// For convenience, they can also be set under [github] / [codeup] and will be backfilled.
 	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
 	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
 }
@@ -54,6 +55,13 @@ type GitHubSecrets struct {
 	WebhookSecret  string `toml:"webhook_secret"   yaml:"webhook_secret"`
 
 	// Optional fine-grained PATs for automation flows.
+	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
+	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
+}
+
+// CodeupSecrets holds Codeup-related credentials for SCM automation.
+type CodeupSecrets struct {
+	Token     string `toml:"token"      yaml:"token"`
 	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
 	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
 }
@@ -103,6 +111,12 @@ func LoadSecrets(path string) (*Secrets, error) {
 	}
 	if strings.TrimSpace(s.MergePAT) == "" && strings.TrimSpace(s.GitHub.MergePAT) != "" {
 		s.MergePAT = s.GitHub.MergePAT
+	}
+	if strings.TrimSpace(s.CommitPAT) == "" && strings.TrimSpace(s.Codeup.CommitPAT) != "" {
+		s.CommitPAT = s.Codeup.CommitPAT
+	}
+	if strings.TrimSpace(s.MergePAT) == "" && strings.TrimSpace(s.Codeup.MergePAT) != "" {
+		s.MergePAT = s.Codeup.MergePAT
 	}
 	return s, nil
 }
