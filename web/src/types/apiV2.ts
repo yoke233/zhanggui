@@ -579,3 +579,43 @@ export interface CreateFlowFromTemplateResponse {
   flow: Flow;
   steps: Step[];
 }
+
+// --- Git Tags ---
+
+export interface GitCommitEntry {
+  sha: string;
+  short: string;
+  message: string;
+  author: string;
+  timestamp: string;
+}
+
+export interface GitTagEntry {
+  name: string;
+  sha: string;
+  message?: string;
+  timestamp?: string;
+}
+
+export interface CreateGitTagRequest {
+  name: string;
+  ref?: string;
+  message?: string;
+  push?: boolean;
+}
+
+export interface CreateGitTagResponse {
+  name: string;
+  sha: string;
+  pushed: boolean;
+  push_error?: string;
+}
+
+export interface PushGitTagRequest {
+  name: string;
+}
+
+export interface PushGitTagResponse {
+  name: string;
+  pushed: boolean;
+}

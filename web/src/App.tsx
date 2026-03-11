@@ -12,6 +12,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
 import { FlowDetailPage } from "@/pages/FlowDetailPage";
 import { FlowsPage } from "@/pages/FlowsPage";
+import { GitTagsPage } from "@/pages/GitTagsPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { SandboxPage } from "@/pages/SandboxPage";
 import { SkillsPage } from "@/pages/SkillsPage";
@@ -71,6 +72,7 @@ const WorkbenchRoutes = () => {
           <Route path="/sandbox" element={<SandboxPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/git-tags" element={<GitTagsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/new" element={<CreateProjectPage />} />
         </Route>

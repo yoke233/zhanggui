@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
   Sparkles,
   Shield,
+  Tag,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/templates", icon: FileStack, label: "模板" },
   { to: "/agents", icon: Bot, label: "代理" },
   { to: "/skills", icon: Sparkles, label: "技能" },
+  { to: "/git-tags", icon: Tag, label: "版本标签" },
   { to: "/projects", icon: FolderOpen, label: "项目" },
 ];
 

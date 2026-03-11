@@ -27,6 +27,7 @@ type Handler struct {
 	skillGitHubImporter skillset.GitHubImporter
 	sandbox             sandbox.ControlService
 	prPrompts           flowapp.PRFlowPromptsProvider
+	gitPAT              string
 }
 
 // NewHandler creates the workflow API handler.
@@ -90,6 +91,11 @@ func WithSandboxController(controller sandbox.ControlService) HandlerOption {
 // WithPRFlowPromptsProvider sets a provider for built-in PR flow prompt text.
 func WithPRFlowPromptsProvider(provider flowapp.PRFlowPromptsProvider) HandlerOption {
 	return func(h *Handler) { h.prPrompts = provider }
+}
+
+// WithGitPAT sets the PAT used for pushing git tags to remote.
+func WithGitPAT(pat string) HandlerOption {
+	return func(h *Handler) { h.gitPAT = pat }
 }
 
 // Register mounts all workflow routes onto the given chi router.
@@ -182,6 +188,9 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/flows/{flowID}/cron", h.getFlowCronStatus)
 	r.Post("/flows/{flowID}/cron", h.setupFlowCron)
 	r.Delete("/flows/{flowID}/cron", h.disableFlowCron)
+
+	// Git tags (version tagging & CI/CD trigger)
+	h.registerGitTagRoutes(r)
 
 	// WebSocket
 	r.Get("/ws", h.wsEvents)
