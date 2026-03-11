@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search, FolderOpen, GitBranch, Loader2 } from "lucide-react";
+import { Plus, Search, FolderOpen, GitBranch, Loader2, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ interface ProjectMetrics {
   activeFlowCount: number;
   successRate: number | null;
   resources: string[];
+  hasGit: boolean;
 }
 
 export function ProjectsPage() {
@@ -50,6 +51,7 @@ export function ProjectsPage() {
                 activeFlowCount: flows.filter((flow) => flow.status === "queued" || flow.status === "running" || flow.status === "blocked").length,
                 successRate,
                 resources: resources.map((resource) => resource.kind),
+                hasGit: resources.some((resource) => resource.kind.trim().toLowerCase() === "git"),
               },
             ] as const;
           }),
@@ -172,6 +174,20 @@ export function ProjectsPage() {
                     <div className="text-xs text-muted-foreground">成功率</div>
                   </div>
                 </div>
+
+                {projectMetrics?.hasGit ? (
+                  <div className="mt-3 border-t pt-3">
+                    <Link
+                      to={`/projects/${project.id}/git-tags`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button variant="outline" size="sm" className="h-7 w-full text-xs">
+                        <Tag className="mr-1.5 h-3 w-3" />
+                        版本标签
+                      </Button>
+                    </Link>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           );

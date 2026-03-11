@@ -29,6 +29,14 @@ func buildAPIOptions(
 		skillsRoot = filepath.Join(dataDir, "skills")
 	}
 
+	// Resolve effective PAT for git tag push.
+	gitPAT := ""
+	if bootstrapCfg != nil {
+		if v := bootstrapCfg.GitHub.Token; v != "" {
+			gitPAT = v
+		}
+	}
+
 	return []api.HandlerOption{
 		api.WithLeadAgent(leadAgent),
 		api.WithScheduler(scheduler),
@@ -36,6 +44,7 @@ func buildAPIOptions(
 		api.WithDAGGenerator(dagGen),
 		api.WithSandboxController(sandbox.NewRuntimeControlService(runtimeManager, fallback)),
 		api.WithSkillsRoot(skillsRoot),
+		api.WithGitPAT(gitPAT),
 		api.WithPRFlowPromptsProvider(func() flowapp.PRFlowPrompts {
 			return currentPRFlowPrompts(runtimeManager, bootstrapCfg)
 		}),

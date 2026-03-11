@@ -45,6 +45,12 @@ import type {
   SaveFlowAsTemplateRequest,
   CreateFlowFromTemplateRequest,
   CreateFlowFromTemplateResponse,
+  GitCommitEntry,
+  GitTagEntry,
+  CreateGitTagRequest,
+  CreateGitTagResponse,
+  PushGitTagRequest,
+  PushGitTagResponse,
   UsageAnalyticsSummary,
   UsageRecord,
 } from "../types/apiV2";
@@ -250,6 +256,12 @@ export interface ApiClient {
   deleteDAGTemplate(templateId: number): Promise<void>;
   saveFlowAsTemplate(flowId: number, body: SaveFlowAsTemplateRequest): Promise<DAGTemplate>;
   createFlowFromTemplate(templateId: number, body: CreateFlowFromTemplateRequest): Promise<CreateFlowFromTemplateResponse>;
+
+  // Git Tags
+  listGitCommits(projectId: number, params?: { limit?: number }): Promise<GitCommitEntry[]>;
+  listGitTags(projectId: number): Promise<GitTagEntry[]>;
+  createGitTag(projectId: number, body: CreateGitTagRequest): Promise<CreateGitTagResponse>;
+  pushGitTag(projectId: number, body: PushGitTagRequest): Promise<PushGitTagResponse>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -668,6 +680,29 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     createFlowFromTemplate: (templateId, body) =>
       request<CreateFlowFromTemplateResponse, CreateFlowFromTemplateRequest>({
         path: `/templates/${templateId}/create-flow`,
+        method: "POST",
+        body,
+      }),
+
+    // Git Tags
+    listGitCommits: (projectId, params) =>
+      request<GitCommitEntry[]>({
+        path: `/projects/${projectId}/git/commits`,
+        query: { limit: params?.limit },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    listGitTags: (projectId) =>
+      request<GitTagEntry[]>({
+        path: `/projects/${projectId}/git/tags`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createGitTag: (projectId, body) =>
+      request<CreateGitTagResponse, CreateGitTagRequest>({
+        path: `/projects/${projectId}/git/tags`,
+        method: "POST",
+        body,
+      }),
+    pushGitTag: (projectId, body) =>
+      request<PushGitTagResponse, PushGitTagRequest>({
+        path: `/projects/${projectId}/git/tags/push`,
         method: "POST",
         body,
       }),
