@@ -44,6 +44,8 @@ interface WorkbenchContextValue {
   selectedProject: Project | null;
   setSelectedProjectId: (projectId: number | null) => void;
   reloadProjects: (preferredProjectId?: number | null) => Promise<Project[]>;
+  login: (token: string) => void;
+  logout: () => void;
 }
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
@@ -119,10 +121,18 @@ interface ProviderProps {
   children: ReactNode;
 }
 
+const clearTokenFromStorage = (): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+};
+
 export function WorkbenchProvider({ children }: ProviderProps) {
   const tokenRef = useRef<string | null>(null);
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
   const [wsBaseUrl, setWsBaseUrl] = useState(DEFAULT_WS_BASE_URL);
+  const [loginAttempt, setLoginAttempt] = useState(0);
 
   const apiClient = useMemo(
     () =>
@@ -254,7 +264,8 @@ export function WorkbenchProvider({ children }: ProviderProps) {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, applyProjects, wsBaseUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBaseUrl, applyProjects, wsBaseUrl, loginAttempt]);
 
   useEffect(() => {
     if (authStatus !== "ready") {
@@ -269,6 +280,19 @@ export function WorkbenchProvider({ children }: ProviderProps) {
   const setSelectedProjectId = useCallback((projectId: number | null) => {
     persistSelectedProjectId(projectId);
     setSelectedProjectIdState(projectId);
+  }, []);
+
+  const login = useCallback((token: string) => {
+    persistTokenToStorage(token);
+    setLoginAttempt((n) => n + 1);
+  }, []);
+
+  const logout = useCallback(() => {
+    tokenRef.current = null;
+    clearTokenFromStorage();
+    setAuthStatus("error");
+    setAuthError(null);
+    setProjects([]);
   }, []);
 
   const value = useMemo<WorkbenchContextValue>(() => {
@@ -289,6 +313,8 @@ export function WorkbenchProvider({ children }: ProviderProps) {
       selectedProject,
       setSelectedProjectId,
       reloadProjects,
+      login,
+      logout,
     };
   }, [
     apiClient,
@@ -301,6 +327,8 @@ export function WorkbenchProvider({ children }: ProviderProps) {
     selectedProjectId,
     setSelectedProjectId,
     reloadProjects,
+    login,
+    logout,
   ]);
 
   return <WorkbenchContext.Provider value={value}>{children}</WorkbenchContext.Provider>;
