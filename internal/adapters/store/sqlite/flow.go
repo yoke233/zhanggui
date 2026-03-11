@@ -75,6 +75,10 @@ func (s *Store) ListFlows(ctx context.Context, filter core.FlowFilter) ([]*core.
 			conditions = append(conditions, `archived_at IS NULL`)
 		}
 	}
+	if filter.MetadataHasKey != "" {
+		conditions = append(conditions, `json_extract(metadata, ?) IS NOT NULL`)
+		args = append(args, "$."+filter.MetadataHasKey)
+	}
 	if len(conditions) > 0 {
 		query += ` WHERE ` + strings.Join(conditions, " AND ")
 	}
@@ -119,6 +123,25 @@ func (s *Store) UpdateFlowStatus(ctx context.Context, id int64, status core.Flow
 	)
 	if err != nil {
 		return fmt.Errorf("update flow status: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateFlowMetadata(ctx context.Context, id int64, metadata map[string]string) error {
+	meta, err := marshalJSON(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE flows SET metadata = ?, updated_at = ? WHERE id = ?`,
+		meta, time.Now().UTC(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update flow metadata: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {

@@ -64,21 +64,40 @@ func (s cronSchedule) shouldFire(lastFired, now time.Time) bool {
 		return s.matches(now)
 	}
 
-	// Walk forward from lastFired in 1-minute increments, check if any minute
-	// between (lastFired, now] matches. For efficiency, cap at 1440 iterations (24h).
-	check := lastFired.Truncate(time.Minute).Add(time.Minute)
-	nowTrunc := now.Truncate(time.Minute)
-	maxIter := 1440
-	for i := 0; check.Before(nowTrunc) || check.Equal(nowTrunc); i++ {
-		if i >= maxIter {
-			break
-		}
-		if s.matches(check) {
-			return true
-		}
-		check = check.Add(time.Minute)
+	// Find the next fire time after lastFired. If it falls at or before now, fire.
+	next := s.nextAfter(lastFired)
+	if next.IsZero() {
+		return false
 	}
-	return false
+	return !next.After(now.Truncate(time.Minute))
+}
+
+// nextAfter returns the next time the schedule matches strictly after t.
+// Scans forward up to ~366 days. Returns zero time if none found.
+func (s cronSchedule) nextAfter(t time.Time) time.Time {
+	candidate := t.Truncate(time.Minute).Add(time.Minute)
+	end := candidate.Add(366 * 24 * time.Hour)
+
+	for candidate.Before(end) {
+		if !s.months.matches(int(candidate.Month())) {
+			candidate = time.Date(candidate.Year(), candidate.Month()+1, 1, 0, 0, 0, 0, candidate.Location())
+			continue
+		}
+		if !s.days.matches(candidate.Day()) || !s.weekdays.matches(int(candidate.Weekday())) {
+			candidate = time.Date(candidate.Year(), candidate.Month(), candidate.Day()+1, 0, 0, 0, 0, candidate.Location())
+			continue
+		}
+		if !s.hours.matches(candidate.Hour()) {
+			candidate = candidate.Truncate(time.Hour).Add(time.Hour)
+			continue
+		}
+		if !s.minutes.matches(candidate.Minute()) {
+			candidate = candidate.Add(time.Minute)
+			continue
+		}
+		return candidate
+	}
+	return time.Time{}
 }
 
 // matches checks if a specific time matches all cron fields.

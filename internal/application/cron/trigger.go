@@ -123,8 +123,6 @@ type flowTemplate struct {
 }
 
 func (t *Trigger) loadTemplates(ctx context.Context) ([]flowTemplate, error) {
-	// Scan all non-archived flows. Templates are identified by metadata.
-	// We paginate to avoid pulling everything at once.
 	const pageSize = 200
 	var templates []flowTemplate
 	offset := 0
@@ -132,9 +130,10 @@ func (t *Trigger) loadTemplates(ctx context.Context) ([]flowTemplate, error) {
 	archived := false
 	for {
 		flows, err := t.store.ListFlows(ctx, core.FlowFilter{
-			Archived: &archived,
-			Limit:    pageSize,
-			Offset:   offset,
+			Archived:       &archived,
+			MetadataHasKey: MetaTemplateID,
+			Limit:          pageSize,
+			Offset:         offset,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list flows: %w", err)
@@ -216,6 +215,17 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now ti
 		return
 	}
 
+	// Check maxInstances: count active (pending/queued/running) clones of this template.
+	activeCount := t.countActiveInstances(ctx, tmpl.flow.ID)
+	if activeCount >= tmpl.maxInst {
+		slog.Debug("cron: skipping trigger, max instances reached",
+			"template_flow_id", tmpl.flow.ID,
+			"active", activeCount,
+			"max", tmpl.maxInst,
+		)
+		return
+	}
+
 	// Clone and submit.
 	newFlowID, err := t.cloneAndSubmit(ctx, tmpl.flow)
 	if err != nil {
@@ -223,21 +233,47 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now ti
 		return
 	}
 
-	// Update state.
+	// Update in-memory state.
 	t.mu.Lock()
 	state.lastFired = now
 	t.mu.Unlock()
 
 	// Persist lastTriggered back to template metadata.
 	tmpl.flow.Metadata[MetaLastTriggered] = now.Format(time.RFC3339)
-	// Best-effort: we don't have UpdateFlowMetadata, so we skip persisting this.
-	// The in-memory state is authoritative during the process lifetime.
+	if err := t.store.UpdateFlowMetadata(ctx, tmpl.flow.ID, tmpl.flow.Metadata); err != nil {
+		slog.Warn("cron: failed to persist last_triggered", "template_flow_id", tmpl.flow.ID, "error", err)
+	}
 
 	slog.Info("cron: triggered flow",
 		"template_flow_id", tmpl.flow.ID,
 		"new_flow_id", newFlowID,
 		"schedule", tmpl.flow.Metadata[MetaSchedule],
 	)
+}
+
+// countActiveInstances counts non-terminal flows cloned from the given template.
+func (t *Trigger) countActiveInstances(ctx context.Context, templateFlowID int64) int {
+	sourceID := strconv.FormatInt(templateFlowID, 10)
+	count := 0
+
+	// Check active statuses: pending, queued, running, blocked.
+	for _, status := range []core.FlowStatus{core.FlowPending, core.FlowQueued, core.FlowRunning, core.FlowBlocked} {
+		flows, err := t.store.ListFlows(ctx, core.FlowFilter{
+			Status:         &status,
+			MetadataHasKey: MetaSourceFlowID,
+			Limit:          100,
+		})
+		if err != nil {
+			slog.Warn("cron: failed to count active instances", "error", err)
+			continue
+		}
+		for _, f := range flows {
+			if f.Metadata[MetaSourceFlowID] == sourceID {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Flow) (int64, error) {

@@ -6,12 +6,24 @@ import {
   CalendarClock,
   Clock,
   Loader2,
+  Pause,
+  Play,
+  Plus,
   RefreshCw,
   TrendingDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -30,6 +42,134 @@ const TIME_RANGES = [
   { label: "30d", value: 30 },
   { label: "全部", value: 0 },
 ] as const;
+
+// --- Cron expression parser & human-readable description ---
+
+interface CronParseResult {
+  valid: boolean;
+  error?: string;
+  description?: string;
+}
+
+function parseCronExpr(expr: string): CronParseResult {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return { valid: false, error: `需要 5 个字段 (分 时 日 月 周)，当前 ${parts.length} 个` };
+  }
+
+  const fieldNames = ["分钟", "小时", "日", "月", "星期"];
+  const ranges: [number, number][] = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
+
+  for (let i = 0; i < 5; i++) {
+    const err = validateField(parts[i], ranges[i][0], ranges[i][1]);
+    if (err) return { valid: false, error: `${fieldNames[i]}: ${err}` };
+  }
+
+  const desc = describeCron(parts[0], parts[1], parts[2], parts[3], parts[4]);
+  return { valid: true, description: desc };
+}
+
+function validateField(field: string, min: number, max: number): string | null {
+  if (field === "*") return null;
+  for (const segment of field.split(",")) {
+    const [rangePart, stepStr] = segment.split("/");
+    if (stepStr !== undefined) {
+      const step = Number(stepStr);
+      if (!Number.isInteger(step) || step <= 0) return `无效步长 "${stepStr}"`;
+    }
+    if (rangePart === "*") continue;
+    if (rangePart.includes("-")) {
+      const [lo, hi] = rangePart.split("-").map(Number);
+      if (!Number.isInteger(lo) || !Number.isInteger(hi)) return `无效范围 "${rangePart}"`;
+      if (lo < min || hi > max || lo > hi) return `范围 ${lo}-${hi} 超出 [${min},${max}]`;
+    } else {
+      const v = Number(rangePart);
+      if (!Number.isInteger(v)) return `无效值 "${rangePart}"`;
+      if (v < min || v > max) return `值 ${v} 超出 [${min},${max}]`;
+    }
+  }
+  return null;
+}
+
+const WEEKDAY_NAMES = ["日", "一", "二", "三", "四", "五", "六"];
+
+function describeCron(minute: string, hour: string, day: string, month: string, weekday: string): string {
+  const parts: string[] = [];
+
+  // Month
+  if (month !== "*") {
+    parts.push(describeList(month, (v) => `${v}月`));
+  }
+
+  // Day of month
+  if (day !== "*") {
+    parts.push(describeList(day, (v) => `${v}号`));
+  }
+
+  // Weekday
+  if (weekday !== "*") {
+    if (weekday === "1-5") {
+      parts.push("工作日");
+    } else if (weekday === "0,6") {
+      parts.push("周末");
+    } else {
+      parts.push(describeList(weekday, (v) => `周${WEEKDAY_NAMES[v] ?? v}`));
+    }
+  }
+
+  // Hour + minute combined
+  if (hour === "*" && minute === "*") {
+    parts.push("每分钟");
+  } else if (hour === "*") {
+    if (minute.startsWith("*/")) {
+      parts.push(`每 ${minute.slice(2)} 分钟`);
+    } else if (minute === "0") {
+      parts.push("每小时整点");
+    } else {
+      parts.push(`每小时的第 ${minute} 分钟`);
+    }
+  } else if (minute === "*") {
+    parts.push(describeList(hour, (v) => `${v}时`) + "的每分钟");
+  } else {
+    // Both specified
+    if (hour.startsWith("*/")) {
+      const m = minute === "0" ? "整" : `${minute}分`;
+      parts.push(`每 ${hour.slice(2)} 小时 (${m})`);
+    } else {
+      const hours = expandList(hour);
+      const mins = minute === "0" ? "00" : minute.padStart(2, "0");
+      if (hours.length <= 3) {
+        parts.push(hours.map((h) => `${String(h).padStart(2, "0")}:${mins}`).join(", "));
+      } else {
+        parts.push(`${describeList(hour, (v) => `${v}时`)} ${mins}分`);
+      }
+    }
+  }
+
+  return parts.join(" ") || "每分钟";
+}
+
+function describeList(field: string, fmt: (v: number) => string): string {
+  if (field.startsWith("*/")) return `每 ${field.slice(2)} 个`;
+  const values = expandList(field);
+  if (values.length <= 5) return values.map(fmt).join(", ");
+  return `${fmt(values[0])} - ${fmt(values[values.length - 1])} (共${values.length}个)`;
+}
+
+function expandList(field: string): number[] {
+  const result = new Set<number>();
+  for (const segment of field.split(",")) {
+    const [rangePart, stepStr] = segment.split("/");
+    const step = stepStr ? Number(stepStr) : 1;
+    if (rangePart.includes("-")) {
+      const [lo, hi] = rangePart.split("-").map(Number);
+      for (let i = lo; i <= hi; i += step) result.add(i);
+    } else {
+      result.add(Number(rangePart));
+    }
+  }
+  return [...result].sort((a, b) => a - b);
+}
 
 function formatDuration(seconds: number): string {
   if (seconds < 1) return "<1s";
@@ -80,6 +220,10 @@ export function AnalyticsPage() {
   const [rangeDays, setRangeDays] = useState(7);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [cronFlows, setCronFlows] = useState<CronStatus[]>([]);
+  const [cronDialogOpen, setCronDialogOpen] = useState(false);
+  const [cronForm, setCronForm] = useState({ flowId: "", schedule: "", maxInstances: "1" });
+  const [cronSaving, setCronSaving] = useState(false);
+  const [cronError, setCronError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -474,10 +618,24 @@ export function AnalyticsPage() {
       {/* Cron scheduled flows */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-indigo-500" />
-            定时任务
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-indigo-500" />
+              定时任务
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setCronForm({ flowId: "", schedule: "", maxInstances: "1" });
+                setCronError(null);
+                setCronDialogOpen(true);
+              }}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              添加定时任务
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
@@ -488,13 +646,14 @@ export function AnalyticsPage() {
                 <TableHead>状态</TableHead>
                 <TableHead>最大并发</TableHead>
                 <TableHead>上次触发</TableHead>
+                <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {cronFlows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    暂无定时任务。可通过 API 对 Flow 设置 cron 触发：POST /api/flows/:id/cron
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    暂无定时任务
                   </TableCell>
                 </TableRow>
               ) : (
@@ -505,7 +664,14 @@ export function AnalyticsPage() {
                         #{c.flow_id}
                       </Link>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{c.schedule}</TableCell>
+                    <TableCell>
+                      <span className="font-mono text-xs">{c.schedule}</span>
+                      {c.schedule ? (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {parseCronExpr(c.schedule).description ?? ""}
+                        </span>
+                      ) : null}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={c.enabled ? "success" : "secondary"} className="text-xs">
                         {c.enabled ? "已启用" : "已停用"}
@@ -515,6 +681,40 @@ export function AnalyticsPage() {
                     <TableCell className="text-muted-foreground">
                       {c.last_triggered ? formatRelativeTime(c.last_triggered) : "从未触发"}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={async () => {
+                          try {
+                            if (c.enabled) {
+                              await apiClient.disableFlowCron(c.flow_id);
+                            } else {
+                              await apiClient.setupFlowCron(c.flow_id, {
+                                schedule: c.schedule ?? "0 * * * *",
+                                max_instances: c.max_instances,
+                              });
+                            }
+                            void load();
+                          } catch (e) {
+                            setError(getErrorMessage(e));
+                          }
+                        }}
+                      >
+                        {c.enabled ? (
+                          <>
+                            <Pause className="mr-1 h-3 w-3" />
+                            停用
+                          </>
+                        ) : (
+                          <>
+                            <Play className="mr-1 h-3 w-3" />
+                            启用
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -522,6 +722,109 @@ export function AnalyticsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Setup Cron Dialog */}
+      <Dialog open={cronDialogOpen} onClose={() => setCronDialogOpen(false)}>
+        <DialogHeader>
+          <DialogTitle>添加定时任务</DialogTitle>
+          <DialogDescription>
+            为 Flow 设置 Cron 定时触发。Flow 将作为模板，每次触发时自动克隆并执行。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          {cronError ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {cronError}
+            </p>
+          ) : null}
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Flow ID</label>
+              <Input
+                type="number"
+                placeholder="输入 Flow ID"
+                value={cronForm.flowId}
+                onChange={(e) => setCronForm((f) => ({ ...f, flowId: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Cron 表达式</label>
+              <Input
+                placeholder="例如: 0 */6 * * * (每6小时)"
+                value={cronForm.schedule}
+                onChange={(e) => setCronForm((f) => ({ ...f, schedule: e.target.value }))}
+                className={
+                  cronForm.schedule.trim()
+                    ? parseCronExpr(cronForm.schedule).valid
+                      ? "border-emerald-300 focus:border-emerald-400"
+                      : "border-rose-300 focus:border-rose-400"
+                    : undefined
+                }
+              />
+              {cronForm.schedule.trim() ? (
+                (() => {
+                  const result = parseCronExpr(cronForm.schedule);
+                  if (result.valid) {
+                    return (
+                      <p className="flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
+                        <CalendarClock className="h-3 w-3 shrink-0" />
+                        {result.description}
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="flex items-center gap-1.5 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-600">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      {result.error}
+                    </p>
+                  );
+                })()
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  标准 5 字段格式: 分 时 日 月 周 (例: */15 * * * * = 每15分钟)
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">最大并发实例数</label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={cronForm.maxInstances}
+                onChange={(e) => setCronForm((f) => ({ ...f, maxInstances: e.target.value }))}
+              />
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCronDialogOpen(false)}>
+            取消
+          </Button>
+          <Button
+            disabled={cronSaving || !cronForm.flowId || !cronForm.schedule || !parseCronExpr(cronForm.schedule).valid}
+            onClick={async () => {
+              setCronSaving(true);
+              setCronError(null);
+              try {
+                await apiClient.setupFlowCron(Number(cronForm.flowId), {
+                  schedule: cronForm.schedule,
+                  max_instances: Number(cronForm.maxInstances) || 1,
+                });
+                setCronDialogOpen(false);
+                void load();
+              } catch (e) {
+                setCronError(getErrorMessage(e));
+              } finally {
+                setCronSaving(false);
+              }
+            }}
+          >
+            {cronSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            确认
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
