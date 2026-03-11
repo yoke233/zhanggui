@@ -22,17 +22,14 @@ BUILD_TAGS="${BUILD_TAGS:-dev}"
 
 MODE="all"
 USE_BUILD=false
-V2_MODE="${VITE_UI_VERSION:-v2}"
 for arg in "$@"; do
     case "$arg" in
         --backend)  MODE="backend" ;;
         --frontend) MODE="frontend" ;;
         --build)    USE_BUILD=true ;;
-        --v2)       V2_MODE="v2" ;;
         *) echo "Unknown arg: $arg"; exit 1 ;;
     esac
 done
-export VITE_UI_VERSION="$V2_MODE"
 
 cleanup() {
     echo ""
