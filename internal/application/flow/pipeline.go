@@ -72,6 +72,23 @@ const (
 	maxBriefingTotalChars = 12000
 )
 
+// refBudget returns a per-ref character budget based on context type.
+// Smaller types get tighter caps so they don't starve higher-value refs.
+func refBudget(ref core.ContextRef) int {
+	switch ref.Type {
+	case core.CtxIssueSummary, core.CtxProjectBrief:
+		return 800
+	case core.CtxFeatureManifest:
+		return 2000
+	case core.CtxAgentMemory:
+		return 1500
+	case core.CtxUpstreamArtifact:
+		return maxBriefingRefChars
+	default:
+		return maxBriefingRefChars
+	}
+}
+
 func renderBriefingSnapshot(briefing *core.Briefing) string {
 	if briefing == nil {
 		return ""
@@ -97,7 +114,8 @@ func renderBriefingSnapshot(briefing *core.Briefing) string {
 		if content == "" || remaining <= 0 {
 			continue
 		}
-		content = truncateBriefingText(content, maxBriefingRefChars)
+		budget := refBudget(ref)
+		content = truncateBriefingText(content, budget)
 		if len(content) > remaining {
 			content = truncateBriefingText(content, remaining)
 		}
@@ -118,7 +136,7 @@ func renderBriefingSnapshot(briefing *core.Briefing) string {
 		if available <= 0 {
 			break
 		}
-		content = truncateBriefingText(content, minInt(maxBriefingRefChars, available))
+		content = truncateBriefingText(content, minInt(budget, available))
 		if strings.TrimSpace(content) == "" {
 			continue
 		}

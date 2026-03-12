@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -20,6 +21,7 @@ func NewBriefingBuilder(store Store) *DefaultBriefingBuilder {
 }
 
 // Build constructs a Briefing for the given step.
+// Context refs are appended in priority order: issue summary → upstream artifacts → feature manifest.
 func (b *DefaultBriefingBuilder) Build(ctx context.Context, step *core.Step) (*core.Briefing, error) {
 	briefing := &core.Briefing{
 		StepID:      step.ID,
@@ -27,35 +29,121 @@ func (b *DefaultBriefingBuilder) Build(ctx context.Context, step *core.Step) (*c
 		Constraints: step.AcceptanceCriteria,
 	}
 
-	// Collect upstream artifact references from predecessor steps (by Position).
-	predecessors := predecessorStepIDsFromStore(ctx, b.store, step)
+	// Fetch issue once — used by both issue summary and manifest injection.
+	issue, _ := b.store.GetIssue(ctx, step.IssueID)
 
-	for _, depID := range predecessors {
-		art, err := b.store.GetLatestArtifactByStep(ctx, depID)
-		if err == core.ErrNotFound {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("get upstream artifact for step %d: %w", depID, err)
-		}
-		briefing.ContextRefs = append(briefing.ContextRefs, core.ContextRef{
-			Type:   core.CtxUpstreamArtifact,
-			RefID:  art.ID,
-			Label:  fmt.Sprintf("upstream step %d output", depID),
-			Inline: art.ResultMarkdown,
-		})
-	}
+	// 1. Issue summary — small, provides orientation.
+	b.injectIssueContext(issue, briefing)
 
-	// Inject feature manifest snapshot if the issue's project has one.
-	b.injectManifestContext(ctx, step, briefing)
+	// 2. Upstream artifacts — tiered by distance (L2 immediate, L0 distant).
+	b.injectUpstreamContext(ctx, step, briefing)
+
+	// 3. Feature manifest snapshot.
+	b.injectManifestContext(ctx, issue, briefing)
 
 	return briefing, nil
 }
 
+// injectIssueContext adds the parent Issue title and body as a CtxIssueSummary reference.
+func (b *DefaultBriefingBuilder) injectIssueContext(issue *core.Issue, briefing *core.Briefing) {
+	if issue == nil {
+		return
+	}
+	title := strings.TrimSpace(issue.Title)
+	if title == "" {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("**")
+	sb.WriteString(title)
+	sb.WriteString("**")
+
+	if body := strings.TrimSpace(issue.Body); body != "" {
+		const maxBody = 500
+		if len(body) > maxBody {
+			body = body[:maxBody] + " [...]"
+		}
+		sb.WriteString("\n\n")
+		sb.WriteString(body)
+	}
+
+	briefing.ContextRefs = append(briefing.ContextRefs, core.ContextRef{
+		Type:   core.CtxIssueSummary,
+		RefID:  issue.ID,
+		Label:  "work item",
+		Inline: sb.String(),
+	})
+}
+
+// injectUpstreamContext adds upstream artifacts tiered by distance:
+//   - L2 (immediate predecessor): full ResultMarkdown
+//   - L0 (distant predecessors): Metadata["summary"] or first 300 chars fallback
+func (b *DefaultBriefingBuilder) injectUpstreamContext(ctx context.Context, step *core.Step, briefing *core.Briefing) {
+	steps, err := b.store.ListStepsByIssue(ctx, step.IssueID)
+	if err != nil {
+		return
+	}
+
+	immediateIDs := immediatePredecessorStepIDs(steps, step)
+	immediateSet := make(map[int64]bool, len(immediateIDs))
+	for _, id := range immediateIDs {
+		immediateSet[id] = true
+	}
+
+	for _, depID := range predecessorStepIDs(steps, step) {
+		art, err := b.store.GetLatestArtifactByStep(ctx, depID)
+		if err != nil {
+			continue
+		}
+
+		if immediateSet[depID] {
+			// L2: immediate predecessor — full content.
+			briefing.ContextRefs = append(briefing.ContextRefs, core.ContextRef{
+				Type:   core.CtxUpstreamArtifact,
+				RefID:  art.ID,
+				Label:  fmt.Sprintf("upstream step %d output", depID),
+				Inline: art.ResultMarkdown,
+			})
+		} else {
+			// L0: distant predecessor — summary only.
+			summary := extractArtifactSummary(art)
+			if summary != "" {
+				briefing.ContextRefs = append(briefing.ContextRefs, core.ContextRef{
+					Type:   core.CtxUpstreamArtifact,
+					RefID:  art.ID,
+					Label:  fmt.Sprintf("upstream step %d summary", depID),
+					Inline: summary,
+				})
+			}
+		}
+	}
+}
+
+const maxSummaryFallbackChars = 300
+
+// extractArtifactSummary returns a compact summary of an Artifact.
+// Prefers the Collector-extracted "summary" from Metadata; falls back to
+// the first 300 characters of ResultMarkdown.
+func extractArtifactSummary(art *core.Artifact) string {
+	if art.Metadata != nil {
+		if s, ok := art.Metadata["summary"].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	md := strings.TrimSpace(art.ResultMarkdown)
+	if md == "" {
+		return ""
+	}
+	if len(md) <= maxSummaryFallbackChars {
+		return md
+	}
+	return md[:maxSummaryFallbackChars] + " [...]"
+}
+
 // injectManifestContext adds the project's feature manifest as a ContextRef.
-func (b *DefaultBriefingBuilder) injectManifestContext(ctx context.Context, step *core.Step, briefing *core.Briefing) {
-	issue, err := b.store.GetIssue(ctx, step.IssueID)
-	if err != nil || issue == nil || issue.ProjectID == nil {
+func (b *DefaultBriefingBuilder) injectManifestContext(ctx context.Context, issue *core.Issue, briefing *core.Briefing) {
+	if issue == nil || issue.ProjectID == nil {
 		return
 	}
 	manifest, err := b.store.GetFeatureManifestByProject(ctx, *issue.ProjectID)
@@ -97,15 +185,6 @@ func (b *DefaultBriefingBuilder) injectManifestContext(ctx context.Context, step
 		Label:  "feature manifest",
 		Inline: string(snapshot),
 	})
-}
-
-// predecessorStepIDsFromStore returns IDs of steps with lower Position in the same issue.
-func predecessorStepIDsFromStore(ctx context.Context, store Store, step *core.Step) []int64 {
-	steps, err := store.ListStepsByIssue(ctx, step.IssueID)
-	if err != nil {
-		return nil
-	}
-	return predecessorStepIDs(steps, step)
 }
 
 // buildObjective derives a brief objective string from step config or name.

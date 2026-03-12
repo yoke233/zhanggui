@@ -15,4 +15,5 @@ var (
 	ErrMissingArtifact       = errors.New("execution completed without artifact")
 	ErrManifestAlreadyExists = errors.New("manifest already exists for this project")
 	ErrDuplicateEntryKey     = errors.New("duplicate feature entry key in manifest")
+	ErrTokenBudgetExceeded  = errors.New("token budget exceeded")
 )

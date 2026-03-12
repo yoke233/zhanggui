@@ -6,6 +6,7 @@ import type {
   AgentProfile,
   ConfigOption,
   Event as ApiEvent,
+  SessionModeState,
   SlashCommand,
 } from "@/types/apiV2";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
@@ -48,6 +49,7 @@ import { MessageFeedView } from "@/components/chat/MessageFeedView";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
 import { EventLogRow } from "@/components/chat/EventLogRow";
 import { ChatScrollTrack } from "@/components/chat/ChatScrollTrack";
+import { Loader2 } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
 
@@ -86,6 +88,7 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
   const [configOptions, setConfigOptions] = useState<ConfigOption[]>([]);
+  const [sessionModes, setSessionModes] = useState<SessionModeState | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
@@ -95,6 +98,13 @@ export function ChatPage() {
   const chunkFlushFrameRef = useRef<number | null>(null);
   const pendingRequestIdRef = useRef<string | null>(null);
   const syntheticEventIdRef = useRef(-1);
+  const pendingDraftInfoRef = useRef<{
+    projectId?: number;
+    projectName?: string;
+    profileId: string;
+    driverId: string;
+    title: string;
+  } | null>(null);
   const prevScrollHeightRef = useRef<number>(0);
 
   // Feed pagination: show last FEED_PAGE_SIZE entries, expand on scroll-to-top
@@ -129,6 +139,9 @@ export function ChatPage() {
     }
     if (detail.config_options) {
       setConfigOptions(detail.config_options);
+    }
+    if (detail.modes) {
+      setSessionModes(detail.modes);
     }
   };
 
@@ -655,13 +668,48 @@ export function ChatPage() {
         }
         pendingRequestIdRef.current = null;
         setSubmitting(false);
+
+        // Transfer draft messages to the new session before clearing
+        setDraftMessages((draftCurrent) => {
+          if (draftCurrent.length > 0) {
+            setMessagesBySession((msgCurrent) => ({
+              ...msgCurrent,
+              [sessionId]: draftCurrent.map((m) => ({
+                ...m,
+                id: m.id.replace("draft", sessionId),
+              })),
+            }));
+          }
+          return [];
+        });
+
+        // Optimistic insert — avoid full refreshSessions() to prevent UI jitter
+        const draftInfo = pendingDraftInfoRef.current;
+        pendingDraftInfoRef.current = null;
+        const now = new Date().toISOString();
+        setSessions((current) => {
+          if (current.some((s) => s.session_id === sessionId)) {
+            return current;
+          }
+          return [{
+            session_id: sessionId,
+            title: draftInfo?.title || t("chat.newSession"),
+            status: "running" as const,
+            project_id: draftInfo?.projectId,
+            project_name: draftInfo?.projectName,
+            profile_id: draftInfo?.profileId,
+            driver_id: draftInfo?.driverId,
+            created_at: now,
+            updated_at: now,
+            message_count: 1,
+          }, ...current];
+        });
+
         setActiveSession(sessionId);
-        setDraftMessages([]);
         setLoadedSessions((current) => ({
           ...current,
           [sessionId]: false,
         }));
-        void refreshSessions(sessionId);
       },
     );
     const unsubscribeError = wsClient.subscribe<RealtimeChatErrorPayload>(
@@ -691,6 +739,14 @@ export function ChatPage() {
         }
       },
     );
+    const unsubscribeModeUpdate = wsClient.subscribe<{ session_id?: string; modes?: SessionModeState }>(
+      "chat.mode_updated",
+      (payload) => {
+        if (payload.modes) {
+          setSessionModes(payload.modes);
+        }
+      },
+    );
     return () => {
       if (chunkFlushFrameRef.current != null) {
         cancelAnimationFrame(chunkFlushFrameRef.current);
@@ -702,6 +758,7 @@ export function ChatPage() {
       unsubscribeAck();
       unsubscribeError();
       unsubscribeConfigUpdate();
+      unsubscribeModeUpdate();
     };
   }, [wsClient]);
 
@@ -851,6 +908,15 @@ export function ChatPage() {
     try {
       const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingRequestIdRef.current = requestId;
+      if (!workingSessionId) {
+        pendingDraftInfoRef.current = {
+          projectId: typeof resolvedProjectId === "number" ? resolvedProjectId : undefined,
+          projectName: resolvedProjectName,
+          profileId: resolvedProfileId,
+          driverId: resolvedDriverId,
+          title: content.slice(0, 24) || t("chat.newSession"),
+        };
+      }
       wsClient.send({
         type: "chat.send",
         data: {
@@ -922,6 +988,35 @@ export function ChatPage() {
     [navigate, selectedProjectId],
   );
 
+  const handleSetMode = useCallback(
+    (modeId: string) => {
+      if (!activeSession) return;
+      wsClient.send({
+        type: "chat.set_mode",
+        data: {
+          session_id: activeSession,
+          mode_id: modeId,
+        },
+      });
+    },
+    [activeSession, wsClient],
+  );
+
+  const handleSetConfigOption = useCallback(
+    (configId: string, value: string) => {
+      if (!activeSession) return;
+      wsClient.send({
+        type: "chat.set_config",
+        data: {
+          session_id: activeSession,
+          config_id: configId,
+          value,
+        },
+      });
+    },
+    [activeSession, wsClient],
+  );
+
   const handleInputChange = (val: string) => {
     setMessageInput(val);
     if (val.startsWith("/")) {
@@ -958,6 +1053,7 @@ export function ChatPage() {
         activeSession={activeSession}
         sessionSearch={sessionSearch}
         loadingSessions={loadingSessions}
+        creatingSession={submitting && !activeSession}
         messagesBySession={messagesBySession}
         collapsedGroups={collapsedGroups}
         onSearchChange={setSessionSearch}
@@ -1095,6 +1191,12 @@ export function ChatPage() {
                   setCollapsedActivityGroups((prev) => ({ ...prev, [id]: !(collapsedActivityGroups[id] !== false) }))
                 }
               />
+              {submitting && !activeSession && (
+                <div className="flex items-center gap-2.5 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{t("chat.creatingSession", { defaultValue: "正在创建会话..." })}</span>
+                </div>
+              )}
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -1122,6 +1224,10 @@ export function ChatPage() {
             onCommandSelect={handleCommandSelect}
             onRemovePendingFile={removePendingFile}
             onCommandPaletteClose={() => setShowCommandPalette(false)}
+            modes={sessionModes}
+            configOptions={configOptions}
+            onSetMode={handleSetMode}
+            onSetConfigOption={handleSetConfigOption}
           />
         )}
 

@@ -297,6 +297,17 @@ export interface ConfigOption {
   options: ConfigOptionValue[];
 }
 
+export interface SessionMode {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface SessionModeState {
+  available_modes: SessionMode[];
+  current_mode_id: string;
+}
+
 export interface SlashCommandInput {
   hint?: string;
 }
@@ -394,6 +405,7 @@ export interface ChatSessionDetail extends ChatSessionSummary {
   messages: ChatMessage[];
   available_commands?: SlashCommand[];
   config_options?: ConfigOption[];
+  modes?: SessionModeState;
 }
 
 export interface ChatStatusResponse {

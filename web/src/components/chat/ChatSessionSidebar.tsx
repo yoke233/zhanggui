@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, Plus, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ interface ChatSessionSidebarProps {
   activeSession: string | null;
   sessionSearch: string;
   loadingSessions: boolean;
+  creatingSession: boolean;
   messagesBySession: Record<string, ChatMessageView[]>;
   collapsedGroups: Record<string, boolean>;
   onSearchChange: (value: string) => void;
@@ -26,6 +27,7 @@ export function ChatSessionSidebar(props: ChatSessionSidebarProps) {
     activeSession,
     sessionSearch,
     loadingSessions,
+    creatingSession,
     messagesBySession,
     collapsedGroups,
     onSearchChange,
@@ -57,6 +59,14 @@ export function ChatSessionSidebar(props: ChatSessionSidebarProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {creatingSession && (
+          <div className="flex items-center gap-2.5 border-b bg-blue-50/40 px-4 py-3 pl-7">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+            <span className="text-sm text-muted-foreground">
+              {t("chat.creatingSession", { defaultValue: "正在创建会话..." })}
+            </span>
+          </div>
+        )}
         {groupedSessions.map((group) => (
           <div key={group.key} className="border-b">
             <button
@@ -109,7 +119,7 @@ export function ChatSessionSidebar(props: ChatSessionSidebarProps) {
                           ? "bg-blue-50 text-blue-500"
                           : session.status === "alive"
                             ? "bg-amber-50 text-amber-500"
-                            : "bg-emerald-50 text-emerald-500",
+                            : "bg-muted text-muted-foreground",
                       )}
                     >
                       {badgeLabelForStatus(session.status, t)}

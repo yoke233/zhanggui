@@ -232,6 +232,8 @@ func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) err
 		h.handleWSChatSend(msg, writeJSON)
 	case "chat.set_config":
 		h.handleWSChatSetConfig(msg, writeJSON)
+	case "chat.set_mode":
+		h.handleWSChatSetMode(msg, writeJSON)
 	case "thread.send":
 		h.handleWSThreadSend(msg, writeJSON)
 	case "subscribe_thread":
@@ -374,6 +376,70 @@ func (h *Handler) handleWSChatSetConfig(msg wsMessage, writeJSON func(v any) err
 	})
 }
 
+func (h *Handler) handleWSChatSetMode(msg wsMessage, writeJSON func(v any) error) {
+	if h.lead == nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "CHAT_DISABLED",
+				Error: "lead chat service is not configured",
+			},
+		})
+		return
+	}
+
+	var req wsSetModeRequest
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "chat.error",
+				Data: wsErrorPayload{
+					Code:  "BAD_REQUEST",
+					Error: "invalid chat.set_mode payload",
+				},
+			})
+			return
+		}
+	}
+
+	reqID := strings.TrimSpace(req.RequestID)
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "BAD_REQUEST",
+				RequestID: reqID,
+				Error:     "session_id is required",
+			},
+		})
+		return
+	}
+
+	modes, err := h.lead.SetSessionMode(context.Background(), sessionID, req.ModeID)
+	if err != nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "SET_MODE_FAILED",
+				RequestID: reqID,
+				SessionID: sessionID,
+				Error:     err.Error(),
+			},
+		})
+		return
+	}
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "chat.mode_updated",
+		Data: wsModeUpdatedPayload{
+			RequestID: reqID,
+			SessionID: sessionID,
+			Modes:     modes,
+		},
+	})
+}
+
 // wsMessage is the WebSocket message envelope (for potential future use).
 type wsMessage struct {
 	Type string          `json:"type"`
@@ -415,6 +481,18 @@ type wsConfigUpdatedPayload struct {
 	RequestID     string              `json:"request_id,omitempty"`
 	SessionID     string              `json:"session_id"`
 	ConfigOptions []chatapp.ConfigOption `json:"config_options"`
+}
+
+type wsSetModeRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+	SessionID string `json:"session_id"`
+	ModeID    string `json:"mode_id"`
+}
+
+type wsModeUpdatedPayload struct {
+	RequestID string                    `json:"request_id,omitempty"`
+	SessionID string                    `json:"session_id"`
+	Modes     *chatapp.SessionModeState `json:"modes,omitempty"`
 }
 
 type wsErrorPayload struct {

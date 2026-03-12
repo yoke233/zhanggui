@@ -74,7 +74,7 @@ export function ChatHeader(props: ChatHeaderProps) {
               ? "bg-blue-50 text-blue-500"
               : session?.status === "alive"
                 ? "bg-amber-50 text-amber-500"
-                : "bg-emerald-50 text-emerald-500",
+                : "bg-muted text-muted-foreground",
           )}
         >
           <span className={cn(
@@ -83,7 +83,7 @@ export function ChatHeader(props: ChatHeaderProps) {
               ? "bg-blue-500"
               : session?.status === "alive"
                 ? "bg-amber-500"
-                : "bg-emerald-500",
+                : "bg-muted-foreground",
           )} />
           {badgeLabelForStatus(session?.status, t)}
         </span>

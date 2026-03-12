@@ -41,6 +41,7 @@ type LeadChatService interface {
 	ListSessions(ctx context.Context) ([]chatapp.SessionSummary, error)
 	GetSession(ctx context.Context, sessionID string) (*chatapp.SessionDetail, error)
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) ([]chatapp.ConfigOption, error)
+	SetSessionMode(ctx context.Context, sessionID, modeID string) (*chatapp.SessionModeState, error)
 	CancelChat(sessionID string) error
 	CloseSession(sessionID string)
 	DeleteSession(sessionID string)

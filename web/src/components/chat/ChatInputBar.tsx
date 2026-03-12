@@ -1,10 +1,11 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
-import { Paperclip, Send, X } from "lucide-react";
-import type { SlashCommand } from "@/types/apiV2";
+import { ChevronDown, Paperclip, Send, X } from "lucide-react";
+import type { ConfigOption, SessionModeState, SlashCommand } from "@/types/apiV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import type { SessionRecord } from "./chatTypes";
 
 interface ChatInputBarProps {
@@ -19,6 +20,8 @@ interface ChatInputBarProps {
   availableCommands: SlashCommand[];
   commandFilter: string;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  modes: SessionModeState | null;
+  configOptions: ConfigOption[];
   onMessageChange: (value: string) => void;
   onPaste: (e: React.ClipboardEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -26,6 +29,8 @@ interface ChatInputBarProps {
   onCommandSelect: (name: string) => void;
   onRemovePendingFile: (index: number) => void;
   onCommandPaletteClose: () => void;
+  onSetMode?: (modeId: string) => void;
+  onSetConfigOption?: (configId: string, value: string) => void;
 }
 
 export function ChatInputBar(props: ChatInputBarProps) {
@@ -48,6 +53,10 @@ export function ChatInputBar(props: ChatInputBarProps) {
     onCommandSelect,
     onRemovePendingFile,
     onCommandPaletteClose,
+    modes,
+    configOptions,
+    onSetMode,
+    onSetConfigOption,
   } = props;
   const { t } = useTranslation();
 
@@ -139,8 +148,8 @@ export function ChatInputBar(props: ChatInputBarProps) {
             </Button>
           </div>
         </div>
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between pt-1 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1.5">
             {currentSession?.project_name && (
               <Badge variant="secondary" className="text-[10px]">
                 {currentSession.project_name}
@@ -151,6 +160,59 @@ export function ChatInputBar(props: ChatInputBarProps) {
                 {currentSession.branch}
               </Badge>
             )}
+            {modes && modes.available_modes.length > 0 ? (
+              <>
+                {(currentSession?.project_name || currentSession?.branch) && (
+                  <span className="mx-0.5 text-border">·</span>
+                )}
+                {modes.available_modes.map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    title={mode.description || mode.name}
+                    className={cn(
+                      "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] transition-colors",
+                      modes.current_mode_id === mode.id
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                    onClick={() => onSetMode?.(mode.id)}
+                  >
+                    {mode.name}
+                    {modes.current_mode_id === mode.id && (
+                      <ChevronDown className="h-2.5 w-2.5" />
+                    )}
+                  </button>
+                ))}
+              </>
+            ) : null}
+            {configOptions.length > 0 ? (
+              <>
+                {(currentSession?.project_name || currentSession?.branch || (modes && modes.available_modes.length > 0)) && (
+                  <span className="mx-0.5 text-border">·</span>
+                )}
+                {configOptions.map((opt) => {
+                  const currentLabel = opt.options.find((o) => o.value === opt.current_value)?.name || opt.current_value;
+                  return (
+                    <span key={opt.id} className="inline-flex items-center gap-0.5 text-[11px]">
+                      <span className="text-muted-foreground">{opt.name}:</span>
+                      <select
+                        className="cursor-pointer appearance-none rounded bg-transparent px-0.5 py-0.5 text-[11px] font-medium text-foreground outline-none hover:bg-muted"
+                        value={opt.current_value}
+                        title={opt.description || opt.name}
+                        onChange={(e) => onSetConfigOption?.(opt.id, e.target.value)}
+                      >
+                        {opt.options.map((v) => (
+                          <option key={v.value} value={v.value}>
+                            {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                  );
+                })}
+              </>
+            ) : null}
           </div>
           <span>{t("chat.inputHint")}</span>
         </div>
