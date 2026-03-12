@@ -67,6 +67,7 @@ export interface Step {
   issue_id: number;
   name: string;
   description?: string;
+  depends_on?: number[];
   type: StepType;
   status: StepStatus;
   position: number;

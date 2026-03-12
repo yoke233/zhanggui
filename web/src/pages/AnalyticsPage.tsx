@@ -822,7 +822,6 @@ export function AnalyticsPage() {
             {t("common.cancel")}
           </Button>
           <Button
-            disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule).valid}
             disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule, t).valid}
             onClick={async () => {
               setCronSaving(true);
