@@ -13,6 +13,7 @@ type Store interface {
 	core.ProjectStore
 	core.ResourceBindingStore
 	core.IssueStore
+	core.ThreadStore
 	core.StepStore
 	core.ExecutionStore
 	core.ArtifactStore

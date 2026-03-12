@@ -270,6 +270,53 @@ type UsageRecordModel struct {
 
 func (UsageRecordModel) TableName() string { return "usage_records" }
 
+// ── Thread ──
+
+type ThreadModel struct {
+	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	Title     string                    `gorm:"column:title;not null"`
+	Status    string                    `gorm:"column:status;not null"`
+	OwnerID   string                    `gorm:"column:owner_id;not null"`
+	Summary   string                    `gorm:"column:summary;not null"`
+	Metadata  JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt time.Time                 `gorm:"column:created_at"`
+	UpdatedAt time.Time                 `gorm:"column:updated_at"`
+}
+
+func (ThreadModel) TableName() string { return "threads" }
+
+func threadModelFromCore(t *core.Thread) *ThreadModel {
+	if t == nil {
+		return nil
+	}
+	return &ThreadModel{
+		ID:        t.ID,
+		Title:     t.Title,
+		Status:    string(t.Status),
+		OwnerID:   t.OwnerID,
+		Summary:   t.Summary,
+		Metadata:  JSONField[map[string]any]{Data: t.Metadata},
+		CreatedAt: t.CreatedAt,
+		UpdatedAt: t.UpdatedAt,
+	}
+}
+
+func (m *ThreadModel) toCore() *core.Thread {
+	if m == nil {
+		return nil
+	}
+	return &core.Thread{
+		ID:        m.ID,
+		Title:     m.Title,
+		Status:    core.ThreadStatus(m.Status),
+		OwnerID:   m.OwnerID,
+		Summary:   m.Summary,
+		Metadata:  m.Metadata.Data,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+}
+
 func projectModelFromCore(p *core.Project) *ProjectModel {
 	if p == nil {
 		return nil

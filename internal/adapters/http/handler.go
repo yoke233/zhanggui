@@ -200,6 +200,9 @@ func (h *Handler) Register(r chi.Router) {
 	// Agents (drivers + profiles)
 	registerAgentRoutes(r, h.registry)
 
+	// Threads (multi-participant discussion)
+	registerThreadRoutes(r, h)
+
 	// Chat (lead agent)
 	registerChatRoutes(r, h.lead)
 

@@ -97,6 +97,7 @@ type Store interface {
 	ProjectStore
 	ResourceBindingStore
 	IssueStore
+	ThreadStore
 	StepStore
 	ExecutionStore
 	ArtifactStore
