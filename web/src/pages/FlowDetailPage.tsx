@@ -33,7 +33,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getScmFlowProviderFromBindings, type SupportedScmProvider } from "@/lib/scm";
 import { cn } from "@/lib/utils";
 import { formatIssueDuration, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Execution, Issue, ResourceBinding, Step } from "@/types/apiV2";
+import type { Execution, Issue, ResourceBinding, Step, ThreadWorkItemLink, Thread } from "@/types/apiV2";
 
 interface StepNodeData extends Record<string, unknown> {
   label: string;
@@ -133,6 +133,8 @@ export function IssueDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [templateSaved, setTemplateSaved] = useState(false);
   const [projectResources, setProjectResources] = useState<ResourceBinding[]>([]);
+  const [threadLinks, setThreadLinks] = useState<ThreadWorkItemLink[]>([]);
+  const [linkedThreads, setLinkedThreads] = useState<Record<number, Thread>>({});
 
   const fetchIssueData = useCallback(async (targetIssueId: number) => {
     return Promise.all([
@@ -205,6 +207,30 @@ export function IssueDetailPage() {
       cancelled = true;
     };
   }, [apiClient, issue?.project_id]);
+
+  useEffect(() => {
+    if (!Number.isFinite(numericIssueId)) return;
+    let cancelled = false;
+    const loadThreadLinks = async () => {
+      try {
+        const links = await apiClient.listThreadsByWorkItem(numericIssueId);
+        if (cancelled) return;
+        setThreadLinks(links);
+        const threadMap: Record<number, Thread> = {};
+        const results = await Promise.allSettled(
+          links.map((l) => apiClient.getThread(l.thread_id)),
+        );
+        results.forEach((r, i) => {
+          if (r.status === "fulfilled") threadMap[links[i].thread_id] = r.value;
+        });
+        if (!cancelled) setLinkedThreads(threadMap);
+      } catch {
+        if (!cancelled) setThreadLinks([]);
+      }
+    };
+    void loadThreadLinks();
+    return () => { cancelled = true; };
+  }, [apiClient, numericIssueId]);
 
   useEffect(() => {
     if (selectedStepId == null) {
@@ -488,6 +514,36 @@ export function IssueDetailPage() {
             </div>
           </div>
         ) : null}
+
+        {/* Linked Threads */}
+        {threadLinks.length > 0 && (
+          <div className="mt-4 rounded-lg border p-4">
+            <h3 className="mb-3 text-sm font-semibold">{t("flowDetail.linkedThreads", "Linked Threads")}</h3>
+            <div className="space-y-2">
+              {threadLinks.map((link) => {
+                const th = linkedThreads[link.thread_id];
+                return (
+                  <Link
+                    key={link.id}
+                    to={`/threads/${link.thread_id}`}
+                    className="flex items-center gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-muted/50"
+                  >
+                    <span className="font-medium text-primary">
+                      {th ? th.title : `Thread #${link.thread_id}`}
+                    </span>
+                    {link.is_primary && (
+                      <Badge variant="default" className="text-[10px]">primary</Badge>
+                    )}
+                    <Badge variant="outline" className="text-[10px]">{link.relation_type}</Badge>
+                    {th && (
+                      <Badge variant="secondary" className="text-[10px]">{th.status}</Badge>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

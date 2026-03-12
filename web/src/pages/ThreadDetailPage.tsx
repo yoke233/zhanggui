@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Loader2, Send, Users } from "lucide-react";
+import { ArrowLeft, Link2, Loader2, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
-import type { Thread, ThreadMessage, ThreadParticipant } from "@/types/apiV2";
+import { Link } from "react-router-dom";
+import type { Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, Issue } from "@/types/apiV2";
 
 export function ThreadDetailPage() {
   const { t } = useTranslation();
@@ -21,6 +22,8 @@ export function ThreadDetailPage() {
   const [participants, setParticipants] = useState<ThreadParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workItemLinks, setWorkItemLinks] = useState<ThreadWorkItemLink[]>([]);
+  const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -34,15 +37,26 @@ export function ThreadDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts] = await Promise.all([
+        const [th, msgs, parts, links] = await Promise.all([
           apiClient.getThread(id),
           apiClient.listThreadMessages(id, { limit: 100 }),
           apiClient.listThreadParticipants(id),
+          apiClient.listWorkItemsByThread(id),
         ]);
         if (!cancelled) {
           setThread(th);
           setMessages(msgs);
           setParticipants(parts);
+          setWorkItemLinks(links);
+          // Fetch issue details for each link.
+          const issueMap: Record<number, Issue> = {};
+          const issueResults = await Promise.allSettled(
+            links.map((l) => apiClient.getIssue(l.work_item_id)),
+          );
+          issueResults.forEach((r, i) => {
+            if (r.status === "fulfilled") issueMap[links[i].work_item_id] = r.value;
+          });
+          if (!cancelled) setLinkedIssues(issueMap);
         }
       } catch (e) {
         if (!cancelled) setError(getErrorMessage(e));
@@ -197,6 +211,48 @@ export function ThreadDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Linked Work Items */}
+      {workItemLinks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Link2 className="h-4 w-4" />
+              {t("threads.linkedWorkItems", "Linked Work Items")} ({workItemLinks.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {workItemLinks.map((link) => {
+                const issue = linkedIssues[link.work_item_id];
+                return (
+                  <div key={link.id} className="flex items-center gap-2 text-sm">
+                    {link.is_primary && (
+                      <Badge variant="default" className="text-[10px]">
+                        {t("threads.primary", "primary")}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="text-[10px]">
+                      {link.relation_type}
+                    </Badge>
+                    <Link
+                      to={`/issues/${link.work_item_id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {issue ? issue.title : `#${link.work_item_id}`}
+                    </Link>
+                    {issue && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {issue.status}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {thread.summary && (
         <Card>
