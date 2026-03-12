@@ -37,7 +37,7 @@ const (
 type ExecutionProbe struct {
 	ID             int64                       `json:"id"`
 	ExecutionID    int64                       `json:"execution_id"`
-	IssueID         int64                       `json:"flow_id"`
+	IssueID         int64                       `json:"issue_id"`
 	StepID         int64                       `json:"step_id"`
 	AgentContextID *int64                      `json:"agent_context_id,omitempty"`
 	SessionID      string                      `json:"-"`

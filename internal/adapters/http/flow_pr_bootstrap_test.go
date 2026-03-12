@@ -32,7 +32,7 @@ func TestDefaultPRTemplates(t *testing.T) {
 }
 
 func TestDefaultPRCommitMessage(t *testing.T) {
-	if got := defaultPRCommitMessage(42); got != "chore(pr-flow): apply flow 42 updates" {
+	if got := defaultPRCommitMessage(42); got != "chore(pr-issue): apply issue 42 updates" {
 		t.Fatalf("unexpected commit message: %q", got)
 	}
 }

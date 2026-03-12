@@ -9,18 +9,18 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestRecoverInterruptedFlows_RunningFlow(t *testing.T) {
+func TestRecoverInterruptedIssues_RunningIssue(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Simulate a flow that was running when the process crashed.
-	flowID := createTestFlow(t, store, "interrupted-flow")
-	step1ID := createTestStep(t, store, flowID, "step-1", core.StepExec)
-	step2ID := createTestStepWithDeps(t, store, flowID, "step-2", core.StepExec, []int64{step1ID})
+	// Simulate an issue that was running when the process crashed.
+	issueID := createTestIssue(t, store, "interrupted-issue")
+	step1ID := createTestStep(t, store, issueID, "step-1", core.StepExec, 0)
+	step2ID := createTestStep(t, store, issueID, "step-2", core.StepExec, 1)
 
 	// step-1 was done, step-2 was running.
-	store.UpdateFlowStatus(ctx, flowID, core.FlowRunning)
+	store.UpdateIssueStatus(ctx, issueID, core.IssueRunning)
 	store.UpdateStepStatus(ctx, step1ID, core.StepReady)
 	store.UpdateStepStatus(ctx, step1ID, core.StepRunning)
 	store.UpdateStepStatus(ctx, step1ID, core.StepDone)
@@ -29,9 +29,9 @@ func TestRecoverInterruptedFlows_RunningFlow(t *testing.T) {
 
 	// Create a stale execution for step-2.
 	execID, _ := store.CreateExecution(ctx, &core.Execution{
-		StepID: step2ID,
-		FlowID: flowID,
-		Status: core.ExecRunning,
+		StepID:  step2ID,
+		IssueID: issueID,
+		Status:  core.ExecRunning,
 	})
 
 	// Set up scheduler.
@@ -41,15 +41,15 @@ func TestRecoverInterruptedFlows_RunningFlow(t *testing.T) {
 		return nil
 	}
 	eng := New(store, bus, executor)
-	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{MaxConcurrentFlows: 2})
+	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
 	// Recover.
-	n, err := RecoverInterruptedFlows(ctx, store, sched)
+	n, err := RecoverInterruptedIssues(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedFlows: %v", err)
+		t.Fatalf("RecoverInterruptedIssues: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
@@ -57,8 +57,8 @@ func TestRecoverInterruptedFlows_RunningFlow(t *testing.T) {
 
 	// Wait for execution to finish.
 	waitFor(t, func() bool {
-		f, _ := store.GetFlow(ctx, flowID)
-		return f.Status == core.FlowDone
+		issue, _ := store.GetIssue(ctx, issueID)
+		return issue.Status == core.IssueDone
 	}, 3*time.Second)
 
 	// step-2 should have been re-executed (step-1 stays done).
@@ -76,15 +76,15 @@ func TestRecoverInterruptedFlows_RunningFlow(t *testing.T) {
 	}
 }
 
-func TestRecoverInterruptedFlows_QueuedFlow(t *testing.T) {
+func TestRecoverInterruptedIssues_QueuedIssue(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Simulate a flow that was queued when the process crashed.
-	flowID := createTestFlow(t, store, "queued-flow")
-	createTestStep(t, store, flowID, "step-1", core.StepExec)
-	store.UpdateFlowStatus(ctx, flowID, core.FlowQueued)
+	// Simulate an issue that was queued when the process crashed.
+	issueID := createTestIssue(t, store, "queued-issue")
+	createTestStep(t, store, issueID, "step-1", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, issueID, core.IssueQueued)
 
 	var executed atomic.Int32
 	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
@@ -92,66 +92,66 @@ func TestRecoverInterruptedFlows_QueuedFlow(t *testing.T) {
 		return nil
 	}
 	eng := New(store, bus, executor)
-	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{MaxConcurrentFlows: 2})
+	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedFlows(ctx, store, sched)
+	n, err := RecoverInterruptedIssues(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedFlows: %v", err)
+		t.Fatalf("RecoverInterruptedIssues: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
 	}
 
 	waitFor(t, func() bool {
-		f, _ := store.GetFlow(ctx, flowID)
-		return f.Status == core.FlowDone
+		issue, _ := store.GetIssue(ctx, issueID)
+		return issue.Status == core.IssueDone
 	}, 3*time.Second)
 }
 
-func TestRecoverInterruptedFlows_NoInterrupted(t *testing.T) {
+func TestRecoverInterruptedIssues_NoInterrupted(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Create only done/pending flows — nothing to recover.
-	f1 := createTestFlow(t, store, "done-flow")
-	store.UpdateFlowStatus(ctx, f1, core.FlowRunning)
-	store.UpdateFlowStatus(ctx, f1, core.FlowDone)
+	// Create only done/open issues — nothing to recover.
+	i1 := createTestIssue(t, store, "done-issue")
+	store.UpdateIssueStatus(ctx, i1, core.IssueRunning)
+	store.UpdateIssueStatus(ctx, i1, core.IssueDone)
 
-	createTestFlow(t, store, "pending-flow") // stays pending
+	createTestIssue(t, store, "open-issue") // stays open
 
 	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
 		return nil
 	})
-	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{})
+	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedFlows(ctx, store, sched)
+	n, err := RecoverInterruptedIssues(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedFlows: %v", err)
+		t.Fatalf("RecoverInterruptedIssues: %v", err)
 	}
 	if n != 0 {
 		t.Errorf("recovered = %d, want 0", n)
 	}
 }
 
-func TestRecoverQueuedFlows_SkipsRunningFlows(t *testing.T) {
+func TestRecoverQueuedIssues_SkipsRunningIssues(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	queuedFlowID := createTestFlow(t, store, "queued-flow")
-	createTestStep(t, store, queuedFlowID, "queued-step", core.StepExec)
-	store.UpdateFlowStatus(ctx, queuedFlowID, core.FlowQueued)
+	queuedIssueID := createTestIssue(t, store, "queued-issue")
+	createTestStep(t, store, queuedIssueID, "queued-step", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, queuedIssueID, core.IssueQueued)
 
-	runningFlowID := createTestFlow(t, store, "running-flow")
-	runningStepID := createTestStep(t, store, runningFlowID, "running-step", core.StepExec)
-	store.UpdateFlowStatus(ctx, runningFlowID, core.FlowRunning)
+	runningIssueID := createTestIssue(t, store, "running-issue")
+	runningStepID := createTestStep(t, store, runningIssueID, "running-step", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, runningIssueID, core.IssueRunning)
 	store.UpdateStepStatus(ctx, runningStepID, core.StepReady)
 	store.UpdateStepStatus(ctx, runningStepID, core.StepRunning)
 
@@ -160,64 +160,64 @@ func TestRecoverQueuedFlows_SkipsRunningFlows(t *testing.T) {
 		executed.Add(1)
 		return nil
 	})
-	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{MaxConcurrentFlows: 2})
+	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverQueuedFlows(ctx, store, sched)
+	n, err := RecoverQueuedIssues(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverQueuedFlows: %v", err)
+		t.Fatalf("RecoverQueuedIssues: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
 	}
 
 	waitFor(t, func() bool {
-		f, _ := store.GetFlow(ctx, queuedFlowID)
-		return f.Status == core.FlowDone
+		issue, _ := store.GetIssue(ctx, queuedIssueID)
+		return issue.Status == core.IssueDone
 	}, 3*time.Second)
 
-	runningFlow, _ := store.GetFlow(ctx, runningFlowID)
-	if runningFlow.Status != core.FlowRunning {
-		t.Fatalf("running flow status = %s, want running", runningFlow.Status)
+	runningIssue, _ := store.GetIssue(ctx, runningIssueID)
+	if runningIssue.Status != core.IssueRunning {
+		t.Fatalf("running issue status = %s, want running", runningIssue.Status)
 	}
 	if executed.Load() != 1 {
-		t.Fatalf("executed = %d, want 1 queued flow execution", executed.Load())
+		t.Fatalf("executed = %d, want 1 queued issue execution", executed.Load())
 	}
 }
 
-func TestRecoverInterruptedFlows_MultipleFlows(t *testing.T) {
+func TestRecoverInterruptedIssues_MultipleIssues(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// 2 running flows + 1 queued.
-	f1 := createTestFlow(t, store, "running-1")
-	createTestStep(t, store, f1, "step", core.StepExec)
-	store.UpdateFlowStatus(ctx, f1, core.FlowRunning)
+	// 2 running issues + 1 queued.
+	i1 := createTestIssue(t, store, "running-1")
+	createTestStep(t, store, i1, "step", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, i1, core.IssueRunning)
 
-	f2 := createTestFlow(t, store, "running-2")
-	createTestStep(t, store, f2, "step", core.StepExec)
-	store.UpdateFlowStatus(ctx, f2, core.FlowRunning)
+	i2 := createTestIssue(t, store, "running-2")
+	createTestStep(t, store, i2, "step", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, i2, core.IssueRunning)
 
-	f3 := createTestFlow(t, store, "queued-1")
-	createTestStep(t, store, f3, "step", core.StepExec)
-	store.UpdateFlowStatus(ctx, f3, core.FlowQueued)
+	i3 := createTestIssue(t, store, "queued-1")
+	createTestStep(t, store, i3, "step", core.StepExec, 0)
+	store.UpdateIssueStatus(ctx, i3, core.IssueQueued)
 
 	var executed atomic.Int32
 	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
 		executed.Add(1)
 		return nil
 	})
-	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{MaxConcurrentFlows: 3})
+	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 3})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedFlows(ctx, store, sched)
+	n, err := RecoverInterruptedIssues(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedFlows: %v", err)
+		t.Fatalf("RecoverInterruptedIssues: %v", err)
 	}
 	if n != 3 {
 		t.Fatalf("recovered = %d, want 3", n)
@@ -225,4 +225,3 @@ func TestRecoverInterruptedFlows_MultipleFlows(t *testing.T) {
 
 	waitFor(t, func() bool { return executed.Load() >= 3 }, 5*time.Second)
 }
-

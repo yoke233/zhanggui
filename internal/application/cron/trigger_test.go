@@ -13,76 +13,68 @@ import (
 // --- mock store ---
 
 type mockStore struct {
-	mu    sync.Mutex
-	flows map[int64]*core.Flow
-	steps map[int64]*core.Step
+	mu     sync.Mutex
+	issues map[int64]*core.Issue
+	steps  map[int64]*core.Step
 	nextID int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		flows: make(map[int64]*core.Flow),
-		steps: make(map[int64]*core.Step),
+		issues: make(map[int64]*core.Issue),
+		steps:  make(map[int64]*core.Step),
 	}
 }
 
-func (s *mockStore) nextFlowID() int64 {
+func (s *mockStore) nextIssueID() int64 {
 	s.nextID++
 	return s.nextID
 }
 
-func (s *mockStore) CreateFlow(_ context.Context, f *core.Flow) (int64, error) {
+func (s *mockStore) CreateIssue(_ context.Context, iss *core.Issue) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := s.nextFlowID()
-	f.ID = id
-	f.CreatedAt = time.Now()
-	f.UpdatedAt = time.Now()
-	clone := *f
-	if f.Metadata != nil {
-		clone.Metadata = make(map[string]string, len(f.Metadata))
-		for k, v := range f.Metadata {
+	id := s.nextIssueID()
+	iss.ID = id
+	iss.CreatedAt = time.Now()
+	iss.UpdatedAt = time.Now()
+	clone := *iss
+	if iss.Metadata != nil {
+		clone.Metadata = make(map[string]any, len(iss.Metadata))
+		for k, v := range iss.Metadata {
 			clone.Metadata[k] = v
 		}
 	}
-	s.flows[id] = &clone
+	s.issues[id] = &clone
 	return id, nil
 }
 
-func (s *mockStore) GetFlow(_ context.Context, id int64) (*core.Flow, error) {
+func (s *mockStore) GetIssue(_ context.Context, id int64) (*core.Issue, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, ok := s.flows[id]
+	iss, ok := s.issues[id]
 	if !ok {
 		return nil, core.ErrNotFound
 	}
-	clone := *f
+	clone := *iss
 	return &clone, nil
 }
 
-func (s *mockStore) ListFlows(_ context.Context, filter core.FlowFilter) ([]*core.Flow, error) {
+func (s *mockStore) ListIssues(_ context.Context, filter core.IssueFilter) ([]*core.Issue, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var result []*core.Flow
-	for _, f := range s.flows {
+	var result []*core.Issue
+	for _, iss := range s.issues {
 		if filter.Archived != nil {
-			isArchived := f.ArchivedAt != nil
+			isArchived := iss.ArchivedAt != nil
 			if *filter.Archived != isArchived {
 				continue
 			}
 		}
-		if filter.Status != nil && f.Status != *filter.Status {
+		if filter.Status != nil && iss.Status != *filter.Status {
 			continue
 		}
-		if filter.MetadataHasKey != "" {
-			if f.Metadata == nil {
-				continue
-			}
-			if _, ok := f.Metadata[filter.MetadataHasKey]; !ok {
-				continue
-			}
-		}
-		result = append(result, f)
+		result = append(result, iss)
 	}
 	if filter.Offset > 0 && filter.Offset < len(result) {
 		result = result[filter.Offset:]
@@ -95,49 +87,61 @@ func (s *mockStore) ListFlows(_ context.Context, filter core.FlowFilter) ([]*cor
 	return result, nil
 }
 
-func (s *mockStore) UpdateFlowStatus(_ context.Context, id int64, status core.FlowStatus) error {
+func (s *mockStore) UpdateIssue(_ context.Context, iss *core.Issue) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, ok := s.flows[id]
-	if !ok {
-		return core.ErrNotFound
-	}
-	f.Status = status
+	clone := *iss
+	s.issues[iss.ID] = &clone
 	return nil
 }
 
-func (s *mockStore) UpdateFlowMetadata(_ context.Context, id int64, metadata map[string]string) error {
+func (s *mockStore) UpdateIssueStatus(_ context.Context, id int64, status core.IssueStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, ok := s.flows[id]
+	iss, ok := s.issues[id]
 	if !ok {
 		return core.ErrNotFound
 	}
-	f.Metadata = make(map[string]string, len(metadata))
+	iss.Status = status
+	return nil
+}
+
+func (s *mockStore) UpdateIssueMetadata(_ context.Context, id int64, metadata map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	iss, ok := s.issues[id]
+	if !ok {
+		return core.ErrNotFound
+	}
+	iss.Metadata = make(map[string]any, len(metadata))
 	for k, v := range metadata {
-		f.Metadata[k] = v
+		iss.Metadata[k] = v
 	}
 	return nil
 }
 
-func (s *mockStore) PrepareFlowRun(_ context.Context, id int64, _ core.FlowStatus) error {
+func (s *mockStore) PrepareIssueRun(_ context.Context, id int64, _ core.IssueStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.flows[id]
+	_, ok := s.issues[id]
 	if !ok {
 		return core.ErrNotFound
 	}
 	return nil
 }
 
-func (s *mockStore) SetFlowArchived(_ context.Context, _ int64, _ bool) error {
+func (s *mockStore) SetIssueArchived(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
+
+func (s *mockStore) DeleteIssue(_ context.Context, _ int64) error {
 	return nil
 }
 
 func (s *mockStore) CreateStep(_ context.Context, step *core.Step) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := s.nextFlowID()
+	id := s.nextIssueID()
 	step.ID = id
 	clone := *step
 	s.steps[id] = &clone
@@ -155,12 +159,12 @@ func (s *mockStore) GetStep(_ context.Context, id int64) (*core.Step, error) {
 	return &clone, nil
 }
 
-func (s *mockStore) ListStepsByFlow(_ context.Context, flowID int64) ([]*core.Step, error) {
+func (s *mockStore) ListStepsByIssue(_ context.Context, issueID int64) ([]*core.Step, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []*core.Step
 	for _, step := range s.steps {
-		if step.FlowID == flowID {
+		if step.IssueID == issueID {
 			clone := *step
 			result = append(result, &clone)
 		}
@@ -191,10 +195,10 @@ type mockScheduler struct {
 	submitted []int64
 }
 
-func (s *mockScheduler) Submit(_ context.Context, flowID int64) error {
+func (s *mockScheduler) Submit(_ context.Context, issueID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.submitted = append(s.submitted, flowID)
+	s.submitted = append(s.submitted, issueID)
 	return nil
 }
 
@@ -223,7 +227,7 @@ func (b *mockBus) Publish(_ context.Context, e core.Event) {
 
 func createTemplate(t *testing.T, store *mockStore, name, cronExpr string, maxInst int) int64 {
 	t.Helper()
-	meta := map[string]string{
+	meta := map[string]any{
 		MetaSchedule:   cronExpr,
 		MetaEnabled:    "true",
 		MetaTemplateID: "true",
@@ -231,9 +235,9 @@ func createTemplate(t *testing.T, store *mockStore, name, cronExpr string, maxIn
 	if maxInst > 0 {
 		meta[MetaMaxInstances] = strconv.Itoa(maxInst)
 	}
-	id, err := store.CreateFlow(context.Background(), &core.Flow{
-		Name:     name,
-		Status:   core.FlowPending,
+	id, err := store.CreateIssue(context.Background(), &core.Issue{
+		Title:    name,
+		Status:   core.IssueOpen,
 		Metadata: meta,
 	})
 	if err != nil {
@@ -241,10 +245,10 @@ func createTemplate(t *testing.T, store *mockStore, name, cronExpr string, maxIn
 	}
 	// Add a step so clone has something to copy.
 	_, err = store.CreateStep(context.Background(), &core.Step{
-		FlowID: id,
-		Name:   "step-1",
-		Type:   core.StepExec,
-		Status: core.StepPending,
+		IssueID: id,
+		Name:    "step-1",
+		Type:    core.StepExec,
+		Status:  core.StepPending,
 	})
 	if err != nil {
 		t.Fatalf("create step: %v", err)
@@ -290,8 +294,8 @@ func TestTrigger_FiresOnSchedule(t *testing.T) {
 	}
 
 	// Verify lastTriggered was persisted.
-	f, _ := store.GetFlow(ctx, templateID)
-	if f.Metadata[MetaLastTriggered] == "" {
+	iss, _ := store.GetIssue(ctx, templateID)
+	if metaString(iss.Metadata, MetaLastTriggered) == "" {
 		t.Error("expected lastTriggered to be persisted")
 	}
 }
@@ -304,11 +308,11 @@ func TestTrigger_RespectsMaxInstances(t *testing.T) {
 	templateID := createTemplate(t, store, "daily", "0 8 * * *", 1)
 
 	// Create an active clone of this template (simulating already running).
-	store.CreateFlow(context.Background(), &core.Flow{
-		Name:   "daily [cron clone]",
-		Status: core.FlowRunning,
-		Metadata: map[string]string{
-			MetaSourceFlowID: strconv.FormatInt(templateID, 10),
+	store.CreateIssue(context.Background(), &core.Issue{
+		Title:  "daily [cron clone]",
+		Status: core.IssueRunning,
+		Metadata: map[string]any{
+			MetaSourceIssueID: strconv.FormatInt(templateID, 10),
 		},
 	})
 
@@ -340,11 +344,11 @@ func TestTrigger_MaxInstancesAllowsMore(t *testing.T) {
 
 	// Create 2 active clones — maxInst is 3, so one more should be allowed.
 	for i := 0; i < 2; i++ {
-		store.CreateFlow(context.Background(), &core.Flow{
-			Name:   "daily [clone]",
-			Status: core.FlowRunning,
-			Metadata: map[string]string{
-				MetaSourceFlowID: strconv.FormatInt(templateID, 10),
+		store.CreateIssue(context.Background(), &core.Issue{
+			Title:  "daily [clone]",
+			Status: core.IssueRunning,
+			Metadata: map[string]any{
+				MetaSourceIssueID: strconv.FormatInt(templateID, 10),
 			},
 		})
 	}
@@ -427,9 +431,9 @@ func TestTrigger_ClonesSteps(t *testing.T) {
 		t.Fatalf("expected 1 submission, got %d", len(submitted))
 	}
 
-	// The cloned flow should have steps.
+	// The cloned issue should have steps.
 	cloneID := submitted[0]
-	steps, err := store.ListStepsByFlow(ctx, cloneID)
+	steps, err := store.ListStepsByIssue(ctx, cloneID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,10 +450,10 @@ func TestTrigger_LoadTemplatesFilters(t *testing.T) {
 	// Create a template (should be found).
 	createTemplate(t, store, "template", "0 8 * * *", 1)
 
-	// Create a normal flow (should NOT be found).
-	store.CreateFlow(context.Background(), &core.Flow{
-		Name:   "normal-flow",
-		Status: core.FlowPending,
+	// Create a normal issue (should NOT be found).
+	store.CreateIssue(context.Background(), &core.Issue{
+		Title:  "normal-issue",
+		Status: core.IssueOpen,
 	})
 
 	trigger := New(store, sched, bus, Config{Enabled: true})

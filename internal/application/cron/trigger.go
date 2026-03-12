@@ -130,10 +130,9 @@ func (t *Trigger) loadTemplates(ctx context.Context) ([]issueTemplate, error) {
 	archived := false
 	for {
 		issues, err := t.store.ListIssues(ctx, core.IssueFilter{
-			Archived:       &archived,
-			MetadataHasKey: MetaTemplateID,
-			Limit:          pageSize,
-			Offset:         offset,
+			Archived: &archived,
+			Limit:    pageSize,
+			Offset:   offset,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list issues: %w", err)

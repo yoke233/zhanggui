@@ -20,7 +20,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/chat", icon: MessageSquare, label: "对话" },
-  { to: "/flows", icon: GitBranch, label: "流程" },
+  { to: "/issues", icon: GitBranch, label: "流程" },
   { to: "/analytics", icon: BarChart3, label: "运行分析" },
   { to: "/usage", icon: Coins, label: "用量统计" },
   { to: "/sandbox", icon: Shield, label: "沙盒" },

@@ -6,7 +6,7 @@ describe("apiClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("generateSteps 会命中 /flows/{id}/generate-steps 并 POST JSON body", async () => {
+  it("generateSteps 会命中 /issues/{id}/generate-steps 并 POST JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 201,
@@ -19,7 +19,7 @@ describe("apiClient", () => {
     await client.generateSteps(12, { description: "make a dag" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/flows/12/generate-steps");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/issues/12/generate-steps");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
@@ -30,7 +30,7 @@ describe("apiClient", () => {
       new Response(
         JSON.stringify({
           id: 1,
-          flow_id: 2,
+          issue_id: 2,
           name: "x",
           type: "exec",
           status: "pending",
@@ -48,13 +48,13 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.updateStep(99, { depends_on: [1, 2, 3] });
+    await client.updateStep(99, { position: 3 });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/steps/99");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("PUT");
-    expect(JSON.parse(String(init.body))).toEqual({ depends_on: [1, 2, 3] });
+    expect(JSON.parse(String(init.body))).toEqual({ position: 3 });
   });
 
   it("deleteStep 会命中 /steps/{id} 并 DELETE", async () => {
@@ -136,7 +136,7 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ enabled: true, provider: "home_dir" });
   });
 
-  it("listFlows 会透传 archived 查询参数", async () => {
+  it("listIssues 会透传 archived 查询参数", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 200,
@@ -146,19 +146,19 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.listFlows({ project_id: 7, archived: false, limit: 20, offset: 10 });
+    await client.listIssues({ project_id: 7, archived: false, limit: 20, offset: 10 });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/flows?project_id=7&archived=false&limit=20&offset=10",
+      "http://localhost:8080/api/issues?project_id=7&archived=false&limit=20&offset=10",
     );
   });
 
-  it("bootstrapPRFlow 会命中 /flows/{id}/bootstrap-pr 并 POST JSON body", async () => {
+  it("bootstrapPRIssue 会命中 /issues/{id}/bootstrap-pr 并 POST JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          flow_id: 12,
+          issue_id: 12,
           implement_step_id: 101,
           commit_push_step_id: 102,
           open_pr_step_id: 103,
@@ -173,10 +173,10 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.bootstrapPRFlow(12, { title: "demo", base_branch: "master" });
+    await client.bootstrapPRIssue(12, { title: "demo", base_branch: "master" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/flows/12/bootstrap-pr");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/issues/12/bootstrap-pr");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ title: "demo", base_branch: "master" });

@@ -31,8 +31,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getScmFlowProviderFromBindings, type SupportedScmProvider } from "@/lib/scm";
 import { cn } from "@/lib/utils";
-import { formatFlowDuration, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Execution, Flow, ResourceBinding, Step } from "@/types/apiV2";
+import { formatIssueDuration, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
+import type { Execution, Issue, ResourceBinding, Step } from "@/types/apiV2";
 
 interface StepNodeData extends Record<string, unknown> {
   label: string;
@@ -90,45 +90,11 @@ const nodeTypes: NodeTypes = {
 };
 
 const buildGraph = (steps: Step[]): { nodes: Node<StepNodeData>[]; edges: Edge[] } => {
-  const depthMap = new Map<number, number>();
-  const stepMap = new Map(steps.map((step) => [step.id, step]));
-
-  const resolveDepth = (step: Step): number => {
-    const cached = depthMap.get(step.id);
-    if (cached != null) {
-      return cached;
-    }
-    const dependsOn = step.depends_on ?? [];
-    if (dependsOn.length === 0) {
-      depthMap.set(step.id, 0);
-      return 0;
-    }
-    const depth = Math.max(
-      ...dependsOn.map((dependencyId) => {
-        const dependency = stepMap.get(dependencyId);
-        return dependency ? resolveDepth(dependency) + 1 : 0;
-      }),
-    );
-    depthMap.set(step.id, depth);
-    return depth;
-  };
-
-  const columns = new Map<number, Step[]>();
-  steps.forEach((step) => {
-    const depth = resolveDepth(step);
-    const list = columns.get(depth) ?? [];
-    list.push(step);
-    columns.set(depth, list);
-  });
-
-  const nodes = steps.map((step) => {
-    const depth = depthMap.get(step.id) ?? 0;
-    const siblings = columns.get(depth) ?? [];
-    const rowIndex = siblings.findIndex((candidate) => candidate.id === step.id);
+  const nodes = steps.map((step, index) => {
     return {
       id: String(step.id),
       type: "step",
-      position: { x: depth * 260, y: rowIndex * 150 },
+      position: { x: 0, y: index * 150 },
       data: {
         label: step.name,
         type: step.type,
@@ -138,42 +104,43 @@ const buildGraph = (steps: Step[]): { nodes: Node<StepNodeData>[]; edges: Edge[]
     } satisfies Node<StepNodeData>;
   });
 
-  const edges = steps.flatMap((step) =>
-    (step.depends_on ?? []).map((dependencyId) => ({
-      id: `e${dependencyId}-${step.id}`,
-      source: String(dependencyId),
-      target: String(step.id),
-      animated: step.status === "running",
-    })),
-  );
+  const edges: Edge[] = [];
+  for (let i = 1; i < steps.length; i++) {
+    edges.push({
+      id: `e${steps[i - 1].id}-${steps[i].id}`,
+      source: String(steps[i - 1].id),
+      target: String(steps[i].id),
+      animated: steps[i].status === "running",
+    });
+  }
 
   return { nodes, edges };
 };
 
-export function FlowDetailPage() {
-  const { flowId } = useParams();
+export function IssueDetailPage() {
+  const { flowId: issueIdParam } = useParams();
   const { apiClient, projects } = useWorkbench();
-  const numericFlowId = Number.parseInt(flowId ?? "", 10);
-  const [flow, setFlow] = useState<Flow | null>(null);
+  const numericIssueId = Number.parseInt(issueIdParam ?? "", 10);
+  const [issue, setIssue] = useState<Issue | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(false);
   const [runningAction, setRunningAction] = useState<"idle" | "run" | "cancel" | "save_template">("idle");
-  const [bootstrapingPRFlow, setBootstrapingPRFlow] = useState(false);
+  const [bootstrapingPRIssue, setBootstrapingPRIssue] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [templateSaved, setTemplateSaved] = useState(false);
   const [projectResources, setProjectResources] = useState<ResourceBinding[]>([]);
 
-  const fetchFlowData = useCallback(async (targetFlowId: number) => {
+  const fetchIssueData = useCallback(async (targetIssueId: number) => {
     return Promise.all([
-      apiClient.getFlow(targetFlowId),
-      apiClient.listSteps(targetFlowId),
+      apiClient.getIssue(targetIssueId),
+      apiClient.listSteps(targetIssueId),
     ]);
   }, [apiClient]);
 
-  const applyFlowData = useCallback((flowResp: Flow, stepsResp: Step[]) => {
-    setFlow(flowResp);
+  const applyIssueData = useCallback((issueResp: Issue, stepsResp: Step[]) => {
+    setIssue(issueResp);
     setSteps(stepsResp);
     setSelectedStepId((current) => (
       current != null && stepsResp.some((step) => step.id === current)
@@ -183,7 +150,7 @@ export function FlowDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!Number.isFinite(numericFlowId)) {
+    if (!Number.isFinite(numericIssueId)) {
       return;
     }
     let cancelled = false;
@@ -192,9 +159,9 @@ export function FlowDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const [flowResp, stepsResp] = await fetchFlowData(numericFlowId);
+        const [issueResp, stepsResp] = await fetchIssueData(numericIssueId);
         if (!cancelled) {
-          applyFlowData(flowResp, stepsResp);
+          applyIssueData(issueResp, stepsResp);
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -211,17 +178,17 @@ export function FlowDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [applyFlowData, fetchFlowData, numericFlowId]);
+  }, [applyIssueData, fetchIssueData, numericIssueId]);
 
   useEffect(() => {
-    if (flow?.project_id == null) {
+    if (issue?.project_id == null) {
       setProjectResources([]);
       return;
     }
     let cancelled = false;
     const loadResources = async () => {
       try {
-        const resources = await apiClient.listProjectResources(flow.project_id!);
+        const resources = await apiClient.listProjectResources(issue.project_id!);
         if (!cancelled) {
           setProjectResources(resources);
         }
@@ -235,7 +202,7 @@ export function FlowDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [apiClient, flow?.project_id]);
+  }, [apiClient, issue?.project_id]);
 
   useEffect(() => {
     if (selectedStepId == null) {
@@ -264,14 +231,14 @@ export function FlowDetailPage() {
 
   const { nodes, edges } = useMemo(() => buildGraph(steps), [steps]);
   const selectedStep = steps.find((step) => step.id === selectedStepId) ?? null;
-  const selectedProject = flow?.project_id == null
+  const selectedProject = issue?.project_id == null
     ? null
-    : projects.find((project) => project.id === flow.project_id) ?? null;
+    : projects.find((project) => project.id === issue.project_id) ?? null;
   const scmProvider = useMemo<SupportedScmProvider | null>(
     () => getScmFlowProviderFromBindings(projectResources),
     [projectResources],
   );
-  const prFlowDisabledReason = useMemo(() => {
+  const prIssueDisabledReason = useMemo(() => {
     if (!scmProvider) {
       return "当前项目没有启用 GitHub / Codeup 的 PR/CR 流程资源";
     }
@@ -289,19 +256,19 @@ export function FlowDetailPage() {
   }, []);
 
   const runAction = async (action: "run" | "cancel") => {
-    if (!flow) {
+    if (!issue) {
       return;
     }
     setRunningAction(action);
     setError(null);
     try {
       if (action === "run") {
-        await apiClient.runFlow(flow.id);
+        await apiClient.runIssue(issue.id);
       } else {
-        await apiClient.cancelFlow(flow.id);
+        await apiClient.cancelIssue(issue.id);
       }
-      const refreshed = await apiClient.getFlow(flow.id);
-      setFlow(refreshed);
+      const refreshed = await apiClient.getIssue(issue.id);
+      setIssue(refreshed);
     } catch (actionError) {
       setError(getErrorMessage(actionError));
     } finally {
@@ -310,13 +277,13 @@ export function FlowDetailPage() {
   };
 
   const saveAsTemplate = async () => {
-    if (!flow || steps.length === 0) return;
+    if (!issue || steps.length === 0) return;
     setRunningAction("save_template");
     setError(null);
     try {
-      await apiClient.saveFlowAsTemplate(flow.id, {
-        name: flow.name,
-        description: flow.metadata?.description,
+      await apiClient.saveIssueAsTemplate(issue.id, {
+        name: issue.title,
+        description: issue.metadata?.description as string | undefined,
       });
       setTemplateSaved(true);
     } catch (saveError) {
@@ -326,20 +293,20 @@ export function FlowDetailPage() {
     }
   };
 
-  const bootstrapPRFlow = async () => {
-    if (!flow || !scmProvider) {
+  const bootstrapPRIssue = async () => {
+    if (!issue || !scmProvider) {
       return;
     }
-    setBootstrapingPRFlow(true);
+    setBootstrapingPRIssue(true);
     setError(null);
     try {
-      await apiClient.bootstrapPRFlow(flow.id);
-      const [flowResp, stepsResp] = await fetchFlowData(flow.id);
-      applyFlowData(flowResp, stepsResp);
+      await apiClient.bootstrapPRIssue(issue.id);
+      const [issueResp, stepsResp] = await fetchIssueData(issue.id);
+      applyIssueData(issueResp, stepsResp);
     } catch (bootstrapError) {
       setError(getErrorMessage(bootstrapError));
     } finally {
-      setBootstrapingPRFlow(false);
+      setBootstrapingPRIssue(false);
     }
   };
 
@@ -347,22 +314,22 @@ export function FlowDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
         <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/flows" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">流程</Link>
           <ChevronRight className="h-3 w-3" />
           <span>{selectedProject?.name ?? "未指定项目"}</span>
           <ChevronRight className="h-3 w-3" />
-          <span className="text-foreground">{flow?.name ?? `Flow #${flowId}`}</span>
+          <span className="text-foreground">{issue?.title ?? `Issue #${issueIdParam}`}</span>
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold">{flow?.name ?? `Flow #${flowId}`}</h1>
-            {flow ? <StatusBadge status={flow.status} /> : null}
+            <h1 className="text-xl font-bold">{issue?.title ?? `Issue #${issueIdParam}`}</h1>
+            {issue ? <StatusBadge status={issue.status} /> : null}
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Flow #{flow?.id ?? flowId}</span>
+            <span className="text-sm text-muted-foreground">Issue #{issue?.id ?? issueIdParam}</span>
             <span className="text-sm text-muted-foreground">· {steps.length} 步骤</span>
-            {flow ? <span className="text-sm text-muted-foreground">· {formatFlowDuration(flow)}</span> : null}
+            {issue ? <span className="text-sm text-muted-foreground">· {formatIssueDuration(issue)}</span> : null}
             {scmProvider ? (
               <>
                 <Badge variant="outline" className="text-xs">
@@ -371,12 +338,12 @@ export function FlowDetailPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={runningAction !== "idle" || bootstrapingPRFlow || !!prFlowDisabledReason}
-                  onClick={() => void bootstrapPRFlow()}
-                  title={prFlowDisabledReason || "为当前流程注入 PR/CR 自动化步骤"}
+                  disabled={runningAction !== "idle" || bootstrapingPRIssue || !!prIssueDisabledReason}
+                  onClick={() => void bootstrapPRIssue()}
+                  title={prIssueDisabledReason || "为当前流程注入 PR/CR 自动化步骤"}
                 >
                   <GitBranch className="mr-2 h-3 w-3" />
-                  {bootstrapingPRFlow ? "创建中..." : "创建 PR/CR 流程"}
+                  {bootstrapingPRIssue ? "创建中..." : "创建 PR/CR 流程"}
                 </Button>
               </>
             ) : null}
@@ -523,3 +490,6 @@ export function FlowDetailPage() {
     </div>
   );
 }
+
+// Keep backward-compatible export
+export { IssueDetailPage as FlowDetailPage };

@@ -38,7 +38,7 @@ func (s *probeRuntimeStub) ProbeExecution(context.Context, runtimeapp.ExecutionP
 	return s.result, nil
 }
 func (s *probeRuntimeStub) Release(context.Context, *runtimeapp.SessionHandle) error { return nil }
-func (s *probeRuntimeStub) CleanupFlow(int64)                                        {}
+func (s *probeRuntimeStub) CleanupIssue(int64)                                       {}
 func (s *probeRuntimeStub) DrainActive(context.Context) error                        { return nil }
 func (s *probeRuntimeStub) ActiveCount() int                                         { return 0 }
 func (s *probeRuntimeStub) Close()                                                   {}
@@ -52,21 +52,21 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	flowID, err := store.CreateFlow(ctx, &core.Flow{Name: "api-probe", Status: core.FlowRunning})
+	issueID, err := store.CreateIssue(ctx, &core.Issue{Title: "api-probe", Priority: core.PriorityMedium, Status: core.IssueRunning})
 	if err != nil {
-		t.Fatalf("create flow: %v", err)
+		t.Fatalf("create issue: %v", err)
 	}
-	stepID, err := store.CreateStep(ctx, &core.Step{FlowID: flowID, Name: "step", Type: core.StepExec, Status: core.StepRunning})
+	stepID, err := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "step", Type: core.StepExec, Status: core.StepRunning})
 	if err != nil {
 		t.Fatalf("create step: %v", err)
 	}
-	agentCtx := &core.AgentContext{AgentID: "worker", FlowID: flowID, SessionID: "session-api", WorkerID: "worker-api"}
+	agentCtx := &core.AgentContext{AgentID: "worker", IssueID: issueID, SessionID: "session-api", WorkerID: "worker-api"}
 	agentCtxID, err := store.CreateAgentContext(ctx, agentCtx)
 	if err != nil {
 		t.Fatalf("create agent context: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-15 * time.Minute)
-	execRec := &core.Execution{StepID: stepID, FlowID: flowID, Status: core.ExecRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
+	execRec := &core.Execution{StepID: stepID, IssueID: issueID, Status: core.ExecRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
 	execID, err := store.CreateExecution(ctx, execRec)
 	if err != nil {
 		t.Fatalf("create execution: %v", err)

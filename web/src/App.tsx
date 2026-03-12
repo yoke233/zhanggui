@@ -5,12 +5,12 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { AgentsPage } from "@/pages/AgentsPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ChatPage } from "@/pages/ChatPage";
-import { CreateFlowPage } from "@/pages/CreateFlowPage";
+import { CreateIssuePage } from "@/pages/CreateFlowPage";
 import { CreateProjectPage } from "@/pages/CreateProjectPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
-import { FlowDetailPage } from "@/pages/FlowDetailPage";
-import { FlowsPage } from "@/pages/FlowsPage";
+import { IssueDetailPage } from "@/pages/FlowDetailPage";
+import { IssuesPage } from "@/pages/FlowsPage";
 import { GitTagsPage } from "@/pages/GitTagsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
@@ -53,9 +53,13 @@ const WorkbenchRoutes = () => {
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/chat" element={<ChatPage />} />
-          <Route path="/flows" element={<FlowsPage />} />
-          <Route path="/flows/new" element={<CreateFlowPage />} />
-          <Route path="/flows/:flowId" element={<FlowDetailPage />} />
+          <Route path="/issues" element={<IssuesPage />} />
+          <Route path="/issues/new" element={<CreateIssuePage />} />
+          <Route path="/issues/:flowId" element={<IssueDetailPage />} />
+          {/* Legacy /flows routes redirect to /issues */}
+          <Route path="/flows" element={<Navigate to="/issues" replace />} />
+          <Route path="/flows/new" element={<Navigate to="/issues/new" replace />} />
+          <Route path="/flows/:flowId" element={<Navigate to="/issues" replace />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />

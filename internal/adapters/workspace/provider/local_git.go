@@ -11,18 +11,18 @@ import (
 
 type LocalGitProvider struct{}
 
-func (p *LocalGitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, flowID int64) (*core.Workspace, error) {
+func (p *LocalGitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, issueID int64) (*core.Workspace, error) {
 	for _, b := range bindings {
 		if b.Kind != "git" {
 			continue
 		}
 		repoPath := b.URI
-		branchName := fmt.Sprintf("ai-flow/flow-%d", flowID)
-		worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("flow-%d", flowID))
+		branchName := fmt.Sprintf("ai-flow/issue-%d", issueID)
+		worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("issue-%d", issueID))
 
 		runner := workspacegit.NewRunner(repoPath)
 		if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
-			return nil, fmt.Errorf("create worktree for flow %d: %w", flowID, err)
+			return nil, fmt.Errorf("create worktree for issue %d: %w", issueID, err)
 		}
 
 		defaultBranch := DefaultBranchFromBinding(b)

@@ -219,9 +219,9 @@ export function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState(7);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [cronFlows, setCronFlows] = useState<CronStatus[]>([]);
+  const [cronIssues, setCronIssues] = useState<CronStatus[]>([]);
   const [cronDialogOpen, setCronDialogOpen] = useState(false);
-  const [cronForm, setCronForm] = useState({ flowId: "", schedule: "", maxInstances: "1" });
+  const [cronForm, setCronForm] = useState({ issueId: "", schedule: "", maxInstances: "1" });
   const [cronSaving, setCronSaving] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
 
@@ -237,10 +237,10 @@ export function AnalyticsPage() {
               ? new Date(Date.now() - rangeDays * 86400000).toISOString()
               : undefined,
         }),
-        apiClient.listCronFlows(),
+        apiClient.listCronIssues(),
       ]);
       setData(resp);
-      setCronFlows(cronResp);
+      setCronIssues(cronResp);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -259,7 +259,7 @@ export function AnalyticsPage() {
     return () => clearInterval(id);
   }, [autoRefresh, load]);
 
-  const totalFlows = useMemo(
+  const totalIssues = useMemo(
     () => (data?.status_distribution ?? []).reduce((s, d) => s + d.count, 0),
     [data],
   );
@@ -275,7 +275,7 @@ export function AnalyticsPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            Flow / Step / Execution 执行质量与瓶颈分析
+            Issue / Step / Execution 执行质量与瓶颈分析
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -325,7 +325,7 @@ export function AnalyticsPage() {
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalFlows}</div>
+              <div className="text-2xl font-bold">{totalIssues}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {data.status_distribution.map((s) => (
                   <Badge key={s.status} variant="secondary" className="text-xs">
@@ -359,7 +359,7 @@ export function AnalyticsPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">最慢 Flow</CardTitle>
+              <CardTitle className="text-sm font-medium">最慢 Issue</CardTitle>
               <Clock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
@@ -369,8 +369,8 @@ export function AnalyticsPage() {
                     {formatDuration(data.duration_stats[0].avg_duration_s)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    <Link to={`/flows/${data.duration_stats[0].flow_id}`} className="hover:underline">
-                      {data.duration_stats[0].flow_name}
+                    <Link to={`/issues/${data.duration_stats[0].issue_id}`} className="hover:underline">
+                      {data.duration_stats[0].issue_title}
                     </Link>
                     {" / "}最大 {formatDuration(data.duration_stats[0].max_duration_s)}
                   </p>
@@ -420,8 +420,8 @@ export function AnalyticsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>项目</TableHead>
-                  <TableHead>Flow 总数</TableHead>
-                  <TableHead>失败 Flow</TableHead>
+                  <TableHead>Issue 总数</TableHead>
+                  <TableHead>失败 Issue</TableHead>
                   <TableHead>失败率</TableHead>
                   <TableHead>失败执行</TableHead>
                 </TableRow>
@@ -437,9 +437,9 @@ export function AnalyticsPage() {
                   data.project_errors.map((p) => (
                     <TableRow key={p.project_id}>
                       <TableCell className="font-medium">{p.project_name}</TableCell>
-                      <TableCell>{p.total_flows}</TableCell>
-                      <TableCell className={p.failed_flows > 0 ? "text-red-600 font-medium" : ""}>
-                        {p.failed_flows}
+                      <TableCell>{p.total_issues}</TableCell>
+                      <TableCell className={p.failed_issues > 0 ? "text-red-600 font-medium" : ""}>
+                        {p.failed_issues}
                       </TableCell>
                       <TableCell>{pctBar(p.failure_rate, "bg-red-500")}</TableCell>
                       <TableCell>{p.failed_execs}</TableCell>
@@ -464,7 +464,7 @@ export function AnalyticsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Step</TableHead>
-                  <TableHead>Flow</TableHead>
+                  <TableHead>Issue</TableHead>
                   <TableHead>平均耗时</TableHead>
                   <TableHead>最大耗时</TableHead>
                   <TableHead>失败率</TableHead>
@@ -483,8 +483,8 @@ export function AnalyticsPage() {
                     <TableRow key={b.step_id}>
                       <TableCell className="font-medium">{b.step_name}</TableCell>
                       <TableCell>
-                        <Link to={`/flows/${b.flow_id}`} className="text-blue-600 hover:underline">
-                          {b.flow_name}
+                        <Link to={`/issues/${b.issue_id}`} className="text-blue-600 hover:underline">
+                          {b.issue_title}
                         </Link>
                       </TableCell>
                       <TableCell>{formatDuration(b.avg_duration_s)}</TableCell>
@@ -506,19 +506,19 @@ export function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* Flow duration stats */}
+      {/* Issue duration stats */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-blue-500" />
-            Flow 执行耗时统计
+            Issue 执行耗时统计
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Flow</TableHead>
+                <TableHead>Issue</TableHead>
                 <TableHead>执行次数</TableHead>
                 <TableHead>平均耗时</TableHead>
                 <TableHead>最短</TableHead>
@@ -534,10 +534,10 @@ export function AnalyticsPage() {
                 </TableRow>
               ) : (
                 data.duration_stats.slice(0, 15).map((d) => (
-                  <TableRow key={d.flow_id}>
+                  <TableRow key={d.issue_id}>
                     <TableCell className="font-medium">
-                      <Link to={`/flows/${d.flow_id}`} className="hover:underline">
-                        {d.flow_name}
+                      <Link to={`/issues/${d.issue_id}`} className="hover:underline">
+                        {d.issue_title}
                       </Link>
                     </TableCell>
                     <TableCell>{d.exec_count}</TableCell>
@@ -566,7 +566,7 @@ export function AnalyticsPage() {
               <TableRow>
                 <TableHead>时间</TableHead>
                 <TableHead>项目</TableHead>
-                <TableHead>Flow</TableHead>
+                <TableHead>Issue</TableHead>
                 <TableHead>Step</TableHead>
                 <TableHead>错误类型</TableHead>
                 <TableHead>尝试次数</TableHead>
@@ -589,8 +589,8 @@ export function AnalyticsPage() {
                     </TableCell>
                     <TableCell>{f.project_name || "-"}</TableCell>
                     <TableCell>
-                      <Link to={`/flows/${f.flow_id}`} className="text-blue-600 hover:underline">
-                        {f.flow_name}
+                      <Link to={`/issues/${f.issue_id}`} className="text-blue-600 hover:underline">
+                        {f.issue_title}
                       </Link>
                     </TableCell>
                     <TableCell className="font-medium">{f.step_name}</TableCell>
@@ -615,7 +615,7 @@ export function AnalyticsPage() {
         </CardContent>
       </Card>
 
-      {/* Cron scheduled flows */}
+      {/* Cron scheduled issues */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -627,7 +627,7 @@ export function AnalyticsPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setCronForm({ flowId: "", schedule: "", maxInstances: "1" });
+                setCronForm({ issueId: "", schedule: "", maxInstances: "1" });
                 setCronError(null);
                 setCronDialogOpen(true);
               }}
@@ -641,7 +641,7 @@ export function AnalyticsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Flow ID</TableHead>
+                <TableHead>Issue ID</TableHead>
                 <TableHead>Cron 表达式</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>最大并发</TableHead>
@@ -650,18 +650,18 @@ export function AnalyticsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {cronFlows.length === 0 ? (
+              {cronIssues.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
                     暂无定时任务
                   </TableCell>
                 </TableRow>
               ) : (
-                cronFlows.map((c) => (
-                  <TableRow key={c.flow_id}>
+                cronIssues.map((c) => (
+                  <TableRow key={c.issue_id}>
                     <TableCell>
-                      <Link to={`/flows/${c.flow_id}`} className="text-blue-600 hover:underline">
-                        #{c.flow_id}
+                      <Link to={`/issues/${c.issue_id}`} className="text-blue-600 hover:underline">
+                        #{c.issue_id}
                       </Link>
                     </TableCell>
                     <TableCell>
@@ -689,9 +689,9 @@ export function AnalyticsPage() {
                         onClick={async () => {
                           try {
                             if (c.enabled) {
-                              await apiClient.disableFlowCron(c.flow_id);
+                              await apiClient.disableIssueCron(c.issue_id);
                             } else {
-                              await apiClient.setupFlowCron(c.flow_id, {
+                              await apiClient.setupIssueCron(c.issue_id, {
                                 schedule: c.schedule ?? "0 * * * *",
                                 max_instances: c.max_instances,
                               });
@@ -728,7 +728,7 @@ export function AnalyticsPage() {
         <DialogHeader>
           <DialogTitle>添加定时任务</DialogTitle>
           <DialogDescription>
-            为 Flow 设置 Cron 定时触发。Flow 将作为模板，每次触发时自动克隆并执行。
+            为 Issue 设置 Cron 定时触发。Issue 将作为模板，每次触发时自动克隆并执行。
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -739,12 +739,12 @@ export function AnalyticsPage() {
           ) : null}
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Flow ID</label>
+              <label className="text-sm font-medium">Issue ID</label>
               <Input
                 type="number"
-                placeholder="输入 Flow ID"
-                value={cronForm.flowId}
-                onChange={(e) => setCronForm((f) => ({ ...f, flowId: e.target.value }))}
+                placeholder="输入 Issue ID"
+                value={cronForm.issueId}
+                onChange={(e) => setCronForm((f) => ({ ...f, issueId: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
@@ -802,12 +802,12 @@ export function AnalyticsPage() {
             取消
           </Button>
           <Button
-            disabled={cronSaving || !cronForm.flowId || !cronForm.schedule || !parseCronExpr(cronForm.schedule).valid}
+            disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule).valid}
             onClick={async () => {
               setCronSaving(true);
               setCronError(null);
               try {
-                await apiClient.setupFlowCron(Number(cronForm.flowId), {
+                await apiClient.setupIssueCron(Number(cronForm.issueId), {
                   schedule: cronForm.schedule,
                   max_instances: Number(cronForm.maxInstances) || 1,
                 });

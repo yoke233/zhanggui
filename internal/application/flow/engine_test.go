@@ -24,7 +24,7 @@ func setup(t *testing.T) (core.Store, core.EventBus) {
 	return s, NewMemBus()
 }
 
-// TestLinearFlow: A → B → C, all succeed.
+// TestLinearFlow: A → B → C, all succeed (sequential by Position).
 func TestLinearFlow(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -40,14 +40,14 @@ func TestLinearFlow(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	// Create flow + steps.
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "linear", Status: core.FlowPending})
+	// Create issue + steps.
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "linear", Status: core.IssueOpen})
 
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
-	bID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{bID}})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -58,13 +58,13 @@ func TestLinearFlow(t *testing.T) {
 		t.Fatalf("unexpected order: %v", callOrder)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 }
 
-// TestParallelFanOut: A → (B, C) both run concurrently.
+// TestParallelFanOut: steps at same Position run concurrently.
 func TestParallelFanOut(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -77,12 +77,12 @@ func TestParallelFanOut(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(4))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "fanout", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "fanout", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if counter != 3 {
@@ -90,7 +90,7 @@ func TestParallelFanOut(t *testing.T) {
 	}
 }
 
-// TestStepFailure: A fails, flow fails.
+// TestStepFailure: A fails, issue fails.
 func TestStepFailure(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -101,17 +101,17 @@ func TestStepFailure(t *testing.T) {
 
 	eng := New(store, bus, executor)
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "fail", Status: core.FlowPending})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "fail", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
 
-	err := eng.Run(ctx, fID)
+	err := eng.Run(ctx, issueID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowFailed {
-		t.Fatalf("expected failed, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueFailed {
+		t.Fatalf("expected failed, got %s", issue.Status)
 	}
 }
 
@@ -131,10 +131,10 @@ func TestRetry(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "retry", Status: core.FlowPending})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending, MaxRetries: 1})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "retry", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0, MaxRetries: 1})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if attempts != 2 {
@@ -142,22 +142,22 @@ func TestRetry(t *testing.T) {
 	}
 }
 
-// TestCancelFlow: cancel a running flow.
-func TestCancelFlow(t *testing.T) {
+// TestCancelIssue: cancel a running issue.
+func TestCancelIssue(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
 	eng := New(store, bus, nil)
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "cancel-test", Status: core.FlowPending})
-	_ = store.UpdateFlowStatus(ctx, fID, core.FlowRunning) // simulate running
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "cancel-test", Status: core.IssueOpen})
+	_ = store.UpdateIssueStatus(ctx, issueID, core.IssueRunning) // simulate running
 
-	if err := eng.Cancel(ctx, fID); err != nil {
+	if err := eng.Cancel(ctx, issueID); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowCancelled {
-		t.Fatalf("expected cancelled, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueCancelled {
+		t.Fatalf("expected cancelled, got %s", issue.Status)
 	}
 }
 
@@ -172,11 +172,11 @@ func TestRetryPersistence(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "retry-persist", Status: core.FlowPending})
-	sID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending, MaxRetries: 2})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "retry-persist", Status: core.IssueOpen})
+	sID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0, MaxRetries: 2})
 
 	// Should fail after 3 attempts (1 original + 2 retries).
-	err := eng.Run(ctx, fID)
+	err := eng.Run(ctx, issueID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -188,7 +188,7 @@ func TestRetryPersistence(t *testing.T) {
 	}
 }
 
-// TestGateAutoPass: exec → gate(pass) → flow done.
+// TestGateAutoPass: exec → gate(pass) → issue done.
 func TestGateAutoPass(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -198,7 +198,7 @@ func TestGateAutoPass(t *testing.T) {
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: "LGTM, all tests pass.",
 				Metadata:       map[string]any{"verdict": "pass"},
 			})
@@ -209,20 +209,20 @@ func TestGateAutoPass(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "gate-pass", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "impl", Type: core.StepExec, Status: core.StepPending})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "review", Type: core.StepGate, Status: core.StepPending, DependsOn: []int64{aID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "gate-pass", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "impl", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "review", Type: core.StepGate, Status: core.StepPending, Position: 1})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 }
 
-// TestGateAutoReject: exec → gate(reject) → exec retries → gate(pass) → flow done.
+// TestGateAutoReject: exec → gate(reject) → exec retries → gate(pass) → issue done.
 func TestGateAutoReject(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -239,7 +239,7 @@ func TestGateAutoReject(t *testing.T) {
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: "Review result",
 				Metadata:       map[string]any{"verdict": verdict, "reason": "needs improvement"},
 			})
@@ -251,17 +251,17 @@ func TestGateAutoReject(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "gate-reject", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "impl", Type: core.StepExec, Status: core.StepPending, MaxRetries: 1})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "review", Type: core.StepGate, Status: core.StepPending, DependsOn: []int64{aID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "gate-reject", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "impl", Type: core.StepExec, Status: core.StepPending, Position: 0, MaxRetries: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "review", Type: core.StepGate, Status: core.StepPending, Position: 1})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 	if gateCount != 2 {
 		t.Fatalf("expected 2 gate evaluations, got %d", gateCount)
@@ -292,17 +292,18 @@ func TestStepTimeout(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "timeout", Status: core.FlowPending})
-	_, _ = store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "timeout", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{
+		IssueID:    issueID,
 		Name:       "slow",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
+		Position:   0,
 		Timeout:    50 * time.Millisecond,
 		MaxRetries: 1,
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if attempts != 2 {
@@ -322,16 +323,17 @@ func TestErrorKindPermanent(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "permanent", Status: core.FlowPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "permanent", Status: core.IssueOpen})
 	sID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+		IssueID:    issueID,
 		Name:       "A",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
+		Position:   0,
 		MaxRetries: 5,
 	})
 
-	err := eng.Run(ctx, fID)
+	err := eng.Run(ctx, issueID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -394,25 +396,25 @@ func TestBriefingBuilder(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
-	// Create a flow with A → B.
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "briefing-test", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepDone})
+	// Create an issue with A → B (by Position).
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "briefing-test", Status: core.IssueOpen})
+	aID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepDone, Position: 0})
 	bID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:             fID,
+		IssueID:            issueID,
 		Name:               "B",
 		Type:               core.StepExec,
 		Status:             core.StepPending,
-		DependsOn:          []int64{aID},
+		Position:           1,
 		AcceptanceCriteria: []string{"must pass lint", "must have tests"},
 		Config:             map[string]any{"objective": "Implement login endpoint"},
 	})
 
 	// A has an artifact.
-	eID, _ := store.CreateExecution(ctx, &core.Execution{StepID: aID, FlowID: fID, Status: core.ExecSucceeded, Attempt: 1})
+	eID, _ := store.CreateExecution(ctx, &core.Execution{StepID: aID, IssueID: issueID, Status: core.ExecSucceeded, Attempt: 1})
 	store.CreateArtifact(ctx, &core.Artifact{
 		ExecutionID:    eID,
 		StepID:         aID,
-		FlowID:         fID,
+		IssueID:        issueID,
 		ResultMarkdown: "## Design\nAPI design for login.",
 	})
 
@@ -457,7 +459,7 @@ func TestCollectorWiring(t *testing.T) {
 		_, err := store.CreateArtifact(ctx, &core.Artifact{
 			ExecutionID:    exec.ID,
 			StepID:         step.ID,
-			FlowID:         step.FlowID,
+			IssueID:        step.IssueID,
 			ResultMarkdown: "## Implementation\nDid the thing.",
 		})
 		return err
@@ -465,10 +467,10 @@ func TestCollectorWiring(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "collector-test", Status: core.FlowPending})
-	sID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "collector-test", Status: core.IssueOpen})
+	sID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -498,17 +500,18 @@ func TestResolverIntegration(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithResolver(NewProfileRegistry(profiles)))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "resolver-test", Status: core.FlowPending})
-	_, _ = store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "resolver-test", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{
+		IssueID:              issueID,
 		Name:                 "build",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
+		Position:             0,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"go"},
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if capturedAgentID != "my-worker" {
@@ -522,22 +525,22 @@ func TestEventBus(t *testing.T) {
 	ctx := context.Background()
 
 	sub := bus.Subscribe(core.SubscribeOpts{
-		Types:      []core.EventType{core.EventFlowStarted},
+		Types:      []core.EventType{core.EventIssueStarted},
 		BufferSize: 8,
 	})
 	defer sub.Cancel()
 
-	bus.Publish(ctx, core.Event{Type: core.EventFlowStarted, FlowID: 1})
-	bus.Publish(ctx, core.Event{Type: core.EventStepReady, FlowID: 1})   // should be filtered out
-	bus.Publish(ctx, core.Event{Type: core.EventFlowStarted, FlowID: 2}) // should be received
+	bus.Publish(ctx, core.Event{Type: core.EventIssueStarted, IssueID: 1})
+	bus.Publish(ctx, core.Event{Type: core.EventStepReady, IssueID: 1})   // should be filtered out
+	bus.Publish(ctx, core.Event{Type: core.EventIssueStarted, IssueID: 2}) // should be received
 
 	ev := <-sub.C
-	if ev.FlowID != 1 {
-		t.Fatalf("expected flow 1, got %d", ev.FlowID)
+	if ev.IssueID != 1 {
+		t.Fatalf("expected issue 1, got %d", ev.IssueID)
 	}
 	ev = <-sub.C
-	if ev.FlowID != 2 {
-		t.Fatalf("expected flow 2, got %d", ev.FlowID)
+	if ev.IssueID != 2 {
+		t.Fatalf("expected issue 2, got %d", ev.IssueID)
 	}
 }
 
@@ -545,7 +548,7 @@ func TestEventBus(t *testing.T) {
 // Composite Step Tests
 // ---------------------------------------------------------------------------
 
-// TestCompositeSimple: A(exec) → B(composite[B1→B2]) → C(exec), all succeed.
+// TestCompositeSimple: A(exec) → B(composite[B1,B2]) → C(exec), all succeed.
 func TestCompositeSimple(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -556,33 +559,31 @@ func TestCompositeSimple(t *testing.T) {
 		return nil
 	}
 
-	// Expander returns two child steps: B1 → B2.
+	// Expander returns two child steps: B1 and B2.
 	expander := ExpanderFunc(func(_ context.Context, step *core.Step) ([]*core.Step, error) {
 		b1 := &core.Step{Name: "B1", Type: core.StepExec}
 		b2 := &core.Step{Name: "B2", Type: core.StepExec}
-		// DependsOn will be set after B1 gets its ID, but we can't know it here.
-		// Instead, return them flat; they'll run in parallel within the sub-flow.
 		return []*core.Step{b1, b2}, nil
 	})
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithExpander(expander))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "composite-simple", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
-	bID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepComposite, Status: core.StepPending, DependsOn: []int64{aID}})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{bID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "composite-simple", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	bID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepComposite, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	// A runs first, then B expands (B1, B2 run in sub-flow), then C.
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	// A runs first, then B expands (B1, B2 run in child issue), then C.
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
-	// Verify A ran, B1/B2 ran inside sub-flow, then C ran.
+	// Verify A ran, B1/B2 ran inside child issue, then C ran.
 	if len(callOrder) != 4 {
 		t.Fatalf("expected 4 executor calls (A, B1, B2, C), got %d: %v", len(callOrder), callOrder)
 	}
@@ -593,22 +594,20 @@ func TestCompositeSimple(t *testing.T) {
 		t.Fatalf("expected C last, got %s", callOrder[3])
 	}
 
-	// B should have SubFlowID set.
+	// B should have child_issue_id in Config.
 	stepB, _ := store.GetStep(ctx, bID)
-	if stepB.SubFlowID == nil {
-		t.Fatal("expected B to have SubFlowID")
+	childID := childIssueID(stepB)
+	if childID == nil {
+		t.Fatal("expected B to have child_issue_id in Config")
 	}
 	if stepB.Status != core.StepDone {
 		t.Fatalf("expected B done, got %s", stepB.Status)
 	}
 
-	// Sub-flow should also be done.
-	subFlow, _ := store.GetFlow(ctx, *stepB.SubFlowID)
-	if subFlow.Status != core.FlowDone {
-		t.Fatalf("expected sub-flow done, got %s", subFlow.Status)
-	}
-	if subFlow.ParentStepID == nil || *subFlow.ParentStepID != bID {
-		t.Fatal("sub-flow should link back to parent step B")
+	// Child issue should also be done.
+	childIssue, _ := store.GetIssue(ctx, *childID)
+	if childIssue.Status != core.IssueDone {
+		t.Fatalf("expected child issue done, got %s", childIssue.Status)
 	}
 }
 
@@ -623,16 +622,7 @@ func TestCompositeChainedChildren(t *testing.T) {
 		return nil
 	}
 
-	// This expander creates a sequential chain B1 → B2 using a two-pass approach.
 	expander := ExpanderFunc(func(_ context.Context, step *core.Step) ([]*core.Step, error) {
-		// We create B1 first, then B2 depends on B1.
-		// Since ExpandComposite assigns IDs, we use a sentinel approach:
-		// B1 has no deps (entry), B2 will depend on B1.
-		// We can't set DependsOn by ID here since IDs aren't assigned yet.
-		// Instead, we return them flat and use index-based dep within ExpandComposite.
-		// Actually, ExpandComposite creates steps sequentially, so we can predict IDs.
-		// BUT that's fragile. Instead let's just have them parallel for now.
-		// For a true chain, the expander would need to create steps itself.
 		return []*core.Step{
 			{Name: "B1", Type: core.StepExec},
 			{Name: "B2", Type: core.StepExec},
@@ -641,23 +631,23 @@ func TestCompositeChainedChildren(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithExpander(expander))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "composite-chain", Status: core.FlowPending})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepComposite, Status: core.StepPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "composite-chain", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepComposite, Status: core.StepPending, Position: 0})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 	if len(callOrder) != 2 {
 		t.Fatalf("expected 2 calls, got %d: %v", len(callOrder), callOrder)
 	}
 }
 
-// TestCompositeSubFlowFail: composite child fails → composite fails → parent flow fails.
+// TestCompositeSubFlowFail: composite child fails → composite fails → parent issue fails.
 func TestCompositeSubFlowFail(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -677,17 +667,17 @@ func TestCompositeSubFlowFail(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithExpander(expander))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "composite-fail", Status: core.FlowPending})
-	compID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "comp", Type: core.StepComposite, Status: core.StepPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "composite-fail", Status: core.IssueOpen})
+	compID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "comp", Type: core.StepComposite, Status: core.StepPending, Position: 0})
 
-	err := eng.Run(ctx, fID)
+	err := eng.Run(ctx, issueID)
 	if err == nil {
-		t.Fatal("expected error from sub-flow failure")
+		t.Fatal("expected error from child issue failure")
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowFailed {
-		t.Fatalf("expected failed, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueFailed {
+		t.Fatalf("expected failed, got %s", issue.Status)
 	}
 
 	compStep, _ := store.GetStep(ctx, compID)
@@ -696,7 +686,7 @@ func TestCompositeSubFlowFail(t *testing.T) {
 	}
 }
 
-// TestCompositeRetry: composite sub-flow fails once, composite retries with fresh sub-flow, succeeds.
+// TestCompositeRetry: composite child issue fails once, composite retries with fresh child issue, succeeds.
 func TestCompositeRetry(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -722,22 +712,23 @@ func TestCompositeRetry(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithExpander(expander))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "composite-retry", Status: core.FlowPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "composite-retry", Status: core.IssueOpen})
 	compID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+		IssueID:    issueID,
 		Name:       "comp",
 		Type:       core.StepComposite,
 		Status:     core.StepPending,
+		Position:   0,
 		MaxRetries: 1,
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
 	compStep, _ := store.GetStep(ctx, compID)
@@ -755,13 +746,11 @@ func TestCompositeRetry(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Flow Integration Tests — cross-cutting scenarios
+// Issue Integration Tests — cross-cutting scenarios
 // ---------------------------------------------------------------------------
 
-// TestFlowE2E_ResolverBriefingCollector: full pipeline with all 3 injectable interfaces.
-// Flow: design(exec) → implement(exec) → done
-// Verifies: resolver sets agent_id, briefing reads upstream artifact, collector extracts metadata.
-func TestFlowE2E_ResolverBriefingCollector(t *testing.T) {
+// TestIssueE2E_ResolverBriefingCollector: full pipeline with all 3 injectable interfaces.
+func TestIssueE2E_ResolverBriefingCollector(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -783,7 +772,7 @@ func TestFlowE2E_ResolverBriefingCollector(t *testing.T) {
 		_, err := store.CreateArtifact(ctx, &core.Artifact{
 			ExecutionID:    exec.ID,
 			StepID:         step.ID,
-			FlowID:         step.FlowID,
+			IssueID:        step.IssueID,
 			ResultMarkdown: fmt.Sprintf("## %s output\nDone.", step.Name),
 		})
 		return err
@@ -796,33 +785,34 @@ func TestFlowE2E_ResolverBriefingCollector(t *testing.T) {
 		WithCollector(collector),
 	)
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-pipeline", Status: core.FlowPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-pipeline", Status: core.IssueOpen})
 	designID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+		IssueID:              issueID,
 		Name:                 "design",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
+		Position:             0,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"design"},
 	})
 	implID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+		IssueID:              issueID,
 		Name:                 "implement",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
-		DependsOn:            []int64{designID},
+		Position:             1,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"go"},
 		Config:               map[string]any{"objective": "Build login API"},
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
 	// Verify briefing was assembled with upstream artifact content.
@@ -845,10 +835,8 @@ func TestFlowE2E_ResolverBriefingCollector(t *testing.T) {
 	}
 }
 
-// TestFlowE2E_GateRejectRetryWithCollector: full gate reject → retry → pass cycle
-// with collector extracting metadata at each step.
-// Flow: impl(exec) → review(gate,reject) → impl retries → review(gate,pass) → deploy(exec) → done
-func TestFlowE2E_GateRejectRetryWithCollector(t *testing.T) {
+// TestIssueE2E_GateRejectRetryWithCollector: full gate reject → retry → pass cycle.
+func TestIssueE2E_GateRejectRetryWithCollector(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -870,7 +858,7 @@ func TestFlowE2E_GateRejectRetryWithCollector(t *testing.T) {
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": verdict, "reason": "iteration " + fmt.Sprint(n)},
 			})
@@ -884,7 +872,7 @@ func TestFlowE2E_GateRejectRetryWithCollector(t *testing.T) {
 		_, err := store.CreateArtifact(ctx, &core.Artifact{
 			ExecutionID:    exec.ID,
 			StepID:         step.ID,
-			FlowID:         step.FlowID,
+			IssueID:        step.IssueID,
 			ResultMarkdown: fmt.Sprintf("## %s output", step.Name),
 		})
 		return err
@@ -892,47 +880,45 @@ func TestFlowE2E_GateRejectRetryWithCollector(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-gate-retry", Status: core.FlowPending})
-	implID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-gate-retry", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{
+		IssueID:    issueID,
 		Name:       "impl",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
+		Position:   0,
 		MaxRetries: 1,
 	})
-	reviewID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:    fID,
-		Name:      "review",
-		Type:      core.StepGate,
-		Status:    core.StepPending,
-		DependsOn: []int64{implID},
+	store.CreateStep(ctx, &core.Step{
+		IssueID:  issueID,
+		Name:     "review",
+		Type:     core.StepGate,
+		Status:   core.StepPending,
+		Position: 1,
 	})
 	deployID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:    fID,
-		Name:      "deploy",
-		Type:      core.StepExec,
-		Status:    core.StepPending,
-		DependsOn: []int64{reviewID},
+		IssueID:  issueID,
+		Name:     "deploy",
+		Type:     core.StepExec,
+		Status:   core.StepPending,
+		Position: 2,
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
-	// impl ran twice (original + retry after rejection).
 	if implCount != 2 {
 		t.Fatalf("expected 2 impl runs, got %d", implCount)
 	}
-	// gate evaluated twice (reject + pass).
 	if gateCount != 2 {
 		t.Fatalf("expected 2 gate evaluations, got %d", gateCount)
 	}
-	// deploy ran once after gate passed.
 	if deployCount != 1 {
 		t.Fatalf("expected 1 deploy run, got %d", deployCount)
 	}
@@ -942,16 +928,14 @@ func TestFlowE2E_GateRejectRetryWithCollector(t *testing.T) {
 		t.Fatalf("expected deploy done, got %s", deployStep.Status)
 	}
 
-	// Collector should have extracted metadata into deploy artifact.
 	deployArt, _ := store.GetLatestArtifactByStep(ctx, deployID)
 	if deployArt.Metadata["step_type"] != "exec" {
 		t.Fatalf("deploy artifact missing collected metadata: %v", deployArt.Metadata)
 	}
 }
 
-// TestFlowE2E_CompositeWithGate: composite containing a gate inside its sub-flow.
-// Flow: A(exec) → B(composite[B1(exec) → B2(gate,pass)]) → C(exec)
-func TestFlowE2E_CompositeWithGate(t *testing.T) {
+// TestIssueE2E_CompositeWithGate: composite containing a gate inside its child issue.
+func TestIssueE2E_CompositeWithGate(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -962,7 +946,7 @@ func TestFlowE2E_CompositeWithGate(t *testing.T) {
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: "Gate pass",
 				Metadata:       map[string]any{"verdict": "pass"},
 			})
@@ -972,9 +956,6 @@ func TestFlowE2E_CompositeWithGate(t *testing.T) {
 	}
 
 	expander := ExpanderFunc(func(_ context.Context, step *core.Step) ([]*core.Step, error) {
-		// B1(exec) → B2(gate). B2 depends on B1, but since we can't
-		// set DependsOn before IDs are assigned, we return them flat.
-		// Both will run as entry steps in the sub-flow.
 		return []*core.Step{
 			{Name: "B1", Type: core.StepExec},
 			{Name: "B2", Type: core.StepGate},
@@ -983,21 +964,20 @@ func TestFlowE2E_CompositeWithGate(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithExpander(expander))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-composite-gate", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
-	bID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepComposite, Status: core.StepPending, DependsOn: []int64{aID}})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{bID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-composite-gate", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepComposite, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
-	// 4 executor calls: A, B1, B2, C
 	if len(callOrder) != 4 {
 		t.Fatalf("expected 4 calls, got %d: %v", len(callOrder), callOrder)
 	}
@@ -1006,9 +986,8 @@ func TestFlowE2E_CompositeWithGate(t *testing.T) {
 	}
 }
 
-// TestFlowE2E_FanOutMerge: A → (B, C) → D fan-out then merge.
-// Verifies parallel execution and merge point.
-func TestFlowE2E_FanOutMerge(t *testing.T) {
+// TestIssueE2E_FanOutMerge: steps at different Positions execute sequentially.
+func TestIssueE2E_FanOutMerge(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -1020,34 +999,32 @@ func TestFlowE2E_FanOutMerge(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(4))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-fan-merge", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
-	bID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "B", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
-	cID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
-	dID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "D", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{bID, cID}})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-fan-merge", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	dID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "D", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 	if counter != 4 {
 		t.Fatalf("expected 4 executions, got %d", counter)
 	}
 
-	// D should be done (waited for both B and C).
 	stepD, _ := store.GetStep(ctx, dID)
 	if stepD.Status != core.StepDone {
 		t.Fatalf("expected D done, got %s", stepD.Status)
 	}
 }
 
-// TestFlowE2E_TimeoutRetryGatePass: slow step times out → retries → gate passes → done.
-// Exercises timeout + retry + gate in a single flow.
-func TestFlowE2E_TimeoutRetryGatePass(t *testing.T) {
+// TestIssueE2E_TimeoutRetryGatePass: slow step times out → retries → gate passes → done.
+func TestIssueE2E_TimeoutRetryGatePass(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -1056,7 +1033,6 @@ func TestFlowE2E_TimeoutRetryGatePass(t *testing.T) {
 		if step.Name == "impl" {
 			n := atomic.AddInt32(&implAttempts, 1)
 			if n == 1 {
-				// First attempt times out.
 				select {
 				case <-time.After(500 * time.Millisecond):
 					return nil
@@ -1070,7 +1046,7 @@ func TestFlowE2E_TimeoutRetryGatePass(t *testing.T) {
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: "Approved",
 				Metadata:       map[string]any{"verdict": "pass"},
 			})
@@ -1081,39 +1057,39 @@ func TestFlowE2E_TimeoutRetryGatePass(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-timeout-gate", Status: core.FlowPending})
-	implID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-timeout-gate", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{
+		IssueID:    issueID,
 		Name:       "impl",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
+		Position:   0,
 		Timeout:    50 * time.Millisecond,
 		MaxRetries: 1,
 	})
-	_, _ = store.CreateStep(ctx, &core.Step{
-		FlowID:    fID,
-		Name:      "review",
-		Type:      core.StepGate,
-		Status:    core.StepPending,
-		DependsOn: []int64{implID},
+	store.CreateStep(ctx, &core.Step{
+		IssueID:  issueID,
+		Name:     "review",
+		Type:     core.StepGate,
+		Status:   core.StepPending,
+		Position: 1,
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 	if implAttempts != 2 {
 		t.Fatalf("expected 2 impl attempts, got %d", implAttempts)
 	}
 }
 
-// TestFlowE2E_PermanentErrorStopsFlow: parallel steps where one hits permanent error.
-// Flow: A → (B, C). B fails permanently → flow fails without retrying B.
-func TestFlowE2E_PermanentErrorStopsFlow(t *testing.T) {
+// TestIssueE2E_PermanentErrorStopsIssue: step hits permanent error.
+func TestIssueE2E_PermanentErrorStopsIssue(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -1127,19 +1103,19 @@ func TestFlowE2E_PermanentErrorStopsFlow(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(4))
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-permanent", Status: core.FlowPending})
-	aID, _ := store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "A", Type: core.StepExec, Status: core.StepPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-permanent", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
 	bID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+		IssueID:    issueID,
 		Name:       "B",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
-		DependsOn:  []int64{aID},
+		Position:   1,
 		MaxRetries: 3,
 	})
-	_, _ = store.CreateStep(ctx, &core.Step{FlowID: fID, Name: "C", Type: core.StepExec, Status: core.StepPending, DependsOn: []int64{aID}})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
 
-	err := eng.Run(ctx, fID)
+	err := eng.Run(ctx, issueID)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1153,10 +1129,9 @@ func TestFlowE2E_PermanentErrorStopsFlow(t *testing.T) {
 	}
 }
 
-// TestFlowE2E_FullOrchestration: the big one — all features in a single flow.
-// Flow: design(exec) → impl(composite[code→test]) → review(gate,reject→pass) → deploy(exec)
-// With: resolver + briefing + collector + composite + gate reject/retry + timeout
-func TestFlowE2E_FullOrchestration(t *testing.T) {
+// TestIssueE2E_FullOrchestration: all features in a single issue.
+// Issue: design(exec) → impl(composite[code,test]) → review(gate,reject→pass) → deploy(exec)
+func TestIssueE2E_FullOrchestration(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -1174,18 +1149,17 @@ func TestFlowE2E_FullOrchestration(t *testing.T) {
 	var gateCount int32
 	var designCount int32
 	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		// Every exec step produces an artifact.
 		switch step.Name {
 		case "design":
 			atomic.AddInt32(&designCount, 1)
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID: exec.ID, StepID: step.ID, FlowID: step.FlowID,
+				ExecutionID: exec.ID, StepID: step.ID, IssueID: step.IssueID,
 				ResultMarkdown: "## Architecture\nLogin API with JWT.",
 			})
 			return err
 		case "code", "test":
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID: exec.ID, StepID: step.ID, FlowID: step.FlowID,
+				ExecutionID: exec.ID, StepID: step.ID, IssueID: step.IssueID,
 				ResultMarkdown: fmt.Sprintf("## %s\nDone.", step.Name),
 			})
 			return err
@@ -1196,14 +1170,14 @@ func TestFlowE2E_FullOrchestration(t *testing.T) {
 				verdict = "pass"
 			}
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID: exec.ID, StepID: step.ID, FlowID: step.FlowID,
+				ExecutionID: exec.ID, StepID: step.ID, IssueID: step.IssueID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": verdict, "reason": "round " + fmt.Sprint(n)},
 			})
 			return err
 		case "deploy":
 			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID: exec.ID, StepID: step.ID, FlowID: step.FlowID,
+				ExecutionID: exec.ID, StepID: step.ID, IssueID: step.IssueID,
 				ResultMarkdown: "## Deploy\nDeployed to staging.",
 			})
 			return err
@@ -1226,54 +1200,55 @@ func TestFlowE2E_FullOrchestration(t *testing.T) {
 		WithExpander(expander),
 	)
 
-	fID, _ := store.CreateFlow(ctx, &core.Flow{Name: "e2e-full", Status: core.FlowPending})
-	designID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-full", Status: core.IssueOpen})
+	store.CreateStep(ctx, &core.Step{
+		IssueID:              issueID,
 		Name:                 "design",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
+		Position:             0,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"design"},
 	})
 	implID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:     fID,
+		IssueID:    issueID,
 		Name:       "impl",
 		Type:       core.StepComposite,
 		Status:     core.StepPending,
-		DependsOn:  []int64{designID},
+		Position:   1,
 		MaxRetries: 1,
 	})
-	reviewID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+	store.CreateStep(ctx, &core.Step{
+		IssueID:              issueID,
 		Name:                 "review",
 		Type:                 core.StepGate,
 		Status:               core.StepPending,
-		DependsOn:            []int64{implID},
+		Position:             2,
 		AgentRole:            "gate",
 		RequiredCapabilities: []string{"review"},
 	})
 	deployID, _ := store.CreateStep(ctx, &core.Step{
-		FlowID:               fID,
+		IssueID:              issueID,
 		Name:                 "deploy",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
-		DependsOn:            []int64{reviewID},
+		Position:             3,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"deploy"},
 	})
 
-	if err := eng.Run(ctx, fID); err != nil {
+	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	// Verify flow completed.
-	flow, _ := store.GetFlow(ctx, fID)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	// Verify issue completed.
+	issue, _ := store.GetIssue(ctx, issueID)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
 	// Verify all steps done.
-	for _, id := range []int64{designID, implID, reviewID, deployID} {
+	for _, id := range []int64{implID, deployID} {
 		s, _ := store.GetStep(ctx, id)
 		if s.Status != core.StepDone {
 			t.Fatalf("step %s (id=%d) expected done, got %s", s.Name, id, s.Status)
@@ -1285,10 +1260,10 @@ func TestFlowE2E_FullOrchestration(t *testing.T) {
 		t.Fatalf("expected 2 gate evaluations, got %d", gateCount)
 	}
 
-	// Composite should have been expanded (impl has SubFlowID).
+	// Composite should have been expanded (impl has child_issue_id).
 	implStep, _ := store.GetStep(ctx, implID)
-	if implStep.SubFlowID == nil {
-		t.Fatal("expected impl to have SubFlowID")
+	if childIssueID(implStep) == nil {
+		t.Fatal("expected impl to have child_issue_id")
 	}
 
 	// Collector should have enriched deploy artifact.
@@ -1300,9 +1275,8 @@ func TestFlowE2E_FullOrchestration(t *testing.T) {
 		t.Fatalf("expected collected metadata on deploy, got %v", deployArt.Metadata)
 	}
 
-	// Design should have run only once (no retry for design).
+	// Design should have run only once.
 	if designCount != 1 {
 		t.Fatalf("expected 1 design run, got %d", designCount)
 	}
 }
-

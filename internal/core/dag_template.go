@@ -2,9 +2,9 @@ package core
 
 import "time"
 
-// DAGTemplate is a reusable template for generating Flow DAGs.
+// DAGTemplate is a reusable template for generating Issue DAGs.
 // It stores a snapshot of steps (without runtime state) so users can
-// quickly create new flows from proven patterns.
+// quickly create new issues from proven patterns.
 type DAGTemplate struct {
 	ID          int64             `json:"id"`
 	Name        string            `json:"name"`

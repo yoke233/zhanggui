@@ -1461,16 +1461,16 @@ export function ChatPage() {
     }
   }, []);
 
-  const handleCreateFlowFromMessage = useCallback(
+  const handleCreateIssue = useCallback(
     async (content: string) => {
       try {
         const title = content.length > 60 ? content.slice(0, 60) + "..." : content;
-        const flow = await apiClient.createFlow({
+        const issue = await apiClient.createIssue({
           project_id: selectedProjectId ?? undefined,
-          name: title,
+          title: title,
           metadata: { source: "chat", original_content: content },
         });
-        navigate(`/flows/${flow.id}`);
+        navigate(`/issues/${issue.id}`);
       } catch (err) {
         setError(getErrorMessage(err));
       }
@@ -1905,8 +1905,8 @@ export function ChatPage() {
                         <button
                           type="button"
                           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
-                          title="创建 Flow"
-                          onClick={() => void handleCreateFlowFromMessage(message.content)}
+                          title="创建 Issue"
+                          onClick={() => void handleCreateIssue(message.content)}
                         >
                           <Workflow className="h-3.5 w-3.5" />
                         </button>

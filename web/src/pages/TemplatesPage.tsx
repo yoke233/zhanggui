@@ -76,14 +76,14 @@ export function TemplatesPage() {
     }
   };
 
-  const handleCreateFlow = async (template: DAGTemplate) => {
+  const handleCreateIssue = async (template: DAGTemplate) => {
     setError(null);
     try {
-      const result = await apiClient.createFlowFromTemplate(template.id, {
-        name: template.name,
+      const result = await apiClient.createIssueFromTemplate(template.id, {
+        title: template.name,
         project_id: selectedProjectId ?? undefined,
       });
-      navigate(`/flows/${result.flow.id}`);
+      navigate(`/issues/${result.issue.id}`);
     } catch (createError) {
       setError(getErrorMessage(createError));
     }
@@ -103,7 +103,7 @@ export function TemplatesPage() {
             管理 DAG 模板，可从模板快速创建流程
           </p>
         </div>
-        <Link to="/flows/new">
+        <Link to="/issues/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             新建流程
@@ -193,7 +193,7 @@ export function TemplatesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => void handleCreateFlow(template)}
+                          onClick={() => void handleCreateIssue(template)}
                           title="从此模板创建流程"
                         >
                           <Play className="mr-1 h-3.5 w-3.5" />
@@ -242,7 +242,7 @@ export function TemplatesPage() {
                       {i + 1}
                     </div>
                     <span className="truncate">{step.name}</span>
-                    {step.depends_on?.length ? (
+                    {i > 0 ? (
                       <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                     ) : null}
                     <Badge variant="outline" className="ml-auto text-[10px]">

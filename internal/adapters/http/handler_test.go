@@ -106,15 +106,16 @@ func (s *stubSandboxController) Update(_ context.Context, req v2sandbox.UpdateRe
 }
 
 // ---------------------------------------------------------------------------
-// Flow CRUD Tests
+// Issue CRUD Tests
 // ---------------------------------------------------------------------------
 
-func TestAPI_CreateFlow(t *testing.T) {
+func TestAPI_CreateIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, err := post(ts, "/flows", map[string]any{
-		"name":     "test-flow",
-		"metadata": map[string]string{"env": "test"},
+	resp, err := post(ts, "/issues", map[string]any{
+		"title":    "test-issue",
+		"priority": "medium",
+		"metadata": map[string]any{"env": "test"},
 	})
 	if err != nil {
 		t.Fatalf("post: %v", err)
@@ -123,22 +124,22 @@ func TestAPI_CreateFlow(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
 
-	var flow core.Flow
-	if err := decodeJSON(resp, &flow); err != nil {
+	var issue core.Issue
+	if err := decodeJSON(resp, &issue); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if flow.Name != "test-flow" {
-		t.Fatalf("expected name test-flow, got %s", flow.Name)
+	if issue.Title != "test-issue" {
+		t.Fatalf("expected title test-issue, got %s", issue.Title)
 	}
-	if flow.ID == 0 {
+	if issue.ID == 0 {
 		t.Fatal("expected non-zero ID")
 	}
-	if flow.Status != core.FlowPending {
-		t.Fatalf("expected pending, got %s", flow.Status)
+	if issue.Status != core.IssueOpen {
+		t.Fatalf("expected open, got %s", issue.Status)
 	}
 }
 
-func TestAPI_CreateFlow_AutoBootstrapsSCMFlow(t *testing.T) {
+func TestAPI_CreateIssue_AutoBootstrapsSCMFlow(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	repoDir := t.TempDir()
@@ -179,22 +180,23 @@ func TestAPI_CreateFlow_AutoBootstrapsSCMFlow(t *testing.T) {
 	}
 	resourceResp.Body.Close()
 
-	flowResp, err := post(ts, "/flows", map[string]any{
-		"name":       "auto-flow",
+	issueResp, err := post(ts, "/issues", map[string]any{
+		"title":      "auto-issue",
+		"priority":   "medium",
 		"project_id": project.ID,
 	})
 	if err != nil {
-		t.Fatalf("create flow: %v", err)
+		t.Fatalf("create issue: %v", err)
 	}
-	if flowResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 creating flow, got %d", flowResp.StatusCode)
+	if issueResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var flow core.Flow
-	if err := decodeJSON(flowResp, &flow); err != nil {
-		t.Fatalf("decode flow: %v", err)
+	var issue core.Issue
+	if err := decodeJSON(issueResp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -216,7 +218,7 @@ func TestAPI_CreateFlow_AutoBootstrapsSCMFlow(t *testing.T) {
 	}
 }
 
-func TestAPI_CreateFlow_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T) {
+func TestAPI_CreateIssue_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	repoDir := t.TempDir()
@@ -256,22 +258,23 @@ func TestAPI_CreateFlow_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T) 
 	}
 	resourceResp.Body.Close()
 
-	flowResp, err := post(ts, "/flows", map[string]any{
-		"name":       "manual-flow",
+	issueResp, err := post(ts, "/issues", map[string]any{
+		"title":      "manual-issue",
+		"priority":   "medium",
 		"project_id": project.ID,
 	})
 	if err != nil {
-		t.Fatalf("create flow: %v", err)
+		t.Fatalf("create issue: %v", err)
 	}
-	if flowResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 creating flow, got %d", flowResp.StatusCode)
+	if issueResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var flow core.Flow
-	if err := decodeJSON(flowResp, &flow); err != nil {
-		t.Fatalf("decode flow: %v", err)
+	var issue core.Issue
+	if err := decodeJSON(issueResp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -287,177 +290,177 @@ func TestAPI_CreateFlow_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T) 
 	}
 }
 
-func TestAPI_CreateFlow_Validation(t *testing.T) {
+func TestAPI_CreateIssue_Validation(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Missing name.
-	resp, _ := post(ts, "/flows", map[string]any{})
+	// Missing title.
+	resp, _ := post(ts, "/issues", map[string]any{})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_GetFlow(t *testing.T) {
+func TestAPI_GetIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Create flow.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "get-test"})
-	var created core.Flow
+	// Create issue.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "get-test", "priority": "medium"})
+	var created core.Issue
 	decodeJSON(resp, &created)
 
-	// Get flow.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d", created.ID))
+	// Get issue.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d", created.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var got core.Flow
+	var got core.Issue
 	decodeJSON(resp, &got)
-	if got.Name != "get-test" {
-		t.Fatalf("expected name get-test, got %s", got.Name)
+	if got.Title != "get-test" {
+		t.Fatalf("expected title get-test, got %s", got.Title)
 	}
 }
 
-func TestAPI_GetFlow_NotFound(t *testing.T) {
+func TestAPI_GetIssue_NotFound(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := get(ts, "/flows/999")
+	resp, _ := get(ts, "/issues/999")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_ListFlows(t *testing.T) {
+func TestAPI_ListIssues(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	post(ts, "/flows", map[string]any{"name": "flow-1"})
-	resp, _ := post(ts, "/flows", map[string]any{"name": "flow-2"})
-	var archivedFlow core.Flow
-	decodeJSON(resp, &archivedFlow)
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", archivedFlow.ID), nil)
+	post(ts, "/issues", map[string]any{"title": "issue-1", "priority": "medium"})
+	resp, _ := post(ts, "/issues", map[string]any{"title": "issue-2", "priority": "medium"})
+	var archivedIssue core.Issue
+	decodeJSON(resp, &archivedIssue)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", archivedIssue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
 
-	resp, _ = get(ts, "/flows")
+	resp, _ = get(ts, "/issues")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var flows []*core.Flow
-	decodeJSON(resp, &flows)
-	if len(flows) != 1 {
-		t.Fatalf("expected 1 unarchived flow, got %d", len(flows))
+	var issues []*core.Issue
+	decodeJSON(resp, &issues)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 unarchived issue, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/flows?archived=true")
+	resp, _ = get(ts, "/issues?archived=true")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 archived list, got %d", resp.StatusCode)
 	}
-	decodeJSON(resp, &flows)
-	if len(flows) != 1 {
-		t.Fatalf("expected 1 archived flow, got %d", len(flows))
+	decodeJSON(resp, &issues)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 archived issue, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/flows?archived=all")
+	resp, _ = get(ts, "/issues?archived=all")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 all list, got %d", resp.StatusCode)
 	}
-	decodeJSON(resp, &flows)
-	if len(flows) != 2 {
-		t.Fatalf("expected 2 total flows, got %d", len(flows))
+	decodeJSON(resp, &issues)
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 total issues, got %d", len(issues))
 	}
 }
 
-func TestAPI_ListFlows_FilterStatus(t *testing.T) {
+func TestAPI_ListIssues_FilterStatus(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	post(ts, "/flows", map[string]any{"name": "f1"})
-	post(ts, "/flows", map[string]any{"name": "f2"})
+	post(ts, "/issues", map[string]any{"title": "i1", "priority": "medium"})
+	post(ts, "/issues", map[string]any{"title": "i2", "priority": "medium"})
 
-	resp, _ := get(ts, "/flows?status=pending")
-	var flows []*core.Flow
-	decodeJSON(resp, &flows)
-	if len(flows) != 2 {
-		t.Fatalf("expected 2 pending, got %d", len(flows))
+	resp, _ := get(ts, "/issues?status=open")
+	var issues []*core.Issue
+	decodeJSON(resp, &issues)
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 open, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/flows?status=running")
-	decodeJSON(resp, &flows)
-	if len(flows) != 0 {
-		t.Fatalf("expected 0 running, got %d", len(flows))
+	resp, _ = get(ts, "/issues?status=running")
+	decodeJSON(resp, &issues)
+	if len(issues) != 0 {
+		t.Fatalf("expected 0 running, got %d", len(issues))
 	}
 }
 
-func TestAPI_ArchiveFlow(t *testing.T) {
+func TestAPI_ArchiveIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "archive-test"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "archive-test", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var archivedFlow core.Flow
-	decodeJSON(resp, &archivedFlow)
-	if archivedFlow.ArchivedAt == nil {
+	var archivedIssue core.Issue
+	decodeJSON(resp, &archivedIssue)
+	if archivedIssue.ArchivedAt == nil {
 		t.Fatal("expected archived_at to be set")
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/unarchive", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/unarchive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on unarchive, got %d", resp.StatusCode)
 	}
-	var unarchivedFlow core.Flow
-	decodeJSON(resp, &unarchivedFlow)
-	if unarchivedFlow.ArchivedAt != nil {
+	var unarchivedIssue core.Issue
+	decodeJSON(resp, &unarchivedIssue)
+	if unarchivedIssue.ArchivedAt != nil {
 		t.Fatal("expected archived_at to be cleared")
 	}
 }
 
-func TestAPI_ArchiveFlow_RejectsActiveFlow(t *testing.T) {
+func TestAPI_ArchiveIssue_RejectsActiveIssue(t *testing.T) {
 	h, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "running-flow"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "running-issue", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	if err := h.store.UpdateFlowStatus(context.Background(), flow.ID, core.FlowRunning); err != nil {
-		t.Fatalf("set flow running: %v", err)
+	if err := h.store.UpdateIssueStatus(context.Background(), issue.ID, core.IssueRunning); err != nil {
+		t.Fatalf("set issue running: %v", err)
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_RunFlow_Archived(t *testing.T) {
+func TestAPI_RunIssue_Archived(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "archived-run"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "archived-run", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409 running archived flow, got %d", resp.StatusCode)
+		t.Fatalf("expected 409 running archived issue, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_GetStats_IncludesArchivedFlows(t *testing.T) {
+func TestAPI_GetStats_IncludesArchivedIssues(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "done-flow"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "done-issue", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/archive", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
@@ -468,11 +471,11 @@ func TestAPI_GetStats_IncludesArchivedFlows(t *testing.T) {
 	}
 
 	var stats struct {
-		TotalFlows int `json:"total_flows"`
+		TotalIssues int `json:"total_issues"`
 	}
 	decodeJSON(resp, &stats)
-	if stats.TotalFlows != 1 {
-		t.Fatalf("expected stats to include archived flow, got %d", stats.TotalFlows)
+	if stats.TotalIssues != 1 {
+		t.Fatalf("expected stats to include archived issue, got %d", stats.TotalIssues)
 	}
 }
 
@@ -483,13 +486,13 @@ func TestAPI_GetStats_IncludesArchivedFlows(t *testing.T) {
 func TestAPI_CreateStep(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Create flow first.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "flow"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	// Create issue first.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
 	// Create step.
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name":                  "build",
 		"type":                  "exec",
 		"agent_role":            "worker",
@@ -517,14 +520,14 @@ func TestAPI_CreateStep(t *testing.T) {
 func TestAPI_ListSteps(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "flow"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "B", "type": "gate"})
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "B", "type": "gate"})
 
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	var steps []*core.Step
 	decodeJSON(resp, &steps)
 	if len(steps) != 2 {
@@ -535,11 +538,11 @@ func TestAPI_ListSteps(t *testing.T) {
 func TestAPI_GetStep(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "flow"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "A", "type": "exec"})
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
 	var created core.Step
 	decodeJSON(resp, &created)
 
@@ -555,21 +558,21 @@ func TestAPI_GetStep(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Run & Cancel Flow Tests
+// Run & Cancel Issue Tests
 // ---------------------------------------------------------------------------
 
-func TestAPI_RunFlow(t *testing.T) {
+func TestAPI_RunIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Create flow + step.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "run-test"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	// Create issue + step.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "run-test", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
 
-	// Run flow.
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// Run issue.
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
@@ -577,61 +580,61 @@ func TestAPI_RunFlow(t *testing.T) {
 	// Wait for async completion.
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify flow is done.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d", flow.ID))
-	var done core.Flow
+	// Verify issue is done.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	var done core.Issue
 	decodeJSON(resp, &done)
-	if done.Status != core.FlowDone {
+	if done.Status != core.IssueDone {
 		t.Fatalf("expected done, got %s", done.Status)
 	}
 }
 
-func TestAPI_RunFlow_NotPending(t *testing.T) {
+func TestAPI_RunIssue_NotOpen(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Create and run flow.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "run-twice"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
-	post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// Create and run issue.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "run-twice", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 
-	// Wait for flow to complete.
+	// Wait for issue to complete.
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify flow is done.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d", flow.ID))
-	decodeJSON(resp, &flow)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done after first run, got %s", flow.Status)
+	// Verify issue is done.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	decodeJSON(resp, &issue)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done after first run, got %s", issue.Status)
 	}
 
-	// Try to run again — should fail since it's not pending.
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// Try to run again — should fail since it's not open.
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_CancelFlow(t *testing.T) {
+func TestAPI_CancelIssue(t *testing.T) {
 	h, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/flows", map[string]any{"name": "cancel-test"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	resp, _ := post(ts, "/issues", map[string]any{"title": "cancel-test", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	// Manually set flow to running for cancel test.
-	h.store.UpdateFlowStatus(context.Background(), flow.ID, core.FlowRunning)
+	// Manually set issue to running for cancel test.
+	h.store.UpdateIssueStatus(context.Background(), issue.ID, core.IssueRunning)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/cancel", flow.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/cancel", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d", flow.ID))
-	var cancelled core.Flow
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	var cancelled core.Issue
 	decodeJSON(resp, &cancelled)
-	if cancelled.Status != core.FlowCancelled {
+	if cancelled.Status != core.IssueCancelled {
 		t.Fatalf("expected cancelled, got %s", cancelled.Status)
 	}
 }
@@ -643,12 +646,12 @@ func TestAPI_CancelFlow(t *testing.T) {
 func TestAPI_ListEvents(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// Create flow + step + run to generate events.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "events-test"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
-	post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// Create issue + step + run to generate events.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "events-test", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	time.Sleep(500 * time.Millisecond)
 
 	// List all events.
@@ -657,10 +660,10 @@ func TestAPI_ListEvents(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	// List events filtered by flow.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d/events", flow.ID))
+	// List events filtered by issue.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 for flow events, got %d", resp.StatusCode)
+		t.Fatalf("expected 200 for issue events, got %d", resp.StatusCode)
 	}
 }
 
@@ -723,8 +726,8 @@ func TestAPI_WebSocket(t *testing.T) {
 
 	// Publish an event.
 	h.bus.Publish(context.Background(), core.Event{
-		Type:      core.EventFlowStarted,
-		FlowID:    42,
+		Type:      core.EventIssueStarted,
+		IssueID:   42,
 		Timestamp: time.Now().UTC(),
 	})
 
@@ -734,11 +737,11 @@ func TestAPI_WebSocket(t *testing.T) {
 	if err := conn.ReadJSON(&ev); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if ev.Type != core.EventFlowStarted {
-		t.Fatalf("expected flow.started, got %s", ev.Type)
+	if ev.Type != core.EventIssueStarted {
+		t.Fatalf("expected issue.started, got %s", ev.Type)
 	}
-	if ev.FlowID != 42 {
-		t.Fatalf("expected flow_id=42, got %d", ev.FlowID)
+	if ev.IssueID != 42 {
+		t.Fatalf("expected issue_id=42, got %d", ev.IssueID)
 	}
 }
 
@@ -979,50 +982,50 @@ func TestAPI_UpdateSandboxSupport_BadRequest(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// E2E API Test: Create flow + steps → run → verify all entities
+// E2E API Test: Create issue + steps → run → verify all entities
 // ---------------------------------------------------------------------------
 
-func TestAPI_E2E_FlowLifecycle(t *testing.T) {
+func TestAPI_E2E_IssueLifecycle(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// 1. Create flow.
-	resp, _ := post(ts, "/flows", map[string]any{"name": "e2e-api"})
-	var flow core.Flow
-	decodeJSON(resp, &flow)
+	// 1. Create issue.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "e2e-api", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
 
-	// 2. Create steps: A → B.
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	// 2. Create steps: A, B.
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "A", "type": "exec",
 	})
 	var stepA core.Step
 	decodeJSON(resp, &stepA)
 
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
-		"name": "B", "type": "exec", "depends_on": []int64{stepA.ID},
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "B", "type": "exec",
 	})
 	var stepB core.Step
 	decodeJSON(resp, &stepB)
 
 	// 3. List steps.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	var steps []*core.Step
 	decodeJSON(resp, &steps)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 steps, got %d", len(steps))
 	}
 
-	// 4. Run flow.
-	resp, _ = post(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// 4. Run issue.
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	// 5. Verify flow done.
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d", flow.ID))
-	decodeJSON(resp, &flow)
-	if flow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", flow.Status)
+	// 5. Verify issue done.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	decodeJSON(resp, &issue)
+	if issue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
 	// 6. Verify steps done.
@@ -1050,7 +1053,7 @@ func TestAPI_E2E_FlowLifecycle(t *testing.T) {
 	}
 
 	// 8. Verify events endpoint works (events are in-memory bus, not persisted yet).
-	resp, _ = get(ts, fmt.Sprintf("/flows/%d/events", flow.ID))
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for events, got %d", resp.StatusCode)
 	}

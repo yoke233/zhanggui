@@ -17,7 +17,7 @@ type Briefing struct {
 type ContextRefType string
 
 const (
-	CtxFlowSummary      ContextRefType = "flow_summary"
+	CtxIssueSummary     ContextRefType = "issue_summary"
 	CtxProjectBrief     ContextRefType = "project_brief"
 	CtxUpstreamArtifact ContextRefType = "upstream_artifact"
 	CtxAgentMemory      ContextRefType = "agent_memory"

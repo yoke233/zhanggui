@@ -9,8 +9,8 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 
 interface ProjectMetrics {
-  flowCount: number;
-  activeFlowCount: number;
+  issueCount: number;
+  activeIssueCount: number;
   successRate: number | null;
   resources: string[];
   hasGit: boolean;
@@ -32,8 +32,8 @@ export function ProjectsPage() {
       try {
         const entries = await Promise.all(
           projects.map(async (project) => {
-            const [flows, resources] = await Promise.all([
-              apiClient.listFlows({
+            const [issues, resources] = await Promise.all([
+              apiClient.listIssues({
                 project_id: project.id,
                 archived: false,
                 limit: 200,
@@ -41,14 +41,14 @@ export function ProjectsPage() {
               }),
               apiClient.listProjectResources(project.id),
             ]);
-            const finished = flows.filter((flow) => flow.status === "done" || flow.status === "failed" || flow.status === "cancelled");
-            const succeeded = finished.filter((flow) => flow.status === "done");
+            const finished = issues.filter((issue) => issue.status === "done" || issue.status === "failed" || issue.status === "cancelled");
+            const succeeded = finished.filter((issue) => issue.status === "done");
             const successRate = finished.length > 0 ? Math.round((succeeded.length / finished.length) * 100) : null;
             return [
               project.id,
               {
-                flowCount: flows.length,
-                activeFlowCount: flows.filter((flow) => flow.status === "queued" || flow.status === "running" || flow.status === "blocked").length,
+                issueCount: issues.length,
+                activeIssueCount: issues.filter((issue) => issue.status === "queued" || issue.status === "running" || issue.status === "blocked").length,
                 successRate,
                 resources: resources.map((resource) => resource.kind),
                 hasGit: resources.some((resource) => resource.kind.trim().toLowerCase() === "git"),
@@ -160,11 +160,11 @@ export function ProjectsPage() {
 
                 <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
                   <div>
-                    <div className="text-lg font-bold">{projectMetrics?.flowCount ?? 0}</div>
+                    <div className="text-lg font-bold">{projectMetrics?.issueCount ?? 0}</div>
                     <div className="text-xs text-muted-foreground">流程</div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold">{projectMetrics?.activeFlowCount ?? 0}</div>
+                    <div className="text-lg font-bold">{projectMetrics?.activeIssueCount ?? 0}</div>
                     <div className="text-xs text-muted-foreground">运行中</div>
                   </div>
                   <div>

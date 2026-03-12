@@ -57,7 +57,7 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 func TestEventBridge_ChunkAggregation(t *testing.T) {
 	bus := NewMemBus()
 	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		FlowID: 1, StepID: 2, ExecID: 3,
+		IssueID: 1, StepID: 2, ExecID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -108,7 +108,7 @@ check:
 func TestEventBridge_TypeSwitchFlushes(t *testing.T) {
 	bus := NewMemBus()
 	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		FlowID: 1, StepID: 2, ExecID: 3,
+		IssueID: 1, StepID: 2, ExecID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -162,7 +162,7 @@ check:
 func TestEventBridge_ToolCall(t *testing.T) {
 	bus := NewMemBus()
 	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		FlowID: 1, StepID: 2, ExecID: 3,
+		IssueID: 1, StepID: 2, ExecID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -240,7 +240,7 @@ func TestIsTransientAgentEvent(t *testing.T) {
 		{core.EventExecAgentOutput, "done", false},
 		{core.EventChatOutput, "agent_message_chunk", true},
 		{core.EventChatOutput, "agent_message", false},
-		{core.EventFlowStarted, "agent_message_chunk", false}, // wrong event type
+		{core.EventIssueStarted, "agent_message_chunk", false}, // wrong event type
 	}
 	for _, tt := range tests {
 		ev := core.Event{

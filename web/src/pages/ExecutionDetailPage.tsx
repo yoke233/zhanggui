@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Artifact, Briefing, Event, Execution, Flow, Step } from "@/types/apiV2";
+import type { Artifact, Briefing, Event, Execution, Issue, Step } from "@/types/apiV2";
 
 interface LogLine {
   time: string;
@@ -62,7 +62,7 @@ export function ExecutionDetailPage() {
 
   const [execution, setExecution] = useState<Execution | null>(null);
   const [step, setStep] = useState<Step | null>(null);
-  const [flow, setFlow] = useState<Flow | null>(null);
+  const [issue, setIssue] = useState<Issue | null>(null);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -85,13 +85,13 @@ export function ExecutionDetailPage() {
         }
         setExecution(execResp);
 
-        const [stepResp, flowResp, briefingResp, artifactsResp, eventResp] = await Promise.all([
+        const [stepResp, issueResp, briefingResp, artifactsResp, eventResp] = await Promise.all([
           apiClient.getStep(execResp.step_id),
-          apiClient.getFlow(execResp.flow_id),
+          apiClient.getIssue(execResp.issue_id),
           apiClient.getBriefingByStep(execResp.step_id).catch(() => null),
           apiClient.listArtifactsByExecution(execResp.id),
           apiClient.listEvents({
-            flow_id: execResp.flow_id,
+            issue_id: execResp.issue_id,
             step_id: execResp.step_id,
             limit: 200,
             offset: 0,
@@ -101,7 +101,7 @@ export function ExecutionDetailPage() {
           return;
         }
         setStep(stepResp);
-        setFlow(flowResp);
+        setIssue(issueResp);
         setBriefing(briefingResp);
         setArtifact(artifactsResp[0] ?? null);
         setEvents(eventResp);
@@ -138,9 +138,9 @@ export function ExecutionDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
         <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/flows" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">流程</Link>
           <ChevronRight className="h-3 w-3" />
-          {flow ? <Link to={`/flows/${flow.id}`} className="hover:text-foreground">{flow.name}</Link> : <span>Flow</span>}
+          {issue ? <Link to={`/issues/${issue.id}`} className="hover:text-foreground">{issue.title}</Link> : <span>Issue</span>}
           <ChevronRight className="h-3 w-3" />
           <span className="text-foreground">{step?.name ?? "Execution"}</span>
           <span className="mx-1">·</span>
@@ -310,4 +310,3 @@ export function ExecutionDetailPage() {
     </div>
   );
 }
-

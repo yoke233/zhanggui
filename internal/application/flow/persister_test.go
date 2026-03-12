@@ -24,19 +24,19 @@ func TestEventPersister_PersistsEvents(t *testing.T) {
 
 	// Publish some events.
 	bus.Publish(ctx, core.Event{
-		Type:      core.EventFlowStarted,
-		FlowID:    1,
+		Type:      core.EventIssueStarted,
+		IssueID:   1,
 		Timestamp: time.Now().UTC(),
 	})
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventStepReady,
-		FlowID:    1,
+		IssueID:   1,
 		StepID:    10,
 		Timestamp: time.Now().UTC(),
 	})
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecCreated,
-		FlowID:    1,
+		IssueID:   1,
 		StepID:    10,
 		ExecID:    100,
 		Timestamp: time.Now().UTC(),
@@ -53,8 +53,8 @@ func TestEventPersister_PersistsEvents(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("expected 3 persisted events, got %d", len(events))
 	}
-	if events[0].Type != core.EventFlowStarted {
-		t.Errorf("event[0] type = %s, want flow.started", events[0].Type)
+	if events[0].Type != core.EventIssueStarted {
+		t.Errorf("event[0] type = %s, want issue.started", events[0].Type)
 	}
 	if events[1].StepID != 10 {
 		t.Errorf("event[1] step_id = %d, want 10", events[1].StepID)
@@ -96,8 +96,8 @@ func TestEventPersister_ContextCancellation(t *testing.T) {
 
 	// Publish one event, then cancel.
 	bus.Publish(ctx, core.Event{
-		Type:      core.EventFlowStarted,
-		FlowID:    1,
+		Type:      core.EventIssueStarted,
+		IssueID:   1,
 		Timestamp: time.Now().UTC(),
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -132,13 +132,13 @@ func TestEventPersister_SkipsTransientChunks(t *testing.T) {
 	// Publish transient chunk events (should NOT be persisted).
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    1,
+		IssueID:   1,
 		Data:      map[string]any{"type": "agent_message_chunk", "content": "Hello "},
 		Timestamp: time.Now().UTC(),
 	})
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    1,
+		IssueID:   1,
 		Data:      map[string]any{"type": "agent_thought_chunk", "content": "thinking..."},
 		Timestamp: time.Now().UTC(),
 	})
@@ -146,19 +146,19 @@ func TestEventPersister_SkipsTransientChunks(t *testing.T) {
 	// Publish aggregated events (SHOULD be persisted).
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    1,
+		IssueID:   1,
 		Data:      map[string]any{"type": "agent_message", "content": "Hello world"},
 		Timestamp: time.Now().UTC(),
 	})
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    1,
+		IssueID:   1,
 		Data:      map[string]any{"type": "tool_call", "content": "read file"},
 		Timestamp: time.Now().UTC(),
 	})
 	bus.Publish(ctx, core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    1,
+		IssueID:   1,
 		Data:      map[string]any{"type": "done", "content": "finished"},
 		Timestamp: time.Now().UTC(),
 	})
@@ -208,4 +208,3 @@ func newTestStore(t *testing.T) *sqlite.Store {
 	t.Cleanup(func() { s.Close() })
 	return s
 }
-

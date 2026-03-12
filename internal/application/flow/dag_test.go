@@ -6,34 +6,11 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestValidateDAG_NoCycle(t *testing.T) {
+func TestEntrySteps_ByPosition(t *testing.T) {
 	steps := []*core.Step{
-		{ID: 1, Name: "A"},
-		{ID: 2, Name: "B", DependsOn: []int64{1}},
-		{ID: 3, Name: "C", DependsOn: []int64{1}},
-		{ID: 4, Name: "D", DependsOn: []int64{2, 3}},
-	}
-	if err := ValidateDAG(steps); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestValidateDAG_Cycle(t *testing.T) {
-	steps := []*core.Step{
-		{ID: 1, Name: "A", DependsOn: []int64{3}},
-		{ID: 2, Name: "B", DependsOn: []int64{1}},
-		{ID: 3, Name: "C", DependsOn: []int64{2}},
-	}
-	if err := ValidateDAG(steps); err != core.ErrCycleDetected {
-		t.Fatalf("expected ErrCycleDetected, got %v", err)
-	}
-}
-
-func TestEntrySteps(t *testing.T) {
-	steps := []*core.Step{
-		{ID: 1, Name: "A"},
-		{ID: 2, Name: "B", DependsOn: []int64{1}},
-		{ID: 3, Name: "C"},
+		{ID: 1, Name: "A", Position: 0},
+		{ID: 2, Name: "B", Position: 1},
+		{ID: 3, Name: "C", Position: 0},
 	}
 	entries := EntrySteps(steps)
 	if len(entries) != 2 {
@@ -41,11 +18,11 @@ func TestEntrySteps(t *testing.T) {
 	}
 }
 
-func TestPromotableSteps(t *testing.T) {
+func TestPromotableSteps_ByPosition(t *testing.T) {
 	steps := []*core.Step{
-		{ID: 1, Name: "A", Status: core.StepDone},
-		{ID: 2, Name: "B", Status: core.StepPending, DependsOn: []int64{1}},
-		{ID: 3, Name: "C", Status: core.StepPending, DependsOn: []int64{1, 2}},
+		{ID: 1, Name: "A", Status: core.StepDone, Position: 0},
+		{ID: 2, Name: "B", Status: core.StepPending, Position: 1},
+		{ID: 3, Name: "C", Status: core.StepPending, Position: 2},
 	}
 	promotable := PromotableSteps(steps)
 	if len(promotable) != 1 || promotable[0].ID != 2 {
@@ -53,3 +30,26 @@ func TestPromotableSteps(t *testing.T) {
 	}
 }
 
+func TestRunnableSteps(t *testing.T) {
+	steps := []*core.Step{
+		{ID: 1, Name: "A", Status: core.StepReady},
+		{ID: 2, Name: "B", Status: core.StepPending},
+		{ID: 3, Name: "C", Status: core.StepReady},
+	}
+	runnable := RunnableSteps(steps)
+	if len(runnable) != 2 {
+		t.Fatalf("expected 2 runnable, got %d", len(runnable))
+	}
+}
+
+func TestPredecessorStepIDs(t *testing.T) {
+	steps := []*core.Step{
+		{ID: 1, Position: 0},
+		{ID: 2, Position: 1},
+		{ID: 3, Position: 2},
+	}
+	ids := predecessorStepIDs(steps, steps[2])
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 predecessors, got %d", len(ids))
+	}
+}

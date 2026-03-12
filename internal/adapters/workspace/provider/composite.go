@@ -24,12 +24,12 @@ func (c *CompositeProvider) RegisterProvider(kind core.ProjectKind, p core.Works
 	c.providers[kind] = p
 }
 
-func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, flowID int64) (*core.Workspace, error) {
+func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, issueID int64) (*core.Workspace, error) {
 	p, ok := c.providers[project.Kind]
 	if !ok {
 		return nil, fmt.Errorf("no workspace provider for project kind %q", project.Kind)
 	}
-	return p.Prepare(ctx, project, bindings, flowID)
+	return p.Prepare(ctx, project, bindings, issueID)
 }
 
 func (c *CompositeProvider) Release(ctx context.Context, ws *core.Workspace) error {

@@ -81,35 +81,24 @@ func (g *DAGGenerator) Generate(ctx context.Context, taskDescription string) (*G
 	return &dag, nil
 }
 
-// Materialize creates Steps in the store for a given flow from a GeneratedDAG.
+// Materialize creates Steps in the store for a given issue from a GeneratedDAG.
 // Returns the created Step slice with IDs populated.
-func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, flowID int64, dag *GeneratedDAG) ([]*core.Step, error) {
-	nameToID := make(map[string]int64, len(dag.Steps))
+func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Step, error) {
 	var created []*core.Step
 
-	for _, gs := range dag.Steps {
-		// Resolve name-based dependencies to IDs.
-		var deps []int64
-		for _, depName := range gs.DependsOn {
-			id, ok := nameToID[depName]
-			if !ok {
-				return nil, fmt.Errorf("dag_gen: step %q depends on unknown step %q", gs.Name, depName)
-			}
-			deps = append(deps, id)
-		}
-
+	for i, gs := range dag.Steps {
 		stepType := core.StepType(gs.Type)
 		if stepType == "" {
 			stepType = core.StepExec
 		}
 
 		step := &core.Step{
-			FlowID:               flowID,
+			IssueID:              issueID,
 			Name:                 gs.Name,
 			Description:          gs.Description,
 			Type:                 stepType,
 			Status:               core.StepPending,
-			DependsOn:            deps,
+			Position:             i,
 			AgentRole:            gs.AgentRole,
 			RequiredCapabilities: gs.RequiredCapabilities,
 			AcceptanceCriteria:   gs.AcceptanceCriteria,
@@ -120,7 +109,6 @@ func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, flowID
 			return nil, fmt.Errorf("dag_gen: create step %q: %w", gs.Name, err)
 		}
 		step.ID = id
-		nameToID[gs.Name] = id
 		created = append(created, step)
 	}
 

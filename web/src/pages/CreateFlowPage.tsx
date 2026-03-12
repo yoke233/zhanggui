@@ -23,15 +23,15 @@ const stepColors: Record<string, { bg: string; text: string }> = {
   composite: { bg: "bg-indigo-50", text: "text-indigo-600" },
 };
 
-export function CreateFlowPage() {
+export function CreateIssuePage() {
   const navigate = useNavigate();
   const { apiClient, projects, selectedProjectId } = useWorkbench();
-  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<number | null>(selectedProjectId);
   const [description, setDescription] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [previewSteps, setPreviewSteps] = useState<Step[]>([]);
-  const [draftFlowId, setDraftFlowId] = useState<number | null>(null);
+  const [draftIssueId, setDraftIssueId] = useState<number | null>(null);
   const [busy, setBusy] = useState<"idle" | "generating" | "saving" | "running" | "from_template">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -101,34 +101,34 @@ export function CreateFlowPage() {
     };
   }, [apiClient, projectId]);
 
-  const ensureDraftFlow = async (): Promise<number> => {
-    if (draftFlowId != null) {
-      return draftFlowId;
+  const ensureDraftIssue = async (): Promise<number> => {
+    if (draftIssueId != null) {
+      return draftIssueId;
     }
-    const created = await apiClient.createFlow({
-      name: name.trim(),
+    const created = await apiClient.createIssue({
+      title: title.trim(),
       project_id: projectId ?? undefined,
       metadata: description.trim() ? { description: description.trim() } : undefined,
     });
-    setDraftFlowId(created.id);
+    setDraftIssueId(created.id);
     return created.id;
   };
 
   const generateSteps = async () => {
     if (scmFlowProvider) {
-      setError("当前项目已启用 PR/CR 流程，请直接创建 flow。");
+      setError("当前项目已启用 PR/CR 流程，请直接创建 issue。");
       return;
     }
-    if (!name.trim()) {
+    if (!title.trim()) {
       setError("生成步骤前请先填写流程名称。");
       return;
     }
     setBusy("generating");
     setError(null);
     try {
-      const flowId = await ensureDraftFlow();
-      const steps = await apiClient.generateSteps(flowId, {
-        description: aiPrompt.trim() || description.trim() || name.trim(),
+      const issueId = await ensureDraftIssue();
+      const steps = await apiClient.generateSteps(issueId, {
+        description: aiPrompt.trim() || description.trim() || title.trim(),
       });
       setPreviewSteps(steps);
     } catch (generateError) {
@@ -140,18 +140,18 @@ export function CreateFlowPage() {
 
   const createFromTemplate = async (runImmediately: boolean) => {
     if (!selectedTemplate) return;
-    const flowName = name.trim() || selectedTemplate.name;
+    const issueTitle = title.trim() || selectedTemplate.name;
     setBusy(runImmediately ? "running" : "from_template");
     setError(null);
     try {
-      const result = await apiClient.createFlowFromTemplate(selectedTemplate.id, {
-        name: flowName,
+      const result = await apiClient.createIssueFromTemplate(selectedTemplate.id, {
+        title: issueTitle,
         project_id: projectId ?? undefined,
       });
       if (runImmediately) {
-        await apiClient.runFlow(result.flow.id);
+        await apiClient.runIssue(result.issue.id);
       }
-      navigate(`/flows/${result.flow.id}`);
+      navigate(`/issues/${result.issue.id}`);
     } catch (templateError) {
       setError(getErrorMessage(templateError));
     } finally {
@@ -159,29 +159,29 @@ export function CreateFlowPage() {
     }
   };
 
-  const finalizeFlow = async (runImmediately: boolean) => {
+  const finalizeIssue = async (runImmediately: boolean) => {
     if (selectedTemplate) {
       return createFromTemplate(runImmediately);
     }
 
-    if (!name.trim()) {
+    if (!title.trim()) {
       setError("流程名称不能为空。");
       return;
     }
     setBusy(runImmediately ? "running" : "saving");
     setError(null);
     try {
-      const flowId = await ensureDraftFlow();
+      const issueId = await ensureDraftIssue();
       if (!scmFlowProvider && previewSteps.length === 0 && (aiPrompt.trim() || description.trim())) {
-        const steps = await apiClient.generateSteps(flowId, {
+        const steps = await apiClient.generateSteps(issueId, {
           description: aiPrompt.trim() || description.trim(),
         });
         setPreviewSteps(steps);
       }
       if (runImmediately) {
-        await apiClient.runFlow(flowId);
+        await apiClient.runIssue(issueId);
       }
-      navigate(`/flows/${flowId}`);
+      navigate(`/issues/${issueId}`);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -193,8 +193,8 @@ export function CreateFlowPage() {
     setSelectedTemplateId(templateId);
     if (templateId) {
       const tmpl = templates.find((t) => t.id === templateId);
-      if (tmpl && !name.trim()) {
-        setName(tmpl.name);
+      if (tmpl && !title.trim()) {
+        setTitle(tmpl.name);
       }
       if (tmpl && !description.trim() && tmpl.description) {
         setDescription(tmpl.description);
@@ -206,12 +206,12 @@ export function CreateFlowPage() {
     <div className="flex-1 space-y-6 p-8">
       <div>
         <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/flows" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">流程</Link>
           <ChevronRight className="h-3 w-3" />
           <span className="font-medium text-foreground">新建流程</span>
         </div>
         <h1 className="text-2xl font-bold tracking-tight">新建流程</h1>
-        <p className="text-sm text-muted-foreground">从模板创建、AI 生成或手动配置 Flow。</p>
+        <p className="text-sm text-muted-foreground">从模板创建、AI 生成或手动配置 Issue。</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
@@ -282,8 +282,8 @@ export function CreateFlowPage() {
                 <label className="text-sm font-medium">流程名称</label>
                 <Input
                   placeholder="例如：后端 API 重构"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
                 />
               </div>
 
@@ -308,9 +308,9 @@ export function CreateFlowPage() {
                   <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm">
                     {selectedTemplate
                       ? `模板 #${selectedTemplate.id}`
-                      : draftFlowId == null
+                      : draftIssueId == null
                         ? "未创建草稿"
-                        : `Flow #${draftFlowId}`}
+                        : `Issue #${draftIssueId}`}
                   </div>
                 </div>
               </div>
@@ -332,7 +332,7 @@ export function CreateFlowPage() {
               <CardHeader>
                 <CardTitle className="text-base">自动 PR/CR 流程</CardTitle>
                 <CardDescription>
-                  当前项目已启用 {scmFlowProvider === "codeup" ? "Codeup CR" : "GitHub PR"} 流程。创建 flow 后，系统会自动注入 implement / commit_push / open_pr / review_merge_gate 四个步骤。
+                  当前项目已启用 {scmFlowProvider === "codeup" ? "Codeup CR" : "GitHub PR"} 流程。创建 issue 后，系统会自动注入 implement / commit_push / open_pr / review_merge_gate 四个步骤。
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -345,7 +345,7 @@ export function CreateFlowPage() {
                   </div>
                   <div>
                     <CardTitle className="text-base">AI 生成步骤</CardTitle>
-                    <CardDescription>通过 `/flows/:id/generate-steps` 让后端生成 DAG。</CardDescription>
+                    <CardDescription>通过 `/issues/:id/generate-steps` 让后端生成 DAG。</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -358,7 +358,7 @@ export function CreateFlowPage() {
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
-                    生成按钮会在后端先创建草稿 flow，再写入 steps。
+                    生成按钮会在后端先创建草稿 issue，再写入 steps。
                   </span>
                   <Button
                     className="bg-indigo-500 hover:bg-indigo-600"
@@ -404,7 +404,6 @@ export function CreateFlowPage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
-                          {step.depends_on?.length ? ` · 依赖 ${step.depends_on.join(", ")}` : ""}
                         </div>
                       </div>
                     </div>
@@ -412,7 +411,7 @@ export function CreateFlowPage() {
                 })
               ) : scmFlowProvider ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  当前项目启用了资源级 PR/CR 流程，步骤会在创建 flow 时由后端自动生成。
+                  当前项目启用了资源级 PR/CR 流程，步骤会在创建 issue 时由后端自动生成。
                 </div>
               ) : previewSteps.length === 0 ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
@@ -437,7 +436,6 @@ export function CreateFlowPage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
-                          {step.depends_on?.length ? ` · 依赖 #${step.depends_on.join(", #")}` : ""}
                         </div>
                       </div>
                     </div>
@@ -466,14 +464,14 @@ export function CreateFlowPage() {
           </Card>
 
           <div className="space-y-2.5">
-            <Button className="w-full gap-2" disabled={busy !== "idle"} onClick={() => void finalizeFlow(true)}>
+            <Button className="w-full gap-2" disabled={busy !== "idle"} onClick={() => void finalizeIssue(true)}>
               <Play className="h-4 w-4" />
               {busy === "running" ? "启动中..." : "创建并运行"}
             </Button>
-            <Button variant="outline" className="w-full" disabled={busy !== "idle"} onClick={() => void finalizeFlow(false)}>
+            <Button variant="outline" className="w-full" disabled={busy !== "idle"} onClick={() => void finalizeIssue(false)}>
               {busy === "saving" || busy === "from_template" ? "保存中..." : "仅保存草稿"}
             </Button>
-            <Link to="/flows" className="block">
+            <Link to="/issues" className="block">
               <Button variant="ghost" className="w-full text-muted-foreground">
                 取消
               </Button>
@@ -484,3 +482,6 @@ export function CreateFlowPage() {
     </div>
   );
 }
+
+// Keep backward-compatible export
+export { CreateIssuePage as CreateFlowPage };

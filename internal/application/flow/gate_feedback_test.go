@@ -92,7 +92,7 @@ func TestBuildExecutionInputForStep_GateAlwaysFullPrompt(t *testing.T) {
 }
 
 func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {
-	reason, metadata := (&FlowEngine{}).formatMergeFailureFeedback(&core.Step{ID: 1, Name: "review_merge_gate"}, &MergeError{
+	reason, metadata := (&IssueEngine{}).formatMergeFailureFeedback(&core.Step{ID: 1, Name: "review_merge_gate"}, &MergeError{
 		Provider:       "github",
 		Number:         12,
 		URL:            "https://github.com/acme/repo/pull/12",
@@ -115,7 +115,7 @@ func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {
 }
 
 func TestFormatMergeFailureFeedback_UsesConfiguredTemplate(t *testing.T) {
-	eng := &FlowEngine{
+	eng := &IssueEngine{
 		prPrompts: func() PRFlowPrompts {
 			return PRFlowPrompts{
 				Global: PRProviderPrompts{

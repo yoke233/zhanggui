@@ -17,7 +17,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatIssueDuration, formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import type { Issue } from "@/types/apiV2";
 
-export function FlowsPage() {
+export function IssuesPage() {
   const { apiClient, selectedProject, selectedProjectId } = useWorkbench();
   const [search, setSearch] = useState("");
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -146,3 +146,6 @@ export function FlowsPage() {
     </div>
   );
 }
+
+// Keep backward-compatible export
+export { IssuesPage as FlowsPage };

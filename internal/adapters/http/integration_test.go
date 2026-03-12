@@ -30,8 +30,8 @@ type integrationEnv struct {
 	bus       core.EventBus
 	persister *flowapp.EventPersister
 	registry  *agentapp.ConfigRegistry
-	eng       *flowapp.FlowEngine
-	scheduler *flowapp.FlowScheduler
+	eng       *flowapp.IssueEngine
+	scheduler *flowapp.IssueScheduler
 	handler   *Handler
 	server    *httptest.Server
 	cancel    context.CancelFunc
@@ -159,31 +159,31 @@ func requireStatus(t *testing.T, resp *http.Response, expected int) {
 	}
 }
 
-// pollFlowStatus polls until the flow reaches the target status or timeout.
-func pollFlowStatus(t *testing.T, ts *httptest.Server, flowID int64, target core.FlowStatus, timeout time.Duration) core.Flow {
+// pollIssueStatus polls until the issue reaches the target status or timeout.
+func pollIssueStatus(t *testing.T, ts *httptest.Server, issueID int64, target core.IssueStatus, timeout time.Duration) core.Issue {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, _ := getJSON(ts, fmt.Sprintf("/flows/%d", flowID))
-		f := decode[core.Flow](t, resp)
+		resp, _ := getJSON(ts, fmt.Sprintf("/issues/%d", issueID))
+		f := decode[core.Issue](t, resp)
 		if f.Status == target {
 			return f
 		}
-		// Also stop polling if flow reached a terminal state that isn't target.
-		if f.Status == core.FlowDone || f.Status == core.FlowFailed || f.Status == core.FlowCancelled {
+		// Also stop polling if issue reached a terminal state that isn't target.
+		if f.Status == core.IssueDone || f.Status == core.IssueFailed || f.Status == core.IssueCancelled {
 			if f.Status != target {
-				t.Fatalf("flow %d reached terminal %s, wanted %s", flowID, f.Status, target)
+				t.Fatalf("issue %d reached terminal %s, wanted %s", issueID, f.Status, target)
 			}
 			return f
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("flow %d did not reach %s within %v", flowID, target, timeout)
-	return core.Flow{}
+	t.Fatalf("issue %d did not reach %s within %v", issueID, target, timeout)
+	return core.Issue{}
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: Full lifecycle — Project + Flow + DAG Steps → run → done
+// Test 1: Full lifecycle — Project + Issue + Steps → run → done
 // ---------------------------------------------------------------------------
 
 func TestIntegration_FullLifecycle(t *testing.T) {
@@ -208,54 +208,53 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		t.Fatal("expected non-zero project ID")
 	}
 
-	// 2. Create flow linked to project.
-	resp, _ = postJSON(ts, "/flows", map[string]any{
-		"name":       "e2e-flow",
+	// 2. Create issue linked to project.
+	resp, _ = postJSON(ts, "/issues", map[string]any{
+		"title":      "e2e-issue",
+		"priority":   "medium",
 		"project_id": project.ID,
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	flow := decode[core.Flow](t, resp)
-	if flow.ProjectID == nil || *flow.ProjectID != project.ID {
-		t.Fatalf("expected project_id=%d, got %v", project.ID, flow.ProjectID)
+	issue := decode[core.Issue](t, resp)
+	if issue.ProjectID == nil || *issue.ProjectID != project.ID {
+		t.Fatalf("expected project_id=%d, got %v", project.ID, issue.ProjectID)
 	}
 
-	// 3. Create DAG: A → B → C (linear chain).
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	// 3. Create steps: A, B, C (sequential by position).
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "step-A", "type": "exec", "agent_role": "worker",
 	})
 	requireStatus(t, resp, http.StatusCreated)
 	stepA := decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "step-B", "type": "exec", "agent_role": "worker",
-		"depends_on": []int64{stepA.ID},
 	})
 	requireStatus(t, resp, http.StatusCreated)
 	stepB := decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "step-C", "type": "exec", "agent_role": "worker",
-		"depends_on": []int64{stepB.ID},
 	})
 	requireStatus(t, resp, http.StatusCreated)
 	stepC := decode[core.Step](t, resp)
 
 	// 4. Verify step listing.
-	resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	requireStatus(t, resp, http.StatusOK)
 	steps := decode[[]*core.Step](t, resp)
 	if len(steps) != 3 {
 		t.Fatalf("expected 3 steps, got %d", len(steps))
 	}
 
-	// 5. Run flow (goes through scheduler → queued → running → done).
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	// 5. Run issue (goes through scheduler → queued → running → done).
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	requireStatus(t, resp, http.StatusAccepted)
 
 	// 6. Poll until done.
-	doneFlow := pollFlowStatus(t, ts, flow.ID, core.FlowDone, 5*time.Second)
-	if doneFlow.Status != core.FlowDone {
-		t.Fatalf("expected done, got %s", doneFlow.Status)
+	doneIssue := pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
+	if doneIssue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", doneIssue.Status)
 	}
 
 	// 7. Verify all steps done.
@@ -286,20 +285,20 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 
 	// 10. Verify persisted events exist.
 	time.Sleep(100 * time.Millisecond) // allow persister to flush
-	resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d/events", flow.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
 	requireStatus(t, resp, http.StatusOK)
 	events := decode[[]*core.Event](t, resp)
 	if len(events) == 0 {
-		t.Fatal("expected persisted events for flow")
+		t.Fatal("expected persisted events for issue")
 	}
 
-	// Verify event types include flow lifecycle.
+	// Verify event types include issue lifecycle.
 	eventTypes := make(map[core.EventType]bool)
 	for _, ev := range events {
 		eventTypes[ev.Type] = true
 	}
 	for _, expected := range []core.EventType{
-		core.EventFlowQueued, core.EventFlowStarted, core.EventFlowCompleted,
+		core.EventIssueQueued, core.EventIssueStarted, core.EventIssueCompleted,
 	} {
 		if !eventTypes[expected] {
 			t.Errorf("missing event type %s in persisted events", expected)
@@ -311,8 +310,8 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	requireStatus(t, resp, http.StatusOK)
 	var stats statsResponse
 	decodeJSON(resp, &stats)
-	if stats.TotalFlows < 1 {
-		t.Fatalf("expected at least 1 total flow, got %d", stats.TotalFlows)
+	if stats.TotalIssues < 1 {
+		t.Fatalf("expected at least 1 total issue, got %d", stats.TotalIssues)
 	}
 }
 
@@ -332,35 +331,33 @@ func TestIntegration_FanOutFanIn(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	// Create flow.
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "fan-out"})
-	flow := decode[core.Flow](t, resp)
+	// Create issue.
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "fan-out", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	// DAG: A → (B, C, D) → E
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	// Steps: A, B, C, D, E (sequential by position).
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "A", "type": "exec",
 	})
-	sA := decode[core.Step](t, resp)
+	_ = decode[core.Step](t, resp)
 
-	var bcdIDs []int64
 	for _, name := range []string{"B", "C", "D"} {
-		resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
-			"name": name, "type": "exec", "depends_on": []int64{sA.ID},
+		resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+			"name": name, "type": "exec",
 		})
-		s := decode[core.Step](t, resp)
-		bcdIDs = append(bcdIDs, s.ID)
+		_ = decode[core.Step](t, resp)
 	}
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
-		"name": "E", "type": "exec", "depends_on": bcdIDs,
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "E", "type": "exec",
 	})
 	sE := decode[core.Step](t, resp)
 
 	// Run.
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 	requireStatus(t, resp, http.StatusAccepted)
 
-	pollFlowStatus(t, ts, flow.ID, core.FlowDone, 5*time.Second)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
 
 	// All 5 steps executed.
 	if c := atomic.LoadInt32(&execCount); c != 5 {
@@ -392,35 +389,33 @@ func TestIntegration_GatePass(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "gate-pass"})
-	flow := decode[core.Flow](t, resp)
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "gate-pass", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	// DAG: build → review(gate) → deploy
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	// Steps: build → review(gate) → deploy (sequential by position).
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "build", "type": "exec",
 	})
-	sBuild := decode[core.Step](t, resp)
+	_ = decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
-		"depends_on":          []int64{sBuild.ID},
 		"acceptance_criteria": []string{"code compiles", "tests pass"},
 	})
-	sReview := decode[core.Step](t, resp)
+	_ = decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "deploy", "type": "exec",
-		"depends_on": []int64{sReview.ID},
 	})
 	_ = decode[core.Step](t, resp)
 
 	// Run.
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
-	pollFlowStatus(t, ts, flow.ID, core.FlowDone, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
 
 	// Gate passed — verify event.
 	time.Sleep(100 * time.Millisecond)
-	resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d/events", flow.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
 	events := decode[[]*core.Event](t, resp)
 	hasGatePass := false
 	for _, ev := range events {
@@ -453,16 +448,16 @@ func TestIntegration_RetryThenSucceed(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "retry-flow"})
-	flow := decode[core.Flow](t, resp)
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "retry-issue", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "flaky-step", "type": "exec", "max_retries": 3,
 	})
 	step := decode[core.Step](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
-	pollFlowStatus(t, ts, flow.ID, core.FlowDone, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
 
 	// Step should have 2 executions (1 failed + 1 succeeded).
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/executions", step.ID))
@@ -495,18 +490,18 @@ func TestIntegration_PermanentFailure(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "perm-fail"})
-	flow := decode[core.Flow](t, resp)
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "perm-fail", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "broken", "type": "exec", "max_retries": 5,
 	})
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
-	pollFlowStatus(t, ts, flow.ID, core.FlowFailed, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueFailed, 5*time.Second)
 
 	// Only 1 execution (no retries for permanent errors).
-	resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	steps := decode[[]*core.Step](t, resp)
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/executions", steps[0].ID))
 	execs := decode[[]*core.Execution](t, resp)
@@ -519,7 +514,7 @@ func TestIntegration_PermanentFailure(t *testing.T) {
 // Test 6: Cancel a running flow via scheduler
 // ---------------------------------------------------------------------------
 
-func TestIntegration_CancelRunningFlow(t *testing.T) {
+func TestIntegration_CancelRunningIssue(t *testing.T) {
 	started := make(chan struct{})
 	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
 		close(started)
@@ -530,14 +525,14 @@ func TestIntegration_CancelRunningFlow(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "cancel-me"})
-	flow := decode[core.Flow](t, resp)
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "cancel-me", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "long-running", "type": "exec",
 	})
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 
 	// Wait for executor to start.
 	select {
@@ -547,20 +542,20 @@ func TestIntegration_CancelRunningFlow(t *testing.T) {
 	}
 
 	// Cancel.
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/cancel", flow.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/cancel", issue.ID), nil)
 	requireStatus(t, resp, http.StatusOK)
 
-	// Flow should reach cancelled or failed within a reasonable time.
+	// Issue should reach cancelled or failed within a reasonable time.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d", flow.ID))
-		f := decode[core.Flow](t, resp)
-		if f.Status == core.FlowCancelled || f.Status == core.FlowFailed {
+		resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d", issue.ID))
+		f := decode[core.Issue](t, resp)
+		if f.Status == core.IssueCancelled || f.Status == core.IssueFailed {
 			return // success
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("flow did not reach cancelled/failed state after cancel")
+	t.Fatal("issue did not reach cancelled/failed state after cancel")
 }
 
 // ---------------------------------------------------------------------------
@@ -763,14 +758,14 @@ func TestIntegration_WebSocketEvents(t *testing.T) {
 	defer conn.Close()
 	time.Sleep(50 * time.Millisecond) // ensure subscription is registered
 
-	// Create and run a flow.
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "ws-test"})
-	flow := decode[core.Flow](t, resp)
+	// Create and run an issue.
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "ws-test", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "ws-step", "type": "exec",
 	})
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
 
 	// Collect events from WebSocket.
 	receivedTypes := make(map[core.EventType]bool)
@@ -781,15 +776,15 @@ func TestIntegration_WebSocketEvents(t *testing.T) {
 			break // timeout or connection closed
 		}
 		receivedTypes[ev.Type] = true
-		// Stop once we see flow.completed.
-		if ev.Type == core.EventFlowCompleted {
+		// Stop once we see issue.completed.
+		if ev.Type == core.EventIssueCompleted {
 			break
 		}
 	}
 
 	// Verify we received key lifecycle events via WebSocket.
 	for _, expected := range []core.EventType{
-		core.EventFlowQueued, core.EventFlowStarted, core.EventFlowCompleted,
+		core.EventIssueQueued, core.EventIssueStarted, core.EventIssueCompleted,
 	} {
 		if !receivedTypes[expected] {
 			t.Errorf("did not receive %s via WebSocket", expected)
@@ -818,28 +813,29 @@ func TestIntegration_SchedulerStats(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 12: Flow with project_id referencing non-existent project → 404
+// Test 12: Issue with project_id referencing non-existent project → 404
 // ---------------------------------------------------------------------------
 
-func TestIntegration_FlowWithInvalidProject(t *testing.T) {
+func TestIntegration_IssueWithInvalidProject(t *testing.T) {
 	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
 		return nil
 	})
 	ts := env.server
 
 	badID := int64(9999)
-	resp, _ := postJSON(ts, "/flows", map[string]any{
-		"name":       "orphan-flow",
+	resp, _ := postJSON(ts, "/issues", map[string]any{
+		"title":      "orphan-issue",
+		"priority":   "medium",
 		"project_id": badID,
 	})
 	requireStatus(t, resp, http.StatusNotFound)
 }
 
 // ---------------------------------------------------------------------------
-// Test 13: Concurrent flows through scheduler
+// Test 13: Concurrent issues through scheduler
 // ---------------------------------------------------------------------------
 
-func TestIntegration_ConcurrentFlows(t *testing.T) {
+func TestIntegration_ConcurrentIssues(t *testing.T) {
 	var execCount int32
 	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
 		atomic.AddInt32(&execCount, 1)
@@ -850,31 +846,32 @@ func TestIntegration_ConcurrentFlows(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	// Submit 3 flows, scheduler maxConcurrent=2, so one must queue.
-	var flowIDs []int64
+	// Submit 3 issues, scheduler maxConcurrent=2, so one must queue.
+	var issueIDs []int64
 	for i := 0; i < 3; i++ {
-		resp, _ := postJSON(ts, "/flows", map[string]any{
-			"name": fmt.Sprintf("concurrent-%d", i),
+		resp, _ := postJSON(ts, "/issues", map[string]any{
+			"title":    fmt.Sprintf("concurrent-%d", i),
+			"priority": "medium",
 		})
-		f := decode[core.Flow](t, resp)
-		postJSON(ts, fmt.Sprintf("/flows/%d/steps", f.ID), map[string]any{
+		f := decode[core.Issue](t, resp)
+		postJSON(ts, fmt.Sprintf("/issues/%d/steps", f.ID), map[string]any{
 			"name": "work", "type": "exec",
 		})
-		flowIDs = append(flowIDs, f.ID)
+		issueIDs = append(issueIDs, f.ID)
 	}
 
 	// Run all 3.
-	for _, id := range flowIDs {
-		resp, _ := postJSON(ts, fmt.Sprintf("/flows/%d/run", id), nil)
+	for _, id := range issueIDs {
+		resp, _ := postJSON(ts, fmt.Sprintf("/issues/%d/run", id), nil)
 		requireStatus(t, resp, http.StatusAccepted)
 	}
 
 	// Wait for all to complete.
-	for _, id := range flowIDs {
-		pollFlowStatus(t, ts, id, core.FlowDone, 10*time.Second)
+	for _, id := range issueIDs {
+		pollIssueStatus(t, ts, id, core.IssueDone, 10*time.Second)
 	}
 
-	// All 3 flows × 1 step = 3 executions.
+	// All 3 issues × 1 step = 3 executions.
 	if c := atomic.LoadInt32(&execCount); c != 3 {
 		t.Fatalf("expected 3 executions, got %d", c)
 	}
@@ -890,26 +887,26 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 	})
 	ts := env.server
 
-	// Create flow + steps.
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "edit-dag"})
-	flow := decode[core.Flow](t, resp)
+	// Create issue + steps.
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "edit-dag", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
 		"name": "step-A", "type": "exec", "agent_role": "worker",
 	})
 	sA := decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
-		"name": "step-B", "type": "exec", "depends_on": []int64{sA.ID},
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "step-B", "type": "exec",
 	})
 	sB := decode[core.Step](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID), map[string]any{
-		"name": "step-C", "type": "exec", "depends_on": []int64{sB.ID},
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "step-C", "type": "exec",
 	})
 	sC := decode[core.Step](t, resp)
 
-	// --- Update step B: rename + change depends_on ---
+	// --- Update step B: rename + change role ---
 	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sB.ID), map[string]any{
 		"name":                "step-B-renamed",
 		"agent_role":          "gate",
@@ -927,16 +924,6 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 		t.Fatalf("unexpected acceptance_criteria: %v", updated.AcceptanceCriteria)
 	}
 
-	// --- Update step C: rewire depends_on to A directly (skip B) ---
-	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sC.ID), map[string]any{
-		"depends_on": []int64{sA.ID},
-	})
-	requireStatus(t, resp, http.StatusOK)
-	rewired := decode[core.Step](t, resp)
-	if len(rewired.DependsOn) != 1 || rewired.DependsOn[0] != sA.ID {
-		t.Fatalf("expected depends_on=[%d], got %v", sA.ID, rewired.DependsOn)
-	}
-
 	// --- Delete step B ---
 	resp, _ = deleteReq(ts, fmt.Sprintf("/steps/%d", sB.ID))
 	requireStatus(t, resp, http.StatusNoContent)
@@ -946,16 +933,16 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 	requireStatus(t, resp, http.StatusNotFound)
 
 	// Verify remaining steps.
-	resp, _ = getJSON(ts, fmt.Sprintf("/flows/%d/steps", flow.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
 	steps := decode[[]*core.Step](t, resp)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 remaining steps, got %d", len(steps))
 	}
 
 	// --- Cannot edit/delete non-pending step ---
-	// Run flow to make steps non-pending.
-	postJSON(ts, fmt.Sprintf("/flows/%d/run", flow.ID), nil)
-	pollFlowStatus(t, ts, flow.ID, core.FlowDone, 5*time.Second)
+	// Run issue to make steps non-pending.
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
 
 	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sA.ID), map[string]any{
 		"name": "should-fail",
@@ -977,10 +964,10 @@ func TestIntegration_GenerateSteps_Unavailable(t *testing.T) {
 	})
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/flows", map[string]any{"name": "gen-test"})
-	flow := decode[core.Flow](t, resp)
+	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "gen-test", "priority": "medium"})
+	issue := decode[core.Issue](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/flows/%d/generate-steps", flow.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/generate-steps", issue.ID), map[string]any{
 		"description": "build a REST API",
 	})
 	requireStatus(t, resp, http.StatusServiceUnavailable)

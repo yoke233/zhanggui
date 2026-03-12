@@ -161,9 +161,9 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	flowID, err := store.CreateFlow(ctx, &core.Flow{Name: "gen-test", Status: core.FlowPending})
+	issueID, err := store.CreateIssue(ctx, &core.Issue{Title: "gen-test", Status: core.IssueOpen})
 	if err != nil {
-		t.Fatalf("create flow: %v", err)
+		t.Fatalf("create issue: %v", err)
 	}
 
 	dag := &GeneratedDAG{
@@ -191,7 +191,7 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	}
 
 	gen := &DAGGenerator{}
-	steps, err := gen.Materialize(ctx, store, flowID, dag)
+	steps, err := gen.Materialize(ctx, store, issueID, dag)
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	}
 
 	// Verify all steps are persisted and fetchable.
-	stored, err := store.ListStepsByFlow(ctx, flowID)
+	stored, err := store.ListStepsByIssue(ctx, issueID)
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestDAGGenerator_Materialize_BadReference(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	flowID, _ := store.CreateFlow(ctx, &core.Flow{Name: "bad-ref", Status: core.FlowPending})
+	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "bad-ref", Status: core.IssueOpen})
 
 	dag := &GeneratedDAG{
 		Steps: []GeneratedStep{
@@ -281,7 +281,7 @@ func TestDAGGenerator_Materialize_BadReference(t *testing.T) {
 	}
 
 	gen := &DAGGenerator{}
-	_, err = gen.Materialize(ctx, store, flowID, dag)
+	_, err = gen.Materialize(ctx, store, issueID, dag)
 	if err == nil {
 		t.Fatal("expected error for unresolvable dependency")
 	}

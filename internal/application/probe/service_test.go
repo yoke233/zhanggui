@@ -44,19 +44,19 @@ func setupProbeStore(t *testing.T) core.Store {
 func seedRunningExecution(t *testing.T, store core.Store) (*core.Execution, *core.AgentContext) {
 	t.Helper()
 	ctx := context.Background()
-	flow := &core.Flow{Name: "probe-flow", Status: core.FlowRunning}
-	flowID, err := store.CreateFlow(ctx, flow)
+	issue := &core.Issue{Title: "probe-issue", Status: core.IssueRunning}
+	issueID, err := store.CreateIssue(ctx, issue)
 	if err != nil {
-		t.Fatalf("create flow: %v", err)
+		t.Fatalf("create issue: %v", err)
 	}
-	step := &core.Step{FlowID: flowID, Name: "probe-step", Type: core.StepExec, Status: core.StepRunning}
+	step := &core.Step{IssueID: issueID, Name: "probe-step", Type: core.StepExec, Status: core.StepRunning}
 	stepID, err := store.CreateStep(ctx, step)
 	if err != nil {
 		t.Fatalf("create step: %v", err)
 	}
 	agentCtx := &core.AgentContext{
 		AgentID:   "worker",
-		FlowID:    flowID,
+		IssueID:   issueID,
 		SessionID: "session-1",
 		WorkerID:  "worker-a",
 	}
@@ -68,7 +68,7 @@ func seedRunningExecution(t *testing.T, store core.Store) (*core.Execution, *cor
 	startedAt := time.Now().UTC().Add(-30 * time.Minute)
 	execRec := &core.Execution{
 		StepID:         stepID,
-		FlowID:         flowID,
+		IssueID:        issueID,
 		Status:         core.ExecRunning,
 		Attempt:        1,
 		StartedAt:      &startedAt,
@@ -145,7 +145,7 @@ func TestExecutionProbeService_RejectsConcurrentActiveProbe(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := store.CreateExecutionProbe(context.Background(), &core.ExecutionProbe{
 		ExecutionID:    execRec.ID,
-		FlowID:         execRec.FlowID,
+		IssueID:        execRec.IssueID,
 		StepID:         execRec.StepID,
 		AgentContextID: &agentCtx.ID,
 		SessionID:      agentCtx.SessionID,
@@ -176,7 +176,7 @@ func TestExecutionProbeWatchdog_TriggersOnlyWhenIdle(t *testing.T) {
 	oldActivity := time.Now().UTC().Add(-20 * time.Minute)
 	if _, err := store.CreateEvent(ctx, &core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    execRec.FlowID,
+		IssueID:   execRec.IssueID,
 		StepID:    execRec.StepID,
 		ExecID:    execRec.ID,
 		Data:      map[string]any{"type": "agent_message", "content": "still running"},
@@ -215,7 +215,7 @@ func TestExecutionProbeWatchdog_TriggersOnlyWhenIdle(t *testing.T) {
 	recentActivity := time.Now().UTC().Add(-30 * time.Second)
 	if _, err := store2.CreateEvent(ctx, &core.Event{
 		Type:      core.EventExecAgentOutput,
-		FlowID:    execRec2.FlowID,
+		IssueID:   execRec2.IssueID,
 		StepID:    execRec2.StepID,
 		ExecID:    execRec2.ID,
 		Data:      map[string]any{"type": "agent_message", "content": "fresh output"},

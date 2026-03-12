@@ -20,12 +20,12 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
-func TestFlowCRUD(t *testing.T) {
+func TestIssueCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	f := &core.Flow{Name: "test-flow", Status: core.FlowPending, Metadata: map[string]string{"env": "test"}}
-	id, err := s.CreateFlow(ctx, f)
+	f := &core.Issue{Title: "test-issue", Status: core.IssueOpen, Metadata: map[string]any{"env": "test"}}
+	id, err := s.CreateIssue(ctx, f)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -33,77 +33,77 @@ func TestFlowCRUD(t *testing.T) {
 		t.Fatal("expected positive id")
 	}
 
-	got, err := s.GetFlow(ctx, id)
+	got, err := s.GetIssue(ctx, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Name != "test-flow" || got.Status != core.FlowPending {
-		t.Fatalf("unexpected flow: %+v", got)
+	if got.Title != "test-issue" || got.Status != core.IssueOpen {
+		t.Fatalf("unexpected issue: %+v", got)
 	}
 	if got.Metadata["env"] != "test" {
 		t.Fatalf("metadata not preserved: %v", got.Metadata)
 	}
 
-	if err := s.UpdateFlowStatus(ctx, id, core.FlowRunning); err != nil {
+	if err := s.UpdateIssueStatus(ctx, id, core.IssueRunning); err != nil {
 		t.Fatalf("update status: %v", err)
 	}
-	got, _ = s.GetFlow(ctx, id)
-	if got.Status != core.FlowRunning {
+	got, _ = s.GetIssue(ctx, id)
+	if got.Status != core.IssueRunning {
 		t.Fatalf("expected running, got %s", got.Status)
 	}
-	if err := s.UpdateFlowStatus(ctx, id, core.FlowDone); err != nil {
+	if err := s.UpdateIssueStatus(ctx, id, core.IssueDone); err != nil {
 		t.Fatalf("update status to done: %v", err)
 	}
 
-	flows, err := s.ListFlows(ctx, core.FlowFilter{Limit: 10})
+	issues, err := s.ListIssues(ctx, core.IssueFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(flows) != 1 {
-		t.Fatalf("expected 1 flow, got %d", len(flows))
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
 
-	if err := s.SetFlowArchived(ctx, id, true); err != nil {
+	if err := s.SetIssueArchived(ctx, id, true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
-	got, err = s.GetFlow(ctx, id)
+	got, err = s.GetIssue(ctx, id)
 	if err != nil {
-		t.Fatalf("get archived flow: %v", err)
+		t.Fatalf("get archived issue: %v", err)
 	}
 	if got.ArchivedAt == nil {
 		t.Fatal("expected archived_at to be set")
 	}
 
 	archived := true
-	flows, err = s.ListFlows(ctx, core.FlowFilter{Archived: &archived, Limit: 10})
+	issues, err = s.ListIssues(ctx, core.IssueFilter{Archived: &archived, Limit: 10})
 	if err != nil {
 		t.Fatalf("list archived: %v", err)
 	}
-	if len(flows) != 1 {
-		t.Fatalf("expected 1 archived flow, got %d", len(flows))
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 archived issue, got %d", len(issues))
 	}
 
 	archived = false
-	flows, err = s.ListFlows(ctx, core.FlowFilter{Archived: &archived, Limit: 10})
+	issues, err = s.ListIssues(ctx, core.IssueFilter{Archived: &archived, Limit: 10})
 	if err != nil {
 		t.Fatalf("list unarchived: %v", err)
 	}
-	if len(flows) != 0 {
-		t.Fatalf("expected 0 unarchived flows, got %d", len(flows))
+	if len(issues) != 0 {
+		t.Fatalf("expected 0 unarchived issues, got %d", len(issues))
 	}
 
-	flows, err = s.ListFlows(ctx, core.FlowFilter{Limit: 10})
+	issues, err = s.ListIssues(ctx, core.IssueFilter{Limit: 10})
 	if err != nil {
-		t.Fatalf("list all flows by default: %v", err)
+		t.Fatalf("list all issues by default: %v", err)
 	}
-	if len(flows) != 1 {
-		t.Fatalf("expected 1 total flow by default, got %d", len(flows))
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 total issue by default, got %d", len(issues))
 	}
 }
 
-func TestFlowNotFound(t *testing.T) {
+func TestIssueNotFound(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.GetFlow(context.Background(), 9999)
+	_, err := s.GetIssue(context.Background(), 9999)
 	if err != core.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -113,10 +113,10 @@ func TestStepCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
 
 	st := &core.Step{
-		FlowID:               fID,
+		IssueID:              fID,
 		Name:                 "implement",
 		Type:                 core.StepExec,
 		Status:               core.StepPending,
@@ -152,21 +152,21 @@ func TestStepCRUD(t *testing.T) {
 		t.Fatalf("timeout not preserved: %v", got.Timeout)
 	}
 
-	// Step with dependencies
+	// Second step with position
 	st2 := &core.Step{
-		FlowID:    fID,
-		Name:      "review",
-		Type:      core.StepGate,
-		Status:    core.StepPending,
-		DependsOn: []int64{id},
+		IssueID:  fID,
+		Name:     "review",
+		Type:     core.StepGate,
+		Status:   core.StepPending,
+		Position: 1,
 	}
 	id2, _ := s.CreateStep(ctx, st2)
 	got2, _ := s.GetStep(ctx, id2)
-	if len(got2.DependsOn) != 1 || got2.DependsOn[0] != id {
-		t.Fatalf("depends_on not preserved: %v", got2.DependsOn)
+	if got2.Position != 1 {
+		t.Fatalf("position not preserved: %v", got2.Position)
 	}
 
-	steps, err := s.ListStepsByFlow(ctx, fID)
+	steps, err := s.ListStepsByIssue(ctx, fID)
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -183,8 +183,8 @@ func TestStepUpdate(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
-	id, _ := s.CreateStep(ctx, &core.Step{FlowID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	id, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
 
 	got, _ := s.GetStep(ctx, id)
 	got.AcceptanceCriteria = []string{"new criteria"}
@@ -203,13 +203,13 @@ func TestExecutionCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
-	sID, _ := s.CreateStep(ctx, &core.Step{FlowID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
 
 	now := time.Now().UTC()
 	e := &core.Execution{
 		StepID:           sID,
-		FlowID:           fID,
+		IssueID:          fID,
 		Status:           core.ExecCreated,
 		AgentID:          "claude-1",
 		BriefingSnapshot: "implement login API",
@@ -259,14 +259,14 @@ func TestArtifactCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
-	sID, _ := s.CreateStep(ctx, &core.Step{FlowID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
-	eID, _ := s.CreateExecution(ctx, &core.Execution{StepID: sID, FlowID: fID, Status: core.ExecCreated, Attempt: 1})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	eID, _ := s.CreateExecution(ctx, &core.Execution{StepID: sID, IssueID: fID, Status: core.ExecCreated, Attempt: 1})
 
 	art := &core.Artifact{
 		ExecutionID:    eID,
 		StepID:         sID,
-		FlowID:         fID,
+		IssueID:        fID,
 		ResultMarkdown: "## Done\nImplemented login API.",
 		Metadata:       map[string]any{"status": "completed", "deliverables": []any{map[string]any{"type": "branch", "ref": "feat/login"}}},
 		Assets:         []core.Asset{{Name: "screenshot.png", URI: "file:///tmp/screenshot.png", MediaType: "image/png"}},
@@ -327,14 +327,14 @@ func TestBriefingCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
-	sID, _ := s.CreateStep(ctx, &core.Step{FlowID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
 
 	b := &core.Briefing{
 		StepID:    sID,
 		Objective: "Implement user login API with JWT authentication",
 		ContextRefs: []core.ContextRef{
-			{Type: core.CtxFlowSummary, RefID: fID, Label: "flow summary"},
+			{Type: core.CtxIssueSummary, RefID: fID, Label: "issue summary"},
 			{Type: core.CtxUpstreamArtifact, RefID: 42, Label: "design doc"},
 		},
 		Constraints: []string{"use existing auth middleware", "no new dependencies"},
@@ -372,11 +372,11 @@ func TestAgentContextCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
 
 	ac := &core.AgentContext{
 		AgentID:      "claude-1",
-		FlowID:       fID,
+		IssueID:      fID,
 		SystemPrompt: "You are a developer",
 		TurnCount:    0,
 	}
@@ -416,18 +416,18 @@ func TestEventCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
 
-	e1 := &core.Event{Type: core.EventFlowStarted, FlowID: fID, Data: map[string]any{"reason": "manual"}}
+	e1 := &core.Event{Type: core.EventIssueStarted, IssueID: fID, Data: map[string]any{"reason": "manual"}}
 	_, err := s.CreateEvent(ctx, e1)
 	if err != nil {
 		t.Fatalf("create event: %v", err)
 	}
 
-	e2 := &core.Event{Type: core.EventStepReady, FlowID: fID, StepID: 1}
+	e2 := &core.Event{Type: core.EventStepReady, IssueID: fID, StepID: 1}
 	s.CreateEvent(ctx, e2)
 
-	events, err := s.ListEvents(ctx, core.EventFilter{FlowID: &fID})
+	events, err := s.ListEvents(ctx, core.EventFilter{IssueID: &fID})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -435,8 +435,8 @@ func TestEventCRUD(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
 
-	types := []core.EventType{core.EventFlowStarted}
-	events, err = s.ListEvents(ctx, core.EventFilter{FlowID: &fID, Types: types})
+	types := []core.EventType{core.EventIssueStarted}
+	events, err = s.ListEvents(ctx, core.EventFilter{IssueID: &fID, Types: types})
 	if err != nil {
 		t.Fatalf("list events filtered: %v", err)
 	}
@@ -449,11 +449,11 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateFlow(ctx, &core.Flow{Name: "f", Status: core.FlowPending})
+	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
 
 	if _, err := s.CreateEvent(ctx, &core.Event{
-		Type:   core.EventChatOutput,
-		FlowID: fID,
+		Type:    core.EventChatOutput,
+		IssueID: fID,
 		Data: map[string]any{
 			"session_id": "session-a",
 			"type":       "agent_message",
@@ -463,8 +463,8 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 		t.Fatalf("create chat event a: %v", err)
 	}
 	if _, err := s.CreateEvent(ctx, &core.Event{
-		Type:   core.EventChatOutput,
-		FlowID: fID,
+		Type:    core.EventChatOutput,
+		IssueID: fID,
 		Data: map[string]any{
 			"session_id": "session-b",
 			"type":       "agent_message",
@@ -665,4 +665,3 @@ func TestResourceBindingCRUD(t *testing.T) {
 
 // Verify Store implements core.Store interface.
 var _ core.Store = (*Store)(nil)
-
