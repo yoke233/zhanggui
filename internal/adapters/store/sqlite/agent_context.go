@@ -2,77 +2,77 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateAgentContext(ctx context.Context, ac *core.AgentContext) (int64, error) {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_contexts (agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ac.AgentID, ac.IssueID, ac.SystemPrompt, ac.SessionID, ac.Summary, ac.TurnCount, ac.WorkerID, ac.WorkerLastSeenAt, now, now,
-	)
-	if err != nil {
+	model := agentContextModelFromCore(ac)
+	model.CreatedAt = now
+	model.UpdatedAt = now
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, fmt.Errorf("insert agent_context: %w", err)
 	}
-	id, _ := res.LastInsertId()
-	ac.ID = id
+	ac.ID = model.ID
 	ac.CreatedAt = now
 	ac.UpdatedAt = now
-	return id, nil
+	return model.ID, nil
 }
 
 func (s *Store) GetAgentContext(ctx context.Context, id int64) (*core.AgentContext, error) {
-	ac := &core.AgentContext{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
-		 FROM agent_contexts WHERE id = ?`, id,
-	).Scan(&ac.ID, &ac.AgentID, &ac.IssueID, &ac.SystemPrompt, &ac.SessionID,
-		&ac.Summary, &ac.TurnCount, &ac.WorkerID, &ac.WorkerLastSeenAt, &ac.CreatedAt, &ac.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, core.ErrNotFound
-	}
+	var model AgentContextModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
 		return nil, fmt.Errorf("get agent_context %d: %w", id, err)
 	}
-	return ac, nil
+	return model.toCore(), nil
 }
 
 func (s *Store) FindAgentContext(ctx context.Context, agentID string, issueID int64) (*core.AgentContext, error) {
-	ac := &core.AgentContext{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
-		 FROM agent_contexts WHERE agent_id = ? AND issue_id = ?`, agentID, issueID,
-	).Scan(&ac.ID, &ac.AgentID, &ac.IssueID, &ac.SystemPrompt, &ac.SessionID,
-		&ac.Summary, &ac.TurnCount, &ac.WorkerID, &ac.WorkerLastSeenAt, &ac.CreatedAt, &ac.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, core.ErrNotFound
-	}
+	var model AgentContextModel
+	err := s.orm.WithContext(ctx).
+		Where("agent_id = ? AND issue_id = ?", agentID, issueID).
+		Order("id DESC").
+		First(&model).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
 		return nil, fmt.Errorf("find agent_context: %w", err)
 	}
-	return ac, nil
+	return model.toCore(), nil
 }
 
 func (s *Store) UpdateAgentContext(ctx context.Context, ac *core.AgentContext) error {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE agent_contexts SET system_prompt = ?, session_id = ?, summary = ?, turn_count = ?, worker_id = ?, worker_last_seen_at = ?, updated_at = ?
-		 WHERE id = ?`,
-		ac.SystemPrompt, ac.SessionID, ac.Summary, ac.TurnCount, ac.WorkerID, ac.WorkerLastSeenAt, now, ac.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update agent_context: %w", err)
+	model := agentContextModelFromCore(ac)
+	model.UpdatedAt = now
+	result := s.orm.WithContext(ctx).Model(&AgentContextModel{}).
+		Where("id = ?", ac.ID).
+		Updates(map[string]any{
+			"agent_id":            model.AgentID,
+			"issue_id":            model.IssueID,
+			"system_prompt":       model.SystemPrompt,
+			"session_id":          model.SessionID,
+			"summary":             model.Summary,
+			"turn_count":          model.TurnCount,
+			"worker_id":           model.WorkerID,
+			"worker_last_seen_at": model.WorkerLastSeenAt,
+			"updated_at":          model.UpdatedAt,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("update agent_context: %w", result.Error)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if result.RowsAffected == 0 {
 		return core.ErrNotFound
 	}
 	ac.UpdatedAt = now
 	return nil
 }
-

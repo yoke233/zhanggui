@@ -2,166 +2,93 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateExecution(ctx context.Context, e *core.Execution) (int64, error) {
-	input, err := marshalJSON(e.Input)
-	if err != nil {
-		return 0, fmt.Errorf("marshal input: %w", err)
-	}
-	output, err := marshalJSON(e.Output)
-	if err != nil {
-		return 0, fmt.Errorf("marshal output: %w", err)
-	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO executions (step_id, issue_id, status, agent_id, agent_context_id,
-		        briefing_snapshot, artifact_id, input, output, error_message, error_kind,
-		        attempt, started_at, finished_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.StepID, e.IssueID, e.Status, e.AgentID, e.AgentContextID,
-		nullStr(e.BriefingSnapshot), e.ArtifactID, input, output, e.ErrorMessage, nullStr(string(e.ErrorKind)),
-		e.Attempt, e.StartedAt, e.FinishedAt, now,
-	)
-	if err != nil {
+	model := executionModelFromCore(e)
+	model.CreatedAt = now
+
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, fmt.Errorf("insert execution: %w", err)
 	}
-	id, _ := res.LastInsertId()
-	e.ID = id
+	e.ID = model.ID
 	e.CreatedAt = now
-	return id, nil
+	return model.ID, nil
 }
 
 func (s *Store) GetExecution(ctx context.Context, id int64) (*core.Execution, error) {
-	e := &core.Execution{}
-	var input, output, briefing, errorKind sql.NullString
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
-		        briefing_snapshot, artifact_id, input, output,
-		        error_message, error_kind, attempt, started_at, finished_at, created_at
-		 FROM executions WHERE id = ?`, id,
-	).Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
-		&briefing, &e.ArtifactID, &input, &output,
-		&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, core.ErrNotFound
-	}
+	var model ExecutionModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
 		return nil, fmt.Errorf("get execution %d: %w", id, err)
 	}
-	if briefing.Valid {
-		e.BriefingSnapshot = briefing.String
-	}
-	if errorKind.Valid {
-		e.ErrorKind = core.ErrorKind(errorKind.String)
-	}
-	unmarshalNullJSON(input, &e.Input)
-	unmarshalNullJSON(output, &e.Output)
-	return e, nil
+	return model.toCore(), nil
 }
 
 func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core.Execution, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
-		        briefing_snapshot, artifact_id, input, output,
-		        error_message, error_kind, attempt, started_at, finished_at, created_at
-		 FROM executions WHERE step_id = ? ORDER BY attempt`, stepID,
-	)
+	var models []ExecutionModel
+	err := s.orm.WithContext(ctx).
+		Where("step_id = ?", stepID).
+		Order("attempt ASC").
+		Find(&models).Error
 	if err != nil {
 		return nil, fmt.Errorf("list executions by step: %w", err)
 	}
-	defer rows.Close()
 
-	var execs []*core.Execution
-	for rows.Next() {
-		e := &core.Execution{}
-		var input, output, briefing, errorKind sql.NullString
-		if err := rows.Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
-			&briefing, &e.ArtifactID, &input, &output,
-			&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan execution: %w", err)
-		}
-		if briefing.Valid {
-			e.BriefingSnapshot = briefing.String
-		}
-		if errorKind.Valid {
-			e.ErrorKind = core.ErrorKind(errorKind.String)
-		}
-		unmarshalNullJSON(input, &e.Input)
-		unmarshalNullJSON(output, &e.Output)
-		execs = append(execs, e)
+	out := make([]*core.Execution, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
 	}
-	return execs, rows.Err()
+	return out, nil
 }
 
 func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.ExecutionStatus) ([]*core.Execution, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
-		        briefing_snapshot, artifact_id, input, output,
-		        error_message, error_kind, attempt, started_at, finished_at, created_at
-		 FROM executions WHERE status = ? ORDER BY id`, status,
-	)
+	var models []ExecutionModel
+	err := s.orm.WithContext(ctx).
+		Where("status = ?", string(status)).
+		Order("id ASC").
+		Find(&models).Error
 	if err != nil {
 		return nil, fmt.Errorf("list executions by status: %w", err)
 	}
-	defer rows.Close()
 
-	var execs []*core.Execution
-	for rows.Next() {
-		e := &core.Execution{}
-		var input, output, briefing, errorKind sql.NullString
-		if err := rows.Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
-			&briefing, &e.ArtifactID, &input, &output,
-			&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan execution: %w", err)
-		}
-		if briefing.Valid {
-			e.BriefingSnapshot = briefing.String
-		}
-		if errorKind.Valid {
-			e.ErrorKind = core.ErrorKind(errorKind.String)
-		}
-		unmarshalNullJSON(input, &e.Input)
-		unmarshalNullJSON(output, &e.Output)
-		execs = append(execs, e)
+	out := make([]*core.Execution, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
 	}
-	return execs, rows.Err()
+	return out, nil
 }
 
 func (s *Store) UpdateExecution(ctx context.Context, e *core.Execution) error {
-	output, err := marshalJSON(e.Output)
-	if err != nil {
-		return fmt.Errorf("marshal output: %w", err)
+	model := executionModelFromCore(e)
+	result := s.orm.WithContext(ctx).Model(&ExecutionModel{}).
+		Where("id = ?", e.ID).
+		Updates(map[string]any{
+			"status":            model.Status,
+			"agent_id":          model.AgentID,
+			"agent_context_id":  model.AgentContextID,
+			"briefing_snapshot": model.BriefingSnapshot,
+			"artifact_id":       model.ArtifactID,
+			"output":            model.Output,
+			"error_message":     model.ErrorMessage,
+			"error_kind":        model.ErrorKind,
+			"started_at":        model.StartedAt,
+			"finished_at":       model.FinishedAt,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("update execution: %w", result.Error)
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE executions SET status = ?, agent_id = ?, agent_context_id = ?,
-		        briefing_snapshot = ?, artifact_id = ?, output = ?,
-		        error_message = ?, error_kind = ?, started_at = ?, finished_at = ?
-		 WHERE id = ?`,
-		e.Status, e.AgentID, e.AgentContextID,
-		nullStr(e.BriefingSnapshot), e.ArtifactID, output,
-		e.ErrorMessage, nullStr(string(e.ErrorKind)), e.StartedAt, e.FinishedAt,
-		e.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update execution: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if result.RowsAffected == 0 {
 		return core.ErrNotFound
 	}
 	return nil
 }
-
-func nullStr(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-

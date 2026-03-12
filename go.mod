@@ -8,6 +8,7 @@ require (
 	github.com/cexll/agentsdk-go v0.0.0
 	github.com/coder/acp-go-sdk v0.6.4-0.20260227160919-584abe6abe22
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/go-github/v68 v68.0.0
 	github.com/google/uuid v1.6.0
@@ -19,6 +20,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	golang.org/x/oauth2 v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
+	gorm.io/gorm v1.31.1
 	modernc.org/sqlite v1.46.1
 )
 
@@ -29,6 +31,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -36,6 +39,8 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
