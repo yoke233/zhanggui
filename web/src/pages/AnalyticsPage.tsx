@@ -4,27 +4,14 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   BarChart3,
-  CalendarClock,
   Clock,
   Loader2,
-  Pause,
-  Play,
-  Plus,
   RefreshCw,
   TrendingDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogBody,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -35,153 +22,9 @@ import {
 } from "@/components/ui/table";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, formatRelativeTime } from "@/lib/v2Workbench";
+import { CronJobsSection } from "@/components/analytics/CronJobsSection";
+import { CronSetupDialog } from "@/components/analytics/CronSetupDialog";
 import type { AnalyticsSummary, CronStatus } from "@/types/apiV2";
-import type { TFunction } from "i18next";
-
-// --- Cron expression parser & human-readable description ---
-
-interface CronParseResult {
-  valid: boolean;
-  error?: string;
-  description?: string;
-}
-
-function parseCronExpr(expr: string, t: TFunction): CronParseResult {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) {
-    return { valid: false, error: t("analytics.cronNeedsFields", { count: parts.length }) };
-  }
-
-  const fieldNames = [
-    t("analytics.cronFieldMinute"),
-    t("analytics.cronFieldHour"),
-    t("analytics.cronFieldDay"),
-    t("analytics.cronFieldMonth"),
-    t("analytics.cronFieldWeekday"),
-  ];
-  const ranges: [number, number][] = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
-
-  for (let i = 0; i < 5; i++) {
-    const err = validateField(parts[i], ranges[i][0], ranges[i][1], t);
-    if (err) return { valid: false, error: `${fieldNames[i]}: ${err}` };
-  }
-
-  const desc = describeCron(parts[0], parts[1], parts[2], parts[3], parts[4], t);
-  return { valid: true, description: desc };
-}
-
-function validateField(field: string, min: number, max: number, t: TFunction): string | null {
-  if (field === "*") return null;
-  for (const segment of field.split(",")) {
-    const [rangePart, stepStr] = segment.split("/");
-    if (stepStr !== undefined) {
-      const step = Number(stepStr);
-      if (!Number.isInteger(step) || step <= 0) return t("analytics.invalidStep", { value: stepStr });
-    }
-    if (rangePart === "*") continue;
-    if (rangePart.includes("-")) {
-      const [lo, hi] = rangePart.split("-").map(Number);
-      if (!Number.isInteger(lo) || !Number.isInteger(hi)) return t("analytics.invalidRange", { value: rangePart });
-      if (lo < min || hi > max || lo > hi) return t("analytics.rangeExceeded", { lo, hi, min, max });
-    } else {
-      const v = Number(rangePart);
-      if (!Number.isInteger(v)) return t("analytics.invalidValue", { value: rangePart });
-      if (v < min || v > max) return t("analytics.valueExceeded", { value: v, min, max });
-    }
-  }
-  return null;
-}
-
-function getWeekdayNames(t: TFunction): string[] {
-  return [
-    t("analytics.weekdaySun"),
-    t("analytics.weekdayMon"),
-    t("analytics.weekdayTue"),
-    t("analytics.weekdayWed"),
-    t("analytics.weekdayThu"),
-    t("analytics.weekdayFri"),
-    t("analytics.weekdaySat"),
-  ];
-}
-
-function describeCron(minute: string, hour: string, day: string, month: string, weekday: string, t: TFunction): string {
-  const parts: string[] = [];
-  const weekdayNames = getWeekdayNames(t);
-
-  // Month
-  if (month !== "*") {
-    parts.push(describeList(month, (v) => t("analytics.cronMonthN", { n: v }), t));
-  }
-
-  // Day of month
-  if (day !== "*") {
-    parts.push(describeList(day, (v) => t("analytics.cronDayN", { n: v }), t));
-  }
-
-  // Weekday
-  if (weekday !== "*") {
-    if (weekday === "1-5") {
-      parts.push(t("analytics.cronWeekdays"));
-    } else if (weekday === "0,6") {
-      parts.push(t("analytics.cronWeekends"));
-    } else {
-      parts.push(describeList(weekday, (v) => t("analytics.cronWeekdayN", { name: weekdayNames[v] ?? v }), t));
-    }
-  }
-
-  // Hour + minute combined
-  if (hour === "*" && minute === "*") {
-    parts.push(t("analytics.cronEveryMinute"));
-  } else if (hour === "*") {
-    if (minute.startsWith("*/")) {
-      parts.push(t("analytics.cronEveryNMinutes", { n: minute.slice(2) }));
-    } else if (minute === "0") {
-      parts.push(t("analytics.cronEveryHourOnTheHour"));
-    } else {
-      parts.push(t("analytics.cronEveryHourAtMinute", { minute }));
-    }
-  } else if (minute === "*") {
-    parts.push(describeList(hour, (v) => t("analytics.cronHourN", { n: v }), t) + t("analytics.cronEveryMinuteOf"));
-  } else {
-    // Both specified
-    if (hour.startsWith("*/")) {
-      const m = minute === "0" ? t("analytics.cronOnTheHour") : t("analytics.cronAtMinute", { m: minute });
-      parts.push(t("analytics.cronEveryNHours", { n: hour.slice(2), m }));
-    } else {
-      const hours = expandList(hour);
-      const mins = minute === "0" ? "00" : minute.padStart(2, "0");
-      if (hours.length <= 3) {
-        parts.push(hours.map((h) => `${String(h).padStart(2, "0")}:${mins}`).join(", "));
-      } else {
-        parts.push(`${describeList(hour, (v) => t("analytics.cronHourN", { n: v }), t)} ${mins}${t("analytics.cronMinuteSuffix")}`);
-      }
-    }
-  }
-
-  return parts.join(" ") || t("analytics.cronEveryMinute");
-}
-
-function describeList(field: string, fmt: (v: number) => string, t: TFunction): string {
-  if (field.startsWith("*/")) return t("analytics.cronEveryN", { n: field.slice(2) });
-  const values = expandList(field);
-  if (values.length <= 5) return values.map(fmt).join(", ");
-  return t("analytics.cronRangeSummary", { from: fmt(values[0]), to: fmt(values[values.length - 1]), count: values.length });
-}
-
-function expandList(field: string): number[] {
-  const result = new Set<number>();
-  for (const segment of field.split(",")) {
-    const [rangePart, stepStr] = segment.split("/");
-    const step = stepStr ? Number(stepStr) : 1;
-    if (rangePart.includes("-")) {
-      const [lo, hi] = rangePart.split("-").map(Number);
-      for (let i = lo; i <= hi; i += step) result.add(i);
-    } else {
-      result.add(Number(rangePart));
-    }
-  }
-  return [...result].sort((a, b) => a - b);
-}
 
 function formatDuration(seconds: number): string {
   if (seconds < 1) return "<1s";
@@ -193,14 +36,11 @@ function formatDuration(seconds: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function pctBar(pct: number, color: string): React.ReactNode {
+function PctBar({ pct, color }: { pct: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-2 w-20 rounded-full bg-slate-100">
-        <div
-          className={`h-2 rounded-full ${color}`}
-          style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
-        />
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }} />
       </div>
       <span className="text-xs text-muted-foreground">{Math.round(pct * 100)}%</span>
     </div>
@@ -227,9 +67,6 @@ export function AnalyticsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [cronIssues, setCronIssues] = useState<CronStatus[]>([]);
   const [cronDialogOpen, setCronDialogOpen] = useState(false);
-  const [cronForm, setCronForm] = useState({ issueId: "", schedule: "", maxInstances: "1" });
-  const [cronSaving, setCronSaving] = useState(false);
-  const [cronError, setCronError] = useState<string | null>(null);
 
   const TIME_RANGES = [
     { label: "24h", value: 1 },
@@ -252,10 +89,7 @@ export function AnalyticsPage() {
       const [resp, cronResp] = await Promise.all([
         apiClient.getAnalyticsSummary({
           project_id: selectedProjectId ?? undefined,
-          since:
-            rangeDays > 0
-              ? new Date(Date.now() - rangeDays * 86400000).toISOString()
-              : undefined,
+          since: rangeDays > 0 ? new Date(Date.now() - rangeDays * 86400000).toISOString() : undefined,
         }),
         apiClient.listCronIssues(),
       ]);
@@ -268,11 +102,8 @@ export function AnalyticsPage() {
     }
   }, [apiClient, selectedProjectId, rangeDays]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  // Auto-refresh every 30 seconds.
   useEffect(() => {
     if (!autoRefresh) return;
     const id = setInterval(() => void load(), 30000);
@@ -284,6 +115,27 @@ export function AnalyticsPage() {
     [data],
   );
 
+  const handleCronToggle = async (cron: CronStatus) => {
+    try {
+      if (cron.enabled) {
+        await apiClient.disableIssueCron(cron.issue_id);
+      } else {
+        await apiClient.setupIssueCron(cron.issue_id, {
+          schedule: cron.schedule ?? "0 * * * *",
+          max_instances: cron.max_instances,
+        });
+      }
+      void load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
+  const handleCronSave = async (issueId: number, schedule: string, maxInstances: number) => {
+    await apiClient.setupIssueCron(issueId, { schedule, max_instances: maxInstances });
+    void load();
+  };
+
   return (
     <div className="flex-1 space-y-6 p-8">
       {/* Header */}
@@ -294,21 +146,16 @@ export function AnalyticsPage() {
             <h1 className="text-2xl font-bold tracking-tight">{t("analytics.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {t("analytics.subtitle")}
-          </p>
+          <p className="text-sm text-muted-foreground">{t("analytics.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Time range selector */}
           <div className="flex rounded-md border">
             {TIME_RANGES.map((tr) => (
               <button
                 key={tr.value}
                 onClick={() => setRangeDays(tr.value)}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  rangeDays === tr.value
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent"
+                  rangeDays === tr.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                 } ${tr.value === TIME_RANGES[0].value ? "rounded-l-md" : ""} ${
                   tr.value === TIME_RANGES[TIME_RANGES.length - 1].value ? "rounded-r-md" : ""
                 }`}
@@ -336,7 +183,7 @@ export function AnalyticsPage() {
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
       ) : null}
 
-      {/* Status distribution overview */}
+      {/* Status overview cards */}
       {data ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -385,9 +232,7 @@ export function AnalyticsPage() {
             <CardContent>
               {data.duration_stats.length > 0 ? (
                 <>
-                  <div className="text-2xl font-bold">
-                    {formatDuration(data.duration_stats[0].avg_duration_s)}
-                  </div>
+                  <div className="text-2xl font-bold">{formatDuration(data.duration_stats[0].avg_duration_s)}</div>
                   <p className="text-xs text-muted-foreground">
                     <Link to={`/issues/${data.duration_stats[0].issue_id}`} className="hover:underline">
                       {data.duration_stats[0].issue_title}
@@ -409,9 +254,7 @@ export function AnalyticsPage() {
             <CardContent>
               {data.bottlenecks.length > 0 ? (
                 <>
-                  <div className="text-2xl font-bold">
-                    {formatDuration(data.bottlenecks[0].avg_duration_s)}
-                  </div>
+                  <div className="text-2xl font-bold">{formatDuration(data.bottlenecks[0].avg_duration_s)}</div>
                   <p className="text-xs text-muted-foreground">
                     {data.bottlenecks[0].step_name}
                     {" / "}{t("analytics.failRate")}{" "}
@@ -449,19 +292,15 @@ export function AnalyticsPage() {
               <TableBody>
                 {!data || data.project_errors.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      {t("common.noData")}
-                    </TableCell>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.noData")}</TableCell>
                   </TableRow>
                 ) : (
                   data.project_errors.map((p) => (
                     <TableRow key={p.project_id}>
                       <TableCell className="font-medium">{p.project_name}</TableCell>
                       <TableCell>{p.total_issues}</TableCell>
-                      <TableCell className={p.failed_issues > 0 ? "text-red-600 font-medium" : ""}>
-                        {p.failed_issues}
-                      </TableCell>
-                      <TableCell>{pctBar(p.failure_rate, "bg-red-500")}</TableCell>
+                      <TableCell className={p.failed_issues > 0 ? "text-red-600 font-medium" : ""}>{p.failed_issues}</TableCell>
+                      <TableCell><PctBar pct={p.failure_rate} color="bg-red-500" /></TableCell>
                       <TableCell>{p.failed_execs}</TableCell>
                     </TableRow>
                   ))
@@ -471,7 +310,7 @@ export function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Step bottleneck analysis */}
+        {/* Step bottleneck */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -494,22 +333,18 @@ export function AnalyticsPage() {
               <TableBody>
                 {!data || data.bottlenecks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      {t("common.noData")}
-                    </TableCell>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.noData")}</TableCell>
                   </TableRow>
                 ) : (
                   data.bottlenecks.slice(0, 10).map((b) => (
                     <TableRow key={b.step_id}>
                       <TableCell className="font-medium">{b.step_name}</TableCell>
                       <TableCell>
-                        <Link to={`/issues/${b.issue_id}`} className="text-blue-600 hover:underline">
-                          {b.issue_title}
-                        </Link>
+                        <Link to={`/issues/${b.issue_id}`} className="text-blue-600 hover:underline">{b.issue_title}</Link>
                       </TableCell>
                       <TableCell>{formatDuration(b.avg_duration_s)}</TableCell>
                       <TableCell className="text-muted-foreground">{formatDuration(b.max_duration_s)}</TableCell>
-                      <TableCell>{pctBar(b.fail_rate, "bg-red-500")}</TableCell>
+                      <TableCell><PctBar pct={b.fail_rate} color="bg-red-500" /></TableCell>
                       <TableCell>
                         {b.retry_count > 0 ? (
                           <Badge variant="secondary" className="text-xs">{b.retry_count}</Badge>
@@ -526,7 +361,7 @@ export function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* Issue duration stats */}
+      {/* Flow duration stats */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -548,17 +383,13 @@ export function AnalyticsPage() {
             <TableBody>
               {!data || data.duration_stats.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    {t("common.noData")}
-                  </TableCell>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.noData")}</TableCell>
                 </TableRow>
               ) : (
                 data.duration_stats.slice(0, 15).map((d) => (
                   <TableRow key={d.issue_id}>
                     <TableCell className="font-medium">
-                      <Link to={`/issues/${d.issue_id}`} className="hover:underline">
-                        {d.issue_title}
-                      </Link>
+                      <Link to={`/issues/${d.issue_id}`} className="hover:underline">{d.issue_title}</Link>
                     </TableCell>
                     <TableCell>{d.exec_count}</TableCell>
                     <TableCell className="font-medium">{formatDuration(d.avg_duration_s)}</TableCell>
@@ -597,28 +428,19 @@ export function AnalyticsPage() {
             <TableBody>
               {!data || data.recent_failures.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    {t("analytics.noFailures")}
-                  </TableCell>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">{t("analytics.noFailures")}</TableCell>
                 </TableRow>
               ) : (
                 data.recent_failures.slice(0, 20).map((f) => (
                   <TableRow key={f.exec_id}>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {formatRelativeTime(f.failed_at)}
-                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">{formatRelativeTime(f.failed_at)}</TableCell>
                     <TableCell>{f.project_name || "-"}</TableCell>
                     <TableCell>
-                      <Link to={`/issues/${f.issue_id}`} className="text-blue-600 hover:underline">
-                        {f.issue_title}
-                      </Link>
+                      <Link to={`/issues/${f.issue_id}`} className="text-blue-600 hover:underline">{f.issue_title}</Link>
                     </TableCell>
                     <TableCell className="font-medium">{f.step_name}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant={f.error_kind === "permanent" ? "destructive" : "secondary"}
-                        className="text-xs"
-                      >
+                      <Badge variant={f.error_kind === "permanent" ? "destructive" : "secondary"} className="text-xs">
                         {ERROR_KIND_LABELS[f.error_kind] ?? f.error_kind}
                       </Badge>
                     </TableCell>
@@ -635,216 +457,17 @@ export function AnalyticsPage() {
         </CardContent>
       </Card>
 
-      {/* Cron scheduled issues */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-indigo-500" />
-              {t("analytics.cronJobs")}
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setCronForm({ issueId: "", schedule: "", maxInstances: "1" });
-                setCronError(null);
-                setCronDialogOpen(true);
-              }}
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              {t("analytics.addCronJob")}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("analytics.flowId")}</TableHead>
-                <TableHead>{t("analytics.cronExpression")}</TableHead>
-                <TableHead>{t("analytics.status")}</TableHead>
-                <TableHead>{t("analytics.maxConcurrent")}</TableHead>
-                <TableHead>{t("analytics.lastTriggered")}</TableHead>
-                <TableHead>{t("analytics.actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cronIssues.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {t("analytics.noCronJobs")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                cronIssues.map((c) => (
-                  <TableRow key={c.issue_id}>
-                    <TableCell>
-                      <Link to={`/issues/${c.issue_id}`} className="text-blue-600 hover:underline">
-                        #{c.issue_id}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-mono text-xs">{c.schedule}</span>
-                      {c.schedule ? (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {parseCronExpr(c.schedule, t).description ?? ""}
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={c.enabled ? "success" : "secondary"} className="text-xs">
-                        {c.enabled ? t("analytics.cronEnabled") : t("analytics.cronDisabled")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{c.max_instances ?? 1}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {c.last_triggered ? formatRelativeTime(c.last_triggered) : t("analytics.neverTriggered")}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2"
-                        onClick={async () => {
-                          try {
-                            if (c.enabled) {
-                              await apiClient.disableIssueCron(c.issue_id);
-                            } else {
-                              await apiClient.setupIssueCron(c.issue_id, {
-                                schedule: c.schedule ?? "0 * * * *",
-                                max_instances: c.max_instances,
-                              });
-                            }
-                            void load();
-                          } catch (e) {
-                            setError(getErrorMessage(e));
-                          }
-                        }}
-                      >
-                        {c.enabled ? (
-                          <>
-                            <Pause className="mr-1 h-3 w-3" />
-                            {t("analytics.disable")}
-                          </>
-                        ) : (
-                          <>
-                            <Play className="mr-1 h-3 w-3" />
-                            {t("analytics.enable")}
-                          </>
-                        )}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <CronJobsSection
+        cronIssues={cronIssues}
+        onToggle={handleCronToggle}
+        onAdd={() => setCronDialogOpen(true)}
+      />
 
-      {/* Setup Cron Dialog */}
-      <Dialog open={cronDialogOpen} onClose={() => setCronDialogOpen(false)}>
-        <DialogHeader>
-          <DialogTitle>{t("analytics.addCronTitle")}</DialogTitle>
-          <DialogDescription>
-            {t("analytics.addCronDesc")}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          {cronError ? (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {cronError}
-            </p>
-          ) : null}
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t("analytics.flowId")}</label>
-              <Input
-                type="number"
-                placeholder={t("analytics.enterFlowId")}
-                value={cronForm.issueId}
-                onChange={(e) => setCronForm((f) => ({ ...f, issueId: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t("analytics.cronExpression")}</label>
-              <Input
-                placeholder={t("analytics.cronPlaceholder")}
-                value={cronForm.schedule}
-                onChange={(e) => setCronForm((f) => ({ ...f, schedule: e.target.value }))}
-                className={
-                  cronForm.schedule.trim()
-                    ? parseCronExpr(cronForm.schedule, t).valid
-                      ? "border-emerald-300 focus:border-emerald-400"
-                      : "border-rose-300 focus:border-rose-400"
-                    : undefined
-                }
-              />
-              {cronForm.schedule.trim() ? (
-                (() => {
-                  const result = parseCronExpr(cronForm.schedule, t);
-                  if (result.valid) {
-                    return (
-                      <p className="flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
-                        <CalendarClock className="h-3 w-3 shrink-0" />
-                        {result.description}
-                      </p>
-                    );
-                  }
-                  return (
-                    <p className="flex items-center gap-1.5 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-600">
-                      <AlertTriangle className="h-3 w-3 shrink-0" />
-                      {result.error}
-                    </p>
-                  );
-                })()
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  {t("analytics.cronHelp")}
-                </p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t("analytics.maxConcurrentInstances")}</label>
-              <Input
-                type="number"
-                min={1}
-                max={10}
-                value={cronForm.maxInstances}
-                onChange={(e) => setCronForm((f) => ({ ...f, maxInstances: e.target.value }))}
-              />
-            </div>
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setCronDialogOpen(false)}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule, t).valid}
-            onClick={async () => {
-              setCronSaving(true);
-              setCronError(null);
-              try {
-                await apiClient.setupIssueCron(Number(cronForm.issueId), {
-                  schedule: cronForm.schedule,
-                  max_instances: Number(cronForm.maxInstances) || 1,
-                });
-                setCronDialogOpen(false);
-                void load();
-              } catch (e) {
-                setCronError(getErrorMessage(e));
-              } finally {
-                setCronSaving(false);
-              }
-            }}
-          >
-            {cronSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            {t("common.confirm")}
-          </Button>
-        </DialogFooter>
-      </Dialog>
+      <CronSetupDialog
+        open={cronDialogOpen}
+        onClose={() => setCronDialogOpen(false)}
+        onSave={handleCronSave}
+      />
     </div>
   );
 }

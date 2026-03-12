@@ -163,12 +163,22 @@ export interface ChatAttachment {
 }
 
 // Thread WebSocket event types
-export type ThreadEventType = "thread.message";
+export type ThreadEventType =
+  | "thread.message"
+  | "thread.agent_joined"
+  | "thread.agent_left"
+  | "thread.agent_output"
+  | "thread.agent_booted"
+  | "thread.agent_failed";
 
 export interface ThreadEventPayload {
   thread_id?: number;
   message?: string;
+  content?: string;
   sender_id?: string;
+  profile_id?: string;
+  role?: string;
+  error?: string;
   timestamp?: string;
   [key: string]: unknown;
 }

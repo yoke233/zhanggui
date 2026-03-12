@@ -11,6 +11,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
 import { IssueDetailPage } from "@/pages/FlowDetailPage";
 import { IssuesPage } from "@/pages/FlowsPage";
+import { FeatureManifestPage } from "@/pages/FeatureManifestPage";
 import { GitTagsPage } from "@/pages/GitTagsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
@@ -78,6 +79,7 @@ const WorkbenchRoutes = () => {
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId/git-tags" element={<GitTagsPage />} />
+          <Route path="/projects/:projectId/manifest" element={<FeatureManifestPage />} />
           <Route path="/projects/new" element={<CreateProjectPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

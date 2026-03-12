@@ -39,6 +39,16 @@ export interface CreateIssueRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface UpdateIssueRequest {
+  title?: string;
+  body?: string;
+  status?: IssueStatus;
+  priority?: IssuePriority;
+  labels?: string[];
+  project_id?: number;
+  depends_on?: number[];
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -287,6 +297,17 @@ export interface ConfigOption {
   options: ConfigOptionValue[];
 }
 
+export interface SessionMode {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface SessionModeState {
+  available_modes: SessionMode[];
+  current_mode_id: string;
+}
+
 export interface SlashCommandInput {
   hint?: string;
 }
@@ -367,6 +388,7 @@ export interface ChatSessionSummary {
   session_id: string;
   title?: string;
   work_dir?: string;
+  branch?: string;
   ws_path?: string;
   project_id?: number;
   project_name?: string;
@@ -383,6 +405,7 @@ export interface ChatSessionDetail extends ChatSessionSummary {
   messages: ChatMessage[];
   available_commands?: SlashCommand[];
   config_options?: ConfigOption[];
+  modes?: SessionModeState;
 }
 
 export interface ChatStatusResponse {
@@ -802,14 +825,73 @@ export interface CreateThreadWorkItemLinkRequest {
 // Thread Agent Sessions
 // ---------------------------------------------------------------------------
 
+export type ThreadAgentSessionStatus =
+  | "joining"
+  | "booting"
+  | "active"
+  | "paused"
+  | "left"
+  | "failed"
+  | string;
+
 export interface ThreadAgentSession {
   id: number;
   thread_id: number;
   agent_profile_id: string;
   acp_session_id: string;
-  status: string;
+  status: ThreadAgentSessionStatus;
+  turn_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  progress_summary?: string;
+  metadata?: Record<string, unknown>;
   joined_at: string;
   last_active_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Feature Manifest
+// ---------------------------------------------------------------------------
+
+export type FeatureStatus = "pending" | "pass" | "fail" | "skipped";
+
+export interface FeatureManifest {
+  id: number;
+  project_id: number;
+  version: number;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeatureEntry {
+  id: number;
+  manifest_id: number;
+  key: string;
+  description: string;
+  status: FeatureStatus;
+  issue_id?: number | null;
+  step_id?: number | null;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeatureManifestSummary {
+  manifest_id: number;
+  version: number;
+  pass: number;
+  fail: number;
+  pending: number;
+  skipped: number;
+  total: number;
+}
+
+export interface FeatureManifestSnapshot {
+  manifest: FeatureManifest;
+  entries: FeatureEntry[];
 }
 
 // ---------------------------------------------------------------------------

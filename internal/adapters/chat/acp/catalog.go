@@ -23,6 +23,7 @@ type persistedLeadSession struct {
 	SessionID         string                     `json:"session_id"`
 	Scope             string                     `json:"scope"`
 	WorkDir           string                     `json:"work_dir,omitempty"`
+	Branch            string                     `json:"branch,omitempty"`
 	Isolation         string                     `json:"isolation,omitempty"`
 	RepoPath          string                     `json:"repo_path,omitempty"`
 	Title             string                     `json:"title,omitempty"`
@@ -33,6 +34,7 @@ type persistedLeadSession struct {
 	DriverID          string                     `json:"driver_id,omitempty"`
 	AvailableCommands []chatapp.AvailableCommand `json:"available_commands,omitempty"`
 	ConfigOptions     []chatapp.ConfigOption     `json:"config_options,omitempty"`
+	Modes             *chatapp.SessionModeState  `json:"modes,omitempty"`
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
 	Messages          []chatapp.Message          `json:"messages,omitempty"`
@@ -69,6 +71,7 @@ func loadLeadCatalog(path string) (map[string]*persistedLeadSession, error) {
 		cloned.Messages = append([]chatapp.Message(nil), item.Messages...)
 		cloned.AvailableCommands = cloneAvailableCommands(item.AvailableCommands)
 		cloned.ConfigOptions = cloneConfigOptions(item.ConfigOptions)
+		cloned.Modes = cloneModeState(item.Modes)
 		out[id] = &cloned
 	}
 	return out, nil
@@ -91,6 +94,7 @@ func saveLeadCatalog(path string, sessions map[string]*persistedLeadSession) err
 		cloned.Messages = append([]chatapp.Message(nil), item.Messages...)
 		cloned.AvailableCommands = cloneAvailableCommands(item.AvailableCommands)
 		cloned.ConfigOptions = cloneConfigOptions(item.ConfigOptions)
+		cloned.Modes = cloneModeState(item.Modes)
 		items = append(items, &cloned)
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -131,6 +135,15 @@ func cloneAvailableCommands(items []chatapp.AvailableCommand) []chatapp.Availabl
 		cloned[i].Input = &input
 	}
 	return cloned
+}
+
+func cloneModeState(state *chatapp.SessionModeState) *chatapp.SessionModeState {
+	if state == nil {
+		return nil
+	}
+	cloned := *state
+	cloned.AvailableModes = append([]chatapp.SessionMode(nil), state.AvailableModes...)
+	return &cloned
 }
 
 func cloneConfigOptions(items []chatapp.ConfigOption) []chatapp.ConfigOption {

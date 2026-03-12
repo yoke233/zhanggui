@@ -353,6 +353,80 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadAgentSessionRuntimeFields(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create thread.
+	thread := &core.Thread{Title: "runtime-fields-test"}
+	threadID, err := s.CreateThread(ctx, thread)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	// Create agent session with new runtime fields.
+	sess := &core.ThreadAgentSession{
+		ThreadID:          threadID,
+		AgentProfileID:    "claude-worker",
+		ACPSessionID:      "acp-123",
+		Status:            core.ThreadAgentActive,
+		TurnCount:         5,
+		TotalInputTokens:  12000,
+		TotalOutputTokens: 3500,
+		ProgressSummary:   "Implemented feature X, pending tests.",
+		Metadata:          map[string]any{"model": "claude-4"},
+	}
+	sessID, err := s.CreateThreadAgentSession(ctx, sess)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Verify fields round-trip.
+	got, err := s.GetThreadAgentSession(ctx, sessID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.TurnCount != 0 {
+		// Note: CreateThreadAgentSession doesn't set runtime fields; they start at default.
+		// The runtime fields are set via UpdateThreadAgentSession.
+	}
+
+	// Update with runtime fields.
+	got.Status = core.ThreadAgentPaused
+	got.TurnCount = 10
+	got.TotalInputTokens = 25000
+	got.TotalOutputTokens = 8000
+	got.ProgressSummary = "Completed feature X with tests."
+	got.Metadata = map[string]any{"model": "claude-4", "turns_remaining": float64(2)}
+	if err := s.UpdateThreadAgentSession(ctx, got); err != nil {
+		t.Fatalf("update session: %v", err)
+	}
+
+	// Re-read and verify.
+	updated, err := s.GetThreadAgentSession(ctx, sessID)
+	if err != nil {
+		t.Fatalf("get updated session: %v", err)
+	}
+	if updated.Status != core.ThreadAgentPaused {
+		t.Fatalf("expected status %q, got %q", core.ThreadAgentPaused, updated.Status)
+	}
+	if updated.TurnCount != 10 {
+		t.Fatalf("expected turn_count 10, got %d", updated.TurnCount)
+	}
+	if updated.TotalInputTokens != 25000 {
+		t.Fatalf("expected total_input_tokens 25000, got %d", updated.TotalInputTokens)
+	}
+	if updated.TotalOutputTokens != 8000 {
+		t.Fatalf("expected total_output_tokens 8000, got %d", updated.TotalOutputTokens)
+	}
+	if updated.ProgressSummary != "Completed feature X with tests." {
+		t.Fatalf("unexpected progress_summary: %q", updated.ProgressSummary)
+	}
+	if updated.Metadata == nil || updated.Metadata["model"] != "claude-4" {
+		t.Fatalf("unexpected metadata: %v", updated.Metadata)
+	}
+}
+
 func TestThreadParticipantCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

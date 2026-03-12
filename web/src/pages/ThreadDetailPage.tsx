@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Link2, Loader2, Plus, Send, Users } from "lucide-react";
+import { ArrowLeft, Bot, Link2, Loader2, Plus, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import { Link } from "react-router-dom";
-import type { Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, Issue } from "@/types/apiV2";
+import type { Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, ThreadAgentSession, Issue } from "@/types/apiV2";
 
 export function ThreadDetailPage() {
   const { t } = useTranslation();
@@ -30,6 +30,7 @@ export function ThreadDetailPage() {
   const [newWITitle, setNewWITitle] = useState("");
   const [showLinkWI, setShowLinkWI] = useState(false);
   const [linkWIId, setLinkWIId] = useState("");
+  const [agentSessions, setAgentSessions] = useState<ThreadAgentSession[]>([]);
 
   const id = Number(threadId);
 
@@ -41,17 +42,19 @@ export function ThreadDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts, links] = await Promise.all([
+        const [th, msgs, parts, links, agents] = await Promise.all([
           apiClient.getThread(id),
           apiClient.listThreadMessages(id, { limit: 100 }),
           apiClient.listThreadParticipants(id),
           apiClient.listWorkItemsByThread(id),
+          apiClient.listThreadAgents(id),
         ]);
         if (!cancelled) {
           setThread(th);
           setMessages(msgs);
           setParticipants(parts);
           setWorkItemLinks(links);
+          setAgentSessions(agents);
           // Fetch issue details for each link.
           const issueMap: Record<number, Issue> = {};
           const issueResults = await Promise.allSettled(
@@ -219,33 +222,79 @@ export function ThreadDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Participants panel */}
-        <Card className="w-60 shrink-0">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Users className="h-4 w-4" />
-              {t("threads.participants", "Participants")} ({participants.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {participants.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                {t("threads.noParticipants", "No participants")}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {participants.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2 text-sm">
-                    <Badge variant="outline" className="text-[10px]">
-                      {p.role}
-                    </Badge>
-                    <span className="truncate">{p.user_id}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* Right sidebar */}
+        <div className="flex w-60 shrink-0 flex-col gap-4">
+          {/* Participants panel */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4" />
+                {t("threads.participants", "Participants")} ({participants.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {participants.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("threads.noParticipants", "No participants")}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {participants.map((p) => (
+                    <div key={p.id} className="flex items-center gap-2 text-sm">
+                      <Badge variant="outline" className="text-[10px]">
+                        {p.role}
+                      </Badge>
+                      <span className="truncate">{p.user_id}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Agent Sessions panel */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Bot className="h-4 w-4" />
+                {t("threads.agents", "Agents")} ({agentSessions.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agentSessions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("threads.noAgents", "No agents joined")}
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {agentSessions.map((s) => (
+                    <div key={s.id} className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="truncate font-medium">{s.agent_profile_id}</span>
+                        <Badge
+                          variant={
+                            s.status === "active" ? "default" :
+                            s.status === "booting" ? "secondary" :
+                            s.status === "paused" ? "outline" : "destructive"
+                          }
+                          className="text-[10px]"
+                        >
+                          {s.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{t("threads.turns", "Turns")}: {s.turn_count}</span>
+                        <span>
+                          {((s.total_input_tokens + s.total_output_tokens) / 1000).toFixed(1)}k {t("threads.tokens", "tokens")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Linked Work Items */}

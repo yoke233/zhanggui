@@ -65,14 +65,29 @@ func (f *fakeChatACPClient) NewSession(context.Context, acpproto.NewSessionReque
 	f.newCalls++
 	return f.newSessionID, nil
 }
+func (f *fakeChatACPClient) NewSessionResult(_ context.Context, req acpproto.NewSessionRequest) (acpclient.SessionResult, error) {
+	f.newCalls++
+	return acpclient.SessionResult{SessionID: f.newSessionID}, nil
+}
 func (f *fakeChatACPClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
 	f.loadCalls++
 	f.lastLoad = req
 	return f.loadSessionID, nil
 }
+func (f *fakeChatACPClient) LoadSessionResult(_ context.Context, req acpproto.LoadSessionRequest) (acpclient.SessionResult, error) {
+	f.loadCalls++
+	f.lastLoad = req
+	return acpclient.SessionResult{SessionID: f.loadSessionID}, nil
+}
 func (f *fakeChatACPClient) Prompt(context.Context, acpproto.PromptRequest) (*acpclient.PromptResult, error) {
 	f.promptCalls++
 	return &acpclient.PromptResult{Text: f.promptReply}, nil
+}
+func (f *fakeChatACPClient) SetConfigOption(context.Context, acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error) {
+	return nil, nil
+}
+func (f *fakeChatACPClient) SetSessionMode(context.Context, acpproto.SetSessionModeRequest) error {
+	return nil
 }
 func (f *fakeChatACPClient) Cancel(context.Context, acpproto.CancelNotification) error { return nil }
 func (f *fakeChatACPClient) Close(context.Context) error                               { return nil }

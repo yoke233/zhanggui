@@ -610,6 +610,8 @@ func TestAPI_RunIssue_Archived(t *testing.T) {
 	var issue core.Issue
 	decodeJSON(resp, &issue)
 
+	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+
 	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
@@ -728,6 +730,26 @@ func TestAPI_GetStep(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Run & Cancel Issue Tests
 // ---------------------------------------------------------------------------
+
+func TestAPI_RunIssue_NoSteps(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	// Create issue without any steps.
+	resp, _ := post(ts, "/issues", map[string]any{"title": "no-steps", "priority": "medium"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
+
+	// Try to run — should fail with 400.
+	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	var errResp map[string]any
+	decodeJSON(resp, &errResp)
+	if errResp["code"] != "NO_STEPS" {
+		t.Fatalf("expected error code NO_STEPS, got %v", errResp["code"])
+	}
+}
 
 func TestAPI_RunIssue(t *testing.T) {
 	_, ts := setupAPI(t)

@@ -353,6 +353,41 @@ func runMigrations(db *sql.DB) error {
             UNIQUE(thread_id, agent_profile_id)
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_tas_thread ON thread_agent_sessions(thread_id)`,
+		// Thread agent session runtime fields.
+		`ALTER TABLE thread_agent_sessions ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE thread_agent_sessions ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE thread_agent_sessions ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE thread_agent_sessions ADD COLUMN progress_summary TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE thread_agent_sessions ADD COLUMN metadata TEXT`,
+		// feature_manifests table (project-level feature checklist).
+		`CREATE TABLE IF NOT EXISTS feature_manifests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
+            version INTEGER NOT NULL DEFAULT 1,
+            summary TEXT NOT NULL DEFAULT '',
+            metadata TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_manifests_project ON feature_manifests(project_id)`,
+		// feature_entries table (individual feature/scenario entries).
+		`CREATE TABLE IF NOT EXISTS feature_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            manifest_id INTEGER NOT NULL REFERENCES feature_manifests(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            issue_id INTEGER,
+            step_id INTEGER,
+            tags TEXT,
+            metadata TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_entries_key ON feature_entries(manifest_id, key)`,
+		`CREATE INDEX IF NOT EXISTS idx_feature_entries_manifest ON feature_entries(manifest_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_feature_entries_status ON feature_entries(manifest_id, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_feature_entries_issue ON feature_entries(issue_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

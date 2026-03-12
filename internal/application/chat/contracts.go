@@ -30,6 +30,17 @@ type ConfigOption struct {
 	Options      []ConfigOptionValue `json:"options,omitempty"`
 }
 
+type SessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type SessionModeState struct {
+	AvailableModes []SessionMode `json:"available_modes"`
+	CurrentModeId  string        `json:"current_mode_id"`
+}
+
 // Attachment is an image or file uploaded alongside a chat message.
 type Attachment struct {
 	// Name is the original filename (e.g. "screenshot.png").
@@ -77,6 +88,7 @@ type SessionSummary struct {
 	SessionID    string    `json:"session_id"`
 	Title        string    `json:"title,omitempty"`
 	WorkDir      string    `json:"work_dir,omitempty"`
+	Branch       string    `json:"branch,omitempty"`
 	WSPath       string    `json:"ws_path,omitempty"`
 	ProjectID    int64     `json:"project_id,omitempty"`
 	ProjectName  string    `json:"project_name,omitempty"`
@@ -95,4 +107,5 @@ type SessionDetail struct {
 	Messages          []Message          `json:"messages"`
 	AvailableCommands []AvailableCommand `json:"available_commands,omitempty"`
 	ConfigOptions     []ConfigOption     `json:"config_options,omitempty"`
+	Modes             *SessionModeState  `json:"modes,omitempty"`
 }

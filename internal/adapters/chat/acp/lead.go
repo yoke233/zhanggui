@@ -16,6 +16,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
+	acphandler "github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
@@ -75,6 +76,7 @@ type leadSession struct {
 	//   "worktree"  – a git worktree was created for a project
 	isolation string
 	repoPath  string // original repo path; set when isolation == "worktree"
+	branch    string
 
 	mu        sync.Mutex
 	idleTimer *time.Timer
@@ -84,8 +86,12 @@ type leadSession struct {
 type ChatACPClient interface {
 	Initialize(ctx context.Context, caps acpclient.ClientCapabilities) error
 	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
+	NewSessionResult(ctx context.Context, req acpproto.NewSessionRequest) (acpclient.SessionResult, error)
+	LoadSessionResult(ctx context.Context, req acpproto.LoadSessionRequest) (acpclient.SessionResult, error)
 	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
 	Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error)
+	SetConfigOption(ctx context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error)
+	SetSessionMode(ctx context.Context, req acpproto.SetSessionModeRequest) error
 	Cancel(ctx context.Context, req acpproto.CancelNotification) error
 	Close(ctx context.Context) error
 }
@@ -221,7 +227,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 	}
 
 	// New session — resolve an isolated working directory.
-	workDir, isolation, repoPath, err := l.resolveIsolatedWorkDir(ctx, req)
+	workDir, isolation, repoPath, branch, err := l.resolveIsolatedWorkDir(ctx, req)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -234,6 +240,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 	}
 	sess.isolation = isolation
 	sess.repoPath = repoPath
+	sess.branch = branch
 
 	// Persist isolation metadata in catalog.
 	if isolation != "" {
@@ -241,6 +248,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 		if record := l.catalog[publicSessionID]; record != nil {
 			record.Isolation = isolation
 			record.RepoPath = repoPath
+			record.Branch = branch
 			_ = l.saveCatalogLocked()
 		}
 		l.mu.Unlock()
@@ -295,8 +303,7 @@ func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess 
 	}
 
 	sess.bridge.PublishData(ctx, map[string]any{
-		"type":    "done",
-		"content": reply,
+		"type": "done",
 	})
 
 	l.appendMessage(publicSessionID, "assistant", reply)
@@ -375,6 +382,7 @@ func (l *LeadAgent) GetSession(_ context.Context, sessionID string) (*chatapp.Se
 		Messages:          append([]chatapp.Message(nil), record.Messages...),
 		AvailableCommands: cloneAvailableCommands(record.AvailableCommands),
 		ConfigOptions:     cloneConfigOptions(record.ConfigOptions),
+		Modes:             cloneModeState(record.Modes),
 	}
 	return detail, nil
 }
@@ -402,6 +410,79 @@ func (l *LeadAgent) CancelChat(sessionID string) error {
 		_ = sess.client.Cancel(cancelCtx, acpproto.CancelNotification{SessionId: sess.sessionID})
 	}
 	return nil
+}
+
+// SetConfigOption changes a session config option via the underlying ACP client
+// and returns the updated config options list.
+func (l *LeadAgent) SetConfigOption(ctx context.Context, sessionID, configID, value string) ([]chatapp.ConfigOption, error) {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	sess, ok := l.sessions[id]
+	l.mu.Unlock()
+	if !ok || sess == nil || sess.isClosed() {
+		return nil, errors.New("session is not alive")
+	}
+
+	updated, err := sess.client.SetConfigOption(ctx, acpproto.SetSessionConfigOptionRequest{
+		SessionId: sess.sessionID,
+		ConfigId:  acpproto.SessionConfigId(strings.TrimSpace(configID)),
+		Value:     acpproto.SessionConfigValueId(strings.TrimSpace(value)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set config option: %w", err)
+	}
+
+	// Persist updated config options in catalog.
+	chatOpts := toChatConfigOptions(updated)
+	l.mu.Lock()
+	if record := l.catalog[id]; record != nil {
+		record.ConfigOptions = chatOpts
+		record.UpdatedAt = time.Now().UTC()
+		_ = l.saveCatalogLocked()
+	}
+	l.mu.Unlock()
+
+	return chatOpts, nil
+}
+
+// SetSessionMode changes the session mode via the underlying ACP client
+// and persists the change.
+func (l *LeadAgent) SetSessionMode(ctx context.Context, sessionID, modeID string) (*chatapp.SessionModeState, error) {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	sess, ok := l.sessions[id]
+	l.mu.Unlock()
+	if !ok || sess == nil || sess.isClosed() {
+		return nil, errors.New("session is not alive")
+	}
+
+	if err := sess.client.SetSessionMode(ctx, acpproto.SetSessionModeRequest{
+		SessionId: sess.sessionID,
+		ModeId:    acpproto.SessionModeId(strings.TrimSpace(modeID)),
+	}); err != nil {
+		return nil, fmt.Errorf("set session mode: %w", err)
+	}
+
+	// Persist updated mode in catalog.
+	l.mu.Lock()
+	var result *chatapp.SessionModeState
+	if record := l.catalog[id]; record != nil && record.Modes != nil {
+		record.Modes.CurrentModeId = strings.TrimSpace(modeID)
+		record.UpdatedAt = time.Now().UTC()
+		_ = l.saveCatalogLocked()
+		result = cloneModeState(record.Modes)
+	}
+	l.mu.Unlock()
+
+	return result, nil
 }
 
 func (l *LeadAgent) CloseSession(sessionID string) {
@@ -507,7 +588,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer initCancel()
 
-	acpSessionID, err := client.NewSession(initCtx, acpproto.NewSessionRequest{
+	sessionResult, err := client.NewSessionResult(initCtx, acpproto.NewSessionRequest{
 		Cwd:        workDir,
 		McpServers: []acpproto.McpServer{},
 	})
@@ -516,7 +597,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 		return nil, "", fmt.Errorf("create lead session: %w", err)
 	}
 
-	publicID := strings.TrimSpace(string(acpSessionID))
+	publicID := strings.TrimSpace(string(sessionResult.SessionID))
 	if publicID == "" {
 		_ = client.Close(context.Background())
 		return nil, "", errors.New("create lead session returned empty session id")
@@ -524,13 +605,19 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 
 	sess := &leadSession{
 		client:    client,
-		sessionID: acpSessionID,
+		sessionID: sessionResult.SessionID,
 		bridge:    bridge,
 		events:    events,
 		workDir:   workDir,
 		scope:     scope,
 	}
 	bridge.SetSessionID(publicID)
+
+	var initialModes *chatapp.SessionModeState
+	if sessionResult.Modes != nil {
+		initialModes = toChatModeState(sessionResult.Modes)
+	}
+	initialConfigOpts := toChatConfigOptions(sessionResult.ConfigOptions)
 
 	l.mu.Lock()
 	if old, ok := l.sessions[publicID]; ok {
@@ -554,7 +641,8 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	record.ProfileName = strings.TrimSpace(profile.Name)
 	record.DriverID = strings.TrimSpace(driver.ID)
 	record.AvailableCommands = nil
-	record.ConfigOptions = nil
+	record.ConfigOptions = initialConfigOpts
+	record.Modes = initialModes
 	record.UpdatedAt = now
 	_ = l.saveCatalogLocked()
 	l.mu.Unlock()
@@ -596,7 +684,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer initCancel()
 
-	loadedID, err := client.LoadSession(initCtx, acpproto.LoadSessionRequest{
+	loadResult, err := client.LoadSessionResult(initCtx, acpproto.LoadSessionRequest{
 		SessionId:  acpproto.SessionId(record.SessionID),
 		Cwd:        workDir,
 		McpServers: []acpproto.McpServer{},
@@ -606,6 +694,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		_ = client.Close(context.Background())
 		return nil, fmt.Errorf("load lead session %s: %w", record.SessionID, err)
 	}
+	loadedID := loadResult.SessionID
 	if strings.TrimSpace(string(loadedID)) == "" {
 		loadedID = acpproto.SessionId(record.SessionID)
 	}
@@ -619,6 +708,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		scope:     record.Scope,
 		isolation: record.Isolation,
 		repoPath:  record.RepoPath,
+		branch:    record.Branch,
 	}
 
 	l.mu.Lock()
@@ -630,6 +720,12 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	if stored != nil {
 		stored.WorkDir = workDir
 		stored.UpdatedAt = time.Now().UTC()
+		if loadResult.Modes != nil {
+			stored.Modes = toChatModeState(loadResult.Modes)
+		}
+		if len(loadResult.ConfigOptions) > 0 {
+			stored.ConfigOptions = toChatConfigOptions(loadResult.ConfigOptions)
+		}
 		_ = l.saveCatalogLocked()
 	}
 	l.mu.Unlock()
@@ -690,7 +786,8 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	}
 	launchCfg = sandboxedLaunch
 
-	client, err := l.cfg.NewClient(launchCfg, &acpclient.NopHandler{}, acpclient.WithEventHandler(events))
+	handler := acphandler.NewACPHandler(workDir, publicSessionID, nil)
+	client, err := l.cfg.NewClient(launchCfg, handler, acpclient.WithEventHandler(events))
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
 	}
@@ -865,14 +962,14 @@ func resolveLeadWorkDir(workDir string) (string, error) {
 //     created so the agent never touches the default branch (isolation="worktree").
 //   - Otherwise a temporary sandbox directory is created under DataDir
 //     (isolation="sandbox").
-func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, error) {
+func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, string, error) {
 	// Caller-provided explicit path — honour it, no isolation.
 	if strings.TrimSpace(req.WorkDir) != "" {
 		abs, err := filepath.Abs(req.WorkDir)
 		if err != nil {
-			return "", "", "", fmt.Errorf("resolve working directory %q: %w", req.WorkDir, err)
+			return "", "", "", "", fmt.Errorf("resolve working directory %q: %w", req.WorkDir, err)
 		}
-		return abs, "", "", nil
+		return abs, "", "", "", nil
 	}
 
 	// Project with git binding → worktree isolation.
@@ -892,10 +989,10 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 
 			runner := workspacegit.NewRunner(repoPath)
 			if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
-				return "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
+				return "", "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
 			}
 			slog.Info("lead chat: created worktree", "project_id", req.ProjectID, "path", worktreePath, "branch", branchName)
-			return worktreePath, "worktree", repoPath, nil
+			return worktreePath, "worktree", repoPath, branchName, nil
 		}
 		// No git binding — fall through to sandbox.
 	}
@@ -903,9 +1000,9 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 	// No project or no git binding → sandbox temp dir.
 	sandboxDir, err := l.createSandboxDir()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	return sandboxDir, "sandbox", "", nil
+	return sandboxDir, "sandbox", "", "", nil
 }
 
 // createSandboxDir creates a temporary directory under DataDir for chat sessions
@@ -1100,6 +1197,7 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 		SessionID:    record.SessionID,
 		Title:        record.Title,
 		WorkDir:      record.WorkDir,
+		Branch:       record.Branch,
 		WSPath:       buildChatWSPath(record.SessionID),
 		ProjectID:    record.ProjectID,
 		ProjectName:  record.ProjectName,
@@ -1135,12 +1233,41 @@ func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.Sessi
 	case "config_option_update", "config_options_update":
 		record.ConfigOptions = toChatConfigOptions(update.ConfigOptions)
 		changed = true
+	case "current_mode_update":
+		if modeId := strings.TrimSpace(update.CurrentModeId); modeId != "" {
+			if record.Modes == nil {
+				record.Modes = &chatapp.SessionModeState{}
+			}
+			record.Modes.CurrentModeId = modeId
+			changed = true
+		}
 	}
 	if !changed {
 		return
 	}
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
+}
+
+func toChatModeState(state *acpproto.SessionModeState) *chatapp.SessionModeState {
+	if state == nil {
+		return nil
+	}
+	modes := make([]chatapp.SessionMode, 0, len(state.AvailableModes))
+	for _, m := range state.AvailableModes {
+		mode := chatapp.SessionMode{
+			ID:   strings.TrimSpace(string(m.Id)),
+			Name: strings.TrimSpace(m.Name),
+		}
+		if m.Description != nil {
+			mode.Description = strings.TrimSpace(*m.Description)
+		}
+		modes = append(modes, mode)
+	}
+	return &chatapp.SessionModeState{
+		AvailableModes: modes,
+		CurrentModeId:  strings.TrimSpace(string(state.CurrentModeId)),
+	}
 }
 
 func toChatAvailableCommands(items []acpproto.AvailableCommand) []chatapp.AvailableCommand {

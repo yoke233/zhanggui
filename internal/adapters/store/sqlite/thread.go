@@ -448,9 +448,14 @@ func (s *Store) UpdateThreadAgentSession(ctx context.Context, sess *core.ThreadA
 	result := s.orm.WithContext(ctx).Model(&ThreadAgentSessionModel{}).
 		Where("id = ?", sess.ID).
 		Updates(map[string]any{
-			"status":         sess.Status,
-			"acp_session_id": sess.ACPSessionID,
-			"last_active_at": now,
+			"status":              sess.Status,
+			"acp_session_id":      sess.ACPSessionID,
+			"turn_count":          sess.TurnCount,
+			"total_input_tokens":  sess.TotalInputTokens,
+			"total_output_tokens": sess.TotalOutputTokens,
+			"progress_summary":    sess.ProgressSummary,
+			"metadata":            JSONField[map[string]any]{Data: sess.Metadata},
+			"last_active_at":      now,
 		})
 	if result.Error != nil {
 		return result.Error

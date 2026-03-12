@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Plus, Search, FolderOpen, GitBranch, Loader2, Tag } from "lucide-react";
+import { Plus, Search, FolderOpen, GitBranch, Loader2, Tag, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -177,19 +177,30 @@ export function ProjectsPage() {
                   </div>
                 </div>
 
-                {projectMetrics?.hasGit ? (
-                  <div className="mt-3 border-t pt-3">
+                <div className="mt-3 border-t pt-3 flex gap-2">
+                  {projectMetrics?.hasGit ? (
                     <Link
                       to={`/projects/${project.id}/git-tags`}
                       onClick={(e) => e.stopPropagation()}
+                      className="flex-1"
                     >
                       <Button variant="outline" size="sm" className="h-7 w-full text-xs">
                         <Tag className="mr-1.5 h-3 w-3" />
                         {t("projects.versionTags")}
                       </Button>
                     </Link>
-                  </div>
-                ) : null}
+                  ) : null}
+                  <Link
+                    to={`/projects/${project.id}/manifest`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1"
+                  >
+                    <Button variant="outline" size="sm" className="h-7 w-full text-xs">
+                      <ClipboardCheck className="mr-1.5 h-3 w-3" />
+                      {t("manifest.viewManifest")}
+                    </Button>
+                  </Link>
+                </div>
               </CardContent>
             </Card>
           );

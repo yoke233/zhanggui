@@ -9,24 +9,38 @@
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| Briefing 结构体 | `core/briefing.go` | 运行中，ContextRef 4 种类型仅 `upstream_artifact` 在用 |
-| BriefingBuilder | `application/flow/briefing_builder.go` | 运行中，仅收集上游 Artifact |
+| Briefing 结构体 | `core/briefing.go` | 运行中，5 种 ContextRefType，其中 3 种已填充 |
+| BriefingBuilder | `application/flow/briefing_builder.go` | 运行中，收集 Issue 摘要 + 分层上游 Artifact (L0/L2) + Feature Manifest |
+| renderBriefingSnapshot | `application/flow/pipeline.go` | 运行中，按类型分配字符预算 (`refBudget()`) |
 | ExecutionInput | `application/flow/execution_input.go` | 运行中，渲染 Briefing 快照为 prompt |
+| Token 预算监控 | `runtime/agent/acp_session_pool.go` | 运行中，会话级累积 token 追踪 + 三级预算检查 (OK/Warning/Exceeded) |
 | AgentProfile.Skills | `core/agent.go` | 字段存在，Skills 元数据可解析，但未注入 prompt |
 | AgentProfile.PromptTemplate | `core/agent.go` | 字段存在，未使用 |
 | Legacy Memory 接口 | `legacy/core/memory.go` | 废弃，Cold/Warm/Hot 三层模型 |
 | OpenViking 规范 | `docs/spec/spec-context-memory.md` | 设计完成，未实现 |
-| ContextRef 类型 | `core/briefing.go` | `flow_summary`, `project_brief`, `agent_memory` 均未填充 |
+| ContextRef 类型 | `core/briefing.go` | ✅ `issue_summary` / `upstream_artifact` / `feature_manifest` 已填充；🔲 `project_brief` / `agent_memory` 未填充 |
 
 ### 关键缺口
 
-Agent 执行时除了上游步骤的输出，**不知道项目是什么、Flow 到了哪一步、历史上遇到过什么问题**。
+~~Agent 执行时除了上游步骤的输出，**不知道项目是什么、Flow 到了哪一步、历史上遇到过什么问题**。~~
+
+> **更新 (2026-03-12):** P0 和 P1 优化已部分落地：Agent 现在能看到 Issue 摘要、分层上游 Artifact（L0 摘要 / L2 全文）、Feature Manifest，并有 Session Token 预算监控。剩余缺口：ProjectBrief、FlowSummary、AgentMemory、Skills 注入。
 
 ## 分层实现路径
 
 ### Phase 1：补齐 Briefing 管道（纯本地，0 外部依赖）
 
 **目标：** 让每个 Agent 启动时自动获得项目上下文和 Flow 状态。
+
+> **落地进度 (2026-03-12):**
+> - ✅ Issue 摘要注入 (`CtxIssueSummary`) — `briefing_builder.go` `injectIssueContext()`
+> - ✅ 上游 Artifact 分层注入 (L0 summary / L2 full) — `briefing_builder.go` `injectUpstreamContext()`
+> - ✅ Feature Manifest 注入 (`CtxFeatureManifest`) — `briefing_builder.go` `injectManifestContext()`
+> - ✅ 按类型分配字符预算 — `pipeline.go` `refBudget()`
+> - ✅ Session Token 预算监控 — `acp_session_pool.go` `CheckTokenBudget()` / `NoteTokens()`
+> - 🔲 1.1 `CtxProjectBrief` — 未实现
+> - 🔲 1.2 `CtxFlowSummary` — 未实现
+> - 🔲 1.3 Skills 内容注入 — 未实现
 
 #### 1.1 填充 `CtxProjectBrief`
 
@@ -298,13 +312,22 @@ Phase 1 投入产出比最高：改动 2-3 个文件，0 新依赖，所有 Agen
 
 ## Token 预算控制
 
-| 注入项 | 预算 | 说明 |
-|--------|------|------|
-| ProjectBrief | ~300 tokens | 项目名 + 描述 + repo 列表 |
-| FlowSummary | ~200 tokens | 步骤列表 + 状态 |
-| UpstreamArtifact | ~4000 tokens/ref | 已有，受 truncation 限制 |
-| AgentMemory | ~1000 tokens | 5 条记忆 × ~200 tokens |
-| Skills | ~200 tokens | 技能名 + 一行描述 |
-| **总增量** | **~1700 tokens** | 在现有 12000 字符上限内可控 |
+### Briefing 字符预算（已实现，`pipeline.go` `refBudget()`）
 
-现有的 `renderBriefingSnapshot` 已经有 12000 字符总上限和 4000 字符单 ref 上限的截断机制，新增的 ContextRef 自动受此约束保护。
+| 注入项 | 字符预算 | 状态 |
+|--------|----------|------|
+| IssueSummary / ProjectBrief | ≤ 800 字符 | ✅ IssueSummary 已填充, ProjectBrief 待实现 |
+| FeatureManifest | ≤ 2000 字符 | ✅ 已填充 |
+| AgentMemory | ≤ 1500 字符 | 🔲 待实现 |
+| UpstreamArtifact | ≤ 4000 字符/ref | ✅ 已填充 (L0 summary / L2 full) |
+| **整体 BriefingSnapshot** | **≤ 12000 字符** | ✅ 超限自动截断 |
+
+### Session Token 预算（已实现，`acp_session_pool.go`）
+
+| 级别 | 条件 | 行为 |
+|------|------|------|
+| OK | < warn ratio (默认 80%) | 正常执行 |
+| Warning | ≥ warn ratio | slog 告警, 继续执行 |
+| Exceeded | ≥ 100% | 返回 `ErrTokenBudgetExceeded`, 步骤进入 blocked/retry |
+
+配置: `ProfileSession.MaxContextTokens` + `ContextWarnRatio` (默认 0.8)。

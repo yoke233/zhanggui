@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronRight,
+  Loader2,
   Sparkles,
   Play,
   FileStack,
   Check,
+  Wand2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +29,14 @@ const stepColors: Record<string, { bg: string; text: string }> = {
 export function CreateIssuePage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const { apiClient, projects, selectedProjectId } = useWorkbench();
   const [title, setTitle] = useState("");
-  const [projectId, setProjectId] = useState<number | null>(selectedProjectId);
-  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState<number | null>(
+    searchParams.get("project_id") ? Number.parseInt(searchParams.get("project_id")!, 10) : selectedProjectId,
+  );
+  const [description, setDescription] = useState(searchParams.get("body") ?? "");
+  const [generatingTitle, setGeneratingTitle] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [previewSteps, setPreviewSteps] = useState<Step[]>([]);
   const [draftIssueId, setDraftIssueId] = useState<number | null>(null);
@@ -191,6 +197,21 @@ export function CreateIssuePage() {
     }
   };
 
+  const handleGenerateTitle = async () => {
+    const text = description.trim() || aiPrompt.trim();
+    if (!text) return;
+    setGeneratingTitle(true);
+    setError(null);
+    try {
+      const result = await apiClient.generateTitle({ description: text });
+      if (result.title) setTitle(result.title);
+    } catch (genError) {
+      setError(getErrorMessage(genError));
+    } finally {
+      setGeneratingTitle(false);
+    }
+  };
+
   const handleTemplateSelect = (templateId: number | null) => {
     setSelectedTemplateId(templateId);
     if (templateId) {
@@ -281,11 +302,25 @@ export function CreateIssuePage() {
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">{t("createFlow.flowName")}</label>
-                <Input
-                  placeholder={t("createFlow.flowNamePlaceholder")}
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    className="flex-1"
+                    placeholder={t("createFlow.flowNamePlaceholder")}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={generatingTitle || (!description.trim() && !aiPrompt.trim())}
+                    onClick={() => void handleGenerateTitle()}
+                  >
+                    {generatingTitle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                    {t("createFlow.autoTitle")}
+                  </Button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

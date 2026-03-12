@@ -28,6 +28,7 @@ type PromptResult struct {
 type SessionResult struct {
 	SessionID     acpproto.SessionId
 	ConfigOptions []acpproto.SessionConfigOptionSelect
+	Modes         *acpproto.SessionModeState
 }
 
 type SessionUpdate struct {
@@ -39,4 +40,5 @@ type SessionUpdate struct {
 
 	Commands      []acpproto.AvailableCommand          `json:"-"`
 	ConfigOptions []acpproto.SessionConfigOptionSelect `json:"-"`
+	CurrentModeId string                               `json:"-"`
 }

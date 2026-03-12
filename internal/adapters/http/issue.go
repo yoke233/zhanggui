@@ -370,6 +370,21 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify the issue has at least one step before allowing execution.
+	steps, err := h.store.ListStepsByIssue(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if len(steps) == 0 {
+		writeError(w, http.StatusBadRequest, "issue has no steps; add at least one step before running", "NO_STEPS")
+		return
+	}
+
 	// If scheduler is available, submit to queue.
 	if h.scheduler != nil {
 		if err := h.scheduler.Submit(r.Context(), id); err != nil {

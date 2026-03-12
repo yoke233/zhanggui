@@ -1,4 +1,9 @@
 import type {
+  FeatureManifest,
+  FeatureEntry,
+  FeatureManifestSummary,
+  FeatureManifestSnapshot,
+  FeatureStatus,
   BootstrapPRIssueRequest,
   BootstrapPRIssueResponse,
   CancelIssueResponse,
@@ -203,12 +208,14 @@ export interface ApiClient {
   getIssue(issueId: number): Promise<Issue>;
   runIssue(issueId: number): Promise<RunIssueResponse>;
   cancelIssue(issueId: number): Promise<CancelIssueResponse>;
+  updateIssue(issueId: number, body: UpdateIssueRequest): Promise<Issue>;
   archiveIssue(issueId: number): Promise<void>;
   bootstrapPRIssue(issueId: number, body?: BootstrapPRIssueRequest): Promise<BootstrapPRIssueResponse>;
 
   listSteps(issueId: number): Promise<Step[]>;
   createStep(issueId: number, body: CreateStepRequest): Promise<Step>;
   generateSteps(issueId: number, body: GenerateStepsRequest): Promise<Step[]>;
+  generateTitle(body: { description: string }): Promise<{ title: string }>;
   getStep(stepId: number): Promise<Step>;
   updateStep(stepId: number, body: UpdateStepRequest): Promise<Step>;
   deleteStep(stepId: number): Promise<void>;
@@ -496,6 +503,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/issues/${issueId}/cancel`,
         method: "POST",
       }),
+    updateIssue: (issueId, body) =>
+      request<Issue, UpdateIssueRequest>({
+        path: `/issues/${issueId}`,
+        method: "PUT",
+        body,
+      }),
     archiveIssue: (issueId) =>
       request<void>({
         path: `/issues/${issueId}/archive`,
@@ -524,6 +537,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }).then((items) => (Array.isArray(items) ? items : [])),
+    generateTitle: (body) =>
+      request<{ title: string }, { description: string }>({
+        path: `/issues/generate-title`,
+        method: "POST",
+        body,
+      }),
     getStep: (stepId) =>
       request<Step>({
         path: `/steps/${stepId}`,
@@ -820,5 +839,51 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/threads/${threadId}/agents/${agentSessionId}`,
         method: "DELETE",
       }),
+
+    // Feature Manifest
+    getOrCreateManifest: async (projectId: number) => {
+      try {
+        return await request<FeatureManifest>({ path: `/projects/${projectId}/manifest` });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          return request<FeatureManifest, { summary: string }>({
+            path: `/projects/${projectId}/manifest`,
+            method: "POST",
+            body: { summary: "" },
+          });
+        }
+        throw err;
+      }
+    },
+    getManifest: (projectId: number) =>
+      request<FeatureManifest>({ path: `/projects/${projectId}/manifest` }),
+    getManifestSummary: (projectId: number) =>
+      request<FeatureManifestSummary>({ path: `/projects/${projectId}/manifest/summary` }),
+    getManifestSnapshot: (projectId: number) =>
+      request<FeatureManifestSnapshot>({ path: `/projects/${projectId}/manifest/snapshot` }),
+    listManifestEntries: (projectId: number, params?: { status?: FeatureStatus; limit?: number; offset?: number }) =>
+      request<FeatureEntry[]>({ path: `/projects/${projectId}/manifest/entries`, query: params }).then(
+        (items) => (Array.isArray(items) ? items : []),
+      ),
+    createManifestEntry: (projectId: number, body: { key: string; description: string; status?: FeatureStatus; tags?: string[] }) =>
+      request<FeatureEntry, typeof body>({
+        path: `/projects/${projectId}/manifest/entries`,
+        method: "POST",
+        body,
+      }),
+    updateManifestEntryStatus: (entryId: number, status: FeatureStatus) =>
+      request<FeatureEntry, { status: FeatureStatus }>({
+        path: `/manifest/entries/${entryId}/status`,
+        method: "PATCH",
+        body: { status },
+      }),
+    updateManifestEntry: (entryId: number, body: Partial<{ key: string; description: string; status: FeatureStatus; tags: string[] }>) =>
+      request<FeatureEntry, typeof body>({
+        path: `/manifest/entries/${entryId}`,
+        method: "PUT",
+        body,
+      }),
+    deleteManifestEntry: (entryId: number) =>
+      request<void>({ path: `/manifest/entries/${entryId}`, method: "DELETE" }),
   };
 };

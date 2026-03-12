@@ -31,7 +31,6 @@ import {
   isActiveIssueStatus,
 } from "@/lib/v2Workbench";
 import type { Issue, SchedulerStats, StatsResponse } from "@/types/apiV2";
-import type { SandboxSupportResponse } from "@/types/system";
 
 interface StatCard {
   title: string;
@@ -41,35 +40,6 @@ interface StatCard {
   icon: React.ReactNode;
 }
 
-const SANDBOX_PROVIDER_LABELS: Record<string, string> = {
-  home_dir: "Home Dir",
-  litebox: "LiteBox",
-  boxlite: "BoxLite",
-  docker: "Docker",
-  bwrap: "Bubblewrap",
-};
-
-const sandboxBadgeVariant = (
-  support?: { supported: boolean; implemented: boolean },
-): "success" | "warning" | "secondary" => {
-  if (!support) {
-    return "secondary";
-  }
-  if (support.supported && support.implemented) {
-    return "success";
-  }
-  if (support.supported) {
-    return "warning";
-  }
-  return "secondary";
-};
-
-const formatSandboxProvider = (provider?: string): string => {
-  if (!provider) {
-    return "-";
-  }
-  return SANDBOX_PROVIDER_LABELS[provider] ?? provider;
-};
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -77,7 +47,6 @@ export function DashboardPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
-  const [sandboxSupport, setSandboxSupport] = useState<SandboxSupportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,7 +57,7 @@ export function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const [statsResp, issuesResp, schedulerResp, sandboxResp] = await Promise.all([
+        const [statsResp, issuesResp, schedulerResp] = await Promise.all([
           apiClient.getStats(),
           apiClient.listIssues({
             project_id: selectedProjectId ?? undefined,
@@ -97,7 +66,6 @@ export function DashboardPage() {
             offset: 0,
           }),
           apiClient.getSchedulerStats(),
-          apiClient.getSandboxSupport(),
         ]);
         if (cancelled) {
           return;
@@ -105,7 +73,6 @@ export function DashboardPage() {
         setStats(statsResp);
         setIssues(issuesResp);
         setSchedulerStats(schedulerResp);
-        setSandboxSupport(sandboxResp);
       } catch (loadError) {
         if (!cancelled) {
           setError(getErrorMessage(loadError));
@@ -348,61 +315,6 @@ export function DashboardPage() {
             </div>
           </Card>
 
-          <Card>
-            <CardHeader className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle>{t("dashboard.sandboxStatus")}</CardTitle>
-                <Badge variant={sandboxSupport?.enabled ? "success" : "secondary"}>
-                  {sandboxSupport?.enabled ? t("dashboard.sandboxOn") : t("dashboard.sandboxOff")}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={sandboxSupport?.current_supported ? "success" : "secondary"}>
-                  {t("dashboard.currentProvider", { provider: formatSandboxProvider(sandboxSupport?.current_provider) })}
-                </Badge>
-                <Badge variant={sandboxSupport?.current_supported ? "success" : "warning"}>
-                  {sandboxSupport?.current_supported ? t("dashboard.currentAvailable") : t("dashboard.currentUnavailable")}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{t("dashboard.hostPlatform")}</span>
-                  <span className="font-medium">
-                    {sandboxSupport ? `${sandboxSupport.os} / ${sandboxSupport.arch}` : "-"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{t("dashboard.configuredProvider")}</span>
-                  <span className="font-medium">{formatSandboxProvider(sandboxSupport?.configured_provider)}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {sandboxSupport ? Object.entries(sandboxSupport.providers).map(([provider, support]) => (
-                  <div key={provider} className="rounded-lg border px-3 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-medium">{formatSandboxProvider(provider)}</div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={support.supported ? "success" : "secondary"}>
-                          {support.supported ? t("common.hostSupported") : t("common.hostNotSupported")}
-                        </Badge>
-                        <Badge variant={sandboxBadgeVariant(support)}>
-                          {support.implemented ? t("common.connected") : t("common.notConnected")}
-                        </Badge>
-                      </div>
-                    </div>
-                    {support.reason ? (
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{support.reason}</p>
-                    ) : null}
-                  </div>
-                )) : (
-                  <div className="text-sm text-muted-foreground">{t("dashboard.loadingSandbox")}</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

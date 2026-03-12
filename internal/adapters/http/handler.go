@@ -28,6 +28,8 @@ type Handler struct {
 	sandbox             sandbox.ControlService
 	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
+	textCompleter       TextCompleter
+	threadPool          ThreadAgentRuntime
 }
 
 // NewHandler creates the workflow API handler.
@@ -98,6 +100,16 @@ func WithGitPAT(pat string) HandlerOption {
 	return func(h *Handler) { h.gitPAT = pat }
 }
 
+// WithTextCompleter sets the LLM text completer for title generation, etc.
+func WithTextCompleter(tc TextCompleter) HandlerOption {
+	return func(h *Handler) { h.textCompleter = tc }
+}
+
+// WithThreadAgentRuntime sets the thread agent runtime for real ACP sessions.
+func WithThreadAgentRuntime(pool ThreadAgentRuntime) HandlerOption {
+	return func(h *Handler) { h.threadPool = pool }
+}
+
 // Register mounts all workflow routes onto the given chi router.
 // Caller is responsible for mounting this under a prefix like /api.
 func (h *Handler) Register(r chi.Router) {
@@ -140,6 +152,9 @@ func (h *Handler) Register(r chi.Router) {
 
 	// DAG generation (AI-powered)
 	r.Post("/issues/{issueID}/generate-steps", h.generateSteps)
+
+	// Title generation (AI-powered)
+	r.Post("/issues/generate-title", h.generateTitle)
 
 	// Save issue as template
 	r.Post("/issues/{issueID}/save-as-template", h.saveIssueAsTemplate)
@@ -200,6 +215,18 @@ func (h *Handler) Register(r chi.Router) {
 	// Agents (drivers + profiles)
 	registerAgentRoutes(r, h.registry)
 
+	// Feature Manifest (per-project feature checklist)
+	r.Post("/projects/{projectID}/manifest", h.createManifest)
+	r.Get("/projects/{projectID}/manifest", h.getManifest)
+	r.Put("/projects/{projectID}/manifest", h.updateManifest)
+	r.Get("/projects/{projectID}/manifest/entries", h.listManifestEntries)
+	r.Post("/projects/{projectID}/manifest/entries", h.createManifestEntry)
+	r.Get("/projects/{projectID}/manifest/summary", h.getManifestSummary)
+	r.Get("/projects/{projectID}/manifest/snapshot", h.getManifestSnapshot)
+	r.Get("/manifest/entries/{entryID}", h.getManifestEntry)
+	r.Put("/manifest/entries/{entryID}", h.updateManifestEntry)
+	r.Patch("/manifest/entries/{entryID}/status", h.updateManifestEntryStatus)
+
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
 
@@ -214,6 +241,8 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
 		r.Get("/executions/{execID}/probe/latest", h.getLatestExecutionProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
+		r.Delete("/projects/{projectID}/manifest", h.deleteManifest)
+		r.Delete("/manifest/entries/{entryID}", h.deleteManifestEntry)
 		registerSkillRoutes(r, h.skillsRoot, h.registry, h.skillGitHubImporter)
 	})
 }

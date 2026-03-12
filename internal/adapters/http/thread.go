@@ -576,10 +576,22 @@ func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If runtime pool is available, delegate to it for real ACP session.
+	if h.threadPool != nil {
+		sess, err := h.threadPool.InviteAgent(r.Context(), threadID, profileID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+			return
+		}
+		writeJSON(w, http.StatusCreated, sess)
+		return
+	}
+
+	// Fallback: pure DB CRUD (no ACP runtime).
 	sess := &core.ThreadAgentSession{
 		ThreadID:       threadID,
 		AgentProfileID: profileID,
-		Status:         "active",
+		Status:         core.ThreadAgentActive,
 	}
 	id, err := h.store.CreateThreadAgentSession(r.Context(), sess)
 	if err != nil {
@@ -609,12 +621,28 @@ func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
+	threadID, _ := urlParamInt64(r, "threadID")
 	agentSessionID, ok := urlParamInt64(r, "agentSessionID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid agent session ID", "BAD_ID")
 		return
 	}
 
+	// If runtime pool is available, delegate to it for graceful shutdown.
+	if h.threadPool != nil {
+		if err := h.threadPool.RemoveAgent(r.Context(), threadID, agentSessionID); err != nil {
+			if err == core.ErrNotFound {
+				writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error(), "REMOVE_AGENT_FAILED")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+		return
+	}
+
+	// Fallback: pure DB delete.
 	if err := h.store.DeleteThreadAgentSession(r.Context(), agentSessionID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")

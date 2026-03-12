@@ -52,9 +52,12 @@ func convertProfiles(cfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
 			PromptTemplate: c.PromptTemplate,
 			Skills:         append([]string(nil), c.Skills...),
 			Session: core.ProfileSession{
-				Reuse:    c.Session.Reuse,
-				MaxTurns: c.Session.MaxTurns,
-				IdleTTL:  c.Session.IdleTTL.Duration,
+				Reuse:              c.Session.Reuse,
+				MaxTurns:           c.Session.MaxTurns,
+				IdleTTL:            c.Session.IdleTTL.Duration,
+				ThreadBootTemplate: c.Session.ThreadBootTemplate,
+				MaxContextTokens:   c.Session.MaxContextTokens,
+				ContextWarnRatio:   c.Session.ContextWarnRatio,
 			},
 			MCP: core.ProfileMCP{
 				Enabled: c.MCP.Enabled,

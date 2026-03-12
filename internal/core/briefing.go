@@ -21,6 +21,7 @@ const (
 	CtxProjectBrief     ContextRefType = "project_brief"
 	CtxUpstreamArtifact ContextRefType = "upstream_artifact"
 	CtxAgentMemory      ContextRefType = "agent_memory"
+	CtxFeatureManifest  ContextRefType = "feature_manifest"
 )
 
 // ContextRef points to a piece of context the Agent can access.

@@ -26,9 +26,11 @@ type pooledACPSession struct {
 	sessionID acpproto.SessionId
 	events    *switchingEventHandler
 
-	mu       sync.Mutex // serialize prompts
-	lastUsed time.Time
-	turns    int
+	mu           sync.Mutex // serialize prompts
+	lastUsed     time.Time
+	turns        int
+	inputTokens  int64 // cumulative input tokens in this session
+	outputTokens int64 // cumulative output tokens in this session
 }
 
 // switchingEventHandler forwards ACP events to the currently active handler.
@@ -287,4 +289,58 @@ func (p *ACPSessionPool) NoteTurn(ctx context.Context, ac *core.AgentContext, se
 		ac.UpdatedAt = now
 		_ = p.store.UpdateAgentContext(ctx, ac)
 	}
+}
+
+// NoteTokens records token usage from the latest prompt.
+func (p *ACPSessionPool) NoteTokens(sess *pooledACPSession, input, output int64) {
+	if sess == nil {
+		return
+	}
+	sess.inputTokens += input
+	sess.outputTokens += output
+}
+
+// TokenBudgetStatus describes the result of a token budget check.
+type TokenBudgetStatus int
+
+const (
+	TokenBudgetOK      TokenBudgetStatus = iota // under warning threshold
+	TokenBudgetWarning                           // above warning threshold but under hard limit
+	TokenBudgetExceeded                          // at or above hard limit
+)
+
+// CheckTokenBudget evaluates whether the session's cumulative token usage
+// is within the profile's configured budget. Returns OK if no budget is configured.
+func (p *ACPSessionPool) CheckTokenBudget(sess *pooledACPSession, profile *core.AgentProfile) TokenBudgetStatus {
+	if sess == nil || profile == nil {
+		return TokenBudgetOK
+	}
+	maxTokens := profile.Session.MaxContextTokens
+	if maxTokens <= 0 {
+		return TokenBudgetOK
+	}
+
+	totalUsed := sess.inputTokens + sess.outputTokens
+
+	if totalUsed >= maxTokens {
+		return TokenBudgetExceeded
+	}
+
+	warnRatio := profile.Session.ContextWarnRatio
+	if warnRatio <= 0 {
+		warnRatio = 0.8
+	}
+	if totalUsed >= int64(float64(maxTokens)*warnRatio) {
+		return TokenBudgetWarning
+	}
+
+	return TokenBudgetOK
+}
+
+// SessionTokenUsage returns the cumulative token usage for a pooled session.
+func (p *ACPSessionPool) SessionTokenUsage(sess *pooledACPSession) (input, output int64) {
+	if sess == nil {
+		return 0, 0
+	}
+	return sess.inputTokens, sess.outputTokens
 }

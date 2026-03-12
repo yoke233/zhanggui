@@ -7,6 +7,7 @@ import (
 	llmplanning "github.com/yoke233/ai-workflow/internal/adapters/planning/llm"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
+	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
 type apiStack struct {
@@ -45,8 +46,15 @@ func buildAPIStack(
 		SessionManager: flow.sessionMgr,
 	})
 
+	// Create ThreadSessionPool for real ACP agent sessions in threads.
+	threadPool := agentruntime.NewThreadSessionPool(base.store, base.bus, base.registry)
+
 	apiOpts := buildAPIOptions(bootstrapCfg, base.runtimeManager, leadAgent, flow.scheduler, base.registry, dagGen)
 	apiOpts = append(apiOpts, api.WithExecutionProbeService(probeSvc))
+	apiOpts = append(apiOpts, api.WithThreadAgentRuntime(threadPool))
+	if flow.llmClient != nil {
+		apiOpts = append(apiOpts, api.WithTextCompleter(flow.llmClient))
+	}
 	handler := api.NewHandler(base.store, base.bus, flow.engine, apiOpts...)
 
 	return &apiStack{

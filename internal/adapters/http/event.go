@@ -107,6 +107,20 @@ func (s *wsConnState) isThreadSubscribed(id int64) bool {
 	return s.threadIDs[id]
 }
 
+// isThreadEvent returns true if the event type is a thread-scoped event.
+func isThreadEvent(t core.EventType) bool {
+	switch t {
+	case core.EventThreadMessage,
+		core.EventThreadAgentJoined,
+		core.EventThreadAgentLeft,
+		core.EventThreadAgentOutput,
+		core.EventThreadAgentBooted,
+		core.EventThreadAgentFailed:
+		return true
+	}
+	return false
+}
+
 // threadIDFromEventData extracts thread_id from event data, handling both int64 and float64.
 func threadIDFromEventData(data map[string]any) (int64, bool) {
 	v, ok := data["thread_id"]
@@ -197,7 +211,7 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			// Thread events are only forwarded to connections subscribed to that thread.
-			if ev.Type == core.EventThreadMessage {
+			if isThreadEvent(ev.Type) {
 				tid, ok := threadIDFromEventData(ev.Data)
 				if !ok || !connState.isThreadSubscribed(tid) {
 					continue
@@ -216,6 +230,10 @@ func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) err
 	switch msgType {
 	case "chat.send":
 		h.handleWSChatSend(msg, writeJSON)
+	case "chat.set_config":
+		h.handleWSChatSetConfig(msg, writeJSON)
+	case "chat.set_mode":
+		h.handleWSChatSetMode(msg, writeJSON)
 	case "thread.send":
 		h.handleWSThreadSend(msg, writeJSON)
 	case "subscribe_thread":
@@ -294,6 +312,134 @@ func (h *Handler) handleWSChatSend(msg wsMessage, writeJSON func(v any) error) {
 	})
 }
 
+func (h *Handler) handleWSChatSetConfig(msg wsMessage, writeJSON func(v any) error) {
+	if h.lead == nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "CHAT_DISABLED",
+				Error: "lead chat service is not configured",
+			},
+		})
+		return
+	}
+
+	var req wsSetConfigRequest
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "chat.error",
+				Data: wsErrorPayload{
+					Code:  "BAD_REQUEST",
+					Error: "invalid chat.set_config payload",
+				},
+			})
+			return
+		}
+	}
+
+	reqID := strings.TrimSpace(req.RequestID)
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "BAD_REQUEST",
+				RequestID: reqID,
+				Error:     "session_id is required",
+			},
+		})
+		return
+	}
+
+	configOptions, err := h.lead.SetConfigOption(context.Background(), sessionID, req.ConfigID, req.Value)
+	if err != nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "SET_CONFIG_FAILED",
+				RequestID: reqID,
+				SessionID: sessionID,
+				Error:     err.Error(),
+			},
+		})
+		return
+	}
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "chat.config_updated",
+		Data: wsConfigUpdatedPayload{
+			RequestID:     reqID,
+			SessionID:     sessionID,
+			ConfigOptions: configOptions,
+		},
+	})
+}
+
+func (h *Handler) handleWSChatSetMode(msg wsMessage, writeJSON func(v any) error) {
+	if h.lead == nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "CHAT_DISABLED",
+				Error: "lead chat service is not configured",
+			},
+		})
+		return
+	}
+
+	var req wsSetModeRequest
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "chat.error",
+				Data: wsErrorPayload{
+					Code:  "BAD_REQUEST",
+					Error: "invalid chat.set_mode payload",
+				},
+			})
+			return
+		}
+	}
+
+	reqID := strings.TrimSpace(req.RequestID)
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "BAD_REQUEST",
+				RequestID: reqID,
+				Error:     "session_id is required",
+			},
+		})
+		return
+	}
+
+	modes, err := h.lead.SetSessionMode(context.Background(), sessionID, req.ModeID)
+	if err != nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:      "SET_MODE_FAILED",
+				RequestID: reqID,
+				SessionID: sessionID,
+				Error:     err.Error(),
+			},
+		})
+		return
+	}
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "chat.mode_updated",
+		Data: wsModeUpdatedPayload{
+			RequestID: reqID,
+			SessionID: sessionID,
+			Modes:     modes,
+		},
+	})
+}
+
 // wsMessage is the WebSocket message envelope (for potential future use).
 type wsMessage struct {
 	Type string          `json:"type"`
@@ -322,6 +468,31 @@ type wsChatAckPayload struct {
 	SessionID string `json:"session_id"`
 	WSPath    string `json:"ws_path,omitempty"`
 	Status    string `json:"status"`
+}
+
+type wsSetConfigRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+	SessionID string `json:"session_id"`
+	ConfigID  string `json:"config_id"`
+	Value     string `json:"value"`
+}
+
+type wsConfigUpdatedPayload struct {
+	RequestID     string              `json:"request_id,omitempty"`
+	SessionID     string              `json:"session_id"`
+	ConfigOptions []chatapp.ConfigOption `json:"config_options"`
+}
+
+type wsSetModeRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+	SessionID string `json:"session_id"`
+	ModeID    string `json:"mode_id"`
+}
+
+type wsModeUpdatedPayload struct {
+	RequestID string                    `json:"request_id,omitempty"`
+	SessionID string                    `json:"session_id"`
+	Modes     *chatapp.SessionModeState `json:"modes,omitempty"`
 }
 
 type wsErrorPayload struct {
@@ -410,6 +581,15 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 		return
 	}
 
+	// Save human message to store.
+	humanMsg := &core.ThreadMessage{
+		ThreadID: req.ThreadID,
+		SenderID: strings.TrimSpace(req.SenderID),
+		Role:     "human",
+		Content:  req.Message,
+	}
+	h.store.CreateThreadMessage(context.Background(), humanMsg)
+
 	// Publish thread message event for real-time broadcast.
 	h.bus.Publish(context.Background(), core.Event{
 		Type: core.EventThreadMessage,
@@ -417,6 +597,7 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 			"thread_id": req.ThreadID,
 			"message":   req.Message,
 			"sender_id": strings.TrimSpace(req.SenderID),
+			"role":      "human",
 		},
 		Timestamp: time.Now().UTC(),
 	})
@@ -429,6 +610,26 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 			Status:    "accepted",
 		},
 	})
+
+	// Route message to active agents (async, non-blocking).
+	if h.threadPool != nil {
+		profileIDs := h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
+		for _, pid := range profileIDs {
+			go func(profileID string) {
+				if err := h.threadPool.SendMessage(context.Background(), req.ThreadID, profileID, req.Message); err != nil {
+					h.bus.Publish(context.Background(), core.Event{
+						Type: core.EventThreadAgentFailed,
+						Data: map[string]any{
+							"thread_id":  req.ThreadID,
+							"profile_id": profileID,
+							"error":      err.Error(),
+						},
+						Timestamp: time.Now().UTC(),
+					})
+				}
+			}(pid)
+		}
+	}
 }
 
 func (h *Handler) handleWSSubscribeThread(msg wsMessage, writeJSON func(v any) error, state *wsConnState) {

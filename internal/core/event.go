@@ -41,14 +41,23 @@ const (
 	EventChatOutput EventType = "chat.output"
 
 	// Thread events for multi-participant discussion.
-	EventThreadMessage EventType = "thread.message"
+	EventThreadMessage     EventType = "thread.message"
+	EventThreadAgentJoined EventType = "thread.agent_joined"
+	EventThreadAgentLeft   EventType = "thread.agent_left"
+	EventThreadAgentOutput EventType = "thread.agent_output"
+	EventThreadAgentBooted EventType = "thread.agent_booted"
+	EventThreadAgentFailed EventType = "thread.agent_failed"
+
+	// Feature manifest events.
+	EventManifestEntryUpdated EventType = "manifest.entry_updated"
+	EventManifestGateChecked  EventType = "manifest.gate_checked"
 )
 
 // IsTransientAgentEvent returns true for streaming chunk events that should
 // NOT be persisted (they are only useful for real-time WebSocket broadcast).
 // Aggregated events (agent_message, agent_thought, tool_call, done) ARE persisted.
 func IsTransientAgentEvent(ev Event) bool {
-	if ev.Type != EventExecAgentOutput && ev.Type != EventChatOutput {
+	if ev.Type != EventExecAgentOutput && ev.Type != EventChatOutput && ev.Type != EventThreadAgentOutput {
 		return false
 	}
 	subType, _ := ev.Data["type"].(string)

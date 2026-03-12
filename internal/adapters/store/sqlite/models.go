@@ -395,13 +395,18 @@ func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
 
 // ThreadAgentSessionModel persists thread agent sessions.
 type ThreadAgentSessionModel struct {
-	ID             int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID       int64     `gorm:"column:thread_id;not null"`
-	AgentProfileID string    `gorm:"column:agent_profile_id;not null"`
-	ACPSessionID   string    `gorm:"column:acp_session_id;not null;default:''"`
-	Status         string    `gorm:"column:status;not null;default:joining"`
-	JoinedAt       time.Time `gorm:"column:joined_at"`
-	LastActiveAt   time.Time `gorm:"column:last_active_at"`
+	ID                int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID          int64                     `gorm:"column:thread_id;not null"`
+	AgentProfileID    string                    `gorm:"column:agent_profile_id;not null"`
+	ACPSessionID      string                    `gorm:"column:acp_session_id;not null;default:''"`
+	Status            string                    `gorm:"column:status;not null;default:joining"`
+	TurnCount         int                       `gorm:"column:turn_count;not null;default:0"`
+	TotalInputTokens  int64                     `gorm:"column:total_input_tokens;not null;default:0"`
+	TotalOutputTokens int64                     `gorm:"column:total_output_tokens;not null;default:0"`
+	ProgressSummary   string                    `gorm:"column:progress_summary;not null;default:''"`
+	Metadata          JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	JoinedAt          time.Time                 `gorm:"column:joined_at"`
+	LastActiveAt      time.Time                 `gorm:"column:last_active_at"`
 }
 
 func (ThreadAgentSessionModel) TableName() string { return "thread_agent_sessions" }
@@ -411,13 +416,116 @@ func (m *ThreadAgentSessionModel) toCore() *core.ThreadAgentSession {
 		return nil
 	}
 	return &core.ThreadAgentSession{
-		ID:             m.ID,
-		ThreadID:       m.ThreadID,
-		AgentProfileID: m.AgentProfileID,
-		ACPSessionID:   m.ACPSessionID,
-		Status:         m.Status,
-		JoinedAt:       m.JoinedAt,
-		LastActiveAt:   m.LastActiveAt,
+		ID:                m.ID,
+		ThreadID:          m.ThreadID,
+		AgentProfileID:    m.AgentProfileID,
+		ACPSessionID:      m.ACPSessionID,
+		Status:            m.Status,
+		TurnCount:         m.TurnCount,
+		TotalInputTokens:  m.TotalInputTokens,
+		TotalOutputTokens: m.TotalOutputTokens,
+		ProgressSummary:   m.ProgressSummary,
+		Metadata:          m.Metadata.Data,
+		JoinedAt:          m.JoinedAt,
+		LastActiveAt:      m.LastActiveAt,
+	}
+}
+
+// FeatureManifestModel is the GORM model for feature_manifests table.
+type FeatureManifestModel struct {
+	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ProjectID int64                     `gorm:"column:project_id;not null"`
+	Version   int                       `gorm:"column:version;not null"`
+	Summary   string                    `gorm:"column:summary;not null"`
+	Metadata  JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt time.Time                 `gorm:"column:created_at"`
+	UpdatedAt time.Time                 `gorm:"column:updated_at"`
+}
+
+func (FeatureManifestModel) TableName() string { return "feature_manifests" }
+
+func (m *FeatureManifestModel) toCore() *core.FeatureManifest {
+	if m == nil {
+		return nil
+	}
+	return &core.FeatureManifest{
+		ID:        m.ID,
+		ProjectID: m.ProjectID,
+		Version:   m.Version,
+		Summary:   m.Summary,
+		Metadata:  m.Metadata.Data,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+}
+
+func featureManifestModelFromCore(fm *core.FeatureManifest) *FeatureManifestModel {
+	if fm == nil {
+		return nil
+	}
+	return &FeatureManifestModel{
+		ID:        fm.ID,
+		ProjectID: fm.ProjectID,
+		Version:   fm.Version,
+		Summary:   fm.Summary,
+		Metadata:  JSONField[map[string]any]{Data: fm.Metadata},
+		CreatedAt: fm.CreatedAt,
+		UpdatedAt: fm.UpdatedAt,
+	}
+}
+
+// FeatureEntryModel is the GORM model for feature_entries table.
+type FeatureEntryModel struct {
+	ID          int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ManifestID  int64                     `gorm:"column:manifest_id;not null"`
+	Key         string                    `gorm:"column:key;not null"`
+	Description string                    `gorm:"column:description;not null"`
+	Status      string                    `gorm:"column:status;not null"`
+	IssueID     *int64                    `gorm:"column:issue_id"`
+	StepID      *int64                    `gorm:"column:step_id"`
+	Tags        JSONField[[]string]       `gorm:"column:tags;type:text"`
+	Metadata    JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt   time.Time                 `gorm:"column:created_at"`
+	UpdatedAt   time.Time                 `gorm:"column:updated_at"`
+}
+
+func (FeatureEntryModel) TableName() string { return "feature_entries" }
+
+func (m *FeatureEntryModel) toCore() *core.FeatureEntry {
+	if m == nil {
+		return nil
+	}
+	return &core.FeatureEntry{
+		ID:          m.ID,
+		ManifestID:  m.ManifestID,
+		Key:         m.Key,
+		Description: m.Description,
+		Status:      core.FeatureStatus(m.Status),
+		IssueID:     m.IssueID,
+		StepID:      m.StepID,
+		Tags:        m.Tags.Data,
+		Metadata:    m.Metadata.Data,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+}
+
+func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
+	if e == nil {
+		return nil
+	}
+	return &FeatureEntryModel{
+		ID:          e.ID,
+		ManifestID:  e.ManifestID,
+		Key:         e.Key,
+		Description: e.Description,
+		Status:      string(e.Status),
+		IssueID:     e.IssueID,
+		StepID:      e.StepID,
+		Tags:        JSONField[[]string]{Data: e.Tags},
+		Metadata:    JSONField[map[string]any]{Data: e.Metadata},
+		CreatedAt:   e.CreatedAt,
+		UpdatedAt:   e.UpdatedAt,
 	}
 }
 

@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +43,7 @@ type localHandle struct {
 	events     *switchingEventHandler
 	sessionID  acpproto.SessionId
 	agentCtx   *core.AgentContext
+	profile    *core.AgentProfile
 	launch     acpclient.LaunchConfig
 	caps       acpclient.ClientCapabilities
 	workDir    string
@@ -113,6 +115,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 
 	lh := &localHandle{
 		reuse:   in.Reuse,
+		profile: in.Profile,
 		issueID: in.IssueID,
 		stepID:  in.StepID,
 		execID:  in.ExecID,
@@ -264,6 +267,25 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 		client = lh.standalone
 	}
 
+	// Pre-execution token budget check (reuse sessions only).
+	if lh.reuse && lh.pooled != nil && m.pool != nil && lh.profile != nil {
+		status := m.pool.CheckTokenBudget(lh.pooled, lh.profile)
+		if status == TokenBudgetExceeded {
+			input, output := m.pool.SessionTokenUsage(lh.pooled)
+			return nil, fmt.Errorf("token budget exceeded for agent %s (used %d input + %d output, limit %d): %w",
+				lh.profile.ID, input, output, lh.profile.Session.MaxContextTokens, core.ErrTokenBudgetExceeded)
+		}
+		if status == TokenBudgetWarning {
+			input, output := m.pool.SessionTokenUsage(lh.pooled)
+			slog.Warn("token budget warning: approaching limit",
+				"agent", lh.profile.ID,
+				"issue_id", lh.issueID,
+				"input_tokens", input,
+				"output_tokens", output,
+				"limit", lh.profile.Session.MaxContextTokens)
+		}
+	}
+
 	result, err := client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: lh.sessionID,
 		Prompt: []acpproto.ContentBlock{
@@ -295,6 +317,12 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 			out.ReasoningTokens = int64(*result.Usage.ThoughtTokens)
 		}
 	}
+
+	// Post-execution: record token usage for budget tracking.
+	if lh.reuse && lh.pooled != nil && m.pool != nil {
+		m.pool.NoteTokens(lh.pooled, out.InputTokens, out.OutputTokens)
+	}
+
 	if lh.agentCtx != nil && lh.agentCtx.ID > 0 {
 		id := lh.agentCtx.ID
 		out.AgentContextID = &id

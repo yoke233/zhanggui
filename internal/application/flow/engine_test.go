@@ -431,14 +431,17 @@ func TestBriefingBuilder(t *testing.T) {
 	if len(briefing.Constraints) != 2 {
 		t.Fatalf("expected 2 constraints, got %d", len(briefing.Constraints))
 	}
-	if len(briefing.ContextRefs) != 1 {
-		t.Fatalf("expected 1 context ref, got %d", len(briefing.ContextRefs))
+	if len(briefing.ContextRefs) != 2 {
+		t.Fatalf("expected 2 context refs (issue_summary + upstream_artifact), got %d", len(briefing.ContextRefs))
 	}
-	if briefing.ContextRefs[0].Type != core.CtxUpstreamArtifact {
-		t.Fatalf("expected upstream_artifact ref, got %s", briefing.ContextRefs[0].Type)
+	if briefing.ContextRefs[0].Type != core.CtxIssueSummary {
+		t.Fatalf("expected first ref to be issue_summary, got %s", briefing.ContextRefs[0].Type)
 	}
-	if briefing.ContextRefs[0].Inline != "## Design\nAPI design for login." {
-		t.Fatalf("expected inline content, got %q", briefing.ContextRefs[0].Inline)
+	if briefing.ContextRefs[1].Type != core.CtxUpstreamArtifact {
+		t.Fatalf("expected second ref to be upstream_artifact, got %s", briefing.ContextRefs[1].Type)
+	}
+	if briefing.ContextRefs[1].Inline != "## Design\nAPI design for login." {
+		t.Fatalf("expected inline content, got %q", briefing.ContextRefs[1].Inline)
 	}
 
 	_ = bus // satisfy usage

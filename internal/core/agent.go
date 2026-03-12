@@ -47,9 +47,12 @@ type AgentProfile struct {
 
 // ProfileSession configures session management for this profile.
 type ProfileSession struct {
-	Reuse    bool          `json:"reuse,omitempty"`
-	MaxTurns int           `json:"max_turns,omitempty"`
-	IdleTTL  time.Duration `json:"idle_ttl,omitempty"`
+	Reuse             bool          `json:"reuse,omitempty"`
+	MaxTurns          int           `json:"max_turns,omitempty"`
+	IdleTTL           time.Duration `json:"idle_ttl,omitempty"`
+	ThreadBootTemplate string       `json:"thread_boot_template,omitempty"`
+	MaxContextTokens  int64         `json:"max_context_tokens,omitempty"`
+	ContextWarnRatio  float64       `json:"context_warn_ratio,omitempty"` // default 0.8
 }
 
 // ProfileMCP configures MCP tool access for this profile.

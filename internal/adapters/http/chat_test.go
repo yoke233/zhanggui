@@ -43,6 +43,12 @@ func (s *stubLeadChatService) GetSession(context.Context, string) (*chatapp.Sess
 	return s.detailResp, s.detailErr
 }
 
+func (s *stubLeadChatService) SetConfigOption(context.Context, string, string, string) ([]chatapp.ConfigOption, error) {
+	return nil, nil
+}
+func (s *stubLeadChatService) SetSessionMode(context.Context, string, string) (*chatapp.SessionModeState, error) {
+	return nil, nil
+}
 func (s *stubLeadChatService) CancelChat(string) error { return nil }
 func (s *stubLeadChatService) CloseSession(string)     {}
 func (s *stubLeadChatService) DeleteSession(string)    {}

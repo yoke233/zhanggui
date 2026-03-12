@@ -67,14 +67,29 @@ type ThreadWorkItemLink struct {
 
 // ThreadAgentSession represents an AI agent session within a Thread.
 type ThreadAgentSession struct {
-	ID             int64     `json:"id"`
-	ThreadID       int64     `json:"thread_id"`
-	AgentProfileID string    `json:"agent_profile_id"`
-	ACPSessionID   string    `json:"acp_session_id"`
-	Status         string    `json:"status"` // "joining", "active", "paused", "left", "failed"
-	JoinedAt       time.Time `json:"joined_at"`
-	LastActiveAt   time.Time `json:"last_active_at"`
+	ID               int64          `json:"id"`
+	ThreadID         int64          `json:"thread_id"`
+	AgentProfileID   string         `json:"agent_profile_id"`
+	ACPSessionID     string         `json:"acp_session_id"`
+	Status           string         `json:"status"` // "joining", "booting", "active", "paused", "left", "failed"
+	TurnCount        int            `json:"turn_count"`
+	TotalInputTokens int64          `json:"total_input_tokens"`
+	TotalOutputTokens int64         `json:"total_output_tokens"`
+	ProgressSummary  string         `json:"progress_summary,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	JoinedAt         time.Time      `json:"joined_at"`
+	LastActiveAt     time.Time      `json:"last_active_at"`
 }
+
+// ThreadAgentSession status constants.
+const (
+	ThreadAgentJoining = "joining"
+	ThreadAgentBooting = "booting"
+	ThreadAgentActive  = "active"
+	ThreadAgentPaused  = "paused"
+	ThreadAgentLeft    = "left"
+	ThreadAgentFailed  = "failed"
+)
 
 // ThreadStore persists Thread aggregates.
 type ThreadStore interface {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sort"
@@ -184,12 +185,15 @@ func (c *Client) NewSessionResult(ctx context.Context, req acpproto.NewSessionRe
 		return SessionResult{}, err
 	}
 
+	slog.Debug("acpclient: session/new raw response", "json", string(raw))
+
 	var modern acpproto.NewSessionResponse
 	if err := json.Unmarshal(raw, &modern); err == nil {
 		if trimmed := strings.TrimSpace(string(modern.SessionId)); trimmed != "" {
 			return SessionResult{
 				SessionID:     modern.SessionId,
 				ConfigOptions: selectConfigOptions(modern.ConfigOptions),
+				Modes:         modern.Modes,
 			}, nil
 		}
 	}
@@ -229,24 +233,33 @@ func (c *Client) LoadSessionResult(ctx context.Context, req acpproto.LoadSession
 		return SessionResult{}, err
 	}
 
+	slog.Debug("acpclient: session/load raw response", "json", string(raw))
+
+	// Try modern format first so we capture configOptions / modes.
+	var modern acpproto.LoadSessionResponse
+	if err := json.Unmarshal(raw, &modern); err == nil {
+		sid := req.SessionId
+		if strings.TrimSpace(string(sid)) == "" {
+			return SessionResult{}, errors.New("session/load returned empty sessionId")
+		}
+		return SessionResult{
+			SessionID:     sid,
+			ConfigOptions: selectConfigOptions(modern.ConfigOptions),
+			Modes:         modern.Modes,
+		}, nil
+	}
+
+	// Fallback: legacy response with only sessionId.
 	var legacy struct {
 		SessionID string `json:"sessionId"`
 	}
-	if err := json.Unmarshal(raw, &legacy); err == nil && strings.TrimSpace(legacy.SessionID) != "" {
-		return SessionResult{SessionID: acpproto.SessionId(strings.TrimSpace(legacy.SessionID))}, nil
-	}
-
-	var modern acpproto.LoadSessionResponse
-	if err := json.Unmarshal(raw, &modern); err != nil {
+	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return SessionResult{}, fmt.Errorf("decode session/load result: %w", err)
 	}
-	if strings.TrimSpace(string(req.SessionId)) == "" {
+	if strings.TrimSpace(legacy.SessionID) == "" {
 		return SessionResult{}, errors.New("session/load returned empty sessionId")
 	}
-	return SessionResult{
-		SessionID:     req.SessionId,
-		ConfigOptions: selectConfigOptions(modern.ConfigOptions),
-	}, nil
+	return SessionResult{SessionID: acpproto.SessionId(strings.TrimSpace(legacy.SessionID))}, nil
 }
 
 func (c *Client) SetConfigOption(ctx context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error) {
@@ -260,6 +273,11 @@ func (c *Client) SetConfigOption(ctx context.Context, req acpproto.SetSessionCon
 		return nil, fmt.Errorf("decode session/set_config_option result: %w", err)
 	}
 	return selectConfigOptions(resp.ConfigOptions), nil
+}
+
+func (c *Client) SetSessionMode(ctx context.Context, req acpproto.SetSessionModeRequest) error {
+	_, err := c.transport.Call(ctx, "session/set_mode", req)
+	return err
 }
 
 func (c *Client) Prompt(ctx context.Context, req acpproto.PromptRequest) (*PromptResult, error) {
@@ -616,6 +634,11 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 	if err != nil {
 		return SessionUpdate{}, false
 	}
+	var currentModeId string
+	if notification.Update.CurrentModeUpdate != nil {
+		currentModeId = string(notification.Update.CurrentModeUpdate.CurrentModeId)
+	}
+
 	return SessionUpdate{
 		SessionID:     sessionID,
 		Type:          updateType,
@@ -624,6 +647,7 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		RawJSON:       rawUpdate,
 		Commands:      commands,
 		ConfigOptions: configOptions,
+		CurrentModeId: currentModeId,
 	}, true
 }
 
