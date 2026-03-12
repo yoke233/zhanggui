@@ -45,6 +45,7 @@ func (s *stubLeadChatService) GetSession(context.Context, string) (*chatapp.Sess
 
 func (s *stubLeadChatService) CancelChat(string) error { return nil }
 func (s *stubLeadChatService) CloseSession(string)     {}
+func (s *stubLeadChatService) DeleteSession(string)    {}
 func (s *stubLeadChatService) IsSessionAlive(string) bool {
 	return false
 }

@@ -4,12 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	gormsqlite "github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // Store implements core.Store backed by SQLite.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	orm *gorm.DB
 }
 
 // New opens (or creates) a SQLite database at path and runs migrations.
@@ -34,7 +37,19 @@ func New(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-	return &Store{db: db}, nil
+
+	orm, err := gorm.Open(gormsqlite.Dialector{
+		DriverName: "sqlite",
+		Conn:       db,
+	}, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open gorm sqlite %s: %w", path, err)
+	}
+
+	return &Store{db: db, orm: orm}, nil
 }
 
 // Close closes the underlying database connection.

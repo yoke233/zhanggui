@@ -2,164 +2,100 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateProject(ctx context.Context, p *core.Project) (int64, error) {
-	if s == nil || s.db == nil {
+	if s == nil || s.orm == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
 	if p == nil {
 		return 0, fmt.Errorf("project is nil")
 	}
-	name := strings.TrimSpace(p.Name)
-	if name == "" {
-		return 0, fmt.Errorf("name is required")
+	if p.Kind == "" {
+		p.Kind = core.ProjectGeneral
 	}
-
-	kind := p.Kind
-	if kind == "" {
-		kind = core.ProjectGeneral
-	}
-
-	var metadataJSON []byte
-	if len(p.Metadata) > 0 {
-		var err error
-		metadataJSON, err = json.Marshal(p.Metadata)
-		if err != nil {
-			return 0, fmt.Errorf("marshal metadata: %w", err)
-		}
-	}
-
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO projects (name, kind, description, metadata, created_at, updated_at)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		name, string(kind), p.Description, nullableBytes(metadataJSON))
-	if err != nil {
+	now := time.Now().UTC()
+	model := projectModelFromCore(p)
+	model.CreatedAt = now
+	model.UpdatedAt = now
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	p.ID = model.ID
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	return model.ID, nil
 }
 
 func (s *Store) GetProject(ctx context.Context, id int64) (*core.Project, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, kind, description, metadata, created_at, updated_at
-         FROM projects WHERE id = ?`, id)
-
-	var p core.Project
-	var metadataRaw sql.NullString
-	if err := row.Scan(&p.ID, &p.Name, &p.Kind, &p.Description, &metadataRaw, &p.CreatedAt, &p.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+	var model ProjectModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return nil, core.ErrNotFound
 		}
 		return nil, err
 	}
-	if metadataRaw.Valid && metadataRaw.String != "" {
-		if err := json.Unmarshal([]byte(metadataRaw.String), &p.Metadata); err != nil {
-			return nil, fmt.Errorf("unmarshal metadata: %w", err)
-		}
-	}
-	return &p, nil
+	return model.toCore(), nil
 }
 
 func (s *Store) ListProjects(ctx context.Context, limit, offset int) ([]*core.Project, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
 	if limit <= 0 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, kind, description, metadata, created_at, updated_at
-         FROM projects
-         ORDER BY id DESC
-         LIMIT ? OFFSET ?`, limit, offset)
+	var models []ProjectModel
+	err := s.orm.WithContext(ctx).Order("id DESC").Limit(limit).Offset(offset).Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var out []*core.Project
-	for rows.Next() {
-		var p core.Project
-		var metadataRaw sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.Description, &metadataRaw, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return nil, err
-		}
-		if metadataRaw.Valid && metadataRaw.String != "" {
-			if err := json.Unmarshal([]byte(metadataRaw.String), &p.Metadata); err != nil {
-				return nil, fmt.Errorf("unmarshal metadata: %w", err)
-			}
-		}
-		out = append(out, &p)
+	out := make([]*core.Project, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) UpdateProject(ctx context.Context, p *core.Project) error {
-	if s == nil || s.db == nil {
-		return fmt.Errorf("store is not initialized")
-	}
 	if p == nil {
 		return fmt.Errorf("project is nil")
 	}
-
-	var metadataJSON []byte
-	if len(p.Metadata) > 0 {
-		var err error
-		metadataJSON, err = json.Marshal(p.Metadata)
-		if err != nil {
-			return fmt.Errorf("marshal metadata: %w", err)
-		}
+	now := time.Now().UTC()
+	model := projectModelFromCore(p)
+	model.UpdatedAt = now
+	result := s.orm.WithContext(ctx).Model(&ProjectModel{}).
+		Where("id = ?", p.ID).
+		Updates(map[string]any{
+			"name":        model.Name,
+			"kind":        model.Kind,
+			"description": model.Description,
+			"metadata":    model.Metadata,
+			"updated_at":  model.UpdatedAt,
+		})
+	if result.Error != nil {
+		return result.Error
 	}
-
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, kind = ?, description = ?, metadata = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-		p.Name, string(p.Kind), p.Description, nullableBytes(metadataJSON), p.ID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if result.RowsAffected == 0 {
 		return core.ErrNotFound
 	}
+	p.UpdatedAt = now
 	return nil
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id int64) error {
-	if s == nil || s.db == nil {
-		return fmt.Errorf("store is not initialized")
+	result := s.orm.WithContext(ctx).Delete(&ProjectModel{}, id)
+	if result.Error != nil {
+		return result.Error
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if result.RowsAffected == 0 {
 		return core.ErrNotFound
 	}
 	return nil
 }
-
-// nullableBytes returns nil if b is nil/empty, otherwise the byte slice itself.
-// Used for nullable TEXT columns storing JSON.
-func nullableBytes(b []byte) any {
-	if len(b) == 0 {
-		return nil
-	}
-	return string(b)
-}
-

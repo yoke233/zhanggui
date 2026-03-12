@@ -212,10 +212,11 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 		}
 	}
 
-	// Verify dependency chain: implement-api depends on parse-requirements.
-	if len(steps[1].DependsOn) != 1 || steps[1].DependsOn[0] != steps[0].ID {
-		t.Fatalf("implement-api should depend on parse-requirements (ID %d), got %v",
-			steps[0].ID, steps[1].DependsOn)
+	// Verify linearized execution order is preserved via Position.
+	for i, step := range steps {
+		if step.Position != i {
+			t.Fatalf("step[%d] expected position %d, got %d", i, i, step.Position)
+		}
 	}
 
 	// Verify types.

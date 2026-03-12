@@ -218,6 +218,174 @@ func TestAPI_CreateIssue_AutoBootstrapsSCMFlow(t *testing.T) {
 	}
 }
 
+func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	repoA := t.TempDir()
+	runGit(t, repoA, "init")
+	runGit(t, repoA, "branch", "-M", "main")
+	runGit(t, repoA, "remote", "add", "origin", "https://github.com/acme/demo-a.git")
+
+	repoB := t.TempDir()
+	runGit(t, repoB, "init")
+	runGit(t, repoB, "branch", "-M", "main")
+	runGit(t, repoB, "remote", "add", "origin", "https://github.com/acme/demo-b.git")
+
+	projectResp, err := post(ts, "/projects", map[string]any{
+		"name": "auto-pr-multi-project",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if projectResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating project, got %d", projectResp.StatusCode)
+	}
+	var project core.Project
+	if err := decodeJSON(projectResp, &project); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+
+	createResource := func(label, uri string) core.ResourceBinding {
+		resp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
+			"kind":  "git",
+			"uri":   uri,
+			"label": label,
+			"config": map[string]any{
+				"provider":        "github",
+				"enable_scm_flow": true,
+				"base_branch":     "main",
+				"merge_method":    "squash",
+			},
+		})
+		if err != nil {
+			t.Fatalf("create resource %s: %v", label, err)
+		}
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("expected 201 creating resource %s, got %d", label, resp.StatusCode)
+		}
+		var binding core.ResourceBinding
+		if err := decodeJSON(resp, &binding); err != nil {
+			t.Fatalf("decode resource %s: %v", label, err)
+		}
+		return binding
+	}
+
+	_ = createResource("repo-a", repoA)
+	selected := createResource("repo-b", repoB)
+
+	issueResp, err := post(ts, "/issues", map[string]any{
+		"title":               "auto-issue-selected-binding",
+		"priority":            "medium",
+		"project_id":          project.ID,
+		"resource_binding_id": selected.ID,
+	})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+	if issueResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
+	}
+	var issue core.Issue
+	if err := decodeJSON(issueResp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+
+	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if stepsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
+	}
+	var steps []*core.Step
+	if err := decodeJSON(stepsResp, &steps); err != nil {
+		t.Fatalf("decode steps: %v", err)
+	}
+	if len(steps) != 4 {
+		t.Fatalf("expected 4 auto-bootstrapped steps, got %d", len(steps))
+	}
+}
+
+func TestAPI_CreateIssue_DoesNotAutoBootstrapAmbiguousSCMBindings(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	repoA := t.TempDir()
+	runGit(t, repoA, "init")
+	runGit(t, repoA, "branch", "-M", "main")
+	runGit(t, repoA, "remote", "add", "origin", "https://github.com/acme/demo-a.git")
+
+	repoB := t.TempDir()
+	runGit(t, repoB, "init")
+	runGit(t, repoB, "branch", "-M", "main")
+	runGit(t, repoB, "remote", "add", "origin", "https://github.com/acme/demo-b.git")
+
+	projectResp, err := post(ts, "/projects", map[string]any{
+		"name": "manual-pr-multi-project",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if projectResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating project, got %d", projectResp.StatusCode)
+	}
+	var project core.Project
+	if err := decodeJSON(projectResp, &project); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+
+	for _, repoDir := range []string{repoA, repoB} {
+		resp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
+			"kind":  "git",
+			"uri":   repoDir,
+			"label": filepath.Base(repoDir),
+			"config": map[string]any{
+				"provider":        "github",
+				"enable_scm_flow": true,
+				"base_branch":     "main",
+				"merge_method":    "squash",
+			},
+		})
+		if err != nil {
+			t.Fatalf("create resource for %s: %v", repoDir, err)
+		}
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("expected 201 creating resource for %s, got %d", repoDir, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	issueResp, err := post(ts, "/issues", map[string]any{
+		"title":      "manual-issue-ambiguous-binding",
+		"priority":   "medium",
+		"project_id": project.ID,
+	})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+	if issueResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
+	}
+	var issue core.Issue
+	if err := decodeJSON(issueResp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+
+	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if stepsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
+	}
+	var steps []*core.Step
+	if err := decodeJSON(stepsResp, &steps); err != nil {
+		t.Fatalf("decode steps: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("expected 0 auto-bootstrapped steps for ambiguous bindings, got %d", len(steps))
+	}
+}
+
 func TestAPI_CreateIssue_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T) {
 	_, ts := setupAPI(t)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -12,22 +13,26 @@ import (
 )
 
 type createIssueRequest struct {
-	ProjectID *int64         `json:"project_id,omitempty"`
-	Title     string         `json:"title"`
-	Body      string         `json:"body,omitempty"`
-	Priority  string         `json:"priority,omitempty"`
-	Labels    []string       `json:"labels,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	ProjectID         *int64         `json:"project_id,omitempty"`
+	ResourceBindingID *int64         `json:"resource_binding_id,omitempty"`
+	Title             string         `json:"title"`
+	Body              string         `json:"body,omitempty"`
+	Priority          string         `json:"priority,omitempty"`
+	Labels            []string       `json:"labels,omitempty"`
+	DependsOn         []int64        `json:"depends_on,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 type updateIssueRequest struct {
-	ProjectID *int64         `json:"project_id,omitempty"`
-	Title     *string        `json:"title,omitempty"`
-	Body      *string        `json:"body,omitempty"`
-	Status    *string        `json:"status,omitempty"`
-	Priority  *string        `json:"priority,omitempty"`
-	Labels    *[]string      `json:"labels,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	ProjectID         *int64         `json:"project_id,omitempty"`
+	ResourceBindingID *int64         `json:"resource_binding_id,omitempty"`
+	Title             *string        `json:"title,omitempty"`
+	Body              *string        `json:"body,omitempty"`
+	Status            *string        `json:"status,omitempty"`
+	Priority          *string        `json:"priority,omitempty"`
+	Labels            *[]string      `json:"labels,omitempty"`
+	DependsOn         *[]int64       `json:"depends_on,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
@@ -60,18 +65,38 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	if priority == "" {
 		priority = core.PriorityMedium
 	}
+	if _, err := validateIssueResourceBinding(r.Context(), h.store, req.ProjectID, req.ResourceBindingID); err != nil {
+		switch {
+		case errors.Is(err, core.ErrNotFound):
+			writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
+		default:
+			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_RESOURCE_BINDING")
+		}
+		return
+	}
+	if err := validateIssueDependencies(r.Context(), h.store, 0, req.ProjectID, req.DependsOn); err != nil {
+		switch {
+		case errors.Is(err, core.ErrNotFound):
+			writeError(w, http.StatusNotFound, "dependency issue not found", "ISSUE_DEPENDENCY_NOT_FOUND")
+		default:
+			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_ISSUE_DEPENDENCY")
+		}
+		return
+	}
 
 	now := time.Now().UTC()
 	issue := &core.Issue{
-		ProjectID: req.ProjectID,
-		Title:     title,
-		Body:      strings.TrimSpace(req.Body),
-		Status:    core.IssueOpen,
-		Priority:  priority,
-		Labels:    req.Labels,
-		Metadata:  req.Metadata,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ProjectID:         req.ProjectID,
+		ResourceBindingID: req.ResourceBindingID,
+		Title:             title,
+		Body:              strings.TrimSpace(req.Body),
+		Status:            core.IssueOpen,
+		Priority:          priority,
+		Labels:            req.Labels,
+		DependsOn:         req.DependsOn,
+		Metadata:          req.Metadata,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	id, err := h.store.CreateIssue(r.Context(), issue)
 	if err != nil {
@@ -86,12 +111,21 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
-		if _, ok := resolveEnabledSCMRepoFromBindings(r.Context(), bindings); ok {
+		bootstrapBindings, filterErr := bindingsForIssue(issue, bindings)
+		if filterErr != nil && !errors.Is(filterErr, errBootstrapPRIssueAmbiguousBinding) && !errors.Is(filterErr, errBootstrapPRIssueMissingBinding) {
+			writeError(w, http.StatusInternalServerError, filterErr.Error(), "STORE_ERROR")
+			return
+		}
+		if _, ok := resolveEnabledSCMRepoFromBindings(r.Context(), bootstrapBindings); ok {
 			if _, err := h.bootstrapPRIssueForIssue(r.Context(), id, bootstrapPRIssueRequest{}); err != nil {
 				switch {
-				case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding):
+				case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding), errors.Is(err, errBootstrapPRIssueAmbiguousBinding):
 					// Ignore when the project does not have an enabled SCM binding.
 				default:
+					if rollbackErr := rollbackIssueCreation(r.Context(), h.store, id); rollbackErr != nil {
+						writeError(w, http.StatusInternalServerError, fmt.Sprintf("%s; rollback failed: %v", err.Error(), rollbackErr), "AUTO_SCM_ISSUE_BOOTSTRAP_FAILED")
+						return
+					}
 					writeError(w, http.StatusInternalServerError, err.Error(), "AUTO_SCM_ISSUE_BOOTSTRAP_FAILED")
 					return
 				}
@@ -135,6 +169,22 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("priority"); s != "" {
 		priority := core.IssuePriority(s)
 		filter.Priority = &priority
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("archived"))) {
+	case "":
+		archived := false
+		filter.Archived = &archived
+	case "true":
+		archived := true
+		filter.Archived = &archived
+	case "false":
+		archived := false
+		filter.Archived = &archived
+	case "all":
+		// no filter
+	default:
+		writeError(w, http.StatusBadRequest, "invalid archived filter", "BAD_ARCHIVED_FILTER")
+		return
 	}
 
 	issues, err := h.store.ListIssues(r.Context(), filter)
@@ -182,6 +232,22 @@ func (h *Handler) updateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 		existing.ProjectID = req.ProjectID
 	}
+	targetProjectID := existing.ProjectID
+	if req.ProjectID != nil {
+		targetProjectID = req.ProjectID
+	}
+	if req.ResourceBindingID != nil {
+		if _, err := validateIssueResourceBinding(r.Context(), h.store, targetProjectID, req.ResourceBindingID); err != nil {
+			switch {
+			case errors.Is(err, core.ErrNotFound):
+				writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
+			default:
+				writeError(w, http.StatusBadRequest, err.Error(), "INVALID_RESOURCE_BINDING")
+			}
+			return
+		}
+		existing.ResourceBindingID = req.ResourceBindingID
+	}
 	if req.Title != nil {
 		existing.Title = strings.TrimSpace(*req.Title)
 	}
@@ -196,6 +262,18 @@ func (h *Handler) updateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Labels != nil {
 		existing.Labels = *req.Labels
+	}
+	if req.DependsOn != nil {
+		if err := validateIssueDependencies(r.Context(), h.store, existing.ID, targetProjectID, *req.DependsOn); err != nil {
+			switch {
+			case errors.Is(err, core.ErrNotFound):
+				writeError(w, http.StatusNotFound, "dependency issue not found", "ISSUE_DEPENDENCY_NOT_FOUND")
+			default:
+				writeError(w, http.StatusBadRequest, err.Error(), "INVALID_ISSUE_DEPENDENCY")
+			}
+			return
+		}
+		existing.DependsOn = *req.DependsOn
 	}
 	if req.Metadata != nil {
 		existing.Metadata = req.Metadata
@@ -390,4 +468,65 @@ func (h *Handler) cancelIssue(w http.ResponseWriter, r *http.Request) {
 		"issue_id": id,
 		"status":   "cancelled",
 	})
+}
+
+func validateIssueResourceBinding(ctx context.Context, store Store, projectID *int64, bindingID *int64) (*core.ResourceBinding, error) {
+	if bindingID == nil {
+		return nil, nil
+	}
+	if projectID == nil {
+		return nil, fmt.Errorf("resource binding requires project_id")
+	}
+	binding, err := store.GetResourceBinding(ctx, *bindingID)
+	if err != nil {
+		return nil, err
+	}
+	if binding.ProjectID != *projectID {
+		return nil, fmt.Errorf("resource binding %d does not belong to project %d", *bindingID, *projectID)
+	}
+	return binding, nil
+}
+
+func validateIssueDependencies(ctx context.Context, store Store, issueID int64, projectID *int64, deps []int64) error {
+	seen := make(map[int64]struct{}, len(deps))
+	for _, depID := range deps {
+		if depID <= 0 {
+			return fmt.Errorf("dependency issue id must be positive")
+		}
+		if depID == issueID && issueID != 0 {
+			return fmt.Errorf("issue cannot depend on itself")
+		}
+		if _, ok := seen[depID]; ok {
+			return fmt.Errorf("duplicate dependency issue id %d", depID)
+		}
+		seen[depID] = struct{}{}
+
+		depIssue, err := store.GetIssue(ctx, depID)
+		if err != nil {
+			return err
+		}
+		if projectID != nil && depIssue.ProjectID != nil && *depIssue.ProjectID != *projectID {
+			return fmt.Errorf("dependency issue %d belongs to a different project", depID)
+		}
+	}
+	return nil
+}
+
+func rollbackIssueCreation(ctx context.Context, store Store, issueID int64) error {
+	steps, err := store.ListStepsByIssue(ctx, issueID)
+	if err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if err := store.DeleteStep(ctx, step.ID); err != nil && !errors.Is(err, core.ErrNotFound) {
+			return err
+		}
+	}
+	if err := store.DeleteIssue(ctx, issueID); err != nil && !errors.Is(err, core.ErrNotFound) {
+		return err
+	}
+	return nil
 }

@@ -172,10 +172,10 @@ func newManagerForTest(t *testing.T) (*Manager, string) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
 	secretsPath := filepath.Join(dir, "secrets.toml")
-	raw, err := os.ReadFile(filepath.Join("..", "config", "defaults.toml"))
-	if err != nil {
-		t.Fatalf("read defaults.toml: %v", err)
-	}
+	// Keep the runtime layer file minimal for tests. The manager already loads
+	// process defaults via config.Defaults(), and the full defaults.toml now
+	// contains sections that are not part of ConfigLayer.
+	raw := []byte("")
 	if err := os.WriteFile(cfgPath, raw, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,7 +15,7 @@ type createStepRequest struct {
 	Name                 string         `json:"name"`
 	Description          string         `json:"description,omitempty"`
 	Type                 core.StepType  `json:"type"`
-	Position             int            `json:"position"`
+	Position             *int           `json:"position,omitempty"`
 	AgentRole            string         `json:"agent_role,omitempty"`
 	RequiredCapabilities []string       `json:"required_capabilities,omitempty"`
 	AcceptanceCriteria   []string       `json:"acceptance_criteria,omitempty"`
@@ -42,10 +44,14 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "type is required", "MISSING_TYPE")
 		return
 	}
+	position, err := h.resolveCreateStepPosition(r.Context(), issueID, req.Position)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_POSITION")
+		return
+	}
 
 	var timeout time.Duration
 	if req.Timeout != "" {
-		var err error
 		timeout, err = time.ParseDuration(req.Timeout)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid timeout duration", "BAD_TIMEOUT")
@@ -59,7 +65,7 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 		Description:          req.Description,
 		Type:                 req.Type,
 		Status:               core.StepPending,
-		Position:             req.Position,
+		Position:             position,
 		AgentRole:            req.AgentRole,
 		RequiredCapabilities: req.RequiredCapabilities,
 		AcceptanceCriteria:   req.AcceptanceCriteria,
@@ -148,6 +154,10 @@ func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
 		existing.Type = *req.Type
 	}
 	if req.Position != nil {
+		if err := h.validateStepPosition(r.Context(), existing.IssueID, existing.ID, *req.Position); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_POSITION")
+			return
+		}
 		existing.Position = *req.Position
 	}
 	if req.AgentRole != nil {
@@ -233,3 +243,42 @@ func (h *Handler) getStep(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s)
 }
 
+func (h *Handler) resolveCreateStepPosition(ctx context.Context, issueID int64, requested *int) (int, error) {
+	if requested != nil {
+		if err := h.validateStepPosition(ctx, issueID, 0, *requested); err != nil {
+			return 0, err
+		}
+		return *requested, nil
+	}
+
+	steps, err := h.store.ListStepsByIssue(ctx, issueID)
+	if err != nil {
+		return 0, err
+	}
+	position := 0
+	for _, step := range steps {
+		if step != nil && step.Position >= position {
+			position = step.Position + 1
+		}
+	}
+	return position, nil
+}
+
+func (h *Handler) validateStepPosition(ctx context.Context, issueID, stepID int64, position int) error {
+	if position < 0 {
+		return fmt.Errorf("position must be non-negative")
+	}
+	steps, err := h.store.ListStepsByIssue(ctx, issueID)
+	if err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if step == nil || step.ID == stepID {
+			continue
+		}
+		if step.Position == position {
+			return fmt.Errorf("position %d is already used by step %d", position, step.ID)
+		}
+	}
+	return nil
+}

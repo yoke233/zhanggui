@@ -2,82 +2,47 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"gorm.io/gorm"
 )
 
-// CreateUsageRecord inserts a usage record for an execution.
 func (s *Store) CreateUsageRecord(ctx context.Context, r *core.UsageRecord) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO usage_records (
-			execution_id, issue_id, step_id, project_id,
-			agent_id, profile_id, model_id,
-			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-			reasoning_tokens, total_tokens, duration_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ExecutionID, r.IssueID, r.StepID, r.ProjectID,
-		r.AgentID, r.ProfileID, r.ModelID,
-		r.InputTokens, r.OutputTokens, r.CacheReadTokens, r.CacheWriteTokens,
-		r.ReasoningTokens, r.TotalTokens, r.DurationMs,
-	)
-	if err != nil {
+	model := usageRecordModelFromCore(r)
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, fmt.Errorf("insert usage record: %w", err)
 	}
-	return res.LastInsertId()
+	r.ID = model.ID
+	r.CreatedAt = model.CreatedAt
+	return model.ID, nil
 }
 
-// GetUsageRecord returns a usage record by ID.
 func (s *Store) GetUsageRecord(ctx context.Context, id int64) (*core.UsageRecord, error) {
-	r := &core.UsageRecord{}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, execution_id, issue_id, step_id, project_id,
-			agent_id, profile_id, model_id,
-			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-			reasoning_tokens, total_tokens, duration_ms, created_at
-		FROM usage_records WHERE id = ?`, id,
-	).Scan(
-		&r.ID, &r.ExecutionID, &r.IssueID, &r.StepID, &r.ProjectID,
-		&r.AgentID, &r.ProfileID, &r.ModelID,
-		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
-		&r.ReasoningTokens, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("usage record %d not found", id)
-	}
+	var model UsageRecordModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("usage record %d not found", id)
+		}
 		return nil, fmt.Errorf("get usage record: %w", err)
 	}
-	return r, nil
+	return model.toCore(), nil
 }
 
-// GetUsageByExecution returns the usage record for a specific execution.
 func (s *Store) GetUsageByExecution(ctx context.Context, executionID int64) (*core.UsageRecord, error) {
-	r := &core.UsageRecord{}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, execution_id, issue_id, step_id, project_id,
-			agent_id, profile_id, model_id,
-			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-			reasoning_tokens, total_tokens, duration_ms, created_at
-		FROM usage_records WHERE execution_id = ?`, executionID,
-	).Scan(
-		&r.ID, &r.ExecutionID, &r.IssueID, &r.StepID, &r.ProjectID,
-		&r.AgentID, &r.ProfileID, &r.ModelID,
-		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
-		&r.ReasoningTokens, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+	var model UsageRecordModel
+	err := s.orm.WithContext(ctx).Where("execution_id = ?", executionID).First(&model).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("get usage by execution: %w", err)
 	}
-	return r, nil
+	return model.toCore(), nil
 }
 
-// UsageByProject aggregates token usage per project.
 func (s *Store) UsageByProject(ctx context.Context, filter core.AnalyticsFilter) ([]core.ProjectUsageSummary, error) {
 	query := `
 		SELECT
@@ -121,7 +86,6 @@ func (s *Store) UsageByProject(ctx context.Context, filter core.AnalyticsFilter)
 	return out, rows.Err()
 }
 
-// UsageByAgent aggregates token usage per agent.
 func (s *Store) UsageByAgent(ctx context.Context, filter core.AnalyticsFilter) ([]core.AgentUsageSummary, error) {
 	query := `
 		SELECT
@@ -166,7 +130,6 @@ func (s *Store) UsageByAgent(ctx context.Context, filter core.AnalyticsFilter) (
 	return out, rows.Err()
 }
 
-// UsageByProfile aggregates token usage per profile.
 func (s *Store) UsageByProfile(ctx context.Context, filter core.AnalyticsFilter) ([]core.ProfileUsageSummary, error) {
 	query := `
 		SELECT
@@ -212,7 +175,6 @@ func (s *Store) UsageByProfile(ctx context.Context, filter core.AnalyticsFilter)
 	return out, rows.Err()
 }
 
-// UsageTotals returns overall token usage totals.
 func (s *Store) UsageTotals(ctx context.Context, filter core.AnalyticsFilter) (*core.UsageTotalSummary, error) {
 	query := `
 		SELECT

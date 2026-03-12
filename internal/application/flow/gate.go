@@ -299,16 +299,16 @@ func renderMergeReworkFeedbackTemplate(tmplText string, vars mergeReworkTemplate
 }
 
 func (e *IssueEngine) defaultGateResetTargets(ctx context.Context, step *core.Step, metadata map[string]any) (resetTo []int64, reason string) {
-	// Determine predecessor steps (those with lower Position) as default reset targets.
-	predecessors := e.predecessorIDs(ctx, step)
-	resetTo = extractResetTargets(metadata, predecessors)
+	// By default only reset the closest upstream position.
+	// Full upstream closure is opt-in via reset_upstream_closure.
+	immediatePredecessors := e.immediatePredecessorIDs(ctx, step)
+	resetTo = extractResetTargets(metadata, immediatePredecessors)
 	if len(resetTo) == 0 {
-		resetTo = append([]int64(nil), predecessors...)
+		resetTo = append([]int64(nil), immediatePredecessors...)
 	}
 	if step.Config != nil {
 		if v, ok := step.Config["reset_upstream_closure"].(bool); ok && v {
-			// For Position-based ordering, all predecessors ARE the upstream closure.
-			resetTo = predecessors
+			resetTo = e.predecessorIDs(ctx, step)
 		}
 	}
 	reason, _ = metadata["reason"].(string)
@@ -325,6 +325,14 @@ func (e *IssueEngine) predecessorIDs(ctx context.Context, step *core.Step) []int
 		return nil
 	}
 	return predecessorStepIDs(steps, step)
+}
+
+func (e *IssueEngine) immediatePredecessorIDs(ctx context.Context, step *core.Step) []int64 {
+	steps, err := e.store.ListStepsByIssue(ctx, step.IssueID)
+	if err != nil || len(steps) == 0 {
+		return nil
+	}
+	return immediatePredecessorStepIDs(steps, step)
 }
 
 func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) error {

@@ -41,9 +41,10 @@ type bootstrapPRIssueResponse struct {
 }
 
 var (
-	errBootstrapPRIssueMissingProject = errors.New("issue must belong to a project")
-	errBootstrapPRIssueMissingBinding = errors.New("project does not have an enabled supported SCM git binding")
-	errBootstrapPRIssueHasSteps       = errors.New("issue already has steps")
+	errBootstrapPRIssueMissingProject   = errors.New("issue must belong to a project")
+	errBootstrapPRIssueMissingBinding   = errors.New("project does not have an enabled supported SCM git binding")
+	errBootstrapPRIssueAmbiguousBinding = errors.New("issue must select a resource binding when multiple SCM git bindings are enabled")
+	errBootstrapPRIssueHasSteps         = errors.New("issue already has steps")
 )
 
 // bootstrapPRIssue creates a standard PR automation pipeline for an issue:
@@ -74,6 +75,8 @@ func (h *Handler) bootstrapPRIssue(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding):
 			writeError(w, http.StatusBadRequest, err.Error(), "MISSING_SCM_BINDING")
+		case errors.Is(err, errBootstrapPRIssueAmbiguousBinding):
+			writeError(w, http.StatusConflict, err.Error(), "AMBIGUOUS_SCM_BINDING")
 		case errors.Is(err, errBootstrapPRIssueHasSteps):
 			writeError(w, http.StatusConflict, err.Error(), "ISSUE_HAS_STEPS")
 		default:
@@ -94,6 +97,10 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 	}
 
 	bindings, err := h.store.ListResourceBindings(ctx, *issue.ProjectID)
+	if err != nil {
+		return bootstrapPRIssueResponse{}, err
+	}
+	bindings, err = bindingsForIssue(issue, bindings)
 	if err != nil {
 		return bootstrapPRIssueResponse{}, err
 	}
@@ -227,11 +234,16 @@ func (h *Handler) currentPRIssuePrompts() issueapp.PRFlowPrompts {
 	return issueapp.DefaultPRFlowPrompts()
 }
 
+func (h *Handler) currentPRFlowPrompts() issueapp.PRFlowPrompts {
+	return h.currentPRIssuePrompts()
+}
+
 func defaultPRCommitMessage(issueID int64) string {
 	return fmt.Sprintf("chore(pr-issue): apply issue %d updates", issueID)
 }
 
 func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.ResourceBinding) (scmBindingInfo, bool) {
+	candidates := make([]scmBindingInfo, 0, len(bindings))
 	for _, b := range bindings {
 		if !bindingSCMFlowEnabled(b) {
 			continue
@@ -253,7 +265,7 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 		if provider == "" {
 			continue
 		}
-		return scmBindingInfo{
+		candidates = append(candidates, scmBindingInfo{
 			Provider:      provider,
 			RepoPath:      repoPath,
 			DefaultBranch: defaultBranch,
@@ -261,9 +273,37 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 			RemoteHost:    strings.TrimSpace(remote.Host),
 			RemoteOwner:   strings.TrimSpace(remote.Owner),
 			RemoteRepo:    strings.TrimSpace(remote.Repo),
-		}, true
+		})
 	}
-	return scmBindingInfo{}, false
+	if len(candidates) != 1 {
+		return scmBindingInfo{}, false
+	}
+	return candidates[0], true
+}
+
+func bindingsForIssue(issue *core.Issue, bindings []*core.ResourceBinding) ([]*core.ResourceBinding, error) {
+	if issue == nil {
+		return nil, errBootstrapPRIssueMissingProject
+	}
+	if issue.ResourceBindingID != nil {
+		for _, binding := range bindings {
+			if binding != nil && binding.ID == *issue.ResourceBindingID {
+				return []*core.ResourceBinding{binding}, nil
+			}
+		}
+		return nil, errBootstrapPRIssueMissingBinding
+	}
+
+	enabledGitBindings := 0
+	for _, binding := range bindings {
+		if bindingSCMFlowEnabled(binding) {
+			enabledGitBindings++
+		}
+	}
+	if enabledGitBindings > 1 {
+		return nil, errBootstrapPRIssueAmbiguousBinding
+	}
+	return bindings, nil
 }
 
 func bindingProvider(b *core.ResourceBinding, host string) string {

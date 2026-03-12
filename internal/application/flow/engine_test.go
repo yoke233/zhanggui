@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 func setup(t *testing.T) (core.Store, core.EventBus) {
@@ -64,7 +64,7 @@ func TestLinearFlow(t *testing.T) {
 	}
 }
 
-// TestParallelFanOut: steps at same Position run concurrently.
+// TestSequentialPositions: steps with unique positions all execute successfully.
 func TestParallelFanOut(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -80,7 +80,7 @@ func TestParallelFanOut(t *testing.T) {
 	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "fanout", Status: core.IssueOpen})
 	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
 	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepExec, Status: core.StepPending, Position: 1})
-	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
 	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
@@ -531,7 +531,7 @@ func TestEventBus(t *testing.T) {
 	defer sub.Cancel()
 
 	bus.Publish(ctx, core.Event{Type: core.EventIssueStarted, IssueID: 1})
-	bus.Publish(ctx, core.Event{Type: core.EventStepReady, IssueID: 1})   // should be filtered out
+	bus.Publish(ctx, core.Event{Type: core.EventStepReady, IssueID: 1})    // should be filtered out
 	bus.Publish(ctx, core.Event{Type: core.EventIssueStarted, IssueID: 2}) // should be received
 
 	ev := <-sub.C
@@ -986,7 +986,7 @@ func TestIssueE2E_CompositeWithGate(t *testing.T) {
 	}
 }
 
-// TestIssueE2E_FanOutMerge: steps at different Positions execute sequentially.
+// TestIssueE2E_FanOutMerge: unique positions execute sequentially until completion.
 func TestIssueE2E_FanOutMerge(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
@@ -1002,8 +1002,8 @@ func TestIssueE2E_FanOutMerge(t *testing.T) {
 	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "e2e-fan-merge", Status: core.IssueOpen})
 	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "A", Type: core.StepExec, Status: core.StepPending, Position: 0})
 	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "B", Type: core.StepExec, Status: core.StepPending, Position: 1})
-	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
-	dID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "D", Type: core.StepExec, Status: core.StepPending, Position: 2})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
+	dID, _ := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "D", Type: core.StepExec, Status: core.StepPending, Position: 3})
 
 	if err := eng.Run(ctx, issueID); err != nil {
 		t.Fatalf("run: %v", err)
@@ -1113,7 +1113,7 @@ func TestIssueE2E_PermanentErrorStopsIssue(t *testing.T) {
 		Position:   1,
 		MaxRetries: 3,
 	})
-	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 1})
+	store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "C", Type: core.StepExec, Status: core.StepPending, Position: 2})
 
 	err := eng.Run(ctx, issueID)
 	if err == nil {

@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"regexp"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -73,8 +73,8 @@ type leadSession struct {
 	//   ""          – workDir was supplied by the caller (no cleanup)
 	//   "sandbox"   – a temporary directory was created under DataDir
 	//   "worktree"  – a git worktree was created for a project
-	isolation    string
-	repoPath     string // original repo path; set when isolation == "worktree"
+	isolation string
+	repoPath  string // original repo path; set when isolation == "worktree"
 
 	mu        sync.Mutex
 	idleTimer *time.Timer
@@ -1020,11 +1020,15 @@ func buildPromptBlocks(message string, attachments []chatapp.Attachment, workDir
 			continue
 		}
 		fileURI := "file://" + filePath
+		var mimeType *string
+		if v := strings.TrimSpace(att.MimeType); v != "" {
+			mimeType = &v
+		}
 		blocks = append(blocks, acpproto.ContentBlock{
 			ResourceLink: &acpproto.ContentBlockResourceLink{
-				URI:      fileURI,
+				Uri:      fileURI,
 				Name:     att.Name,
-				MimeType: att.MimeType,
+				MimeType: mimeType,
 			},
 		})
 	}

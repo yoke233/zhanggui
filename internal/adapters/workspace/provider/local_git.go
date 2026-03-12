@@ -12,39 +12,48 @@ import (
 type LocalGitProvider struct{}
 
 func (p *LocalGitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, issueID int64) (*core.Workspace, error) {
+	var gitBindings []*core.ResourceBinding
 	for _, b := range bindings {
-		if b.Kind != "git" {
+		if b == nil || b.Kind != "git" {
 			continue
 		}
-		repoPath := b.URI
-		branchName := fmt.Sprintf("ai-flow/issue-%d", issueID)
-		worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("issue-%d", issueID))
-
-		runner := workspacegit.NewRunner(repoPath)
-		if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
-			return nil, fmt.Errorf("create worktree for issue %d: %w", issueID, err)
-		}
-
-		defaultBranch := DefaultBranchFromBinding(b)
-		if defaultBranch == "" {
-			defaultBranch = workspacegit.DetectDefaultBranch(repoPath)
-		}
-
-		metadata := map[string]any{
-			"binding_id":     b.ID,
-			"kind":           "git",
-			"branch":         branchName,
-			"default_branch": defaultBranch,
-			"repo_path":      repoPath,
-		}
-		MergeSCMBindingMetadata(metadata, b.Config)
-
-		return &core.Workspace{
-			Path:     worktreePath,
-			Metadata: metadata,
-		}, nil
+		gitBindings = append(gitBindings, b)
 	}
-	return nil, fmt.Errorf("no git resource binding found")
+	if len(gitBindings) == 0 {
+		return nil, fmt.Errorf("no git resource binding found")
+	}
+	if len(gitBindings) > 1 {
+		return nil, fmt.Errorf("multiple git resource bindings found; issue must select one binding explicitly")
+	}
+
+	b := gitBindings[0]
+	repoPath := b.URI
+	branchName := fmt.Sprintf("ai-flow/issue-%d", issueID)
+	worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("issue-%d", issueID))
+
+	runner := workspacegit.NewRunner(repoPath)
+	if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
+		return nil, fmt.Errorf("create worktree for issue %d: %w", issueID, err)
+	}
+
+	defaultBranch := DefaultBranchFromBinding(b)
+	if defaultBranch == "" {
+		defaultBranch = workspacegit.DetectDefaultBranch(repoPath)
+	}
+
+	metadata := map[string]any{
+		"binding_id":     b.ID,
+		"kind":           "git",
+		"branch":         branchName,
+		"default_branch": defaultBranch,
+		"repo_path":      repoPath,
+	}
+	MergeSCMBindingMetadata(metadata, b.Config)
+
+	return &core.Workspace{
+		Path:     worktreePath,
+		Metadata: metadata,
+	}, nil
 }
 
 func (p *LocalGitProvider) Release(_ context.Context, ws *core.Workspace) error {

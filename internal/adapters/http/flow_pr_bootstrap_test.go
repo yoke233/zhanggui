@@ -137,6 +137,37 @@ func TestResolveEnabledSCMRepoFromBindings_RequiresEnabledFlow(t *testing.T) {
 	}
 }
 
+func TestResolveEnabledSCMRepoFromBindings_RejectsAmbiguousBindings(t *testing.T) {
+	dirA := t.TempDir()
+	runGit(t, dirA, "init")
+	runGit(t, dirA, "remote", "add", "origin", "https://github.com/acme/demo-a.git")
+
+	dirB := t.TempDir()
+	runGit(t, dirB, "init")
+	runGit(t, dirB, "remote", "add", "origin", "https://github.com/acme/demo-b.git")
+
+	if _, ok := resolveEnabledSCMRepoFromBindings(context.Background(), []*core.ResourceBinding{
+		{
+			Kind: "git",
+			URI:  dirA,
+			Config: map[string]any{
+				"default_branch":  "main",
+				"enable_scm_flow": true,
+			},
+		},
+		{
+			Kind: "git",
+			URI:  dirB,
+			Config: map[string]any{
+				"default_branch":  "main",
+				"enable_scm_flow": true,
+			},
+		},
+	}); ok {
+		t.Fatal("expected binding resolution to reject ambiguous scm flow bindings")
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

@@ -2,110 +2,59 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
+	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateResourceBinding(ctx context.Context, rb *core.ResourceBinding) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, fmt.Errorf("store is not initialized")
-	}
-	if rb == nil {
-		return 0, fmt.Errorf("resource binding is nil")
-	}
-
-	var configJSON []byte
-	if len(rb.Config) > 0 {
-		var err error
-		configJSON, err = json.Marshal(rb.Config)
-		if err != nil {
-			return 0, fmt.Errorf("marshal config: %w", err)
-		}
-	}
-
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO resource_bindings (project_id, kind, uri, config, label, created_at)
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		rb.ProjectID, rb.Kind, rb.URI, nullableBytes(configJSON), rb.Label)
-	if err != nil {
+	now := time.Now().UTC()
+	model := resourceBindingModelFromCore(rb)
+	model.CreatedAt = now
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	rb.ID = model.ID
+	rb.CreatedAt = now
+	return model.ID, nil
 }
 
 func (s *Store) GetResourceBinding(ctx context.Context, id int64) (*core.ResourceBinding, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, kind, uri, config, label, created_at
-         FROM resource_bindings WHERE id = ?`, id)
-
-	return scanResourceBinding(row)
-}
-
-func (s *Store) ListResourceBindings(ctx context.Context, projectID int64) ([]*core.ResourceBinding, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, kind, uri, config, label, created_at
-         FROM resource_bindings WHERE project_id = ?
-         ORDER BY id`, projectID)
+	var model ResourceBindingModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []*core.ResourceBinding
-	for rows.Next() {
-		var rb core.ResourceBinding
-		var configRaw sql.NullString
-		if err := rows.Scan(&rb.ID, &rb.ProjectID, &rb.Kind, &rb.URI, &configRaw, &rb.Label, &rb.CreatedAt); err != nil {
-			return nil, err
-		}
-		if configRaw.Valid && configRaw.String != "" {
-			if err := json.Unmarshal([]byte(configRaw.String), &rb.Config); err != nil {
-				return nil, fmt.Errorf("unmarshal config: %w", err)
-			}
-		}
-		out = append(out, &rb)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) DeleteResourceBinding(ctx context.Context, id int64) error {
-	if s == nil || s.db == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM resource_bindings WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return core.ErrNotFound
-	}
-	return nil
-}
-
-func scanResourceBinding(row *sql.Row) (*core.ResourceBinding, error) {
-	var rb core.ResourceBinding
-	var configRaw sql.NullString
-	if err := row.Scan(&rb.ID, &rb.ProjectID, &rb.Kind, &rb.URI, &configRaw, &rb.Label, &rb.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if err == gorm.ErrRecordNotFound {
 			return nil, core.ErrNotFound
 		}
 		return nil, err
 	}
-	if configRaw.Valid && configRaw.String != "" {
-		if err := json.Unmarshal([]byte(configRaw.String), &rb.Config); err != nil {
-			return nil, fmt.Errorf("unmarshal config: %w", err)
-		}
-	}
-	return &rb, nil
+	return model.toCore(), nil
 }
 
+func (s *Store) ListResourceBindings(ctx context.Context, projectID int64) ([]*core.ResourceBinding, error) {
+	var models []ResourceBindingModel
+	err := s.orm.WithContext(ctx).
+		Where("project_id = ?", projectID).
+		Order("id ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*core.ResourceBinding, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteResourceBinding(ctx context.Context, id int64) error {
+	result := s.orm.WithContext(ctx).Delete(&ResourceBindingModel{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
