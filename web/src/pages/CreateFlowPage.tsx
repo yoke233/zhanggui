@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ChevronRight,
@@ -25,6 +26,7 @@ const stepColors: Record<string, { bg: string; text: string }> = {
 
 export function CreateIssuePage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { apiClient, projects, selectedProjectId } = useWorkbench();
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<number | null>(selectedProjectId);
@@ -116,11 +118,11 @@ export function CreateIssuePage() {
 
   const generateSteps = async () => {
     if (scmFlowProvider) {
-      setError("当前项目已启用 PR/CR 流程，请直接创建 issue。");
+      setError(t("createFlow.scmFlowError"));
       return;
     }
     if (!title.trim()) {
-      setError("生成步骤前请先填写流程名称。");
+      setError(t("createFlow.nameRequired"));
       return;
     }
     setBusy("generating");
@@ -165,7 +167,7 @@ export function CreateIssuePage() {
     }
 
     if (!title.trim()) {
-      setError("流程名称不能为空。");
+      setError(t("createFlow.nameEmpty"));
       return;
     }
     setBusy(runImmediately ? "running" : "saving");
@@ -206,12 +208,12 @@ export function CreateIssuePage() {
     <div className="flex-1 space-y-6 p-8">
       <div>
         <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/issues" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">{t("createFlow.breadcrumbFlows")}</Link>
           <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-foreground">新建流程</span>
+          <span className="font-medium text-foreground">{t("createFlow.breadcrumbNew")}</span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">新建流程</h1>
-        <p className="text-sm text-muted-foreground">从模板创建、AI 生成或手动配置 Issue。</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("createFlow.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("createFlow.subtitle")}</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
@@ -224,8 +226,8 @@ export function CreateIssuePage() {
                 <FileStack className="h-[18px] w-[18px] text-emerald-500" />
               </div>
               <div>
-                <CardTitle className="text-base">从模板创建</CardTitle>
-                <CardDescription>选择一个已有模板快速创建流程，或跳过此步使用 AI 生成。</CardDescription>
+                <CardTitle className="text-base">{t("createFlow.fromTemplate")}</CardTitle>
+                <CardDescription>{t("createFlow.fromTemplateDesc")}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -250,7 +252,7 @@ export function CreateIssuePage() {
                     <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{tmpl.description}</div>
                   ) : null}
                   <div className="mt-2 flex items-center gap-2">
-                    <Badge variant="secondary" className="text-[10px]">{tmpl.steps.length} 步骤</Badge>
+                    <Badge variant="secondary" className="text-[10px]">{t("createFlow.nSteps", { count: tmpl.steps.length })}</Badge>
                     {(tmpl.tags ?? []).slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
                     ))}
@@ -260,28 +262,27 @@ export function CreateIssuePage() {
             </div>
             {selectedTemplate ? (
               <div className="mt-3 text-xs text-muted-foreground">
-                已选择模板「{selectedTemplate.name}」，包含 {selectedTemplate.steps.length} 个步骤。
-                点击「创建并运行」将直接从模板创建流程。
+                {t("createFlow.templateSelected", { name: selectedTemplate.name, count: selectedTemplate.steps.length })} {t("createFlow.templateHint")}
               </div>
             ) : null}
           </CardContent>
         </Card>
       ) : templatesLoading && !scmFlowProvider ? (
-        <div className="text-sm text-muted-foreground">正在加载模板...</div>
+        <div className="text-sm text-muted-foreground">{t("createFlow.loadingTemplates")}</div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">基本信息</CardTitle>
-              <CardDescription>填写流程的基础元数据</CardDescription>
+              <CardTitle className="text-base">{t("createFlow.basicInfo")}</CardTitle>
+              <CardDescription>{t("createFlow.basicInfoDesc")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">流程名称</label>
+                <label className="text-sm font-medium">{t("createFlow.flowName")}</label>
                 <Input
-                  placeholder="例如：后端 API 重构"
+                  placeholder={t("createFlow.flowNamePlaceholder")}
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                 />
@@ -289,13 +290,13 @@ export function CreateIssuePage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">所属项目</label>
+                  <label className="text-sm font-medium">{t("createFlow.project")}</label>
                   <select
                     className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
                     value={projectId ?? ""}
                     onChange={(event) => setProjectId(event.target.value ? Number.parseInt(event.target.value, 10) : null)}
                   >
-                    <option value="">全部项目</option>
+                    <option value="">{t("createFlow.allProjects")}</option>
                     {projects.map((project) => (
                       <option key={project.id} value={project.id}>
                         {project.name}
@@ -304,22 +305,22 @@ export function CreateIssuePage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">草稿状态</label>
+                  <label className="text-sm font-medium">{t("createFlow.draftStatus")}</label>
                   <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm">
                     {selectedTemplate
-                      ? `模板 #${selectedTemplate.id}`
+                      ? t("createFlow.templateDraft", { id: selectedTemplate.id })
                       : draftIssueId == null
-                        ? "未创建草稿"
+                        ? t("createFlow.noDraft")
                         : `Issue #${draftIssueId}`}
                   </div>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">流程描述</label>
+                <label className="text-sm font-medium">{t("createFlow.flowDesc")}</label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="描述这个流程要完成的目标和范围..."
+                  placeholder={t("createFlow.flowDescPlaceholder")}
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                 />
@@ -330,9 +331,9 @@ export function CreateIssuePage() {
           {scmFlowProvider ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">自动 PR/CR 流程</CardTitle>
+                <CardTitle className="text-base">{t("createFlow.scmFlowTitle")}</CardTitle>
                 <CardDescription>
-                  当前项目已启用 {scmFlowProvider === "codeup" ? "Codeup CR" : "GitHub PR"} 流程。创建 issue 后，系统会自动注入 implement / commit_push / open_pr / review_merge_gate 四个步骤。
+                  {t("createFlow.scmFlowDesc", { provider: scmFlowProvider === "codeup" ? "Codeup CR" : "GitHub PR" })}
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -344,8 +345,8 @@ export function CreateIssuePage() {
                     <Sparkles className="h-[18px] w-[18px] text-indigo-500" />
                   </div>
                   <div>
-                    <CardTitle className="text-base">AI 生成步骤</CardTitle>
-                    <CardDescription>通过 `/issues/:id/generate-steps` 让后端生成 DAG。</CardDescription>
+                    <CardTitle className="text-base">{t("createFlow.aiGenerate")}</CardTitle>
+                    <CardDescription>{t("createFlow.aiGenerateDesc")}</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -354,11 +355,11 @@ export function CreateIssuePage() {
                   className="flex min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
-                  placeholder="描述目标、依赖、角色要求、验收标准..."
+                  placeholder={t("createFlow.aiPromptPlaceholder")}
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
-                    生成按钮会在后端先创建草稿 issue，再写入 steps。
+                    {t("createFlow.aiPromptHint")}
                   </span>
                   <Button
                     className="bg-indigo-500 hover:bg-indigo-600"
@@ -366,7 +367,7 @@ export function CreateIssuePage() {
                     onClick={() => void generateSteps()}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
-                    {busy === "generating" ? "生成中..." : "生成步骤"}
+                    {busy === "generating" ? t("createFlow.generating") : t("createFlow.generateSteps")}
                   </Button>
                 </div>
               </CardContent>
@@ -377,11 +378,11 @@ export function CreateIssuePage() {
         <div className="space-y-6">
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <span className="text-sm font-semibold">步骤预览</span>
+              <span className="text-sm font-semibold">{t("createFlow.stepPreview")}</span>
               <Badge variant="secondary">
                 {selectedTemplate
-                  ? `${selectedTemplate.steps.length} 步骤`
-                  : `${previewSteps.length} 步骤`}
+                  ? t("createFlow.nSteps", { count: selectedTemplate.steps.length })
+                  : t("createFlow.nSteps", { count: previewSteps.length })}
               </Badge>
             </div>
             <div>
@@ -404,6 +405,7 @@ export function CreateIssuePage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
+                          {step.depends_on?.length ? ` · ${t("createFlow.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
                         </div>
                       </div>
                     </div>
@@ -411,11 +413,11 @@ export function CreateIssuePage() {
                 })
               ) : scmFlowProvider ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  当前项目启用了资源级 PR/CR 流程，步骤会在创建 issue 时由后端自动生成。
+                  {t("createFlow.scmAutoSteps")}
                 </div>
               ) : previewSteps.length === 0 ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  还没有生成步骤。可以先选择模板、填写描述再调用后端生成。
+                  {t("createFlow.noSteps")}
                 </div>
               ) : (
                 previewSteps.map((step, index) => {
@@ -436,6 +438,7 @@ export function CreateIssuePage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
+                          {step.depends_on?.length ? ` · ${t("createFlow.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
                         </div>
                       </div>
                     </div>
@@ -447,18 +450,18 @@ export function CreateIssuePage() {
 
           <Card className="p-4">
             <div className="space-y-2 text-sm text-muted-foreground">
-              <div>项目：{selectedProject?.name ?? "未指定"}</div>
+              <div>{t("createFlow.projectLabel", { name: selectedProject?.name ?? t("createFlow.notSpecified") })}</div>
               {scmFlowProvider ? (
-                <div>SCM 流程：{scmFlowProvider === "codeup" ? "Codeup CR 自动注入" : "GitHub PR 自动注入"}</div>
+                <div>{t("createFlow.scmFlow", { provider: scmFlowProvider === "codeup" ? t("createFlow.codeupAuto") : t("createFlow.githubAuto") })}</div>
               ) : null}
               <div>
-                来源：{selectedTemplate
-                  ? `模板「${selectedTemplate.name}」`
+                {selectedTemplate
+                  ? t("createFlow.sourceTemplate", { name: selectedTemplate.name })
                   : aiPrompt.trim()
-                    ? "AI 生成提示词"
+                    ? t("createFlow.sourceAiPrompt")
                     : description.trim()
-                      ? "流程描述"
-                      : "流程名称"}
+                      ? t("createFlow.sourceDescription")
+                      : t("createFlow.sourceFlowName")}
               </div>
             </div>
           </Card>
@@ -466,14 +469,14 @@ export function CreateIssuePage() {
           <div className="space-y-2.5">
             <Button className="w-full gap-2" disabled={busy !== "idle"} onClick={() => void finalizeIssue(true)}>
               <Play className="h-4 w-4" />
-              {busy === "running" ? "启动中..." : "创建并运行"}
+              {busy === "running" ? t("createFlow.running") : t("createFlow.createAndRun")}
             </Button>
             <Button variant="outline" className="w-full" disabled={busy !== "idle"} onClick={() => void finalizeIssue(false)}>
-              {busy === "saving" || busy === "from_template" ? "保存中..." : "仅保存草稿"}
+              {busy === "saving" || busy === "from_template" ? t("createFlow.saving") : t("createFlow.saveAsDraft")}
             </Button>
             <Link to="/issues" className="block">
               <Button variant="ghost" className="w-full text-muted-foreground">
-                取消
+                {t("common.cancel")}
               </Button>
             </Link>
           </div>

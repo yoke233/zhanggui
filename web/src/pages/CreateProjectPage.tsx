@@ -39,7 +39,7 @@ export function CreateProjectPage() {
     {
       kind: "local_fs",
       uri: "",
-      label: "工作目录",
+      label: t("createProject.workingDir"),
       git: { provider: "", enableScmFlow: false, baseBranch: "main", mergeMethod: "squash" },
     },
   ]);

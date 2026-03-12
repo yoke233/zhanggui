@@ -360,7 +360,7 @@ export function SkillsPage() {
               {t("skills.skillMdLabel")} <span className="font-normal text-muted-foreground">{t("skills.skillMdOptional")}</span>
             </label>
             <Textarea
-              placeholder={"---\nname: code-review\ndescription: 代码审查技能\nassign_when: 需要代码审查时\nversion: 1\n---\n\n# 技能说明\n\n..."}
+              placeholder={"---\nname: code-review\ndescription: Code review skill\nassign_when: When code review is needed\nversion: 1\n---\n\n# Skill Description\n\n..."}
               value={createSkillMd}
               onChange={(e) => setCreateSkillMd(e.target.value)}
               className="min-h-[200px] font-mono text-xs"
@@ -561,15 +561,7 @@ export function SkillsPage() {
         <DialogHeader>
           <DialogTitle>{t("skills.confirmDelete")}</DialogTitle>
           <DialogDescription>
-            {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`).length > 1 ? (
-              <>
-                {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`)[0]}
-                <strong>{deleteTarget}</strong>
-                {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`)[1]}
-              </>
-            ) : (
-              <span dangerouslySetInnerHTML={{ __html: t("skills.confirmDeleteDesc", { name: deleteTarget }) }} />
-            )}
+            {t("skills.confirmDeletePrefix")}<strong>{deleteTarget}</strong>{t("skills.confirmDeleteSuffix")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

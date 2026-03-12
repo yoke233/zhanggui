@@ -49,7 +49,7 @@ interface CronParseResult {
 function parseCronExpr(expr: string, t: TFunction): CronParseResult {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) {
-    return { valid: false, error: t("analytics.cronNeedFields", { count: parts.length }) };
+    return { valid: false, error: t("analytics.cronNeedsFields", { count: parts.length }) };
   }
 
   const fieldNames = [
@@ -62,7 +62,7 @@ function parseCronExpr(expr: string, t: TFunction): CronParseResult {
   const ranges: [number, number][] = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
 
   for (let i = 0; i < 5; i++) {
-    const err = validateField(parts[i], ranges[i][0], ranges[i][1]);
+    const err = validateField(parts[i], ranges[i][0], ranges[i][1], t);
     if (err) return { valid: false, error: `${fieldNames[i]}: ${err}` };
   }
 
@@ -70,23 +70,23 @@ function parseCronExpr(expr: string, t: TFunction): CronParseResult {
   return { valid: true, description: desc };
 }
 
-function validateField(field: string, min: number, max: number): string | null {
+function validateField(field: string, min: number, max: number, t: TFunction): string | null {
   if (field === "*") return null;
   for (const segment of field.split(",")) {
     const [rangePart, stepStr] = segment.split("/");
     if (stepStr !== undefined) {
       const step = Number(stepStr);
-      if (!Number.isInteger(step) || step <= 0) return `无效步长 "${stepStr}"`;
+      if (!Number.isInteger(step) || step <= 0) return t("analytics.invalidStep", { value: stepStr });
     }
     if (rangePart === "*") continue;
     if (rangePart.includes("-")) {
       const [lo, hi] = rangePart.split("-").map(Number);
-      if (!Number.isInteger(lo) || !Number.isInteger(hi)) return `无效范围 "${rangePart}"`;
-      if (lo < min || hi > max || lo > hi) return `范围 ${lo}-${hi} 超出 [${min},${max}]`;
+      if (!Number.isInteger(lo) || !Number.isInteger(hi)) return t("analytics.invalidRange", { value: rangePart });
+      if (lo < min || hi > max || lo > hi) return t("analytics.rangeExceeded", { lo, hi, min, max });
     } else {
       const v = Number(rangePart);
-      if (!Number.isInteger(v)) return `无效值 "${rangePart}"`;
-      if (v < min || v > max) return `值 ${v} 超出 [${min},${max}]`;
+      if (!Number.isInteger(v)) return t("analytics.invalidValue", { value: rangePart });
+      if (v < min || v > max) return t("analytics.valueExceeded", { value: v, min, max });
     }
   }
   return null;
@@ -138,7 +138,7 @@ function describeCron(minute: string, hour: string, day: string, month: string, 
     } else if (minute === "0") {
       parts.push(t("analytics.cronEveryHourOnTheHour"));
     } else {
-      parts.push(t("analytics.cronEveryHourAtMinute", { m: minute }));
+      parts.push(t("analytics.cronEveryHourAtMinute", { minute }));
     }
   } else if (minute === "*") {
     parts.push(describeList(hour, (v) => t("analytics.cronHourN", { n: v }), t) + t("analytics.cronEveryMinuteOf"));

@@ -1,5 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import type { TFunction } from "i18next";
 import {
   AlertTriangle,
   Bot,
@@ -146,14 +148,14 @@ const toMessageView = (sessionId: string, message: ChatMessage, index: number): 
   at: message.time,
 });
 
-const toSummaryRecord = (session: ChatSessionSummary): SessionRecord => ({
+const toSummaryRecord = (session: ChatSessionSummary, t: TFunction): SessionRecord => ({
   ...session,
-  title: session.title?.trim() || "新会话",
+  title: session.title?.trim() || t("chat.newSession"),
 });
 
-const toDetailRecord = (session: ChatSessionDetail): SessionRecord => ({
+const toDetailRecord = (session: ChatSessionDetail, t: TFunction): SessionRecord => ({
   ...session,
-  title: session.title?.trim() || "新会话",
+  title: session.title?.trim() || t("chat.newSession"),
 });
 
 const fallbackLabel = (value: string | null | undefined, fallback: string): string => {
@@ -179,14 +181,14 @@ const normalizeDriverKey = (driverId?: string): string => {
   return normalized;
 };
 
-const driverLabelForId = (driverId?: string): string => {
+const driverLabelForId = (driverId: string | undefined, t: TFunction): string => {
   switch (normalizeDriverKey(driverId)) {
     case "codex":
       return "Codex";
     case "claude":
       return "Claude";
     default:
-      return fallbackLabel(driverId, "未指定 Driver");
+      return fallbackLabel(driverId, t("chat.noDriver"));
   }
 };
 
@@ -201,14 +203,14 @@ const badgeVariantForStatus = (status?: string): "success" | "warning" | "second
   }
 };
 
-const badgeLabelForStatus = (status?: string): string => {
+const badgeLabelForStatus = (status: string | undefined, t: TFunction): string => {
   switch (status) {
     case "running":
-      return "活跃";
+      return t("chat.active");
     case "alive":
-      return "空闲";
+      return t("chat.idle");
     default:
-      return "已关闭";
+      return t("chat.closed");
   }
 };
 
@@ -317,37 +319,37 @@ const eventToneForType = (rawType: string): ChatEventListItem["tone"] => {
   }
 };
 
-const labelForEventType = (rawType: string): string => {
+const labelForEventType = (rawType: string, t: TFunction): string => {
   switch (rawType) {
     case "agent_message_chunk":
-      return "增量输出";
+      return t("chat.deltaOutput");
     case "agent_message":
-      return "回复完成";
+      return t("chat.replyDone");
     case "agent_thought":
-      return "思考";
+      return t("chat.thinking");
     case "tool_call":
-      return "工具调用";
+      return t("chat.toolCall");
     case "tool_call_update":
-      return "工具更新";
+      return t("chat.toolUpdate");
     case "tool_call_completed":
-      return "工具完成";
+      return t("chat.toolDone");
     case "usage_update":
-      return "上下文用量";
+      return t("chat.contextUsage");
     case "available_commands_update":
-      return "命令列表更新";
+      return t("chat.commandListUpdate");
     case "config_option_update":
     case "config_options_update":
-      return "会话配置更新";
+      return t("chat.sessionConfigUpdate");
     case "done":
-      return "会话完成";
+      return t("chat.sessionComplete");
     case "error":
-      return "会话错误";
+      return t("chat.sessionError");
     default:
-      return rawType || "事件";
+      return rawType || t("chat.event");
   }
 };
 
-const buildEventSummary = (event: ApiEvent): { rawType: string; summary?: string; detail?: string } => {
+const buildEventSummary = (event: ApiEvent, t: TFunction): { rawType: string; summary?: string; detail?: string } => {
   const data = isRecord(event.data) ? event.data : {};
   const payload = toRealtimePayload(event);
   const acp = isRecord(data.acp) ? data.acp : {};
@@ -370,7 +372,7 @@ const buildEventSummary = (event: ApiEvent): { rawType: string; summary?: string
     const usageUsed = toNumberValue(data.usage_used) ?? payload.usage_used;
     return {
       rawType,
-      summary: `已用 ${formatUsageValue(usageUsed)} / ${formatUsageValue(usageSize)}`,
+      summary: t("chat.usageStats", { used: formatUsageValue(usageUsed), total: formatUsageValue(usageSize) }),
       detail: details.length > 0 ? details.join("\n") : undefined,
     };
   }
@@ -382,7 +384,7 @@ const buildEventSummary = (event: ApiEvent): { rawType: string; summary?: string
       .slice(0, 6);
     return {
       rawType,
-      summary: names.length > 0 ? `${commands.length} 个命令: ${names.join(", ")}` : `${commands.length} 个命令`,
+      summary: names.length > 0 ? t("chat.nCommandsWithNames", { count: commands.length, names: names.join(", ") }) : t("chat.nCommands", { count: commands.length }),
       detail: details.length > 0 ? details.join("\n") : undefined,
     };
   }
@@ -401,7 +403,7 @@ const buildEventSummary = (event: ApiEvent): { rawType: string; summary?: string
       .slice(0, 6);
     return {
       rawType,
-      summary: names.length > 0 ? `${options.length} 项: ${names.join(", ")}` : `${options.length} 项配置`,
+      summary: names.length > 0 ? t("chat.nOptionsWithNames", { count: options.length, names: names.join(", ") }) : t("chat.nOptions", { count: options.length }),
       detail: details.length > 0 ? details.join("\n") : undefined,
     };
   }
@@ -425,8 +427,8 @@ const buildEventSummary = (event: ApiEvent): { rawType: string; summary?: string
   };
 };
 
-const toEventListItem = (event: ApiEvent): ChatEventListItem => {
-  const { rawType, summary, detail } = buildEventSummary(event);
+const toEventListItem = (event: ApiEvent, t: TFunction): ChatEventListItem => {
+  const { rawType, summary, detail } = buildEventSummary(event, t);
   const data = isRecord(event.data) ? event.data : {};
   const shouldShowRaw = (
     isRecord(data.acp)
@@ -444,7 +446,7 @@ const toEventListItem = (event: ApiEvent): ChatEventListItem => {
     id: `event-${event.id}`,
     at: event.timestamp,
     time: formatActivityTime(event.timestamp),
-    label: labelForEventType(rawType),
+    label: labelForEventType(rawType, t),
     rawType,
     summary,
     detail,
@@ -453,10 +455,10 @@ const toEventListItem = (event: ApiEvent): ChatEventListItem => {
   };
 };
 
-const buildToolResultDetail = (payload: RealtimeChatOutputPayload): string => {
+const buildToolResultDetail = (payload: RealtimeChatOutputPayload, t: TFunction): string => {
   const parts: string[] = [];
   if (typeof payload.exit_code === "number") {
-    parts.push(`退出码：${payload.exit_code}`);
+    parts.push(t("chat.exitCode", { code: payload.exit_code }));
   }
   if (payload.content?.trim()) {
     parts.push(payload.content.trim());
@@ -489,6 +491,7 @@ const applyActivityPayload = (
   sessionId: string,
   payload: RealtimeChatOutputPayload,
   at: string,
+  t: TFunction,
 ): ChatActivityView[] => {
   const updateType = payload.type?.trim();
   if (!updateType) {
@@ -516,7 +519,7 @@ const applyActivityPayload = (
     next.push({
       id: `${sessionId}-thought-${Date.parse(at)}-${next.length}`,
       type: "agent_thought",
-      title: "思考中",
+      title: t("chat.thinkingState"),
       detail,
       time,
       at,
@@ -533,8 +536,8 @@ const applyActivityPayload = (
     const activity: ChatActivityView = {
       id: previous?.id ?? `${sessionId}-tool-${toolCallId ?? `${Date.parse(at)}-${next.length}`}`,
       type: "tool_call",
-      title: payload.content?.trim() || previous?.title || "工具调用",
-      detail: previous?.detail || "执行中...",
+      title: payload.content?.trim() || previous?.title || t("chat.toolCall"),
+      detail: previous?.detail || t("chat.executing"),
       time,
       at,
       status: "running",
@@ -555,11 +558,11 @@ const applyActivityPayload = (
       : -1;
     const previous = existingIndex >= 0 ? next[existingIndex] : null;
     const status = payload.exit_code && payload.exit_code !== 0 ? "failed" : "completed";
-    const detail = buildToolResultDetail(payload) || previous?.detail || "已完成";
+    const detail = buildToolResultDetail(payload, t) || previous?.detail || t("chat.completed");
     const activity: ChatActivityView = {
       id: previous?.id ?? `${sessionId}-tool-${toolCallId ?? `${Date.parse(at)}-${next.length}`}`,
       type: "tool_call",
-      title: previous?.title || payload.content?.trim() || "工具调用",
+      title: previous?.title || payload.content?.trim() || t("chat.toolCall"),
       detail,
       time,
       at,
@@ -583,8 +586,8 @@ const applyActivityPayload = (
     const activity: ChatActivityView = {
       id: `${sessionId}-usage`,
       type: "usage_update",
-      title: "上下文用量",
-      detail: `已用 ${formatUsageValue(usageUsed)} / ${formatUsageValue(usageSize)}`,
+      title: t("chat.contextUsage"),
+      detail: t("chat.usageStats", { used: formatUsageValue(usageUsed), total: formatUsageValue(usageSize) }),
       time,
       at,
       usageSize,
@@ -632,6 +635,7 @@ const buildRealtimeEvent = (id: number, at: string, payload: RealtimeChatOutputP
 const buildActivityHistory = (
   sessionId: string,
   events: ApiEvent[],
+  t: TFunction,
 ): ChatActivityView[] => {
   const sorted = [...events].sort((left, right) => (
     new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()
@@ -644,11 +648,12 @@ const buildActivityHistory = (
     if (payload.session_id?.trim() !== sessionId) {
       return activities;
     }
-    return applyActivityPayload(activities, sessionId, payload, event.timestamp);
+    return applyActivityPayload(activities, sessionId, payload, event.timestamp, t);
   }, []);
 };
 
 function EventLogRow({ item }: { item: ChatEventListItem }) {
+  const { t } = useTranslation();
   const hasExpandedContent = Boolean(item.detail || item.raw);
   const shouldCollapseByDefault = hasExpandedContent && (
     item.rawType.includes("tool")
@@ -697,7 +702,7 @@ function EventLogRow({ item }: { item: ChatEventListItem }) {
                   {item.summary}
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground">无摘要</p>
+                <p className="text-xs text-muted-foreground">{t("chat.noSummary")}</p>
               )}
             </div>
             {hasExpandedContent ? (
@@ -706,7 +711,7 @@ function EventLogRow({ item }: { item: ChatEventListItem }) {
                 className="shrink-0 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 onClick={() => setExpanded((current) => !current)}
               >
-                {expanded ? "收起" : "展开"}
+                {expanded ? t("chat.collapse") : t("chat.expand")}
               </button>
             ) : null}
           </div>
@@ -729,6 +734,7 @@ function EventLogRow({ item }: { item: ChatEventListItem }) {
 }
 
 export function ChatPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     apiClient,
@@ -766,7 +772,7 @@ export function ChatPage() {
   const syntheticEventIdRef = useRef(-1);
 
   const syncSessionDetail = (detail: ChatSessionDetail) => {
-    const record = toDetailRecord(detail);
+    const record = toDetailRecord(detail, t);
     const views = detail.messages.map((message, index) =>
       toMessageView(detail.session_id, message, index),
     );
@@ -800,7 +806,7 @@ export function ChatPage() {
       ));
       setActivitiesBySession((activityCurrent) => ({
         ...activityCurrent,
-        [sessionId]: buildActivityHistory(sessionId, merged),
+        [sessionId]: buildActivityHistory(sessionId, merged, t),
       }));
       return {
         ...current,
@@ -827,7 +833,7 @@ export function ChatPage() {
     setLoadingSessions(true);
     try {
       const list = await apiClient.listChatSessions();
-      const next = list.map(toSummaryRecord);
+      const next = list.map((s) => toSummaryRecord(s, t));
       setSessions(next.sort((left, right) => (
         new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
       )));
@@ -990,7 +996,7 @@ export function ChatPage() {
       if (!grouped.has(key)) {
         grouped.set(key, {
           key,
-          label: driverLabelForId(driver.id),
+          label: driverLabelForId(driver.id, t),
           driverId: driver.id,
         });
       }
@@ -1020,13 +1026,13 @@ export function ChatPage() {
   const currentProjectId = currentSession?.project_id ?? draftProjectId ?? null;
   const currentProjectLabel = fallbackLabel(
     currentSession?.project_name ?? (currentProjectId != null ? projectNameMap.get(currentProjectId) : undefined),
-    "未指定项目",
+    t("chat.noProject"),
   );
   const currentDriverId = currentSession?.driver_id ?? draftDriverId;
   const draftSessionReady = Boolean(draftProfileId && draftDriverId);
   const currentDriverLabel = currentDriverId
-    ? leadDriverMap.get(currentDriverId)?.label ?? driverLabelForId(currentDriverId)
-    : "未指定 Driver";
+    ? leadDriverMap.get(currentDriverId)?.label ?? driverLabelForId(currentDriverId, t)
+    : t("chat.noDriver");
 
   const filteredSessions = useMemo(
     () =>
@@ -1039,7 +1045,7 @@ export function ChatPage() {
           session.title,
           session.project_name,
           session.profile_name,
-          session.driver_id ? driverLabelForId(session.driver_id).toLowerCase() : "",
+          session.driver_id ? driverLabelForId(session.driver_id, t).toLowerCase() : "",
         ].some((value) => (value ?? "").toLowerCase().includes(query));
       }),
     [sessionSearch, sessions],
@@ -1059,7 +1065,7 @@ export function ChatPage() {
       }
       groups.set(key, {
         key,
-        label: fallbackLabel(session.project_name, "未指定项目"),
+        label: fallbackLabel(session.project_name, t("chat.noProject")),
         updatedAt: session.updated_at,
         sessions: [session],
       });
@@ -1094,7 +1100,7 @@ export function ChatPage() {
           }
           return left.id - right.id;
         })
-        .map((event) => toEventListItem(event)),
+        .map((event) => toEventListItem(event, t)),
     [currentEvents],
   );
 
@@ -1174,7 +1180,7 @@ export function ChatPage() {
 
         if (updateType === "error") {
           flushBufferedChunks();
-          setError(payload.content?.trim() || "会话执行失败");
+          setError(payload.content?.trim() || t("chat.sessionFailed"));
           setSessions((current) => touchSessionList(current, sessionId, "closed", nowISO));
           setSubmitting(false);
           pendingRequestIdRef.current = null;
@@ -1189,6 +1195,7 @@ export function ChatPage() {
               sessionId,
               payload,
               nowISO,
+              t,
             ),
           }));
           setSessions((current) => touchSessionList(current, sessionId, "running", nowISO));
@@ -1232,7 +1239,7 @@ export function ChatPage() {
         }
         pendingRequestIdRef.current = null;
         setSubmitting(false);
-        setError(payload.error?.trim() || "发送消息失败");
+        setError(payload.error?.trim() || t("chat.sendFailed"));
         const sessionId = payload.session_id?.trim();
         if (sessionId) {
           setSessions((current) => touchSessionList(current, sessionId, "closed", new Date().toISOString()));
@@ -1318,7 +1325,7 @@ export function ChatPage() {
         session.session_id === sessionId
           ? {
               ...session,
-              title: session.title === "新会话" && role === "user"
+              title: session.title === t("chat.newSession") && role === "user"
                 ? content.slice(0, 24)
                 : session.title,
               updated_at: nowISO,
@@ -1371,11 +1378,11 @@ export function ChatPage() {
     const resolvedDriverId = currentSession?.driver_id ?? draftDriverId;
 
     if (!resolvedProfileId) {
-      setError("请先选择 Driver 后再开始会话。");
+      setError(t("chat.selectDriverFirst"));
       return;
     }
     if (!resolvedDriverId) {
-      setError("请先选择 Driver 后再开始会话。");
+      setError(t("chat.selectDriverFirst"));
       return;
     }
 
@@ -1388,7 +1395,7 @@ export function ChatPage() {
     }
 
     const displayContent = content + (attachments.length > 0
-      ? `\n[附件: ${attachments.map((a) => a.name).join(", ")}]`
+      ? `\n${t("chat.attachmentLabel", { names: attachments.map((a) => a.name).join(", ") })}`
       : "");
     appendMessage(workingSessionId, "user", displayContent);
     setMessageInput("");
@@ -1404,7 +1411,7 @@ export function ChatPage() {
         data: {
           request_id: requestId,
           session_id: workingSessionId ?? undefined,
-          message: content || "(附件)",
+          message: content || t("chat.attachment"),
           attachments: attachments.length > 0 ? attachments : undefined,
           project_id: resolvedProjectId,
           project_name: resolvedProjectName,
@@ -1505,16 +1512,16 @@ export function ChatPage() {
       <div className="flex w-72 flex-col border-r bg-sidebar">
         <div className="border-b p-3">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">会话列表</h2>
+            <h2 className="text-sm font-semibold">{t("chat.sessionList")}</h2>
             <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" onClick={createSession}>
               <Plus className="h-3.5 w-3.5" />
-              新建
+              {t("chat.new")}
             </Button>
           </div>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索会话..."
+              placeholder={t("chat.searchSessions")}
               className="h-8 pl-8 text-xs"
               value={sessionSearch}
               onChange={(event) => setSessionSearch(event.target.value)}
@@ -1551,7 +1558,7 @@ export function ChatPage() {
               </button>
 
               {!collapsedGroups[group.key] ? group.sessions.map((session) => {
-                const preview = messagesBySession[session.session_id]?.at(-1)?.content ?? "暂无消息";
+                const preview = messagesBySession[session.session_id]?.at(-1)?.content ?? t("chat.noMessages");
                 return (
                   <button
                     key={session.session_id}
@@ -1562,7 +1569,7 @@ export function ChatPage() {
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{session.title ?? "新会话"}</span>
+                      <span className="truncate text-sm font-medium">{session.title ?? t("chat.newSession")}</span>
                       <span className="shrink-0 text-[10px] text-muted-foreground">
                         {new Date(session.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                       </span>
@@ -1583,7 +1590,7 @@ export function ChatPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {session.driver_id ? (
                         <Badge variant="outline" className="text-[10px]">
-                          Lead · {driverLabelForId(session.driver_id)}
+                          Lead · {driverLabelForId(session.driver_id, t)}
                         </Badge>
                       ) : null}
                     </div>
@@ -1594,7 +1601,7 @@ export function ChatPage() {
           ))}
           {!loadingSessions && groupedSessions.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground">
-              暂无会话。
+              {t("chat.noSessions")}
             </div>
           ) : null}
         </div>
@@ -1615,13 +1622,13 @@ export function ChatPage() {
                     variant={badgeVariantForStatus(currentSession?.status)}
                     className="text-[10px]"
                   >
-                    {badgeLabelForStatus(currentSession?.status)}
+                    {badgeLabelForStatus(currentSession?.status, t)}
                   </Badge>
                   {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Badge variant="secondary" className="text-[10px]">
-                    项目 · {currentProjectLabel}
+                    {t("chat.projectDot")}{currentProjectLabel}
                   </Badge>
                   <Badge variant="secondary" className="text-[10px]">
                     Lead · {currentDriverLabel}
@@ -1632,7 +1639,7 @@ export function ChatPage() {
             <div className="flex items-center gap-2">
               {currentUsage ? (
                 <div className="flex items-center gap-2 rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-                  <span className="shrink-0 whitespace-nowrap">上下文</span>
+                  <span className="shrink-0 whitespace-nowrap">{t("chat.context")}</span>
                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn(
@@ -1661,7 +1668,7 @@ export function ChatPage() {
                   )}
                   onClick={() => setDetailView("chat")}
                 >
-                  对话
+                  {t("chat.conversation")}
                 </button>
                 <button
                   type="button"
@@ -1671,7 +1678,7 @@ export function ChatPage() {
                   )}
                   onClick={() => setDetailView("events")}
                 >
-                  事件
+                  {t("chat.events")}
                 </button>
               </div>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void closeSession()}>
@@ -1688,7 +1695,7 @@ export function ChatPage() {
           {detailView === "events" ? (
             currentEventItems.length === 0 ? (
               <div className="mx-auto w-full max-w-[920px] rounded-2xl border border-dashed bg-muted/20 px-5 py-6 text-sm text-muted-foreground">
-                这个会话还没有可显示的事件。
+                {t("chat.noEvents")}
               </div>
             ) : (
               <div className="mx-auto w-full max-w-[920px] space-y-3">
@@ -1700,12 +1707,12 @@ export function ChatPage() {
               <div className="w-full max-w-[860px] rounded-[28px] border bg-gradient-to-br from-white via-slate-50 to-slate-100 p-7 shadow-sm">
                 <div className="space-y-6">
                   <div className="space-y-2">
-                    <p className="text-2xl font-semibold tracking-tight text-foreground">新会话</p>
-                    <p className="text-sm text-muted-foreground">先选择项目和 Driver，然后直接在这里输入第一条消息。</p>
+                    <p className="text-2xl font-semibold tracking-tight text-foreground">{t("chat.newSession")}</p>
+                    <p className="text-sm text-muted-foreground">{t("chat.newSessionHint")}</p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">项目</label>
+                    <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{t("common.project")}</label>
                     <Select
                       value={draftProjectId == null ? "" : String(draftProjectId)}
                       onChange={(event) => {
@@ -1715,7 +1722,7 @@ export function ChatPage() {
                         setSelectedProjectId(nextProjectId);
                       }}
                     >
-                      <option value="">未指定项目</option>
+                      <option value="">{t("chat.noProject")}</option>
                       {projects.map((project) => (
                         <option key={project.id} value={project.id}>{project.name}</option>
                       ))}
@@ -1730,7 +1737,7 @@ export function ChatPage() {
                         setDraftDriverId(next === EMPTY_PROFILE_VALUE ? "" : next);
                       }}
                     >
-                      <option value={EMPTY_PROFILE_VALUE}>请选择 Driver</option>
+                      <option value={EMPTY_PROFILE_VALUE}>{t("chat.selectDriver")}</option>
                       {leadDriverOptions.map((option) => (
                         <option key={option.driverId} value={option.driverId}>
                           {option.label}
@@ -1741,7 +1748,7 @@ export function ChatPage() {
                   </div>
                   <div className="space-y-3">
                     <Textarea
-                      placeholder={`输入消息，使用 Lead · ${currentDriverLabel} 在 ${currentProjectLabel} 下开始会话...`}
+                      placeholder={t("chat.inputPlaceholderNew", { driver: currentDriverLabel, project: currentProjectLabel })}
                       className="min-h-[180px] resize-none bg-white/90"
                       value={messageInput}
                       disabled={submitting || !draftSessionReady}
@@ -1769,7 +1776,7 @@ export function ChatPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary" className="text-[10px]">
-                          项目 · {currentProjectLabel}
+                          {t("chat.projectDot")}{currentProjectLabel}
                         </Badge>
                         <Badge variant="secondary" className="text-[10px]">
                           Lead · {currentDriverLabel}
@@ -1782,7 +1789,7 @@ export function ChatPage() {
                           className="h-10 w-10 shrink-0"
                           disabled={submitting || !draftSessionReady}
                           onClick={() => fileInputRef.current?.click()}
-                          title="上传文件或图片"
+                          title={t("chat.uploadFile")}
                         >
                           <Paperclip className="h-4 w-4" />
                         </Button>
@@ -1792,19 +1799,19 @@ export function ChatPage() {
                           onClick={() => void sendMessage()}
                         >
                           <Send className="h-4 w-4" />
-                          发送
+                          {t("chat.send")}
                         </Button>
                       </div>
                     </div>
-                    <div className="text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行 · 可粘贴图片</div>
+                    <div className="text-[10px] text-muted-foreground">{t("chat.inputHint")}</div>
                   </div>
                   {leadProfiles.length === 0 ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      还没有可用的 lead driver，请先到代理页面配置。
+                      {t("chat.noLeadDriver")}
                     </div>
                   ) : drivers.length === 0 ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      还没有可用的 Driver，请先到代理页面配置。
+                      {t("chat.noDriverAvailable")}
                     </div>
                   ) : null}
                 </div>
@@ -1812,7 +1819,7 @@ export function ChatPage() {
             </div>
           ) : currentMessages.length === 0 ? (
             <div className="mx-auto w-full max-w-[920px] rounded-2xl border border-dashed bg-muted/20 px-5 py-6 text-sm text-muted-foreground">
-              这个会话还没有消息。
+              {t("chat.noMessagesInSession")}
             </div>
           ) : (
             <div className="mx-auto w-full max-w-[920px] space-y-4">
@@ -1854,7 +1861,7 @@ export function ChatPage() {
                               ? "bg-emerald-100 text-emerald-600"
                               : "bg-white/80 text-muted-foreground opacity-0 shadow-sm backdrop-blur-sm hover:bg-white hover:text-foreground group-hover/msg:opacity-100",
                           )}
-                          title="复制内容"
+                          title={t("chat.copy")}
                           onClick={() => void handleCopyMessage(message.id, message.content)}
                         >
                           {copiedMessageId === message.id ? (
@@ -1876,7 +1883,7 @@ export function ChatPage() {
                               ? "text-emerald-600"
                               : "text-muted-foreground hover:bg-muted hover:text-foreground",
                           )}
-                          title="复制"
+                          title={t("chat.copy")}
                           onClick={() => void handleCopyMessage(message.id, message.content)}
                         >
                           {copiedMessageId === message.id ? (
@@ -1893,7 +1900,7 @@ export function ChatPage() {
                               ? "text-emerald-600"
                               : "text-muted-foreground hover:bg-amber-50 hover:text-amber-600",
                           )}
-                          title="创建 Issue"
+                          title={t("chat.createIssue")}
                           onClick={() => void handleCreateIssueFromMessage(message.id, message.content)}
                         >
                           {createdIssueMessageId === message.id ? (
@@ -1905,7 +1912,7 @@ export function ChatPage() {
                         <button
                           type="button"
                           className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
-                          title="创建 Issue"
+                          title={t("chat.createIssue")}
                           onClick={() => void handleCreateIssue(message.content)}
                         >
                           <Workflow className="h-3.5 w-3.5" />
@@ -1940,8 +1947,8 @@ export function ChatPage() {
               <Input
                 placeholder={
                   currentSession
-                    ? "输入消息，与 Lead Agent 对话..."
-                    : `输入消息，使用 Lead · ${currentDriverLabel} 在 ${currentProjectLabel} 下开始会话...`
+                    ? t("chat.inputPlaceholderActive")
+                    : t("chat.inputPlaceholderNew", { driver: currentDriverLabel, project: currentProjectLabel })
                 }
                 className="pr-10"
                 value={messageInput}
@@ -1962,7 +1969,7 @@ export function ChatPage() {
               className="h-10 w-10 shrink-0"
               disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
               onClick={() => fileInputRef.current?.click()}
-              title="上传文件或图片"
+              title={t("chat.uploadFile")}
             >
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -1975,7 +1982,7 @@ export function ChatPage() {
               <Send className="h-4 w-4" />
             </Button>
           </div>
-          <div className="mt-2 text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行 · 可粘贴图片</div>
+          <div className="mt-2 text-[10px] text-muted-foreground">{t("chat.inputHint")}</div>
           </div>
         ) : null}
         <input

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
 import {
   ChevronRight,
@@ -24,8 +25,8 @@ interface LogLine {
   content: string;
 }
 
-const eventToLogLine = (event: Event): LogLine | null => {
-  const time = new Date(event.timestamp).toLocaleTimeString("zh-CN", {
+const eventToLogLine = (event: Event, locale: string): LogLine | null => {
+  const time = new Date(event.timestamp).toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -56,6 +57,7 @@ const eventToLogLine = (event: Event): LogLine | null => {
 
 export function ExecutionDetailPage() {
   const { execId } = useParams();
+  const { t, i18n } = useTranslation();
   const { apiClient } = useWorkbench();
   const numericExecId = Number.parseInt(execId ?? "", 10);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -125,9 +127,9 @@ export function ExecutionDetailPage() {
   const logs = useMemo(
     () =>
       events
-        .map(eventToLogLine)
+        .map((event) => eventToLogLine(event, i18n.language))
         .filter((line): line is LogLine => line != null),
-    [events],
+    [events, i18n.language],
   );
 
   useEffect(() => {
@@ -138,17 +140,17 @@ export function ExecutionDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
         <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/issues" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">{t("execDetail.flows")}</Link>
           <ChevronRight className="h-3 w-3" />
           {issue ? <Link to={`/issues/${issue.id}`} className="hover:text-foreground">{issue.title}</Link> : <span>Issue</span>}
           <ChevronRight className="h-3 w-3" />
           <span className="text-foreground">{step?.name ?? "Execution"}</span>
           <span className="mx-1">·</span>
-          <span className="text-foreground">执行详情</span>
+          <span className="text-foreground">{t("execDetail.title")}</span>
         </div>
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold">
-            {step?.name ?? "执行"} {execution ? `— 第 ${execution.attempt} 次尝试` : ""}
+            {step?.name ?? t("execDetail.execution")} {execution ? `— ${t("execDetail.attemptN", { n: execution.attempt })}` : ""}
           </h1>
           {execution ? <StatusBadge status={execution.status} /> : null}
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -164,21 +166,21 @@ export function ExecutionDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="h-4 w-4" />
-                任务说明
+                {t("execDetail.taskBriefing")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">目标</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("execDetail.objective")}</h4>
                 <p className="text-sm leading-relaxed">
-                  {briefing?.objective || step?.description || "当前 step 没有额外 briefing。"}
+                  {briefing?.objective || step?.description || t("execDetail.noObjective")}
                 </p>
               </div>
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">约束</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("execDetail.constraints")}</h4>
                 <ul className="space-y-1.5 text-sm">
                   {(briefing?.constraints ?? []).length === 0 ? (
-                    <li className="text-muted-foreground">未设置约束</li>
+                    <li className="text-muted-foreground">{t("execDetail.noConstraints")}</li>
                   ) : (
                     briefing?.constraints?.map((constraint, index) => (
                       <li key={`${constraint}-${index}`} className="flex items-start gap-2">
@@ -190,10 +192,10 @@ export function ExecutionDetailPage() {
                 </ul>
               </div>
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">验收标准</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("execDetail.acceptanceCriteria")}</h4>
                 <ul className="space-y-1.5 text-sm">
                   {(step?.acceptance_criteria ?? []).length === 0 ? (
-                    <li className="text-muted-foreground">未设置验收标准</li>
+                    <li className="text-muted-foreground">{t("execDetail.noAcceptanceCriteria")}</li>
                   ) : (
                     step?.acceptance_criteria?.map((criteria, index) => (
                       <li key={`${criteria}-${index}`} className="flex items-start gap-2">
@@ -211,14 +213,14 @@ export function ExecutionDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <CheckCircle2 className="h-4 w-4" />
-                提交结果
+                {t("execDetail.submitResult")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {artifact ? (
                 <div className="space-y-3">
                   <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    {artifact.result_markdown || "结果为空"}
+                    {artifact.result_markdown || t("execDetail.emptyResult")}
                   </div>
                   <div className="text-xs text-muted-foreground">Artifact #{artifact.id} · {formatRelativeTime(artifact.created_at)}</div>
                 </div>
@@ -226,8 +228,8 @@ export function ExecutionDetailPage() {
                 <div className="flex items-center gap-3 rounded-lg border border-dashed p-4">
                   <Clock className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-sm font-medium">尚未生成 artifact</p>
-                    <p className="text-xs text-muted-foreground">执行可能仍在进行中，或该 step 未提交结果。</p>
+                    <p className="text-sm font-medium">{t("execDetail.noArtifact")}</p>
+                    <p className="text-xs text-muted-foreground">{t("execDetail.noArtifactDesc")}</p>
                   </div>
                 </div>
               )}
@@ -238,28 +240,28 @@ export function ExecutionDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Bot className="h-4 w-4" />
-                执行信息
+                {t("execDetail.execInfo")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Step 类型</span>
+                <span className="text-muted-foreground">{t("execDetail.stepType")}</span>
                 <span className="font-medium">{step ? normalizeStepTypeLabel(step.type) : "-"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">角色</span>
+                <span className="text-muted-foreground">{t("execDetail.role")}</span>
                 <span className="font-medium">{step?.agent_role || execution?.agent_id || "-"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">尝试</span>
-                <span className="font-medium">{execution ? `第 ${execution.attempt} 次` : "-"}</span>
+                <span className="text-muted-foreground">{t("execDetail.attempt")}</span>
+                <span className="font-medium">{execution ? t("execDetail.attemptCount", { n: execution.attempt }) : "-"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">开始时间</span>
+                <span className="text-muted-foreground">{t("execDetail.startTime")}</span>
                 <span className="font-medium">{execution?.started_at ? formatRelativeTime(execution.started_at) : "-"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">完成时间</span>
+                <span className="text-muted-foreground">{t("execDetail.endTime")}</span>
                 <span className="font-medium">{execution?.finished_at ? formatRelativeTime(execution.finished_at) : "-"}</span>
               </div>
             </CardContent>
@@ -270,16 +272,16 @@ export function ExecutionDetailPage() {
           <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-zinc-400" />
-              <span className="text-sm font-medium text-zinc-300">事件流 / 代理输出</span>
+              <span className="text-sm font-medium text-zinc-300">{t("execDetail.eventStream")}</span>
             </div>
             <Badge variant="outline" className="border-zinc-700 text-xs text-zinc-400">
-              {logs.length} 条
+              {t("execDetail.logCount", { count: logs.length })}
             </Badge>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 font-mono text-sm">
             {logs.length === 0 ? (
-              <div className="text-zinc-500">暂无可展示日志</div>
+              <div className="text-zinc-500">{t("execDetail.noLogs")}</div>
             ) : (
               logs.map((line, index) => (
                 <div key={`${line.time}-${index}`} className="flex gap-3 leading-6">

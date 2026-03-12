@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
 import {
   ReactFlow,
@@ -118,6 +119,7 @@ const buildGraph = (steps: Step[]): { nodes: Node<StepNodeData>[]; edges: Edge[]
 };
 
 export function IssueDetailPage() {
+  const { t } = useTranslation();
   const { flowId: issueIdParam } = useParams();
   const { apiClient, projects } = useWorkbench();
   const numericIssueId = Number.parseInt(issueIdParam ?? "", 10);
@@ -240,10 +242,10 @@ export function IssueDetailPage() {
   );
   const prIssueDisabledReason = useMemo(() => {
     if (!scmProvider) {
-      return "当前项目没有启用 GitHub / Codeup 的 PR/CR 流程资源";
+      return t("flowDetail.noPrFlowResource");
     }
     if (steps.length > 0) {
-      return "当前流程已经存在步骤，不能再注入 PR/CR 模板步骤";
+      return t("flowDetail.stepsAlreadyExist");
     }
     return "";
   }, [scmProvider, steps.length]);
@@ -314,9 +316,9 @@ export function IssueDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
         <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/issues" className="hover:text-foreground">流程</Link>
+          <Link to="/issues" className="hover:text-foreground">{t("flowDetail.flows")}</Link>
           <ChevronRight className="h-3 w-3" />
-          <span>{selectedProject?.name ?? "未指定项目"}</span>
+          <span>{selectedProject?.name ?? t("flowDetail.noProject")}</span>
           <ChevronRight className="h-3 w-3" />
           <span className="text-foreground">{issue?.title ?? `Issue #${issueIdParam}`}</span>
         </div>
@@ -328,7 +330,7 @@ export function IssueDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Issue #{issue?.id ?? issueIdParam}</span>
-            <span className="text-sm text-muted-foreground">· {steps.length} 步骤</span>
+            <span className="text-sm text-muted-foreground">· {t("flowDetail.nSteps", { count: steps.length })}</span>
             {issue ? <span className="text-sm text-muted-foreground">· {formatIssueDuration(issue)}</span> : null}
             {scmProvider ? (
               <>
@@ -340,10 +342,10 @@ export function IssueDetailPage() {
                   size="sm"
                   disabled={runningAction !== "idle" || bootstrapingPRIssue || !!prIssueDisabledReason}
                   onClick={() => void bootstrapPRIssue()}
-                  title={prIssueDisabledReason || "为当前流程注入 PR/CR 自动化步骤"}
+                  title={prIssueDisabledReason || t("flowDetail.injectPrSteps")}
                 >
                   <GitBranch className="mr-2 h-3 w-3" />
-                  {bootstrapingPRIssue ? "创建中..." : "创建 PR/CR 流程"}
+                  {bootstrapingPRIssue ? t("flowDetail.creating") : t("flowDetail.createPrFlow")}
                 </Button>
               </>
             ) : null}
@@ -352,18 +354,18 @@ export function IssueDetailPage() {
               size="sm"
               disabled={runningAction !== "idle" || steps.length === 0 || templateSaved}
               onClick={() => void saveAsTemplate()}
-              title="保存为模板"
+              title={t("flowDetail.saveAsTemplate")}
             >
               <FileStack className="mr-2 h-3 w-3" />
-              {runningAction === "save_template" ? "保存中..." : templateSaved ? "已保存模板" : "存为模板"}
+              {runningAction === "save_template" ? t("flowDetail.savingTemplate") : templateSaved ? t("flowDetail.templateSaved") : t("flowDetail.saveTemplate")}
             </Button>
             <Button variant="outline" size="sm" disabled={runningAction !== "idle"} onClick={() => void runAction("cancel")}>
               <Square className="mr-2 h-3 w-3" />
-              {runningAction === "cancel" ? "取消中..." : "取消"}
+              {runningAction === "cancel" ? t("flowDetail.cancelling") : t("common.cancel")}
             </Button>
             <Button size="sm" disabled={runningAction !== "idle"} onClick={() => void runAction("run")}>
               <Play className="mr-2 h-3 w-3" />
-              {runningAction === "run" ? "提交中..." : "运行"}
+              {runningAction === "run" ? t("flowDetail.submitting") : t("flowDetail.run")}
             </Button>
           </div>
         </div>
@@ -417,10 +419,10 @@ export function IssueDetailPage() {
               </div>
 
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">能力要求</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("flowDetail.requiredCapabilities")}</h4>
                 <div className="flex flex-wrap gap-1.5">
                   {(selectedStep.required_capabilities ?? []).length === 0 ? (
-                    <span className="text-sm text-muted-foreground">未设置</span>
+                    <span className="text-sm text-muted-foreground">{t("flowDetail.notSet")}</span>
                   ) : (
                     selectedStep.required_capabilities?.map((capability) => (
                       <Badge key={capability} variant="secondary" className="text-xs">{capability}</Badge>
@@ -430,10 +432,10 @@ export function IssueDetailPage() {
               </div>
 
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">验收标准</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("flowDetail.acceptanceCriteria")}</h4>
                 <ul className="space-y-1.5">
                   {(selectedStep.acceptance_criteria ?? []).length === 0 ? (
-                    <li className="text-sm text-muted-foreground">未设置</li>
+                    <li className="text-sm text-muted-foreground">{t("flowDetail.notSet")}</li>
                   ) : (
                     selectedStep.acceptance_criteria?.map((criteria, index) => (
                       <li key={`${criteria}-${index}`} className="flex items-start gap-2 text-sm">
@@ -446,24 +448,24 @@ export function IssueDetailPage() {
               </div>
 
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">代理与约束</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("flowDetail.agentAndConstraints")}</h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <Bot className="h-4 w-4 text-muted-foreground" />
-                    <span>{selectedStep.agent_role || "未指定"}</span>
+                    <span>{selectedStep.agent_role || t("flowDetail.notSpecified")}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span>{selectedStep.timeout ?? "未设置 timeout"}</span>
+                    <span>{selectedStep.timeout ?? t("flowDetail.noTimeout")}</span>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">执行历史</h4>
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("flowDetail.executionHistory")}</h4>
                 <div className="space-y-2">
                   {executions.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">还没有 execution</div>
+                    <div className="text-sm text-muted-foreground">{t("flowDetail.noExecutions")}</div>
                   ) : (
                     executions.map((execution) => (
                       <Link
@@ -472,7 +474,7 @@ export function IssueDetailPage() {
                         className="flex items-center justify-between rounded-md border p-2.5 text-sm transition-colors hover:bg-muted/50"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">第 {execution.attempt} 次</span>
+                          <span className="font-medium">{t("flowDetail.attemptN", { n: execution.attempt })}</span>
                           <StatusBadge status={execution.status} />
                         </div>
                         <span className="text-xs text-muted-foreground">
