@@ -14,12 +14,12 @@ import (
 
 // Metadata keys used in Issue.Metadata to define cron triggers.
 const (
-	MetaSchedule       = "cron_schedule"        // cron expression, e.g. "0 */6 * * *"
-	MetaEnabled        = "cron_enabled"         // "true" to activate
-	MetaTemplateID     = "cron_template"        // "true" marks this issue as a template (not submitted itself)
-	MetaMaxInstances   = "cron_max_instances"   // max concurrent instances from this template (default 1)
-	MetaSourceIssueID  = "cron_source_issue_id" // set on cloned issues to trace origin
-	MetaLastTriggered  = "cron_last_triggered"  // ISO8601 timestamp of last trigger
+	MetaSchedule      = "cron_schedule"        // cron expression, e.g. "0 */6 * * *"
+	MetaEnabled       = "cron_enabled"         // "true" to activate
+	MetaTemplateID    = "cron_template"        // "true" marks this issue as a template (not submitted itself)
+	MetaMaxInstances  = "cron_max_instances"   // max concurrent instances from this template (default 1)
+	MetaSourceIssueID = "cron_source_issue_id" // set on cloned issues to trace origin
+	MetaLastTriggered = "cron_last_triggered"  // ISO8601 timestamp of last trigger
 )
 
 // Store is the persistence port required by the cron trigger.
@@ -116,10 +116,10 @@ func (t *Trigger) tick(ctx context.Context) {
 }
 
 type issueTemplate struct {
-	issue       *core.Issue
-	schedule    cronSchedule
-	maxInst     int
-	lastFired   time.Time
+	issue     *core.Issue
+	schedule  cronSchedule
+	maxInst   int
+	lastFired time.Time
 }
 
 func (t *Trigger) loadTemplates(ctx context.Context) ([]issueTemplate, error) {
@@ -206,6 +206,12 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl issueTemplate, now t
 			maxInst:   tmpl.maxInst,
 		}
 		t.schedules[tmpl.issue.ID] = state
+	} else {
+		state.schedule = tmpl.schedule
+		state.maxInst = tmpl.maxInst
+		if !tmpl.lastFired.IsZero() && tmpl.lastFired.After(state.lastFired) {
+			state.lastFired = tmpl.lastFired
+		}
 	}
 	t.mu.Unlock()
 
@@ -257,18 +263,26 @@ func (t *Trigger) countActiveInstances(ctx context.Context, templateIssueID int6
 
 	// Check active statuses: open, accepted, queued, running, blocked.
 	for _, status := range []core.IssueStatus{core.IssueOpen, core.IssueAccepted, core.IssueQueued, core.IssueRunning, core.IssueBlocked} {
-		issues, err := t.store.ListIssues(ctx, core.IssueFilter{
-			Status: &status,
-			Limit:  100,
-		})
-		if err != nil {
-			slog.Warn("cron: failed to count active instances", "error", err)
-			continue
-		}
-		for _, iss := range issues {
-			if metaString(iss.Metadata, MetaSourceIssueID) == sourceID {
-				count++
+		offset := 0
+		for {
+			issues, err := t.store.ListIssues(ctx, core.IssueFilter{
+				Status: &status,
+				Limit:  100,
+				Offset: offset,
+			})
+			if err != nil {
+				slog.Warn("cron: failed to count active instances", "error", err)
+				break
 			}
+			for _, iss := range issues {
+				if metaString(iss.Metadata, MetaSourceIssueID) == sourceID {
+					count++
+				}
+			}
+			if len(issues) < 100 {
+				break
+			}
+			offset += 100
 		}
 	}
 	return count
@@ -277,9 +291,10 @@ func (t *Trigger) countActiveInstances(ctx context.Context, templateIssueID int6
 func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Issue) (int64, error) {
 	// 1. Clone issue.
 	newIssue := &core.Issue{
-		ProjectID: source.ProjectID,
-		Title:     source.Title + " [cron " + time.Now().UTC().Format("01-02 15:04") + "]",
-		Status:    core.IssueOpen,
+		ProjectID:         source.ProjectID,
+		ResourceBindingID: source.ResourceBindingID,
+		Title:             source.Title + " [cron " + time.Now().UTC().Format("01-02 15:04") + "]",
+		Status:            core.IssueOpen,
 		Metadata: map[string]any{
 			MetaSourceIssueID: strconv.FormatInt(source.ID, 10),
 		},
@@ -302,13 +317,16 @@ func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Issue) (int64
 			Description:          s.Description,
 			Type:                 s.Type,
 			Status:               core.StepPending,
-			Position:             i,
+			Position:             s.Position,
 			AgentRole:            s.AgentRole,
 			RequiredCapabilities: s.RequiredCapabilities,
 			AcceptanceCriteria:   s.AcceptanceCriteria,
 			Timeout:              s.Timeout,
 			MaxRetries:           s.MaxRetries,
 			Config:               s.Config,
+		}
+		if newStep.Position < 0 {
+			newStep.Position = i
 		}
 		if _, err := t.store.CreateStep(ctx, newStep); err != nil {
 			return 0, fmt.Errorf("clone step %d: %w", s.ID, err)
@@ -320,8 +338,8 @@ func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Issue) (int64
 		Type:    core.EventIssueQueued,
 		IssueID: newIssueID,
 		Data: map[string]any{
-			"source":       "cron",
-			"template_id":  source.ID,
+			"source":      "cron",
+			"template_id": source.ID,
 		},
 		Timestamp: time.Now().UTC(),
 	})

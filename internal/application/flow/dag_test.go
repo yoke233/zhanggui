@@ -10,11 +10,11 @@ func TestEntrySteps_ByPosition(t *testing.T) {
 	steps := []*core.Step{
 		{ID: 1, Name: "A", Position: 0},
 		{ID: 2, Name: "B", Position: 1},
-		{ID: 3, Name: "C", Position: 0},
+		{ID: 3, Name: "C", Position: 2},
 	}
 	entries := EntrySteps(steps)
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
+	if len(entries) != 1 || entries[0].ID != 1 {
+		t.Fatalf("expected only step 1 entry, got %v", entries)
 	}
 }
 
@@ -51,5 +51,36 @@ func TestPredecessorStepIDs(t *testing.T) {
 	ids := predecessorStepIDs(steps, steps[2])
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 predecessors, got %d", len(ids))
+	}
+}
+
+func TestImmediatePredecessorStepIDs(t *testing.T) {
+	steps := []*core.Step{
+		{ID: 1, Position: 0},
+		{ID: 2, Position: 1},
+		{ID: 3, Position: 2},
+	}
+	ids := immediatePredecessorStepIDs(steps, steps[2])
+	if len(ids) != 1 || ids[0] != 2 {
+		t.Fatalf("expected only step 2 as immediate predecessor, got %v", ids)
+	}
+}
+
+func TestValidateSteps_RejectsDuplicatePosition(t *testing.T) {
+	steps := []*core.Step{
+		{ID: 1, Position: 0},
+		{ID: 2, Position: 0},
+	}
+	if err := ValidateSteps(steps); err == nil {
+		t.Fatal("expected duplicate position validation error")
+	}
+}
+
+func TestValidateSteps_RejectsNegativePosition(t *testing.T) {
+	steps := []*core.Step{
+		{ID: 1, Position: -1},
+	}
+	if err := ValidateSteps(steps); err == nil {
+		t.Fatal("expected negative position validation error")
 	}
 }

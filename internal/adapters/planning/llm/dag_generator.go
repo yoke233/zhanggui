@@ -30,7 +30,7 @@ type GeneratedStep = planningapp.GeneratedStep
 type GeneratedDAG = planningapp.GeneratedDAG
 
 func ValidateDAG(steps []*core.Step) error {
-	return flowapp.ValidateDAG(steps)
+	return flowapp.ValidateSteps(steps)
 }
 
 // Generate calls the LLM to decompose a task description into a DAG of Steps.
@@ -84,6 +84,13 @@ func (g *DAGGenerator) Generate(ctx context.Context, taskDescription string) (*G
 // Materialize creates Steps in the store for a given issue from a GeneratedDAG.
 // Returns the created Step slice with IDs populated.
 func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Step, error) {
+	if dag == nil {
+		return nil, fmt.Errorf("dag_gen: generated dag is nil")
+	}
+	if err := validateGeneratedDAG(dag); err != nil {
+		return nil, fmt.Errorf("dag_gen: %w", err)
+	}
+
 	var created []*core.Step
 
 	for i, gs := range dag.Steps {

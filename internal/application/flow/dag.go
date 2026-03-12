@@ -1,14 +1,29 @@
 package flow
 
 import (
+	"fmt"
+	"math"
 	"sort"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 // ValidateSteps checks that steps have valid positions.
-// Steps are sequential by Position; no DAG validation is needed.
+// Steps are sequential by Position, so positions must be non-negative and unique.
 func ValidateSteps(steps []*core.Step) error {
+	seen := make(map[int]struct{}, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			return fmt.Errorf("step is nil")
+		}
+		if step.Position < 0 {
+			return fmt.Errorf("step %d has negative position %d", step.ID, step.Position)
+		}
+		if _, ok := seen[step.Position]; ok {
+			return fmt.Errorf("duplicate step position %d", step.Position)
+		}
+		seen[step.Position] = struct{}{}
+	}
 	return nil
 }
 
@@ -75,6 +90,27 @@ func predecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
 	var ids []int64
 	for _, s := range steps {
 		if s.Position < step.Position {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}
+
+// immediatePredecessorStepIDs returns the IDs of steps at the closest lower Position.
+func immediatePredecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
+	closest := math.MinInt
+	for _, s := range steps {
+		if s.Position < step.Position && s.Position > closest {
+			closest = s.Position
+		}
+	}
+	if closest == math.MinInt {
+		return nil
+	}
+
+	var ids []int64
+	for _, s := range steps {
+		if s.Position == closest {
 			ids = append(ids, s.ID)
 		}
 	}

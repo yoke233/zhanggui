@@ -136,6 +136,19 @@ func (e *IssueEngine) Run(ctx context.Context, issueID int64) error {
 		if err != nil {
 			return fmt.Errorf("list resource bindings for project %d: %w", *issue.ProjectID, err)
 		}
+		if issue.ResourceBindingID != nil {
+			filtered := make([]*core.ResourceBinding, 0, 1)
+			for _, binding := range bindings {
+				if binding != nil && binding.ID == *issue.ResourceBindingID {
+					filtered = append(filtered, binding)
+					break
+				}
+			}
+			if len(filtered) == 0 {
+				return fmt.Errorf("resource binding %d not found in project %d", *issue.ResourceBindingID, *issue.ProjectID)
+			}
+			bindings = filtered
+		}
 		if len(bindings) > 0 {
 			ws, err := e.wsProvider.Prepare(ctx, project, bindings, issueID)
 			if err != nil {

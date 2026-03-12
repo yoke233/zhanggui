@@ -33,10 +33,14 @@ type IssueScheduler struct {
 // IssueSchedulerConfig configures the IssueScheduler.
 type IssueSchedulerConfig struct {
 	MaxConcurrentIssues int // default 2
+	MaxConcurrentFlows  int // deprecated compatibility field
 }
 
 // NewIssueScheduler creates a multi-issue scheduler.
 func NewIssueScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg IssueSchedulerConfig) *IssueScheduler {
+	if cfg.MaxConcurrentIssues <= 0 && cfg.MaxConcurrentFlows > 0 {
+		cfg.MaxConcurrentIssues = cfg.MaxConcurrentFlows
+	}
 	if cfg.MaxConcurrentIssues <= 0 {
 		cfg.MaxConcurrentIssues = 2
 	}
@@ -51,14 +55,17 @@ func NewIssueScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg
 	}
 }
 
-// FlowSchedulerConfig is an alias for backward compatibility.
-type FlowSchedulerConfig = IssueSchedulerConfig
+// FlowSchedulerConfig is a compatibility wrapper for older callers.
+type FlowSchedulerConfig struct {
+	MaxConcurrentIssues int
+	MaxConcurrentFlows  int
+}
 
 // NewFlowScheduler is an alias for backward compatibility.
 func NewFlowScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg FlowSchedulerConfig) *IssueScheduler {
-	// Map the old MaxConcurrentFlows field if set.
 	return NewIssueScheduler(engine, store, bus, IssueSchedulerConfig{
 		MaxConcurrentIssues: cfg.MaxConcurrentIssues,
+		MaxConcurrentFlows:  cfg.MaxConcurrentFlows,
 	})
 }
 

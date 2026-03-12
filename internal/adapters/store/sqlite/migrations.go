@@ -234,7 +234,6 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE agent_contexts RENAME COLUMN flow_id TO issue_id`,
 		`ALTER TABLE events RENAME COLUMN flow_id TO issue_id`,
 		`ALTER TABLE execution_probes RENAME COLUMN flow_id TO issue_id`,
-		`ALTER TABLE usage_records RENAME COLUMN flow_id TO issue_id`,
 		// Updated indexes for the renamed columns.
 		`CREATE INDEX IF NOT EXISTS idx_steps_issue ON steps(issue_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id)`,
@@ -276,6 +275,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_agent ON usage_records(agent_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_profile ON usage_records(profile_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_created ON usage_records(created_at)`,
+		`ALTER TABLE usage_records RENAME COLUMN flow_id TO issue_id`,
 		`CREATE TABLE IF NOT EXISTS execution_probes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             execution_id INTEGER NOT NULL REFERENCES executions(id),
@@ -303,6 +303,9 @@ func runMigrations(db *sql.DB) error {
 			}
 			// Some SQLite builds return a generic error string for duplicate columns.
 			if strings.Contains(err.Error(), "already exists") && strings.Contains(stmt, "ALTER TABLE") {
+				continue
+			}
+			if strings.Contains(err.Error(), "no such table") && strings.Contains(stmt, "RENAME COLUMN") {
 				continue
 			}
 			// RENAME COLUMN fails if column already has the new name.
