@@ -120,6 +120,8 @@ func (s *suppressingCounter) SetSuppress(v bool) {
 // --- Tests ---
 
 func TestFixtureNewSessionPromptEmitsExpectedEvents(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
 	counter := newEventCounter()
 	handler := &NopHandler{}
@@ -172,6 +174,8 @@ func TestFixtureNewSessionPromptEmitsExpectedEvents(t *testing.T) {
 }
 
 func TestFixtureLoadSessionReplaysHistoricalEvents(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
 	counter := newEventCounter()
 	handler := &NopHandler{}
@@ -222,6 +226,8 @@ func TestFixtureLoadSessionReplaysHistoricalEvents(t *testing.T) {
 }
 
 func TestFixtureLoadSessionThenPrompt(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
 	counter := newEventCounter()
 	handler := &NopHandler{}
@@ -277,6 +283,8 @@ func TestFixtureLoadSessionThenPrompt(t *testing.T) {
 }
 
 func TestFixtureSuppressEventsBlocksLoadSessionReplay(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
 	counter := newSuppressingCounter()
 	handler := &NopHandler{}
@@ -338,6 +346,8 @@ func TestFixtureSuppressEventsBlocksLoadSessionReplay(t *testing.T) {
 }
 
 func TestFixtureToolUseScenario(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "new_session_tool_use")
 	counter := newEventCounter()
 	handler := &NopHandler{}
@@ -386,6 +396,8 @@ func TestFixtureToolUseScenario(t *testing.T) {
 }
 
 func TestFixtureCommandsAndConfigOptionsExtracted(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	cfg := fixtureAgentConfig(t, "commands_and_config")
 	counter := newEventCounter()
 	handler := &NopHandler{}

@@ -11,6 +11,8 @@ import (
 )
 
 func TestFullLifecycleWithRoleMetadata(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

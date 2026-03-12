@@ -16,6 +16,8 @@ import (
 )
 
 func TestClientLifecycle(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

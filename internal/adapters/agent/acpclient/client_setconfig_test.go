@@ -9,6 +9,8 @@ import (
 )
 
 func TestSetConfigOptionCallsTransport(t *testing.T) {
+	requireACPClientIntegration(t)
+
 	h := &recordingHandler{}
 	client, err := New(testLaunchConfig(t), h)
 	if err != nil {
