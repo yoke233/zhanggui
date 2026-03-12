@@ -77,6 +77,7 @@ type SessionSummary struct {
 	SessionID    string    `json:"session_id"`
 	Title        string    `json:"title,omitempty"`
 	WorkDir      string    `json:"work_dir,omitempty"`
+	Branch       string    `json:"branch,omitempty"`
 	WSPath       string    `json:"ws_path,omitempty"`
 	ProjectID    int64     `json:"project_id,omitempty"`
 	ProjectName  string    `json:"project_name,omitempty"`

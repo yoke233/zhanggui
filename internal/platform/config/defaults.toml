@@ -158,7 +158,7 @@ name = "Lead Agent"
 driver = "claude-acp"
 role = "lead"
 capabilities = ["planning", "review", "fullstack"]
-skills = ["writing-wave-plans", "executing-wave-plans"]
+skills = []
 actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "create_step", "expand_flow", "submit"]
 prompt_template = "team_leader"
   [runtime.agents.profiles.session]

@@ -16,6 +16,7 @@ type Store interface {
 	core.ExecutionStore
 	core.ArtifactStore
 	core.BriefingStore
+	core.FeatureManifestStore
 }
 
 // EventStore is the persistence port required for persisting emitted events.

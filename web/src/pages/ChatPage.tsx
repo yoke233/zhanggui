@@ -14,13 +14,10 @@ import {
   Gauge,
   ListTodo,
   Loader2,
-  MoreHorizontal,
   Paperclip,
   Plus,
   Search,
   Send,
-  User,
-  Workflow,
   X,
   Wrench,
 } from "lucide-react";
@@ -30,7 +27,9 @@ import type {
   ChatMessage,
   ChatSessionDetail,
   ChatSessionSummary,
+  ConfigOption,
   Event as ApiEvent,
+  SlashCommand,
 } from "@/types/apiV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,6 +49,16 @@ interface ChatMessageView {
   time: string;
   at: string;
 }
+
+type ChatFeedItem =
+  | { kind: "message"; data: ChatMessageView }
+  | { kind: "thought"; data: ChatActivityView }
+  | { kind: "tool_call"; data: ChatActivityView };
+
+type ChatFeedEntry =
+  | { type: "message"; item: ChatFeedItem & { kind: "message" } }
+  | { type: "thought"; item: ChatFeedItem & { kind: "thought" } }
+  | { type: "tool_group"; id: string; items: (ChatFeedItem & { kind: "tool_call" })[] };
 
 interface RealtimeChatOutputPayload {
   session_id?: string;
@@ -78,7 +87,7 @@ interface RealtimeChatErrorPayload {
 
 interface ChatActivityView {
   id: string;
-  type: "agent_thought" | "tool_call" | "usage_update";
+  type: "agent_thought" | "tool_call" | "usage_update" | "agent_message";
   title: string;
   detail?: string;
   time: string;
@@ -527,6 +536,33 @@ const applyActivityPayload = (
     return next;
   }
 
+  
+  if (updateType === "agent_message") {
+    const detail = payload.content?.trim();
+    if (!detail) {
+      return current;
+    }
+    const previous = next.at(-1);
+    if (previous?.type === "agent_message") {
+      next[next.length - 1] = {
+        ...previous,
+        detail: previous.detail ? `${previous.detail}\n${detail}` : detail,
+        time,
+        at,
+      };
+      return next;
+    }
+    next.push({
+      id: `${sessionId}-message-${Date.parse(at)}-${next.length}`,
+      type: "agent_message",
+      title: t("chat.thinkingState"),
+      detail,
+      time,
+      at,
+    });
+    return next;
+  }
+
   if (updateType === "tool_call") {
     const toolCallId = payload.tool_call_id?.trim();
     const existingIndex = toolCallId
@@ -764,7 +800,13 @@ export function ChatPage() {
   const [detailView, setDetailView] = useState<"chat" | "events">("chat");
   const [submitting, setSubmitting] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
+  const [configOptions, setConfigOptions] = useState<ConfigOption[]>([]);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandFilter, setCommandFilter] = useState("");
+  const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingChunkBuffersRef = useRef<Record<string, string>>({});
   const chunkFlushFrameRef = useRef<number | null>(null);
@@ -773,9 +815,10 @@ export function ChatPage() {
 
   const syncSessionDetail = (detail: ChatSessionDetail) => {
     const record = toDetailRecord(detail, t);
-    const views = detail.messages.map((message, index) =>
-      toMessageView(detail.session_id, message, index),
-    );
+    // Only keep user messages from session detail; assistant messages come from events
+    const userViews = detail.messages
+      .filter((message) => message.role === "user")
+      .map((message, index) => toMessageView(detail.session_id, message, index));
 
     setSessions((current) => {
       const existing = current.filter((item) => item.session_id !== detail.session_id);
@@ -785,12 +828,18 @@ export function ChatPage() {
     });
     setMessagesBySession((current) => ({
       ...current,
-      [detail.session_id]: views,
+      [detail.session_id]: userViews,
     }));
     setLoadedSessions((current) => ({
       ...current,
       [detail.session_id]: true,
     }));
+    if (detail.available_commands) {
+      setAvailableCommands(detail.available_commands);
+    }
+    if (detail.config_options) {
+      setConfigOptions(detail.config_options);
+    }
   };
 
   const syncSessionEvents = (sessionId: string, events: ApiEvent[]) => {
@@ -850,6 +899,7 @@ export function ChatPage() {
       setError(getErrorMessage(loadError));
     } finally {
       setLoadingSessions(false);
+      setInitialLoaded(true);
     }
   };
 
@@ -1089,7 +1139,7 @@ export function ChatPage() {
   const currentMessages = currentSession ? (messagesBySession[currentSession.session_id] ?? []) : draftMessages;
   const currentEvents = currentSession ? (eventsBySession[currentSession.session_id] ?? []) : [];
   const currentActivities = currentSession ? (activitiesBySession[currentSession.session_id] ?? []) : [];
-  const isDraftSessionView = !currentSession && currentMessages.length === 0;
+  const isDraftSessionView = initialLoaded && !currentSession && currentMessages.length === 0;
   const currentEventItems = useMemo(
     () =>
       [...currentEvents]
@@ -1114,10 +1164,70 @@ export function ChatPage() {
 
   const currentUsagePercent = formatUsagePercent(currentUsage?.usageUsed, currentUsage?.usageSize);
 
+  const chatFeed = useMemo<ChatFeedItem[]>(() => {
+    const items: ChatFeedItem[] = [];
+    for (const msg of currentMessages) {
+      items.push({ kind: "message", data: msg });
+    }
+    for (const act of currentActivities) {
+      if (act.type === "agent_thought") {
+        items.push({ kind: "thought", data: act });
+      } else if (act.type === "tool_call") {
+        items.push({ kind: "tool_call", data: act });
+      } else if (act.type === "agent_message") {
+        // Convert agent_message activities into assistant message bubbles
+        items.push({
+          kind: "message",
+          data: {
+            id: act.id,
+            role: "assistant",
+            content: act.detail || act.title,
+            time: act.time,
+            at: act.at,
+          },
+        });
+      }
+    }
+    items.sort((a, b) => {
+      const aAt = a.kind === "message" ? a.data.at : a.data.at;
+      const bAt = b.kind === "message" ? b.data.at : b.data.at;
+      return new Date(aAt).getTime() - new Date(bAt).getTime();
+    });
+    return items;
+  }, [currentMessages, currentActivities]);
+
+  const chatFeedEntries = useMemo<ChatFeedEntry[]>(() => {
+    const entries: ChatFeedEntry[] = [];
+    let toolBuffer: (ChatFeedItem & { kind: "tool_call" })[] = [];
+    let groupCounter = 0;
+
+    const flushTools = () => {
+      if (toolBuffer.length > 0) {
+        entries.push({ type: "tool_group", id: `tg-${groupCounter++}`, items: [...toolBuffer] });
+        toolBuffer = [];
+      }
+    };
+
+    for (const item of chatFeed) {
+      if (item.kind === "tool_call") {
+        toolBuffer.push(item);
+      } else {
+        flushTools();
+        if (item.kind === "message") {
+          entries.push({ type: "message", item });
+        } else if (item.kind === "thought") {
+          entries.push({ type: "thought", item });
+        }
+      }
+    }
+    flushTools();
+    return entries;
+  }, [chatFeed]);
+
   useEffect(() => {
     const isStreaming = currentMessages.at(-1)?.id.endsWith("stream-assistant");
     messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
-  }, [currentEventItems, currentMessages, detailView]);
+  }, [currentEventItems, currentMessages, currentActivities, detailView]);
 
   useEffect(() => {
     const unsubscribeOutput = wsClient.subscribe<RealtimeChatOutputPayload>(
@@ -1147,27 +1257,20 @@ export function ChatPage() {
 
         if (updateType === "agent_message" && payload.content) {
           flushBufferedChunks();
+          // Remove the streaming bubble — the final message comes from activities
           setMessagesBySession((current) => {
             const existing = current[sessionId] ?? [];
             const last = existing.at(-1);
             if (last && last.id === `${sessionId}-stream-assistant`) {
               return {
                 ...current,
-                [sessionId]: [
-                  ...existing.slice(0, -1),
-                  {
-                    ...last,
-                    content: payload.content ?? last.content,
-                    time: now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-                    at: nowISO,
-                  },
-                ],
+                [sessionId]: existing.slice(0, -1),
               };
             }
             return current;
           });
           setSessions((current) => touchSessionList(current, sessionId, "running", nowISO));
-          return;
+          // Don't return — let it fall through to applyActivityPayload below
         }
 
         if (updateType === "done") {
@@ -1246,6 +1349,14 @@ export function ChatPage() {
         }
       },
     );
+    const unsubscribeConfigUpdate = wsClient.subscribe<{ session_id?: string; config_options?: ConfigOption[] }>(
+      "chat.config_updated",
+      (payload) => {
+        if (payload.config_options) {
+          setConfigOptions(payload.config_options);
+        }
+      },
+    );
     return () => {
       if (chunkFlushFrameRef.current != null) {
         cancelAnimationFrame(chunkFlushFrameRef.current);
@@ -1256,6 +1367,7 @@ export function ChatPage() {
       unsubscribeOutput();
       unsubscribeAck();
       unsubscribeError();
+      unsubscribeConfigUpdate();
     };
   }, [wsClient]);
 
@@ -1468,43 +1580,14 @@ export function ChatPage() {
     }
   }, []);
 
-  const handleCreateIssue = useCallback(
-    async (content: string) => {
-      try {
-        const title = content.length > 60 ? content.slice(0, 60) + "..." : content;
-        const issue = await apiClient.createIssue({
-          project_id: selectedProjectId ?? undefined,
-          title: title,
-          metadata: { source: "chat", original_content: content },
-        });
-        navigate(`/issues/${issue.id}`);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
+  const handleCreateWorkItem = useCallback(
+    (_messageId: string, content: string) => {
+      const params = new URLSearchParams();
+      params.set("body", content);
+      if (selectedProjectId) params.set("project_id", String(selectedProjectId));
+      navigate(`/work-items/new?${params.toString()}`);
     },
-    [apiClient, selectedProjectId, navigate],
-  );
-
-  const [createdIssueMessageId, setCreatedIssueMessageId] = useState<string | null>(null);
-
-  const handleCreateIssueFromMessage = useCallback(
-    async (messageId: string, content: string) => {
-      try {
-        const firstLine = content.split("\n")[0] ?? content;
-        const title = firstLine.length > 80 ? firstLine.slice(0, 80) + "..." : firstLine;
-        await apiClient.createIssue({
-          project_id: selectedProjectId ?? undefined,
-          title,
-          body: content,
-          metadata: { source: "chat" },
-        });
-        setCreatedIssueMessageId(messageId);
-        setTimeout(() => setCreatedIssueMessageId((prev) => (prev === messageId ? null : prev)), 2000);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    },
-    [apiClient, selectedProjectId],
+    [navigate, selectedProjectId],
   );
 
   return (
@@ -1559,40 +1642,44 @@ export function ChatPage() {
 
               {!collapsedGroups[group.key] ? group.sessions.map((session) => {
                 const preview = messagesBySession[session.session_id]?.at(-1)?.content ?? t("chat.noMessages");
+                const turnCount = messagesBySession[session.session_id]?.length ?? 0;
                 return (
                   <button
                     key={session.session_id}
                     onClick={() => setActiveSession(session.session_id)}
                     className={cn(
-                      "w-full border-t px-3 py-3 pl-8 text-left transition-colors",
+                      "w-full border-b px-4 py-3 pl-7 text-left transition-colors",
                       activeSession === session.session_id ? "bg-accent" : "hover:bg-muted/50",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{session.title ?? t("chat.newSession")}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                      <span className={cn(
+                        "truncate text-sm",
+                        activeSession === session.session_id ? "font-semibold" : "font-medium",
+                      )}>{session.title ?? t("chat.newSession")}</span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
                         {new Date(session.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <div
+                    <p className="mt-1.5 truncate text-xs text-muted-foreground">{preview}</p>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span
                         className={cn(
-                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium",
                           session.status === "running"
-                            ? "bg-emerald-500"
+                            ? "bg-blue-50 text-blue-500"
                             : session.status === "alive"
-                              ? "bg-amber-500"
-                              : "bg-zinc-300",
+                              ? "bg-amber-50 text-amber-500"
+                              : "bg-emerald-50 text-emerald-500",
                         )}
-                      />
-                      <p className="truncate text-xs text-muted-foreground">{preview}</p>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      {session.driver_id ? (
-                        <Badge variant="outline" className="text-[10px]">
-                          Lead · {driverLabelForId(session.driver_id, t)}
-                        </Badge>
-                      ) : null}
+                      >
+                        {badgeLabelForStatus(session.status, t)}
+                      </span>
+                      {turnCount > 0 && (
+                        <span className="inline-flex items-center rounded-full bg-secondary px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                          {turnCount} {t("chat.turns")}
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -1609,36 +1696,42 @@ export function ChatPage() {
 
       <div className="flex flex-1 flex-col">
         {!isDraftSessionView ? (
-          <div className="border-b px-5 py-3">
-          <div className="flex items-center justify-between">
+          <div className="flex h-14 items-center justify-between border-b px-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <Bot className="h-4 w-4" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <Bot className="h-[18px] w-[18px]" />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold">{currentSession?.title ?? "Lead Agent"}</span>
-                  <Badge
-                    variant={badgeVariantForStatus(currentSession?.status)}
-                    className="text-[10px]"
-                  >
-                    {badgeLabelForStatus(currentSession?.status, t)}
-                  </Badge>
-                  {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary" className="text-[10px]">
-                    {t("chat.projectDot")}{currentProjectLabel}
-                  </Badge>
-                  <Badge variant="secondary" className="text-[10px]">
-                    Lead · {currentDriverLabel}
-                  </Badge>
-                </div>
+                <span className="truncate text-[15px] font-semibold">{currentSession?.title ?? "Lead Agent"}</span>
+                <p className="text-xs text-muted-foreground">
+                  Lead Agent · {currentDriverLabel} · {currentMessages.length} {t("chat.turns")}
+                  {submitting ? <Loader2 className="ml-1.5 inline h-3 w-3 animate-spin" /> : null}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                  currentSession?.status === "running"
+                    ? "bg-blue-50 text-blue-500"
+                    : currentSession?.status === "alive"
+                      ? "bg-amber-50 text-amber-500"
+                      : "bg-emerald-50 text-emerald-500",
+                )}
+              >
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  currentSession?.status === "running"
+                    ? "bg-blue-500"
+                    : currentSession?.status === "alive"
+                      ? "bg-amber-500"
+                      : "bg-emerald-500",
+                )} />
+                {badgeLabelForStatus(currentSession?.status, t)}
+              </span>
               {currentUsage ? (
-                <div className="flex items-center gap-2 rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
                   <span className="shrink-0 whitespace-nowrap">{t("chat.context")}</span>
                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                     <div
@@ -1655,37 +1748,17 @@ export function ChatPage() {
                   </div>
                   <span className="shrink-0 whitespace-nowrap">
                     {formatUsageValue(currentUsage.usageUsed)} / {formatUsageValue(currentUsage.usageSize)}
-                    {currentUsagePercent != null ? ` · ${currentUsagePercent.toFixed(1)}%` : ""}
                   </span>
                 </div>
               ) : null}
-              <div className="flex items-center rounded-md border bg-background p-0.5">
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    detailView === "chat" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setDetailView("chat")}
-                >
-                  {t("chat.conversation")}
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    detailView === "events" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setDetailView("events")}
-                >
-                  {t("chat.events")}
-                </button>
-              </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void closeSession()}>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+              <button
+                type="button"
+                className="h-8 rounded-md border px-3 text-[13px] font-medium transition-colors hover:bg-muted"
+                onClick={() => void closeSession()}
+              >
+                {t("chat.endSession")}
+              </button>
             </div>
-          </div>
           </div>
         ) : null}
 
@@ -1817,121 +1890,121 @@ export function ChatPage() {
                 </div>
               </div>
             </div>
-          ) : currentMessages.length === 0 ? (
+          ) : chatFeedEntries.length === 0 ? (
             <div className="mx-auto w-full max-w-[920px] rounded-2xl border border-dashed bg-muted/20 px-5 py-6 text-sm text-muted-foreground">
               {t("chat.noMessagesInSession")}
             </div>
           ) : (
-            <div className="mx-auto w-full max-w-[920px] space-y-4">
-              {currentMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "group/msg flex max-w-[720px] gap-3",
-                    message.role === "user" ? "ml-auto flex-row-reverse" : "",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                      message.role === "user" ? "bg-zinc-200" : "bg-primary text-primary-foreground",
-                    )}
-                  >
-                    {message.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-                  </div>
-                  <div className={cn("min-w-0 flex-1 space-y-2", message.role === "user" ? "text-right" : "")}>
-                    <div className="relative">
-                      <div
-                        className={cn(
-                          "rounded-lg px-4 py-3 text-sm leading-relaxed",
-                          message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
-                        )}
+            <div className="mx-auto w-full max-w-[920px] space-y-1">
+              {chatFeedEntries.map((entry) => {
+                /* ── thought: italic one-liner ── */
+                if (entry.type === "thought") {
+                  const act = entry.item.data;
+                  return (
+                    <div key={act.id} className="flex items-start gap-1.5 py-0.5 text-xs text-violet-500">
+                      <Brain className="mt-px h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 italic">{compactText(act.detail || act.title, 200)}</span>
+                    </div>
+                  );
+                }
+
+                /* ── tool_group: collapsible compact block ── */
+                if (entry.type === "tool_group") {
+                  const isCollapsed = collapsedActivityGroups[entry.id] !== false;
+                  const count = entry.items.length;
+                  return (
+                    <div key={entry.id} className="py-0.5">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                        onClick={() => setCollapsedActivityGroups((prev) => ({ ...prev, [entry.id]: !isCollapsed }))}
                       >
-                        {message.content.split("\n").map((line, index) => (
-                          <span key={`${message.id}-${index}`} className="block">{line}</span>
-                        ))}
-                      </div>
-                      {/* Sticky copy button for assistant messages */}
-                      {message.role === "assistant" && (
-                        <button
-                          type="button"
-                          className={cn(
-                            "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-md transition-all",
-                            copiedMessageId === message.id
-                              ? "bg-emerald-100 text-emerald-600"
-                              : "bg-white/80 text-muted-foreground opacity-0 shadow-sm backdrop-blur-sm hover:bg-white hover:text-foreground group-hover/msg:opacity-100",
-                          )}
-                          title={t("chat.copy")}
-                          onClick={() => void handleCopyMessage(message.id, message.content)}
-                        >
-                          {copiedMessageId === message.id ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
-                            <ClipboardCopy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+                        {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        <Wrench className="h-3 w-3 text-amber-500" />
+                        <span>{count} {t("chat.toolCalls").toLowerCase()}</span>
+                      </button>
+                      {!isCollapsed && (
+                        <div className="ml-4 mt-0.5 space-y-px border-l border-muted pl-2">
+                          {entry.items.map((item) => {
+                            const act = item.data;
+                            return (
+                              <div key={act.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Wrench className="h-3 w-3 shrink-0 text-amber-500/70" />
+                                <span className="truncate font-medium text-foreground/80">{act.title}</span>
+                                {act.detail && <span className="truncate text-muted-foreground/60">— {compactText(act.detail, 60)}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
-                    {/* Hover action bar for assistant messages */}
-                    {message.role === "assistant" && (
-                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
-                        <button
-                          type="button"
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-                            copiedMessageId === message.id
-                              ? "text-emerald-600"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                          )}
-                          title={t("chat.copy")}
-                          onClick={() => void handleCopyMessage(message.id, message.content)}
-                        >
-                          {copiedMessageId === message.id ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
-                            <ClipboardCopy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-                            createdIssueMessageId === message.id
-                              ? "text-emerald-600"
-                              : "text-muted-foreground hover:bg-amber-50 hover:text-amber-600",
-                          )}
-                          title={t("chat.createIssue")}
-                          onClick={() => void handleCreateIssueFromMessage(message.id, message.content)}
-                        >
-                          {createdIssueMessageId === message.id ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
+                  );
+                }
+
+                /* ── message ── */
+                const message = entry.item.data;
+                const isUser = message.role === "user";
+                return (
+                  <div key={message.id} className={cn(
+                    "group/msg rounded-sm py-1.5",
+                    isUser ? "bg-blue-50/60" : "",
+                  )}>
+                    <div className="flex items-start gap-2">
+                      <span className={cn(
+                        "shrink-0 select-none text-xs font-bold tracking-wide",
+                        isUser ? "text-blue-600" : "text-emerald-600",
+                      )}>
+                        {isUser ? "❯ You" : "⦿ Agent"}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground/50">{message.time}</span>
+                      {!isUser && (
+                        <div className="ml-auto flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                              copiedMessageId === message.id ? "text-emerald-600" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={t("chat.copy")}
+                            onClick={() => void handleCopyMessage(message.id, message.content)}
+                          >
+                            {copiedMessageId === message.id ? <Check className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-amber-600"
+                            title={t("chat.createWorkItem")}
+                            onClick={() => handleCreateWorkItem(message.id, message.content)}
+                          >
                             <ListTodo className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
-                          title={t("chat.createIssue")}
-                          onClick={() => void handleCreateIssue(message.content)}
-                        >
-                          <Workflow className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
-                    <span className="text-[10px] text-muted-foreground">{message.time}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "mt-0.5 whitespace-pre-wrap text-sm leading-relaxed",
+                      isUser ? "border-l-2 border-blue-300 pl-3 text-foreground" : "border-l-2 border-emerald-200 pl-3 text-foreground/90",
+                    )}>
+                      {message.content}
+                    </div>
                   </div>
+                );
+              })}
+              {submitting && (
+                <div className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{t("chat.thinking")}...</span>
                 </div>
-              ))}
+              )}
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {!isDraftSessionView ? (
-          <div className="border-t p-4">
+          <div className="space-y-2 border-t px-6 py-4">
           {pendingFiles.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               {pendingFiles.map((file, idx) => (
                 <Badge key={idx} variant="secondary" className="gap-1 text-xs">
                   {file.name}
@@ -1942,47 +2015,108 @@ export function ChatPage() {
               ))}
             </div>
           )}
-          <div className="flex items-end gap-3">
-            <div className="relative flex-1">
-              <Input
-                placeholder={
-                  currentSession
-                    ? t("chat.inputPlaceholderActive")
-                    : t("chat.inputPlaceholderNew", { driver: currentDriverLabel, project: currentProjectLabel })
-                }
-                className="pr-10"
-                value={messageInput}
-                disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
-                onChange={(event) => setMessageInput(event.target.value)}
-                onPaste={handlePaste}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void sendMessage();
-                  }
-                }}
-              />
+          <div className="relative">
+          {showCommandPalette && availableCommands.length > 0 && (
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-full max-w-md rounded-lg border bg-background shadow-lg">
+              <div className="max-h-48 overflow-y-auto p-1">
+                {availableCommands
+                  .filter((cmd) => !commandFilter || cmd.name.toLowerCase().includes(commandFilter.toLowerCase()))
+                  .map((cmd) => (
+                    <button
+                      key={cmd.name}
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                      onClick={() => {
+                        setMessageInput(`/${cmd.name} `);
+                        setShowCommandPalette(false);
+                        setCommandFilter("");
+                      }}
+                    >
+                      <span className="font-mono text-xs font-medium text-foreground">/{cmd.name}</span>
+                      {cmd.description && (
+                        <span className="truncate text-xs text-muted-foreground">{cmd.description}</span>
+                      )}
+                    </button>
+                  ))}
+                {availableCommands.filter((cmd) => !commandFilter || cmd.name.toLowerCase().includes(commandFilter.toLowerCase())).length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">{t("chat.noCommandsMatch")}</div>
+                )}
+              </div>
             </div>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10 shrink-0"
+          )}
+          <div className="flex items-center gap-2.5 rounded-lg border bg-background px-3.5 py-2.5">
+            <Input
+              placeholder={
+                currentSession
+                  ? t("chat.inputPlaceholderActive")
+                  : t("chat.inputPlaceholderNew", { driver: currentDriverLabel, project: currentProjectLabel })
+              }
+              className="h-auto flex-1 border-0 p-0 text-sm shadow-none focus-visible:ring-0"
+              value={messageInput}
               disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
-              onClick={() => fileInputRef.current?.click()}
-              title={t("chat.uploadFile")}
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              className="h-10 w-10 shrink-0"
-              disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
-              onClick={() => void sendMessage()}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+              onChange={(event) => {
+                const val = event.target.value;
+                setMessageInput(val);
+                if (val.startsWith("/")) {
+                  setShowCommandPalette(true);
+                  setCommandFilter(val.slice(1).split(" ")[0]);
+                } else {
+                  setShowCommandPalette(false);
+                  setCommandFilter("");
+                }
+              }}
+              onPaste={handlePaste}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && showCommandPalette) {
+                  setShowCommandPalette(false);
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  setShowCommandPalette(false);
+                  void sendMessage();
+                }
+              }}
+              onBlur={() => {
+                setTimeout(() => setShowCommandPalette(false), 150);
+              }}
+            />
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
+                onClick={() => fileInputRef.current?.click()}
+                title={t("chat.uploadFile")}
+              >
+                <Paperclip className="h-[18px] w-[18px]" />
+              </button>
+              <Button
+                size="icon"
+                className="h-8 w-8"
+                disabled={submitting || currentSession?.status === "running" || (!currentSession && !draftSessionReady)}
+                onClick={() => void sendMessage()}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-          <div className="mt-2 text-[10px] text-muted-foreground">{t("chat.inputHint")}</div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2">
+              {currentSession?.project_name && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {currentSession.project_name}
+                </Badge>
+              )}
+              {currentSession?.branch && (
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  {currentSession.branch}
+                </Badge>
+              )}
+            </div>
+            <span>{t("chat.inputHint")}</span>
+          </div>
+          </div>
           </div>
         ) : null}
         <input

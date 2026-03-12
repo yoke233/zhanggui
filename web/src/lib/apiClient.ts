@@ -209,6 +209,7 @@ export interface ApiClient {
   listSteps(issueId: number): Promise<Step[]>;
   createStep(issueId: number, body: CreateStepRequest): Promise<Step>;
   generateSteps(issueId: number, body: GenerateStepsRequest): Promise<Step[]>;
+  generateTitle(body: { description: string }): Promise<{ title: string }>;
   getStep(stepId: number): Promise<Step>;
   updateStep(stepId: number, body: UpdateStepRequest): Promise<Step>;
   deleteStep(stepId: number): Promise<void>;
@@ -524,6 +525,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }).then((items) => (Array.isArray(items) ? items : [])),
+    generateTitle: (body) =>
+      request<{ title: string }, { description: string }>({
+        path: `/issues/generate-title`,
+        method: "POST",
+        body,
+      }),
     getStep: (stepId) =>
       request<Step>({
         path: `/steps/${stepId}`,

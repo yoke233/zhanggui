@@ -5,16 +5,13 @@ import { Button } from "@/components/ui/button";
 import { SandboxSupportPanel } from "@/components/SandboxSupportPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
-} from "@/components/ui/dialog";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
-import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/v2Workbench";
+import { CreateDriverDialog } from "@/components/agents/CreateDriverDialog";
+import { CreateProfileDialog } from "@/components/agents/CreateProfileDialog";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 import type { SandboxSupportResponse } from "@/types/system";
 
@@ -37,21 +34,8 @@ export function AgentsPage() {
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
-
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
-
-  const [driverName, setDriverName] = useState("");
-  const [driverCmd, setDriverCmd] = useState("");
-  const [driverArgs, setDriverArgs] = useState("");
-  const [driverCaps, setDriverCaps] = useState<string[]>(["fs_read", "fs_write", "terminal"]);
-
-  const [profileName, setProfileName] = useState("");
-  const [profileRole, setProfileRole] = useState("worker");
-  const [profileDriver, setProfileDriver] = useState("");
-  const [profileCaps, setProfileCaps] = useState("backend,frontend");
-  const [profileActions, setProfileActions] = useState("read_context,search_files,fs_write,terminal,submit,mark_blocked,request_help");
-  const [profileMaxTurns, setProfileMaxTurns] = useState("12");
 
   const load = async () => {
     setLoading(true);
@@ -63,9 +47,8 @@ export function AgentsPage() {
       ]);
       setDrivers(driverResp);
       setProfiles(profileResp);
-      setProfileDriver((current) => current || driverResp[0]?.id || "");
-    } catch (loadError) {
-      setError(getErrorMessage(loadError));
+    } catch (e) {
+      setError(getErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -76,8 +59,8 @@ export function AgentsPage() {
     setSandboxError(null);
     try {
       setSandboxSupport(await apiClient.getSandboxSupport());
-    } catch (loadError) {
-      setSandboxError(getErrorMessage(loadError));
+    } catch (e) {
+      setSandboxError(getErrorMessage(e));
     } finally {
       setSandboxLoading(false);
     }
@@ -86,56 +69,6 @@ export function AgentsPage() {
   useEffect(() => {
     void Promise.all([load(), loadSandboxSupport()]);
   }, []);
-
-  const toggleCap = (cap: string) => {
-    setDriverCaps((prev) =>
-      prev.includes(cap) ? prev.filter((item) => item !== cap) : [...prev, cap],
-    );
-  };
-
-  const createDriver = async () => {
-    try {
-      await apiClient.createDriver({
-        id: driverName.trim(),
-        launch_command: driverCmd.trim(),
-        launch_args: driverArgs.split(" ").map((item) => item.trim()).filter(Boolean),
-        capabilities_max: {
-          fs_read: driverCaps.includes("fs_read"),
-          fs_write: driverCaps.includes("fs_write"),
-          terminal: driverCaps.includes("terminal"),
-        },
-      });
-      setDriverDialogOpen(false);
-      setDriverName("");
-      setDriverCmd("");
-      setDriverArgs("");
-      await load();
-    } catch (submitError) {
-      setError(getErrorMessage(submitError));
-    }
-  };
-
-  const createProfile = async () => {
-    try {
-      await apiClient.createProfile({
-        id: profileName.trim(),
-        name: profileName.trim(),
-        driver_id: profileDriver,
-        role: profileRole,
-        capabilities: profileCaps.split(",").map((item) => item.trim()).filter(Boolean),
-        actions_allowed: profileActions.split(",").map((item) => item.trim()).filter(Boolean),
-        session: {
-          reuse: true,
-          max_turns: Number.parseInt(profileMaxTurns, 10) || 12,
-        },
-      });
-      setProfileDialogOpen(false);
-      setProfileName("");
-      await load();
-    } catch (submitError) {
-      setError(getErrorMessage(submitError));
-    }
-  };
 
   return (
     <div className="flex-1 space-y-6 p-8">
@@ -165,16 +98,15 @@ export function AgentsPage() {
         report={sandboxSupport}
         loading={sandboxLoading}
         error={sandboxError}
-        onRefresh={() => {
-          void loadSandboxSupport();
-        }}
+        onRefresh={() => void loadSandboxSupport()}
       />
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Bot className="h-5 w-5" />
-            {t("agents.drivers")} <Badge variant="secondary" className="ml-1">{drivers.length}</Badge>
+            {t("agents.drivers")}
+            <Badge variant="secondary" className="ml-1">{drivers.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -218,7 +150,8 @@ export function AgentsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            {t("agents.profiles")} <Badge variant="secondary" className="ml-1">{profiles.length}</Badge>
+            {t("agents.profiles")}
+            <Badge variant="secondary" className="ml-1">{profiles.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -247,8 +180,8 @@ export function AgentsPage() {
                     <TableCell className="text-muted-foreground">{profile.driver_id}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {(profile.capabilities ?? []).map((capability) => (
-                          <Badge key={capability} variant="outline" className="text-xs">{capability}</Badge>
+                        {(profile.capabilities ?? []).map((cap) => (
+                          <Badge key={cap} variant="outline" className="text-xs">{cap}</Badge>
                         ))}
                       </div>
                     </TableCell>
@@ -267,110 +200,24 @@ export function AgentsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={driverDialogOpen} onClose={() => setDriverDialogOpen(false)} className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("agents.newDriver")}</DialogTitle>
-          <DialogDescription>{t("agents.createDriverDesc")}</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.driverId")}</label>
-            <Input value={driverName} onChange={(event) => setDriverName(event.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.launchCommand")}</label>
-            <Input value={driverCmd} onChange={(event) => setDriverCmd(event.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.launchArgs")}</label>
-            <Input value={driverArgs} onChange={(event) => setDriverArgs(event.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("agents.maxCapabilities")}</label>
-            <div className="flex gap-4">
-              {ALL_CAPS.map((cap) => (
-                <label key={cap} className="flex cursor-pointer items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleCap(cap)}
-                    className={cn(
-                      "flex h-[18px] w-[18px] items-center justify-center rounded transition-colors",
-                      driverCaps.includes(cap)
-                        ? "bg-primary text-primary-foreground"
-                        : "border border-input",
-                    )}
-                  >
-                    {driverCaps.includes(cap) ? "✓" : ""}
-                  </button>
-                  <span className="text-sm">{cap}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setDriverDialogOpen(false)}>{t("common.cancel")}</Button>
-          <Button onClick={() => void createDriver()}>{t("agents.createDriver")}</Button>
-        </DialogFooter>
-      </Dialog>
+      <CreateDriverDialog
+        open={driverDialogOpen}
+        onClose={() => setDriverDialogOpen(false)}
+        onCreate={async (payload) => {
+          await apiClient.createDriver(payload);
+          await load();
+        }}
+      />
 
-      <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t("agents.newProfile")}</DialogTitle>
-          <DialogDescription>{t("agents.createProfileDesc")}</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t("agents.profileId")}</label>
-              <Input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">{t("agents.role")}</label>
-              <select
-                className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-                value={profileRole}
-                onChange={(event) => setProfileRole(event.target.value)}
-              >
-                <option value="lead">lead</option>
-                <option value="worker">worker</option>
-                <option value="gate">gate</option>
-                <option value="support">support</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.bindDriver")}</label>
-            <select
-              className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-              value={profileDriver}
-              onChange={(event) => setProfileDriver(event.target.value)}
-            >
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>{driver.id}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.capabilityTagsComma")}</label>
-            <Input value={profileCaps} onChange={(event) => setProfileCaps(event.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.allowedActionsComma")}</label>
-            <Input value={profileActions} onChange={(event) => setProfileActions(event.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t("agents.maxTurns")}</label>
-            <Input value={profileMaxTurns} onChange={(event) => setProfileMaxTurns(event.target.value)} />
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>{t("common.cancel")}</Button>
-          <Button onClick={() => void createProfile()}>{t("agents.createProfile")}</Button>
-        </DialogFooter>
-      </Dialog>
+      <CreateProfileDialog
+        open={profileDialogOpen}
+        drivers={drivers}
+        onClose={() => setProfileDialogOpen(false)}
+        onCreate={async (payload) => {
+          await apiClient.createProfile(payload);
+          await load();
+        }}
+      />
     </div>
   );
 }
-
-

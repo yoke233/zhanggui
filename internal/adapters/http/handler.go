@@ -28,6 +28,7 @@ type Handler struct {
 	sandbox             sandbox.ControlService
 	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
+	textCompleter       TextCompleter
 	threadPool          ThreadAgentRuntime
 }
 
@@ -99,6 +100,11 @@ func WithGitPAT(pat string) HandlerOption {
 	return func(h *Handler) { h.gitPAT = pat }
 }
 
+// WithTextCompleter sets the LLM text completer for title generation, etc.
+func WithTextCompleter(tc TextCompleter) HandlerOption {
+	return func(h *Handler) { h.textCompleter = tc }
+}
+
 // WithThreadAgentRuntime sets the thread agent runtime for real ACP sessions.
 func WithThreadAgentRuntime(pool ThreadAgentRuntime) HandlerOption {
 	return func(h *Handler) { h.threadPool = pool }
@@ -146,6 +152,9 @@ func (h *Handler) Register(r chi.Router) {
 
 	// DAG generation (AI-powered)
 	r.Post("/issues/{issueID}/generate-steps", h.generateSteps)
+
+	// Title generation (AI-powered)
+	r.Post("/issues/generate-title", h.generateTitle)
 
 	// Save issue as template
 	r.Post("/issues/{issueID}/save-as-template", h.saveIssueAsTemplate)

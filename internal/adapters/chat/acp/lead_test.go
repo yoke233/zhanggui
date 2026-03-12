@@ -74,6 +74,9 @@ func (f *fakeChatACPClient) Prompt(context.Context, acpproto.PromptRequest) (*ac
 	f.promptCalls++
 	return &acpclient.PromptResult{Text: f.promptReply}, nil
 }
+func (f *fakeChatACPClient) SetConfigOption(context.Context, acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error) {
+	return nil, nil
+}
 func (f *fakeChatACPClient) Cancel(context.Context, acpproto.CancelNotification) error { return nil }
 func (f *fakeChatACPClient) Close(context.Context) error                               { return nil }
 

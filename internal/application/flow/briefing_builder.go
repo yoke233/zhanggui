@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -45,7 +46,57 @@ func (b *DefaultBriefingBuilder) Build(ctx context.Context, step *core.Step) (*c
 		})
 	}
 
+	// Inject feature manifest snapshot if the issue's project has one.
+	b.injectManifestContext(ctx, step, briefing)
+
 	return briefing, nil
+}
+
+// injectManifestContext adds the project's feature manifest as a ContextRef.
+func (b *DefaultBriefingBuilder) injectManifestContext(ctx context.Context, step *core.Step, briefing *core.Briefing) {
+	issue, err := b.store.GetIssue(ctx, step.IssueID)
+	if err != nil || issue == nil || issue.ProjectID == nil {
+		return
+	}
+	manifest, err := b.store.GetFeatureManifestByProject(ctx, *issue.ProjectID)
+	if err != nil {
+		return
+	}
+	entries, err := b.store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
+		ManifestID: manifest.ID,
+		Limit:      500,
+	})
+	if err != nil || len(entries) == 0 {
+		return
+	}
+
+	// Inject a compact snapshot: only key + status for pass/skipped entries,
+	// full details for fail/pending entries (these are actionable).
+	type compactEntry struct {
+		Key         string        `json:"key"`
+		Status      string        `json:"status"`
+		Description string        `json:"description,omitempty"`
+		IssueID     *int64        `json:"issue_id,omitempty"`
+		Tags        []string      `json:"tags,omitempty"`
+	}
+	compact := make([]compactEntry, 0, len(entries))
+	for _, e := range entries {
+		ce := compactEntry{Key: e.Key, Status: string(e.Status)}
+		if e.Status == core.FeatureFail || e.Status == core.FeaturePending {
+			ce.Description = e.Description
+			ce.IssueID = e.IssueID
+			ce.Tags = e.Tags
+		}
+		compact = append(compact, ce)
+	}
+
+	snapshot, _ := json.Marshal(compact)
+	briefing.ContextRefs = append(briefing.ContextRefs, core.ContextRef{
+		Type:   core.CtxFeatureManifest,
+		RefID:  manifest.ID,
+		Label:  "feature manifest",
+		Inline: string(snapshot),
+	})
 }
 
 // predecessorStepIDsFromStore returns IDs of steps with lower Position in the same issue.

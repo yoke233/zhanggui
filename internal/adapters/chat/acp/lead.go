@@ -75,6 +75,7 @@ type leadSession struct {
 	//   "worktree"  – a git worktree was created for a project
 	isolation string
 	repoPath  string // original repo path; set when isolation == "worktree"
+	branch    string
 
 	mu        sync.Mutex
 	idleTimer *time.Timer
@@ -86,6 +87,7 @@ type ChatACPClient interface {
 	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
 	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
 	Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error)
+	SetConfigOption(ctx context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error)
 	Cancel(ctx context.Context, req acpproto.CancelNotification) error
 	Close(ctx context.Context) error
 }
@@ -221,7 +223,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 	}
 
 	// New session — resolve an isolated working directory.
-	workDir, isolation, repoPath, err := l.resolveIsolatedWorkDir(ctx, req)
+	workDir, isolation, repoPath, branch, err := l.resolveIsolatedWorkDir(ctx, req)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -234,6 +236,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 	}
 	sess.isolation = isolation
 	sess.repoPath = repoPath
+	sess.branch = branch
 
 	// Persist isolation metadata in catalog.
 	if isolation != "" {
@@ -241,6 +244,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 		if record := l.catalog[publicSessionID]; record != nil {
 			record.Isolation = isolation
 			record.RepoPath = repoPath
+			record.Branch = branch
 			_ = l.saveCatalogLocked()
 		}
 		l.mu.Unlock()
@@ -402,6 +406,43 @@ func (l *LeadAgent) CancelChat(sessionID string) error {
 		_ = sess.client.Cancel(cancelCtx, acpproto.CancelNotification{SessionId: sess.sessionID})
 	}
 	return nil
+}
+
+// SetConfigOption changes a session config option via the underlying ACP client
+// and returns the updated config options list.
+func (l *LeadAgent) SetConfigOption(ctx context.Context, sessionID, configID, value string) ([]chatapp.ConfigOption, error) {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	sess, ok := l.sessions[id]
+	l.mu.Unlock()
+	if !ok || sess == nil || sess.isClosed() {
+		return nil, errors.New("session is not alive")
+	}
+
+	updated, err := sess.client.SetConfigOption(ctx, acpproto.SetSessionConfigOptionRequest{
+		SessionId: sess.sessionID,
+		ConfigId:  acpproto.SessionConfigId(strings.TrimSpace(configID)),
+		Value:     acpproto.SessionConfigValueId(strings.TrimSpace(value)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set config option: %w", err)
+	}
+
+	// Persist updated config options in catalog.
+	chatOpts := toChatConfigOptions(updated)
+	l.mu.Lock()
+	if record := l.catalog[id]; record != nil {
+		record.ConfigOptions = chatOpts
+		record.UpdatedAt = time.Now().UTC()
+		_ = l.saveCatalogLocked()
+	}
+	l.mu.Unlock()
+
+	return chatOpts, nil
 }
 
 func (l *LeadAgent) CloseSession(sessionID string) {
@@ -619,6 +660,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		scope:     record.Scope,
 		isolation: record.Isolation,
 		repoPath:  record.RepoPath,
+		branch:    record.Branch,
 	}
 
 	l.mu.Lock()
@@ -865,14 +907,14 @@ func resolveLeadWorkDir(workDir string) (string, error) {
 //     created so the agent never touches the default branch (isolation="worktree").
 //   - Otherwise a temporary sandbox directory is created under DataDir
 //     (isolation="sandbox").
-func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, error) {
+func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, string, error) {
 	// Caller-provided explicit path — honour it, no isolation.
 	if strings.TrimSpace(req.WorkDir) != "" {
 		abs, err := filepath.Abs(req.WorkDir)
 		if err != nil {
-			return "", "", "", fmt.Errorf("resolve working directory %q: %w", req.WorkDir, err)
+			return "", "", "", "", fmt.Errorf("resolve working directory %q: %w", req.WorkDir, err)
 		}
-		return abs, "", "", nil
+		return abs, "", "", "", nil
 	}
 
 	// Project with git binding → worktree isolation.
@@ -892,10 +934,10 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 
 			runner := workspacegit.NewRunner(repoPath)
 			if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
-				return "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
+				return "", "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
 			}
 			slog.Info("lead chat: created worktree", "project_id", req.ProjectID, "path", worktreePath, "branch", branchName)
-			return worktreePath, "worktree", repoPath, nil
+			return worktreePath, "worktree", repoPath, branchName, nil
 		}
 		// No git binding — fall through to sandbox.
 	}
@@ -903,9 +945,9 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 	// No project or no git binding → sandbox temp dir.
 	sandboxDir, err := l.createSandboxDir()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	return sandboxDir, "sandbox", "", nil
+	return sandboxDir, "sandbox", "", "", nil
 }
 
 // createSandboxDir creates a temporary directory under DataDir for chat sessions
@@ -1100,6 +1142,7 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 		SessionID:    record.SessionID,
 		Title:        record.Title,
 		WorkDir:      record.WorkDir,
+		Branch:       record.Branch,
 		WSPath:       buildChatWSPath(record.SessionID),
 		ProjectID:    record.ProjectID,
 		ProjectName:  record.ProjectName,

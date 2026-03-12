@@ -54,6 +54,11 @@ type DAGGenerator interface {
 	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Step, error)
 }
 
+// TextCompleter generates free-form text from a prompt (used for title generation, etc.).
+type TextCompleter interface {
+	CompleteText(ctx context.Context, prompt string) (string, error)
+}
+
 // ThreadAgentRuntime bridges Thread agent HTTP/WS endpoints to the ACP runtime.
 type ThreadAgentRuntime interface {
 	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadAgentSession, error)

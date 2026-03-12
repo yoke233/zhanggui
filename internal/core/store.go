@@ -108,6 +108,7 @@ type Store interface {
 	AnalyticsStore
 	DAGTemplateStore
 	UsageStore
+	FeatureManifestStore
 	Close() error
 }
 
