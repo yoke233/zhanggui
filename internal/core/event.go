@@ -39,6 +39,9 @@ const (
 
 	// Chat events for LeadAgent direct conversations.
 	EventChatOutput EventType = "chat.output"
+
+	// Thread events for multi-participant discussion.
+	EventThreadMessage EventType = "thread.message"
 )
 
 // IsTransientAgentEvent returns true for streaming chunk events that should

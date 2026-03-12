@@ -131,6 +131,9 @@ export interface SystemEventEnvelope extends WsEnvelope<SystemEventPayload> {
 export interface WsClientMessage {
   type:
     | "chat.send"
+    | "thread.send"
+    | "subscribe_thread"
+    | "unsubscribe_thread"
     | "subscribe_run"
     | "unsubscribe_run"
     | "subscribe_issue"
@@ -141,7 +144,9 @@ export interface WsClientMessage {
   run_id?: string;
   issue_id?: string;
   session_id?: string;
+  thread_id?: number;
   message?: string;
+  sender_id?: string;
   attachments?: ChatAttachment[];
   work_dir?: string;
   project_id?: number;
@@ -155,6 +160,39 @@ export interface ChatAttachment {
   mime_type: string;
   /** Base64-encoded content. */
   data: string;
+}
+
+// Thread WebSocket event types
+export type ThreadEventType = "thread.message";
+
+export interface ThreadEventPayload {
+  thread_id?: number;
+  message?: string;
+  sender_id?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export interface ThreadEventEnvelope extends WsEnvelope<ThreadEventPayload> {
+  type: ThreadEventType;
+}
+
+// Thread WebSocket response types (server → client)
+export type ThreadResponseType =
+  | "thread.ack"
+  | "thread.error"
+  | "thread.subscribed"
+  | "thread.unsubscribed";
+
+export interface ThreadAckPayload {
+  request_id?: string;
+  thread_id: number;
+  status: string;
+}
+
+export interface ThreadSubscriptionPayload {
+  thread_id: number;
+  status: string;
 }
 
 export type WsEventHandler<TPayload = unknown> = (

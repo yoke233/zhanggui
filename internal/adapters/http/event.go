@@ -80,6 +80,48 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 	return filter
 }
 
+// wsConnState holds per-WebSocket-connection state for dynamic subscriptions.
+type wsConnState struct {
+	mu        sync.Mutex
+	threadIDs map[int64]bool
+}
+
+func (s *wsConnState) subscribeThread(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.threadIDs == nil {
+		s.threadIDs = make(map[int64]bool)
+	}
+	s.threadIDs[id] = true
+}
+
+func (s *wsConnState) unsubscribeThread(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.threadIDs, id)
+}
+
+func (s *wsConnState) isThreadSubscribed(id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.threadIDs[id]
+}
+
+// threadIDFromEventData extracts thread_id from event data, handling both int64 and float64.
+func threadIDFromEventData(data map[string]any) (int64, bool) {
+	v, ok := data["thread_id"]
+	if !ok {
+		return 0, false
+	}
+	switch id := v.(type) {
+	case int64:
+		return id, true
+	case float64:
+		return int64(id), true
+	}
+	return 0, false
+}
+
 // wsEvents upgrades to WebSocket and streams real-time events from the EventBus.
 // Query params:
 //   - issue_id: optional, filter events to a specific issue
@@ -115,6 +157,8 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session_id"))
 
+	connState := &wsConnState{}
+
 	sub := h.bus.Subscribe(core.SubscribeOpts{
 		Types:      types,
 		BufferSize: 64,
@@ -130,7 +174,7 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 			if err := conn.ReadJSON(&msg); err != nil {
 				return
 			}
-			h.handleWSClientMessage(msg, writeJSON)
+			h.handleWSClientMessage(msg, writeJSON, connState)
 		}
 	}()
 
@@ -152,6 +196,13 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
+			// Thread events are only forwarded to connections subscribed to that thread.
+			if ev.Type == core.EventThreadMessage {
+				tid, ok := threadIDFromEventData(ev.Data)
+				if !ok || !connState.isThreadSubscribed(tid) {
+					continue
+				}
+			}
 
 			if err := writeJSON(ev); err != nil {
 				return
@@ -160,11 +211,17 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) error) {
+func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) error, state *wsConnState) {
 	msgType := strings.TrimSpace(msg.Type)
 	switch msgType {
 	case "chat.send":
 		h.handleWSChatSend(msg, writeJSON)
+	case "thread.send":
+		h.handleWSThreadSend(msg, writeJSON)
+	case "subscribe_thread":
+		h.handleWSSubscribeThread(msg, writeJSON, state)
+	case "unsubscribe_thread":
+		h.handleWSUnsubscribeThread(msg, writeJSON, state)
 	default:
 		_ = writeJSON(wsOutboundMessage{
 			Type: "chat.error",
@@ -272,4 +329,160 @@ type wsErrorPayload struct {
 	SessionID string `json:"session_id,omitempty"`
 	Code      string `json:"code,omitempty"`
 	Error     string `json:"error"`
+}
+
+// ---------------------------------------------------------------------------
+// Thread WebSocket message types
+// ---------------------------------------------------------------------------
+
+type wsThreadSendRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+	ThreadID  int64  `json:"thread_id"`
+	Message   string `json:"message"`
+	SenderID  string `json:"sender_id,omitempty"`
+}
+
+type wsThreadAckPayload struct {
+	RequestID string `json:"request_id,omitempty"`
+	ThreadID  int64  `json:"thread_id"`
+	Status    string `json:"status"`
+}
+
+type wsThreadSubscribeRequest struct {
+	ThreadID int64 `json:"thread_id"`
+}
+
+type wsThreadSubscriptionPayload struct {
+	ThreadID int64  `json:"thread_id"`
+	Status   string `json:"status"`
+}
+
+func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error) {
+	var req wsThreadSendRequest
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:  "BAD_REQUEST",
+					Error: "invalid thread.send payload",
+				},
+			})
+			return
+		}
+	}
+
+	reqID := strings.TrimSpace(req.RequestID)
+	if req.ThreadID <= 0 {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:      "BAD_REQUEST",
+				RequestID: reqID,
+				Error:     "thread_id is required",
+			},
+		})
+		return
+	}
+
+	// Validate thread exists.
+	_, err := h.store.GetThread(context.Background(), req.ThreadID)
+	if err != nil {
+		if err == core.ErrNotFound {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:      "THREAD_NOT_FOUND",
+					RequestID: reqID,
+					Error:     "thread not found",
+				},
+			})
+			return
+		}
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:      "THREAD_SEND_FAILED",
+				RequestID: reqID,
+				Error:     err.Error(),
+			},
+		})
+		return
+	}
+
+	// Publish thread message event for real-time broadcast.
+	h.bus.Publish(context.Background(), core.Event{
+		Type: core.EventThreadMessage,
+		Data: map[string]any{
+			"thread_id": req.ThreadID,
+			"message":   req.Message,
+			"sender_id": strings.TrimSpace(req.SenderID),
+		},
+		Timestamp: time.Now().UTC(),
+	})
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "thread.ack",
+		Data: wsThreadAckPayload{
+			RequestID: reqID,
+			ThreadID:  req.ThreadID,
+			Status:    "accepted",
+		},
+	})
+}
+
+func (h *Handler) handleWSSubscribeThread(msg wsMessage, writeJSON func(v any) error, state *wsConnState) {
+	var req wsThreadSubscribeRequest
+	if len(msg.Data) > 0 {
+		json.Unmarshal(msg.Data, &req)
+	}
+
+	if req.ThreadID <= 0 {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:  "BAD_REQUEST",
+				Error: "thread_id is required",
+			},
+		})
+		return
+	}
+
+	state.subscribeThread(req.ThreadID)
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "thread.subscribed",
+		Data: wsThreadSubscriptionPayload{
+			ThreadID: req.ThreadID,
+			Status:   "subscribed",
+		},
+	})
+}
+
+func (h *Handler) handleWSUnsubscribeThread(msg wsMessage, writeJSON func(v any) error, state *wsConnState) {
+	var req wsThreadSubscribeRequest
+	if len(msg.Data) > 0 {
+		json.Unmarshal(msg.Data, &req)
+	}
+
+	if req.ThreadID <= 0 {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:  "BAD_REQUEST",
+				Error: "thread_id is required",
+			},
+		})
+		return
+	}
+
+	state.unsubscribeThread(req.ThreadID)
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "thread.unsubscribed",
+		Data: wsThreadSubscriptionPayload{
+			ThreadID: req.ThreadID,
+			Status:   "unsubscribed",
+		},
+	})
 }
