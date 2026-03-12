@@ -31,6 +31,8 @@ func runWithArgs(args []string) error {
 		return appcmd.RunServer(args[1:])
 	case "executor":
 		return appcmd.RunExecutor(args[1:])
+	case "quality-gate":
+		return appcmd.RunQualityGate(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
@@ -43,5 +45,6 @@ func printUsage() {
 Usage:
   ai-flow version
   ai-flow server [--port <port>]
-  ai-flow executor --nats-url <url> [--agents claude,codex] [--max-concurrent 2]`)
+  ai-flow executor --nats-url <url> [--agents claude,codex] [--max-concurrent 2]
+  ai-flow quality-gate [--backend-only|--frontend-only|--skip-backend|--skip-frontend]`)
 }

@@ -19,6 +19,7 @@ This folder stores reusable one-shot test scripts for P3 frontend/backend integr
 - `frontend-unit.ps1`: run frontend unit tests.
 - `frontend-build.ps1`: run frontend production build.
 - `p3-integration.ps1`: run all suites above in sequence.
+- `ai-flow quality-gate`: built-in local quality gate command (backend `go test ./...`, frontend `npm test` + `npm build`).
 - `project-admin-e2e.ps1`: run browser E2E for project admin (`local_path` + `local_new` flows) via Playwright.
 - `codeup-cr-smoke.ps1`: minimal Codeup API smoke for create CR, with optional merge.
 - `codeup-resource-binding.example.json`: minimal v2 git resource binding example for Codeup.
@@ -39,6 +40,12 @@ pwsh -NoProfile -File .\scripts\test\backend-github.ps1
 pwsh -NoProfile -File .\scripts\test\p35-terminology-gate.ps1
 pwsh -NoProfile -File .\scripts\test\frontend-unit.ps1
 pwsh -NoProfile -File .\scripts\test\frontend-build.ps1
+```
+
+Run built-in quality gate (cross-platform):
+
+```bash
+go run ./cmd/ai-flow quality-gate
 ```
 
 Run browser E2E (headful):
