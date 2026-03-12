@@ -47,7 +47,7 @@ type localHandle struct {
 	workDir    string
 	mcpServers []acpproto.McpServer
 	reuse      bool
-	flowID     int64
+	issueID    int64
 	stepID     int64
 	execID     int64
 }
@@ -61,7 +61,7 @@ type localInvocation struct {
 	id        string
 	handleID  string
 	execID    int64
-	flowID    int64
+	issueID   int64
 	stepID    int64
 	status    runtimeapp.ExecutionRuntimeState
 	result    *runtimeapp.ExecutionResult
@@ -93,9 +93,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
 	}
-	scope := fmt.Sprintf("flow-%d", in.FlowID)
+	scope := fmt.Sprintf("issue-%d", in.IssueID)
 	if !in.Reuse {
-		scope = fmt.Sprintf("flow-%d-exec-%d", in.FlowID, in.ExecID)
+		scope = fmt.Sprintf("issue-%d-exec-%d", in.IssueID, in.ExecID)
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile: in.Profile,
@@ -113,7 +113,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 
 	lh := &localHandle{
 		reuse:   in.Reuse,
-		flowID:  in.FlowID,
+		issueID: in.IssueID,
 		stepID:  in.StepID,
 		execID:  in.ExecID,
 		launch:  sandboxedLaunch,
@@ -129,7 +129,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 			Caps:       in.Caps,
 			WorkDir:    in.WorkDir,
 			MCPFactory: in.MCPFactory,
-			FlowID:     in.FlowID,
+			IssueID:    in.IssueID,
 			StepID:     in.StepID,
 			ExecID:     in.ExecID,
 			IdleTTL:    in.IdleTTL,
@@ -211,7 +211,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 		id:        invocationID,
 		handleID:  handle.ID,
 		execID:    lh.execID,
-		flowID:    lh.flowID,
+		issueID:   lh.issueID,
 		stepID:    lh.stepID,
 		status:    runtimeapp.ExecutionRunning,
 		done:      make(chan struct{}),
@@ -351,7 +351,7 @@ func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Ti
 		status := runtimeapp.ExecutionRuntimeStatus{
 			InvocationID: inv.id,
 			ExecID:       inv.execID,
-			FlowID:       inv.flowID,
+			IssueID:      inv.issueID,
 			StepID:       inv.stepID,
 			Status:       inv.status,
 			CreatedAt:    inv.createdAt,
@@ -416,10 +416,10 @@ func (m *LocalSessionManager) Release(ctx context.Context, handle *runtimeapp.Se
 	return nil
 }
 
-// CleanupFlow releases all sessions for a flow.
-func (m *LocalSessionManager) CleanupFlow(flowID int64) {
+// CleanupIssue releases all sessions for an issue.
+func (m *LocalSessionManager) CleanupIssue(issueID int64) {
 	if m.pool != nil {
-		m.pool.CleanupFlow(flowID)
+		m.pool.CleanupIssue(issueID)
 	}
 }
 

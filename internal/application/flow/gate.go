@@ -25,7 +25,7 @@ type GateResult struct {
 }
 
 // ProcessGate handles a gate Step: pass → downstream continue, reject → reset upstream + gate re-enters loop.
-func (e *FlowEngine) ProcessGate(ctx context.Context, step *core.Step, result GateResult) error {
+func (e *IssueEngine) ProcessGate(ctx context.Context, step *core.Step, result GateResult) error {
 	if step.Type != core.StepGate {
 		return fmt.Errorf("step %d is not a gate (type=%s)", step.ID, step.Type)
 	}
@@ -36,7 +36,7 @@ func (e *FlowEngine) ProcessGate(ctx context.Context, step *core.Step, result Ga
 		}
 		e.bus.Publish(ctx, core.Event{
 			Type:      core.EventGatePassed,
-			FlowID:    step.FlowID,
+			IssueID:   step.IssueID,
 			StepID:    step.ID,
 			Timestamp: time.Now().UTC(),
 			Data:      map[string]any{"reason": result.Reason},
@@ -47,7 +47,7 @@ func (e *FlowEngine) ProcessGate(ctx context.Context, step *core.Step, result Ga
 	// Gate rejected.
 	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventGateRejected,
-		FlowID:    step.FlowID,
+		IssueID:   step.IssueID,
 		StepID:    step.ID,
 		Timestamp: time.Now().UTC(),
 		Data:      map[string]any{"reason": result.Reason},
@@ -76,13 +76,13 @@ func (e *FlowEngine) ProcessGate(ctx context.Context, step *core.Step, result Ga
 
 // finalizeGate is called after a gate step's executor succeeds.
 // It reads the latest Artifact's metadata.verdict to decide pass/reject.
-func (e *FlowEngine) finalizeGate(ctx context.Context, step *core.Step) error {
+func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
 	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
 	if err == core.ErrNotFound {
 		// No artifact — default to pass.
 		e.bus.Publish(ctx, core.Event{
 			Type:      core.EventGatePassed,
-			FlowID:    step.FlowID,
+			IssueID:   step.IssueID,
 			StepID:    step.ID,
 			Timestamp: time.Now().UTC(),
 		})
@@ -114,7 +114,7 @@ func (e *FlowEngine) finalizeGate(ctx context.Context, step *core.Step) error {
 
 		e.bus.Publish(ctx, core.Event{
 			Type:      core.EventGatePassed,
-			FlowID:    step.FlowID,
+			IssueID:   step.IssueID,
 			StepID:    step.ID,
 			Timestamp: time.Now().UTC(),
 		})
@@ -142,7 +142,7 @@ func (e *FlowEngine) finalizeGate(ctx context.Context, step *core.Step) error {
 	return rejectErr
 }
 
-// extractResetTargets reads reject_targets from metadata, falling back to deps.
+// extractResetTargets reads reject_targets from metadata, falling back to predecessors.
 func extractResetTargets(metadata map[string]any, fallback []int64) []int64 {
 	targets, ok := metadata["reject_targets"].([]any)
 	if !ok || len(targets) == 0 {
@@ -217,7 +217,7 @@ func recordGateRework(step *core.Step, gateStepID int64, reason string, metadata
 	step.Config["last_gate_feedback"] = entry
 }
 
-func (e *FlowEngine) formatMergeFailureFeedback(step *core.Step, err error) (string, map[string]any) {
+func (e *IssueEngine) formatMergeFailureFeedback(step *core.Step, err error) (string, map[string]any) {
 	metadata := map[string]any{
 		"merge_error": err.Error(),
 	}
@@ -298,14 +298,17 @@ func renderMergeReworkFeedbackTemplate(tmplText string, vars mergeReworkTemplate
 	return out
 }
 
-func (e *FlowEngine) defaultGateResetTargets(ctx context.Context, step *core.Step, metadata map[string]any) (resetTo []int64, reason string) {
-	resetTo = extractResetTargets(metadata, step.DependsOn)
+func (e *IssueEngine) defaultGateResetTargets(ctx context.Context, step *core.Step, metadata map[string]any) (resetTo []int64, reason string) {
+	// Determine predecessor steps (those with lower Position) as default reset targets.
+	predecessors := e.predecessorIDs(ctx, step)
+	resetTo = extractResetTargets(metadata, predecessors)
 	if len(resetTo) == 0 {
-		resetTo = append([]int64(nil), step.DependsOn...)
+		resetTo = append([]int64(nil), predecessors...)
 	}
 	if step.Config != nil {
 		if v, ok := step.Config["reset_upstream_closure"].(bool); ok && v {
-			resetTo = e.upstreamClosure(ctx, step.FlowID, step.ID)
+			// For Position-based ordering, all predecessors ARE the upstream closure.
+			resetTo = predecessors
 		}
 	}
 	reason, _ = metadata["reason"].(string)
@@ -315,36 +318,16 @@ func (e *FlowEngine) defaultGateResetTargets(ctx context.Context, step *core.Ste
 	return resetTo, reason
 }
 
-func (e *FlowEngine) upstreamClosure(ctx context.Context, flowID int64, stepID int64) []int64 {
-	steps, err := e.store.ListStepsByFlow(ctx, flowID)
+// predecessorIDs returns IDs of all steps with lower Position in the same issue.
+func (e *IssueEngine) predecessorIDs(ctx context.Context, step *core.Step) []int64 {
+	steps, err := e.store.ListStepsByIssue(ctx, step.IssueID)
 	if err != nil || len(steps) == 0 {
 		return nil
 	}
-	depsByID := make(map[int64][]int64, len(steps))
-	for _, s := range steps {
-		if s == nil {
-			continue
-		}
-		depsByID[s.ID] = append([]int64(nil), s.DependsOn...)
-	}
-	seen := map[int64]struct{}{}
-	var stack []int64
-	stack = append(stack, depsByID[stepID]...)
-	var result []int64
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if _, ok := seen[n]; ok {
-			continue
-		}
-		seen[n] = struct{}{}
-		result = append(result, n)
-		stack = append(stack, depsByID[n]...)
-	}
-	return result
+	return predecessorStepIDs(steps, step)
 }
 
-func (e *FlowEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) error {
+func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) error {
 	mergeOnPass := false
 	mergeMethod := "squash"
 	if step.Config != nil {
@@ -424,13 +407,13 @@ func (e *FlowEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) e
 
 	return provider.Merge(ctx, repo, prNumber, MergeInput{
 		Method:        mergeMethod,
-		CommitTitle:   fmt.Sprintf("merge: flow %d", step.FlowID),
+		CommitTitle:   fmt.Sprintf("merge: issue %d", step.IssueID),
 		CommitMessage: fmt.Sprintf("merged by ai-workflow gate step %d", step.ID),
 		Extra:         extra,
 	})
 }
 
-func (e *FlowEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int, error) {
+func (e *IssueEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int, error) {
 	// Prefer gate artifact metadata.
 	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
 	if err == nil && art != nil && art.Metadata != nil {
@@ -439,9 +422,9 @@ func (e *FlowEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int,
 		}
 	}
 
-	// Fallback: scan upstream artifacts.
-	up := e.upstreamClosure(ctx, step.FlowID, step.ID)
-	for _, id := range up {
+	// Fallback: scan predecessor artifacts.
+	predecessors := e.predecessorIDs(ctx, step)
+	for _, id := range predecessors {
 		a, err := e.store.GetLatestArtifactByStep(ctx, id)
 		if err != nil || a == nil || a.Metadata == nil {
 			continue
@@ -489,5 +472,3 @@ func gitOutput(ctx context.Context, dir string, extraEnv []string, args ...strin
 	}
 	return stdout.String(), nil
 }
-
-

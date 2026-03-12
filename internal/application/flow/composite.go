@@ -8,62 +8,82 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// ExpandComposite creates a sub-Flow for a composite Step and links them.
-// The caller provides the child steps to populate the sub-Flow.
-func (e *FlowEngine) ExpandComposite(ctx context.Context, step *core.Step, childSteps []*core.Step) (int64, error) {
+// ExpandComposite creates a child Issue for a composite Step and links them.
+// The caller provides the child steps to populate the child Issue.
+func (e *IssueEngine) ExpandComposite(ctx context.Context, step *core.Step, childSteps []*core.Step) (int64, error) {
 	if step.Type != core.StepComposite {
 		return 0, fmt.Errorf("step %d is not composite (type=%s)", step.ID, step.Type)
 	}
 
-	subFlow := &core.Flow{
-		Name:         fmt.Sprintf("%s/sub", step.Name),
-		Status:       core.FlowPending,
-		ParentStepID: &step.ID,
+	childIssue := &core.Issue{
+		Title:  fmt.Sprintf("%s/sub", step.Name),
+		Status: core.IssueOpen,
 	}
-	// Inherit ProjectID from parent flow.
-	parentFlow, err := e.store.GetFlow(ctx, step.FlowID)
-	if err == nil && parentFlow.ProjectID != nil {
-		subFlow.ProjectID = parentFlow.ProjectID
+	// Inherit ProjectID from parent issue.
+	parentIssue, err := e.store.GetIssue(ctx, step.IssueID)
+	if err == nil && parentIssue.ProjectID != nil {
+		childIssue.ProjectID = parentIssue.ProjectID
 	}
-	subFlowID, err := e.store.CreateFlow(ctx, subFlow)
+	childIssueID, err := e.store.CreateIssue(ctx, childIssue)
 	if err != nil {
-		return 0, fmt.Errorf("create sub-flow: %w", err)
+		return 0, fmt.Errorf("create child issue: %w", err)
 	}
 
-	for _, cs := range childSteps {
-		cs.FlowID = subFlowID
+	for i, cs := range childSteps {
+		cs.IssueID = childIssueID
 		cs.Status = core.StepPending
+		cs.Position = i + 1
 		if _, err := e.store.CreateStep(ctx, cs); err != nil {
 			return 0, fmt.Errorf("create child step %s: %w", cs.Name, err)
 		}
 	}
 
-	// Link parent step to sub-flow and persist.
-	step.SubFlowID = &subFlowID
+	// Store the child issue ID in the step's Config for tracking.
+	if step.Config == nil {
+		step.Config = map[string]any{}
+	}
+	step.Config["child_issue_id"] = childIssueID
 	if err := e.store.UpdateStep(ctx, step); err != nil {
-		return 0, fmt.Errorf("persist sub-flow link for step %d: %w", step.ID, err)
+		return 0, fmt.Errorf("persist child issue link for step %d: %w", step.ID, err)
 	}
 
-	return subFlowID, nil
+	return childIssueID, nil
+}
+
+// childIssueID retrieves the child issue ID from a composite step's config.
+func childIssueID(step *core.Step) *int64 {
+	if step.Config == nil {
+		return nil
+	}
+	v, ok := step.Config["child_issue_id"]
+	if !ok {
+		return nil
+	}
+	if id, ok := toInt64(v); ok {
+		return &id
+	}
+	return nil
 }
 
 // executeComposite handles composite step execution:
-// expand child steps → create sub-flow → run sub-flow → propagate result.
-func (e *FlowEngine) executeComposite(ctx context.Context, step *core.Step) error {
-	// If sub-flow exists but is in a terminal state (e.g. after gate reject reset),
+// expand child steps → create child issue → run child issue → propagate result.
+func (e *IssueEngine) executeComposite(ctx context.Context, step *core.Step) error {
+	// If child issue exists but is in a terminal state (e.g. after gate reject reset),
 	// clear it so we create a fresh one.
-	if step.SubFlowID != nil {
-		sf, err := e.store.GetFlow(ctx, *step.SubFlowID)
-		if err == nil && (sf.Status == core.FlowDone || sf.Status == core.FlowFailed || sf.Status == core.FlowCancelled) {
-			step.SubFlowID = nil
+	cID := childIssueID(step)
+	if cID != nil {
+		ci, err := e.store.GetIssue(ctx, *cID)
+		if err == nil && (ci.Status == core.IssueDone || ci.Status == core.IssueFailed || ci.Status == core.IssueCancelled) {
+			cID = nil
+			delete(step.Config, "child_issue_id")
 		}
 	}
 
-	// If no sub-flow exists, expand.
-	if step.SubFlowID == nil {
+	// If no child issue exists, expand.
+	if cID == nil {
 		if e.expander == nil {
 			_ = e.transitionStep(ctx, step, core.StepFailed)
-			return fmt.Errorf("composite step %d: no expander configured and no sub-flow", step.ID)
+			return fmt.Errorf("composite step %d: no expander configured and no child issue", step.ID)
 		}
 
 		children, err := e.expander.Expand(ctx, step)
@@ -72,37 +92,38 @@ func (e *FlowEngine) executeComposite(ctx context.Context, step *core.Step) erro
 			return fmt.Errorf("expand composite step %d: %w", step.ID, err)
 		}
 
-		if _, err := e.ExpandComposite(ctx, step, children); err != nil {
+		newID, err := e.ExpandComposite(ctx, step, children)
+		if err != nil {
 			_ = e.transitionStep(ctx, step, core.StepFailed)
-			return fmt.Errorf("create sub-flow for step %d: %w", step.ID, err)
+			return fmt.Errorf("create child issue for step %d: %w", step.ID, err)
 		}
+		cID = &newID
 	}
 
-	subFlowID := *step.SubFlowID
+	childIssID := *cID
 
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventFlowStarted,
-		FlowID:    subFlowID,
+		Type:      core.EventIssueStarted,
+		IssueID:   childIssID,
 		StepID:    step.ID,
 		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"parent_flow_id": step.FlowID},
+		Data:      map[string]any{"parent_issue_id": step.IssueID},
 	})
 
-	// Run sub-flow. This blocks until the sub-flow completes.
-	if err := e.Run(ctx, subFlowID); err != nil {
-		// Sub-flow failed — check retry budget on the composite step.
+	// Run child issue. This blocks until the child issue completes.
+	if err := e.Run(ctx, childIssID); err != nil {
+		// Child issue failed — check retry budget on the composite step.
 		if step.RetryCount < step.MaxRetries {
 			step.RetryCount++
 			step.Status = core.StepPending
-			step.SubFlowID = nil // clear link so next attempt creates fresh sub-flow
+			delete(step.Config, "child_issue_id") // clear link so next attempt creates fresh child issue
 			return e.store.UpdateStep(ctx, step)
 		}
 
 		_ = e.transitionStep(ctx, step, core.StepFailed)
-		return fmt.Errorf("composite step %d sub-flow failed: %w", step.ID, err)
+		return fmt.Errorf("composite step %d child issue failed: %w", step.ID, err)
 	}
 
-	// Sub-flow succeeded → parent step done.
+	// Child issue succeeded → parent step done.
 	return e.transitionStep(ctx, step, core.StepDone)
 }
-

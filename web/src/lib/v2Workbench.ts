@@ -1,4 +1,4 @@
-import type { Flow, Step } from "@/types/apiV2";
+import type { Issue, Step } from "@/types/apiV2";
 
 export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -40,14 +40,14 @@ export const formatRelativeTime = (input?: string | null): string => {
   });
 };
 
-export const formatFlowDuration = (flow: Pick<Flow, "created_at" | "updated_at" | "status">): string => {
-  const created = new Date(flow.created_at);
+export const formatIssueDuration = (issue: Pick<Issue, "created_at" | "updated_at" | "status">): string => {
+  const created = new Date(issue.created_at);
   if (Number.isNaN(created.getTime())) {
     return "-";
   }
-  const updated = new Date(flow.updated_at);
+  const updated = new Date(issue.updated_at);
   const end =
-    flow.status === "done" || flow.status === "failed" || flow.status === "cancelled"
+    issue.status === "done" || issue.status === "failed" || issue.status === "cancelled"
       ? updated
       : new Date();
   const diffMs = Math.max(0, end.getTime() - created.getTime());
@@ -59,7 +59,7 @@ export const formatFlowDuration = (flow: Pick<Flow, "created_at" | "updated_at" 
   return `${diffMinutes}m`;
 };
 
-export const isActiveFlowStatus = (status: string): boolean =>
+export const isActiveIssueStatus = (status: string): boolean =>
   status === "queued" || status === "running" || status === "blocked" || status === "pending";
 
 export const normalizeStepTypeLabel = (type: Step["type"]): string => {
@@ -74,4 +74,3 @@ export const normalizeStepTypeLabel = (type: Step["type"]): string => {
       return type;
   }
 };
-

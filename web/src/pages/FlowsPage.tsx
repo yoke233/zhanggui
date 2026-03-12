@@ -14,13 +14,13 @@ import {
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
-import { formatFlowDuration, formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
-import type { Flow } from "@/types/apiV2";
+import { formatIssueDuration, formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
+import type { Issue } from "@/types/apiV2";
 
 export function FlowsPage() {
   const { apiClient, selectedProject, selectedProjectId } = useWorkbench();
   const [search, setSearch] = useState("");
-  const [flows, setFlows] = useState<Flow[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,14 +30,14 @@ export function FlowsPage() {
       setLoading(true);
       setError(null);
       try {
-        const listed = await apiClient.listFlows({
+        const listed = await apiClient.listIssues({
           project_id: selectedProjectId ?? undefined,
           archived: false,
           limit: 200,
           offset: 0,
         });
         if (!cancelled) {
-          setFlows(listed);
+          setIssues(listed);
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -57,11 +57,11 @@ export function FlowsPage() {
 
   const filtered = useMemo(
     () =>
-      flows.filter((flow) =>
-        flow.name.toLowerCase().includes(search.toLowerCase()) ||
-        String(flow.id).includes(search),
+      issues.filter((issue) =>
+        issue.title.toLowerCase().includes(search.toLowerCase()) ||
+        String(issue.id).includes(search),
       ),
-    [flows, search],
+    [issues, search],
   );
 
   return (
@@ -73,10 +73,10 @@ export function FlowsPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            {selectedProject ? `当前项目：${selectedProject.name}` : "当前展示全部项目的 flow"}
+            {selectedProject ? `当前项目：${selectedProject.name}` : "当前展示全部项目的 issue"}
           </p>
         </div>
-        <Link to="/flows/new">
+        <Link to="/issues/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             新建流程
@@ -119,23 +119,23 @@ export function FlowsPage() {
               {filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    当前没有可展示的 flow
+                    当前没有可展示的 issue
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((flow) => (
-                  <TableRow key={flow.id}>
+                filtered.map((issue) => (
+                  <TableRow key={issue.id}>
                     <TableCell className="font-medium">
-                      <Link to={`/flows/${flow.id}`} className="hover:underline">
-                        {flow.name}
+                      <Link to={`/issues/${issue.id}`} className="hover:underline">
+                        {issue.title}
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={flow.status} />
+                      <StatusBadge status={issue.status} />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{formatRelativeTime(flow.created_at)}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatRelativeTime(flow.updated_at)}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatFlowDuration(flow)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatRelativeTime(issue.created_at)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatRelativeTime(issue.updated_at)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatIssueDuration(issue)}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -146,4 +146,3 @@ export function FlowsPage() {
     </div>
   );
 }
-

@@ -72,7 +72,7 @@ type natsInvocationMessage struct {
 	HandleID     string                         `json:"handle_id"`
 	Text         string                         `json:"text"`
 	Input        runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
-	FlowID       int64                          `json:"flow_id"`
+	IssueID      int64                          `json:"issue_id"`
 	StepID       int64                          `json:"step_id"`
 	ExecID       int64                          `json:"execution_id"`
 	AgentID      string                         `json:"agent_id"`
@@ -219,7 +219,7 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 		InvocationID: invocationID,
 		HandleID:     handle.ID,
 		Text:         text,
-		FlowID:       nh.sessionIn.FlowID,
+		IssueID:      nh.sessionIn.IssueID,
 		StepID:       nh.sessionIn.StepID,
 		ExecID:       nh.sessionIn.ExecID,
 		AgentID:      agentType,
@@ -244,7 +244,7 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	m.drainWg.Add(1)
 
 	slog.Info("nats session manager: execution dispatched",
-		"exec_id", msg.ExecID, "agent", agentType, "flow_id", msg.FlowID)
+		"exec_id", msg.ExecID, "agent", agentType, "issue_id", msg.IssueID)
 
 	return invocationID, nil
 }
@@ -421,8 +421,8 @@ func (m *NATSSessionManager) Release(_ context.Context, handle *runtimeapp.Sessi
 	return nil
 }
 
-// CleanupFlow is a no-op in NATS mode — executor workers manage their own sessions.
-func (m *NATSSessionManager) CleanupFlow(_ int64) {}
+// CleanupIssue is a no-op in NATS mode — executor workers manage their own sessions.
+func (m *NATSSessionManager) CleanupIssue(_ int64) {}
 
 // DrainActive blocks until all in-flight executions complete.
 func (m *NATSSessionManager) DrainActive(ctx context.Context) error {

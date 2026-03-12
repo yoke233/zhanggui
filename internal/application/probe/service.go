@@ -78,7 +78,7 @@ func (s *ExecutionProbeService) RequestExecutionProbe(ctx context.Context, execu
 
 	probe := &core.ExecutionProbe{
 		ExecutionID:    execRec.ID,
-		FlowID:         execRec.FlowID,
+		IssueID:        execRec.IssueID,
 		StepID:         execRec.StepID,
 		AgentContextID: route.AgentContextID,
 		SessionID:      route.SessionID,
@@ -187,7 +187,7 @@ func (s *ExecutionProbeService) publishProbeEvent(ctx context.Context, eventType
 	}
 	s.bus.Publish(ctx, core.Event{
 		Type:      eventType,
-		FlowID:    probe.FlowID,
+		IssueID:   probe.IssueID,
 		StepID:    probe.StepID,
 		ExecID:    probe.ExecutionID,
 		Timestamp: time.Now().UTC(),

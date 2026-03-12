@@ -10,7 +10,7 @@ type Artifact struct {
 	ID             int64          `json:"id"`
 	ExecutionID    int64          `json:"execution_id"`
 	StepID         int64          `json:"step_id"`
-	FlowID         int64          `json:"flow_id"`
+	IssueID        int64          `json:"issue_id"`
 	ResultMarkdown string         `json:"result_markdown"`    // agent's primary output (natural language)
 	Metadata       map[string]any `json:"metadata,omitempty"` // engine-extracted structured data
 	Assets         []Asset        `json:"assets,omitempty"`   // attachments

@@ -10,11 +10,11 @@ type AnalyticsStore interface {
 	// ProjectErrorRanking returns projects ordered by failure count (desc).
 	ProjectErrorRanking(ctx context.Context, filter AnalyticsFilter) ([]ProjectErrorRank, error)
 
-	// FlowBottleneckSteps returns steps that are slowest or fail most within flows.
-	FlowBottleneckSteps(ctx context.Context, filter AnalyticsFilter) ([]StepBottleneck, error)
+	// IssueBottleneckSteps returns steps that are slowest or fail most within issues.
+	IssueBottleneckSteps(ctx context.Context, filter AnalyticsFilter) ([]StepBottleneck, error)
 
-	// ExecutionDurationStats returns execution duration percentiles per flow.
-	ExecutionDurationStats(ctx context.Context, filter AnalyticsFilter) ([]FlowDurationStat, error)
+	// ExecutionDurationStats returns execution duration percentiles per issue.
+	ExecutionDurationStats(ctx context.Context, filter AnalyticsFilter) ([]IssueDurationStat, error)
 
 	// ErrorBreakdown returns error counts grouped by error_kind.
 	ErrorBreakdown(ctx context.Context, filter AnalyticsFilter) ([]ErrorKindCount, error)
@@ -22,8 +22,8 @@ type AnalyticsStore interface {
 	// RecentFailures returns the most recent failed executions with context.
 	RecentFailures(ctx context.Context, filter AnalyticsFilter) ([]FailureRecord, error)
 
-	// FlowStatusDistribution returns flow counts grouped by status.
-	FlowStatusDistribution(ctx context.Context, filter AnalyticsFilter) ([]StatusCount, error)
+	// IssueStatusDistribution returns issue counts grouped by status.
+	IssueStatusDistribution(ctx context.Context, filter AnalyticsFilter) ([]StatusCount, error)
 }
 
 // AnalyticsFilter constrains analytics queries.
@@ -36,20 +36,20 @@ type AnalyticsFilter struct {
 
 // ProjectErrorRank represents a project's error ranking.
 type ProjectErrorRank struct {
-	ProjectID   int64   `json:"project_id"`
-	ProjectName string  `json:"project_name"`
-	TotalFlows  int     `json:"total_flows"`
-	FailedFlows int     `json:"failed_flows"`
-	FailureRate float64 `json:"failure_rate"`
-	FailedExecs int     `json:"failed_execs"`
+	ProjectID    int64   `json:"project_id"`
+	ProjectName  string  `json:"project_name"`
+	TotalIssues  int     `json:"total_issues"`
+	FailedIssues int     `json:"failed_issues"`
+	FailureRate  float64 `json:"failure_rate"`
+	FailedExecs  int     `json:"failed_execs"`
 }
 
-// StepBottleneck represents a step that is a bottleneck in flow execution.
+// StepBottleneck represents a step that is a bottleneck in issue execution.
 type StepBottleneck struct {
 	StepID       int64   `json:"step_id"`
 	StepName     string  `json:"step_name"`
-	FlowID       int64   `json:"flow_id"`
-	FlowName     string  `json:"flow_name"`
+	IssueID      int64   `json:"issue_id"`
+	IssueTitle   string  `json:"issue_title"`
 	ProjectID    *int64  `json:"project_id,omitempty"`
 	AvgDurationS float64 `json:"avg_duration_s"`
 	MaxDurationS float64 `json:"max_duration_s"`
@@ -59,10 +59,10 @@ type StepBottleneck struct {
 	FailRate     float64 `json:"fail_rate"`
 }
 
-// FlowDurationStat provides duration statistics for a flow.
-type FlowDurationStat struct {
-	FlowID       int64   `json:"flow_id"`
-	FlowName     string  `json:"flow_name"`
+// IssueDurationStat provides duration statistics for an issue.
+type IssueDurationStat struct {
+	IssueID      int64   `json:"issue_id"`
+	IssueTitle   string  `json:"issue_title"`
 	ProjectID    *int64  `json:"project_id,omitempty"`
 	ExecCount    int     `json:"exec_count"`
 	AvgDurationS float64 `json:"avg_duration_s"`
@@ -83,8 +83,8 @@ type FailureRecord struct {
 	ExecID       int64     `json:"exec_id"`
 	StepID       int64     `json:"step_id"`
 	StepName     string    `json:"step_name"`
-	FlowID       int64     `json:"flow_id"`
-	FlowName     string    `json:"flow_name"`
+	IssueID      int64     `json:"issue_id"`
+	IssueTitle   string    `json:"issue_title"`
 	ProjectID    *int64    `json:"project_id,omitempty"`
 	ProjectName  string    `json:"project_name,omitempty"`
 	ErrorMessage string    `json:"error_message"`
@@ -94,8 +94,8 @@ type FailureRecord struct {
 	FailedAt     time.Time `json:"failed_at"`
 }
 
-// StatusCount counts flows by status.
+// StatusCount counts issues by status.
 type StatusCount struct {
-	Status FlowStatus `json:"status"`
-	Count  int        `json:"count"`
+	Status IssueStatus `json:"status"`
+	Count  int         `json:"count"`
 }

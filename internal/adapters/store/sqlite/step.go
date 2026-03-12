@@ -11,10 +11,6 @@ import (
 )
 
 func (s *Store) CreateStep(ctx context.Context, st *core.Step) (int64, error) {
-	deps, err := marshalJSON(st.DependsOn)
-	if err != nil {
-		return 0, fmt.Errorf("marshal depends_on: %w", err)
-	}
 	cfg, err := marshalJSON(st.Config)
 	if err != nil {
 		return 0, fmt.Errorf("marshal config: %w", err)
@@ -29,10 +25,10 @@ func (s *Store) CreateStep(ctx context.Context, st *core.Step) (int64, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO steps (flow_id, name, description, type, status, depends_on, sub_flow_id, agent_role,
+		`INSERT INTO steps (issue_id, name, description, type, status, position, agent_role,
 		        required_capabilities, acceptance_criteria, timeout_ms, config, max_retries, retry_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		st.FlowID, st.Name, st.Description, st.Type, st.Status, deps, st.SubFlowID, st.AgentRole,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		st.IssueID, st.Name, st.Description, st.Type, st.Status, st.Position, st.AgentRole,
 		caps, criteria, st.Timeout.Milliseconds(), cfg,
 		st.MaxRetries, st.RetryCount, now, now,
 	)
@@ -48,14 +44,14 @@ func (s *Store) CreateStep(ctx context.Context, st *core.Step) (int64, error) {
 
 func (s *Store) GetStep(ctx context.Context, id int64) (*core.Step, error) {
 	st := &core.Step{}
-	var deps, cfg, caps, criteria sql.NullString
+	var cfg, caps, criteria sql.NullString
 	var timeoutMs int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, flow_id, name, description, type, status, depends_on, sub_flow_id, agent_role,
+		`SELECT id, issue_id, name, description, type, status, position, agent_role,
 		        required_capabilities, acceptance_criteria, timeout_ms, config,
 		        max_retries, retry_count, created_at, updated_at
 		 FROM steps WHERE id = ?`, id,
-	).Scan(&st.ID, &st.FlowID, &st.Name, &st.Description, &st.Type, &st.Status, &deps, &st.SubFlowID,
+	).Scan(&st.ID, &st.IssueID, &st.Name, &st.Description, &st.Type, &st.Status, &st.Position,
 		&st.AgentRole, &caps, &criteria, &timeoutMs, &cfg,
 		&st.MaxRetries, &st.RetryCount, &st.CreatedAt, &st.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -64,7 +60,6 @@ func (s *Store) GetStep(ctx context.Context, id int64) (*core.Step, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get step %d: %w", id, err)
 	}
-	unmarshalNullJSON(deps, &st.DependsOn)
 	unmarshalNullJSON(cfg, &st.Config)
 	unmarshalNullJSON(caps, &st.RequiredCapabilities)
 	unmarshalNullJSON(criteria, &st.AcceptanceCriteria)
@@ -72,29 +67,28 @@ func (s *Store) GetStep(ctx context.Context, id int64) (*core.Step, error) {
 	return st, nil
 }
 
-func (s *Store) ListStepsByFlow(ctx context.Context, flowID int64) ([]*core.Step, error) {
+func (s *Store) ListStepsByIssue(ctx context.Context, issueID int64) ([]*core.Step, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, flow_id, name, description, type, status, depends_on, sub_flow_id, agent_role,
+		`SELECT id, issue_id, name, description, type, status, position, agent_role,
 		        required_capabilities, acceptance_criteria, timeout_ms, config,
 		        max_retries, retry_count, created_at, updated_at
-		 FROM steps WHERE flow_id = ? ORDER BY id`, flowID,
+		 FROM steps WHERE issue_id = ? ORDER BY position, id`, issueID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list steps by flow: %w", err)
+		return nil, fmt.Errorf("list steps by issue: %w", err)
 	}
 	defer rows.Close()
 
 	var steps []*core.Step
 	for rows.Next() {
 		st := &core.Step{}
-		var deps, cfg, caps, criteria sql.NullString
+		var cfg, caps, criteria sql.NullString
 		var timeoutMs int64
-		if err := rows.Scan(&st.ID, &st.FlowID, &st.Name, &st.Description, &st.Type, &st.Status, &deps, &st.SubFlowID,
+		if err := rows.Scan(&st.ID, &st.IssueID, &st.Name, &st.Description, &st.Type, &st.Status, &st.Position,
 			&st.AgentRole, &caps, &criteria, &timeoutMs, &cfg,
 			&st.MaxRetries, &st.RetryCount, &st.CreatedAt, &st.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan step: %w", err)
 		}
-		unmarshalNullJSON(deps, &st.DependsOn)
 		unmarshalNullJSON(cfg, &st.Config)
 		unmarshalNullJSON(caps, &st.RequiredCapabilities)
 		unmarshalNullJSON(criteria, &st.AcceptanceCriteria)
@@ -120,17 +114,16 @@ func (s *Store) UpdateStepStatus(ctx context.Context, id int64, status core.Step
 }
 
 func (s *Store) UpdateStep(ctx context.Context, st *core.Step) error {
-	deps, _ := marshalJSON(st.DependsOn)
 	cfg, _ := marshalJSON(st.Config)
 	caps, _ := marshalJSON(st.RequiredCapabilities)
 	criteria, _ := marshalJSON(st.AcceptanceCriteria)
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE steps SET name = ?, description = ?, type = ?, status = ?, depends_on = ?, sub_flow_id = ?,
+		`UPDATE steps SET name = ?, description = ?, type = ?, status = ?, position = ?,
 		        agent_role = ?, required_capabilities = ?, acceptance_criteria = ?,
 		        timeout_ms = ?, config = ?, max_retries = ?, retry_count = ?, updated_at = ?
 		 WHERE id = ?`,
-		st.Name, st.Description, st.Type, st.Status, deps, st.SubFlowID,
+		st.Name, st.Description, st.Type, st.Status, st.Position,
 		st.AgentRole, caps, criteria,
 		st.Timeout.Milliseconds(), cfg, st.MaxRetries, st.RetryCount, now,
 		st.ID,
@@ -163,4 +156,3 @@ func unmarshalNullJSON(ns sql.NullString, dest any) {
 		_ = json.Unmarshal([]byte(ns.String), dest)
 	}
 }
-

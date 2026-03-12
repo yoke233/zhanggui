@@ -13,7 +13,7 @@ import (
 )
 
 type Scope struct {
-	FlowID    int64
+	IssueID   int64
 	StepID    int64
 	ExecID    int64
 	SessionID string
@@ -194,7 +194,7 @@ func (b *EventBridge) publishUsageUpdate(ctx context.Context, update acpclient.S
 func (b *EventBridge) publish(ctx context.Context, data map[string]any) {
 	ev := core.Event{
 		Type:      b.eventType,
-		FlowID:    b.scope.FlowID,
+		IssueID:   b.scope.IssueID,
 		StepID:    b.scope.StepID,
 		ExecID:    b.scope.ExecID,
 		Data:      data,

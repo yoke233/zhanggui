@@ -9,10 +9,10 @@ import (
 )
 
 type statsResponse struct {
-	TotalFlows  int     `json:"total_flows"`
-	ActiveFlows int     `json:"active_flows"`
-	SuccessRate float64 `json:"success_rate"`
-	AvgDuration string  `json:"avg_duration"`
+	TotalIssues  int     `json:"total_issues"`
+	ActiveIssues int     `json:"active_issues"`
+	SuccessRate  float64 `json:"success_rate"`
+	AvgDuration  string  `json:"avg_duration"`
 }
 
 func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
@@ -21,33 +21,33 @@ func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flows, err := listAllFlows(r.Context(), h.store)
+	issues, err := listAllIssues(r.Context(), h.store)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
-	total := len(flows)
+	total := len(issues)
 	active := 0
 	finished := 0
 	success := 0
 	var totalDuration time.Duration
 	var durationCount int
 
-	for _, f := range flows {
-		if f == nil {
+	for _, iss := range issues {
+		if iss == nil {
 			continue
 		}
-		switch f.Status {
-		case core.FlowPending, core.FlowQueued, core.FlowRunning, core.FlowBlocked:
+		switch iss.Status {
+		case core.IssueOpen, core.IssueQueued, core.IssueRunning, core.IssueBlocked:
 			active++
-		case core.FlowDone, core.FlowFailed, core.FlowCancelled:
+		case core.IssueDone, core.IssueFailed, core.IssueCancelled:
 			finished++
-			if f.Status == core.FlowDone {
+			if iss.Status == core.IssueDone {
 				success++
 			}
-			if !f.CreatedAt.IsZero() && !f.UpdatedAt.IsZero() && f.UpdatedAt.After(f.CreatedAt) {
-				totalDuration += f.UpdatedAt.Sub(f.CreatedAt)
+			if !iss.CreatedAt.IsZero() && !iss.UpdatedAt.IsZero() && iss.UpdatedAt.After(iss.CreatedAt) {
+				totalDuration += iss.UpdatedAt.Sub(iss.CreatedAt)
 				durationCount++
 			}
 		default:
@@ -65,10 +65,10 @@ func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statsResponse{
-		TotalFlows:  total,
-		ActiveFlows: active,
-		SuccessRate: successRate,
-		AvgDuration: avgDuration.String(),
+		TotalIssues:  total,
+		ActiveIssues: active,
+		SuccessRate:  successRate,
+		AvgDuration:  avgDuration.String(),
 	})
 }
 
@@ -87,13 +87,13 @@ func (h *Handler) getSchedulerStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func listAllFlows(ctx context.Context, store core.FlowStore) ([]*core.Flow, error) {
+func listAllIssues(ctx context.Context, store core.IssueStore) ([]*core.Issue, error) {
 	const pageSize = 500
 	offset := 0
-	var out []*core.Flow
+	var out []*core.Issue
 
 	for {
-		page, err := store.ListFlows(ctx, core.FlowFilter{
+		page, err := store.ListIssues(ctx, core.IssueFilter{
 			Limit:  pageSize,
 			Offset: offset,
 		})
@@ -101,7 +101,7 @@ func listAllFlows(ctx context.Context, store core.FlowStore) ([]*core.Flow, erro
 			return nil, err
 		}
 		if page == nil {
-			page = []*core.Flow{}
+			page = []*core.Issue{}
 		}
 		out = append(out, page...)
 		if len(page) < pageSize {

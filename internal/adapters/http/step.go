@@ -8,12 +8,12 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// createStepRequest is the request body for POST /flows/{flowID}/steps.
+// createStepRequest is the request body for POST /issues/{issueID}/steps.
 type createStepRequest struct {
 	Name                 string         `json:"name"`
 	Description          string         `json:"description,omitempty"`
 	Type                 core.StepType  `json:"type"`
-	DependsOn            []int64        `json:"depends_on,omitempty"`
+	Position             int            `json:"position"`
 	AgentRole            string         `json:"agent_role,omitempty"`
 	RequiredCapabilities []string       `json:"required_capabilities,omitempty"`
 	AcceptanceCriteria   []string       `json:"acceptance_criteria,omitempty"`
@@ -23,9 +23,9 @@ type createStepRequest struct {
 }
 
 func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
@@ -54,12 +54,12 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := &core.Step{
-		FlowID:               flowID,
+		IssueID:              issueID,
 		Name:                 req.Name,
 		Description:          req.Description,
 		Type:                 req.Type,
 		Status:               core.StepPending,
-		DependsOn:            req.DependsOn,
+		Position:             req.Position,
 		AgentRole:            req.AgentRole,
 		RequiredCapabilities: req.RequiredCapabilities,
 		AcceptanceCriteria:   req.AcceptanceCriteria,
@@ -77,13 +77,13 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSteps(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	steps, err := h.store.ListStepsByFlow(r.Context(), flowID)
+	steps, err := h.store.ListStepsByIssue(r.Context(), issueID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -100,7 +100,7 @@ type updateStepRequest struct {
 	Name                 *string        `json:"name,omitempty"`
 	Description          *string        `json:"description,omitempty"`
 	Type                 *core.StepType `json:"type,omitempty"`
-	DependsOn            *[]int64       `json:"depends_on,omitempty"`
+	Position             *int           `json:"position,omitempty"`
 	AgentRole            *string        `json:"agent_role,omitempty"`
 	RequiredCapabilities *[]string      `json:"required_capabilities,omitempty"`
 	AcceptanceCriteria   *[]string      `json:"acceptance_criteria,omitempty"`
@@ -147,8 +147,8 @@ func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
 	if req.Type != nil {
 		existing.Type = *req.Type
 	}
-	if req.DependsOn != nil {
-		existing.DependsOn = *req.DependsOn
+	if req.Position != nil {
+		existing.Position = *req.Position
 	}
 	if req.AgentRole != nil {
 		existing.AgentRole = *req.AgentRole

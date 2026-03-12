@@ -13,10 +13,10 @@ func (s *Store) CreateExecutionProbe(ctx context.Context, probe *core.ExecutionP
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO execution_probes (
-			execution_id, flow_id, step_id, agent_context_id, session_id, owner_id,
+			execution_id, issue_id, step_id, agent_context_id, session_id, owner_id,
 			trigger_source, question, status, verdict, reply_text, error, sent_at, answered_at, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		probe.ExecutionID, probe.FlowID, probe.StepID, probe.AgentContextID, probe.SessionID, probe.OwnerID,
+		probe.ExecutionID, probe.IssueID, probe.StepID, probe.AgentContextID, probe.SessionID, probe.OwnerID,
 		probe.TriggerSource, probe.Question, probe.Status, probe.Verdict, probe.ReplyText, probe.Error, probe.SentAt, probe.AnsweredAt, now,
 	)
 	if err != nil {
@@ -30,7 +30,7 @@ func (s *Store) CreateExecutionProbe(ctx context.Context, probe *core.ExecutionP
 
 func (s *Store) GetExecutionProbe(ctx context.Context, id int64) (*core.ExecutionProbe, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, execution_id, flow_id, step_id, agent_context_id, session_id, owner_id,
+		`SELECT id, execution_id, issue_id, step_id, agent_context_id, session_id, owner_id,
 		        trigger_source, question, status, verdict, reply_text, error, sent_at, answered_at, created_at
 		 FROM execution_probes WHERE id = ?`, id,
 	)
@@ -39,7 +39,7 @@ func (s *Store) GetExecutionProbe(ctx context.Context, id int64) (*core.Executio
 
 func (s *Store) ListExecutionProbesByExecution(ctx context.Context, executionID int64) ([]*core.ExecutionProbe, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, execution_id, flow_id, step_id, agent_context_id, session_id, owner_id,
+		`SELECT id, execution_id, issue_id, step_id, agent_context_id, session_id, owner_id,
 		        trigger_source, question, status, verdict, reply_text, error, sent_at, answered_at, created_at
 		 FROM execution_probes WHERE execution_id = ? ORDER BY id`, executionID,
 	)
@@ -61,7 +61,7 @@ func (s *Store) ListExecutionProbesByExecution(ctx context.Context, executionID 
 
 func (s *Store) GetLatestExecutionProbe(ctx context.Context, executionID int64) (*core.ExecutionProbe, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, execution_id, flow_id, step_id, agent_context_id, session_id, owner_id,
+		`SELECT id, execution_id, issue_id, step_id, agent_context_id, session_id, owner_id,
 		        trigger_source, question, status, verdict, reply_text, error, sent_at, answered_at, created_at
 		 FROM execution_probes WHERE execution_id = ? ORDER BY id DESC LIMIT 1`, executionID,
 	)
@@ -70,7 +70,7 @@ func (s *Store) GetLatestExecutionProbe(ctx context.Context, executionID int64) 
 
 func (s *Store) GetActiveExecutionProbe(ctx context.Context, executionID int64) (*core.ExecutionProbe, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, execution_id, flow_id, step_id, agent_context_id, session_id, owner_id,
+		`SELECT id, execution_id, issue_id, step_id, agent_context_id, session_id, owner_id,
 		        trigger_source, question, status, verdict, reply_text, error, sent_at, answered_at, created_at
 		 FROM execution_probes
 		 WHERE execution_id = ? AND status IN (?, ?)
@@ -99,7 +99,7 @@ func (s *Store) UpdateExecutionProbe(ctx context.Context, probe *core.ExecutionP
 
 func (s *Store) GetExecutionProbeRoute(ctx context.Context, executionID int64) (*core.ExecutionProbeRoute, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT e.id, e.flow_id, e.step_id, e.agent_context_id,
+		`SELECT e.id, e.issue_id, e.step_id, e.agent_context_id,
 		        COALESCE(ac.session_id, ''), COALESCE(ac.worker_id, ''), ac.worker_last_seen_at
 		 FROM executions e
 		 LEFT JOIN agent_contexts ac ON ac.id = e.agent_context_id
@@ -111,7 +111,7 @@ func (s *Store) GetExecutionProbeRoute(ctx context.Context, executionID int64) (
 	var agentContextID sql.NullInt64
 	var sessionID, ownerID sql.NullString
 	var ownerLastSeen sql.NullTime
-	if err := row.Scan(&route.ExecutionID, &route.FlowID, &route.StepID, &agentContextID, &sessionID, &ownerID, &ownerLastSeen); err != nil {
+	if err := row.Scan(&route.ExecutionID, &route.IssueID, &route.StepID, &agentContextID, &sessionID, &ownerID, &ownerLastSeen); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, core.ErrNotFound
 		}
@@ -144,7 +144,7 @@ func scanExecutionProbe(scanner executionProbeScanner) (*core.ExecutionProbe, er
 	var sessionID, ownerID, replyText, probeErr sql.NullString
 	var sentAt, answeredAt sql.NullTime
 	if err := scanner.Scan(
-		&probe.ID, &probe.ExecutionID, &probe.FlowID, &probe.StepID, &agentContextID, &sessionID, &ownerID,
+		&probe.ID, &probe.ExecutionID, &probe.IssueID, &probe.StepID, &agentContextID, &sessionID, &ownerID,
 		&probe.TriggerSource, &probe.Question, &probe.Status, &probe.Verdict, &replyText, &probeErr, &sentAt, &answeredAt, &probe.CreatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {

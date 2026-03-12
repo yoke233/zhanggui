@@ -5,17 +5,6 @@ import (
 	"time"
 )
 
-// FlowStore persists Flow aggregates.
-type FlowStore interface {
-	CreateFlow(ctx context.Context, f *Flow) (int64, error)
-	GetFlow(ctx context.Context, id int64) (*Flow, error)
-	ListFlows(ctx context.Context, filter FlowFilter) ([]*Flow, error)
-	UpdateFlowStatus(ctx context.Context, id int64, status FlowStatus) error
-	UpdateFlowMetadata(ctx context.Context, id int64, metadata map[string]string) error
-	PrepareFlowRun(ctx context.Context, id int64, queuedStatus FlowStatus) error
-	SetFlowArchived(ctx context.Context, id int64, archived bool) error
-}
-
 // ProjectStore persists Project aggregates.
 type ProjectStore interface {
 	CreateProject(ctx context.Context, p *Project) (int64, error)
@@ -37,7 +26,7 @@ type ResourceBindingStore interface {
 type StepStore interface {
 	CreateStep(ctx context.Context, s *Step) (int64, error)
 	GetStep(ctx context.Context, id int64) (*Step, error)
-	ListStepsByFlow(ctx context.Context, flowID int64) ([]*Step, error)
+	ListStepsByIssue(ctx context.Context, issueID int64) ([]*Step, error)
 	UpdateStepStatus(ctx context.Context, id int64, status StepStatus) error
 	UpdateStep(ctx context.Context, s *Step) error
 	DeleteStep(ctx context.Context, id int64) error
@@ -72,7 +61,7 @@ type BriefingStore interface {
 type AgentContextStore interface {
 	CreateAgentContext(ctx context.Context, ac *AgentContext) (int64, error)
 	GetAgentContext(ctx context.Context, id int64) (*AgentContext, error)
-	FindAgentContext(ctx context.Context, agentID string, flowID int64) (*AgentContext, error)
+	FindAgentContext(ctx context.Context, agentID string, issueID int64) (*AgentContext, error)
 	UpdateAgentContext(ctx context.Context, ac *AgentContext) error
 }
 
@@ -108,7 +97,6 @@ type Store interface {
 	ProjectStore
 	ResourceBindingStore
 	IssueStore
-	FlowStore
 	StepStore
 	ExecutionStore
 	ArtifactStore
@@ -122,23 +110,13 @@ type Store interface {
 	Close() error
 }
 
-// FlowFilter constrains Flow queries.
-type FlowFilter struct {
-	ProjectID      *int64
-	Status         *FlowStatus
-	Archived       *bool
-	MetadataHasKey string // if set, only return flows whose metadata JSON contains this key
-	Limit          int
-	Offset         int
-}
-
 // EventFilter constrains Event queries.
 type EventFilter struct {
-	FlowID *int64
-	StepID *int64
-	ExecID *int64
+	IssueID   *int64
+	StepID    *int64
+	ExecID    *int64
 	SessionID string
-	Types  []EventType
-	Limit  int
-	Offset int
+	Types     []EventType
+	Limit     int
+	Offset    int
 }

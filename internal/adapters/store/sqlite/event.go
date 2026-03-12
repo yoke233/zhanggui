@@ -20,9 +20,9 @@ func (s *Store) CreateEvent(ctx context.Context, e *core.Event) (int64, error) {
 		e.Timestamp = time.Now().UTC()
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO events (type, flow_id, step_id, exec_id, data, timestamp)
+		`INSERT INTO events (type, issue_id, step_id, exec_id, data, timestamp)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		e.Type, nilIfZero(e.FlowID), nilIfZero(e.StepID), nilIfZero(e.ExecID), data, e.Timestamp,
+		e.Type, nilIfZero(e.IssueID), nilIfZero(e.StepID), nilIfZero(e.ExecID), data, e.Timestamp,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert event: %w", err)
@@ -33,13 +33,13 @@ func (s *Store) CreateEvent(ctx context.Context, e *core.Event) (int64, error) {
 }
 
 func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*core.Event, error) {
-	query := `SELECT id, type, flow_id, step_id, exec_id, data, timestamp FROM events`
+	query := `SELECT id, type, issue_id, step_id, exec_id, data, timestamp FROM events`
 	var conditions []string
 	var args []any
 
-	if filter.FlowID != nil {
-		conditions = append(conditions, "flow_id = ?")
-		args = append(args, *filter.FlowID)
+	if filter.IssueID != nil {
+		conditions = append(conditions, "issue_id = ?")
+		args = append(args, *filter.IssueID)
 	}
 	if filter.StepID != nil {
 		conditions = append(conditions, "step_id = ?")
@@ -82,13 +82,13 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 	var events []*core.Event
 	for rows.Next() {
 		e := &core.Event{}
-		var flowID, stepID, execID sql.NullInt64
+		var issueID, stepID, execID sql.NullInt64
 		var data sql.NullString
-		if err := rows.Scan(&e.ID, &e.Type, &flowID, &stepID, &execID, &data, &e.Timestamp); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &issueID, &stepID, &execID, &data, &e.Timestamp); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
-		if flowID.Valid {
-			e.FlowID = flowID.Int64
+		if issueID.Valid {
+			e.IssueID = issueID.Int64
 		}
 		if stepID.Valid {
 			e.StepID = stepID.Int64

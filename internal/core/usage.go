@@ -16,7 +16,7 @@ import (
 type UsageRecord struct {
 	ID               int64     `json:"id"`
 	ExecutionID      int64     `json:"execution_id"`
-	FlowID           int64     `json:"flow_id"`
+	IssueID          int64     `json:"issue_id"`
 	StepID           int64     `json:"step_id"`
 	ProjectID        *int64    `json:"project_id,omitempty"`
 	AgentID          string    `json:"agent_id"`

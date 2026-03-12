@@ -20,11 +20,11 @@ func (s *Store) CreateExecution(ctx context.Context, e *core.Execution) (int64, 
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO executions (step_id, flow_id, status, agent_id, agent_context_id,
+		`INSERT INTO executions (step_id, issue_id, status, agent_id, agent_context_id,
 		        briefing_snapshot, artifact_id, input, output, error_message, error_kind,
 		        attempt, started_at, finished_at, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.StepID, e.FlowID, e.Status, e.AgentID, e.AgentContextID,
+		e.StepID, e.IssueID, e.Status, e.AgentID, e.AgentContextID,
 		nullStr(e.BriefingSnapshot), e.ArtifactID, input, output, e.ErrorMessage, nullStr(string(e.ErrorKind)),
 		e.Attempt, e.StartedAt, e.FinishedAt, now,
 	)
@@ -41,11 +41,11 @@ func (s *Store) GetExecution(ctx context.Context, id int64) (*core.Execution, er
 	e := &core.Execution{}
 	var input, output, briefing, errorKind sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, step_id, flow_id, status, agent_id, agent_context_id,
+		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
 		        briefing_snapshot, artifact_id, input, output,
 		        error_message, error_kind, attempt, started_at, finished_at, created_at
 		 FROM executions WHERE id = ?`, id,
-	).Scan(&e.ID, &e.StepID, &e.FlowID, &e.Status, &e.AgentID, &e.AgentContextID,
+	).Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
 		&briefing, &e.ArtifactID, &input, &output,
 		&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -67,7 +67,7 @@ func (s *Store) GetExecution(ctx context.Context, id int64) (*core.Execution, er
 
 func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core.Execution, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, step_id, flow_id, status, agent_id, agent_context_id,
+		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
 		        briefing_snapshot, artifact_id, input, output,
 		        error_message, error_kind, attempt, started_at, finished_at, created_at
 		 FROM executions WHERE step_id = ? ORDER BY attempt`, stepID,
@@ -81,7 +81,7 @@ func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core
 	for rows.Next() {
 		e := &core.Execution{}
 		var input, output, briefing, errorKind sql.NullString
-		if err := rows.Scan(&e.ID, &e.StepID, &e.FlowID, &e.Status, &e.AgentID, &e.AgentContextID,
+		if err := rows.Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
 			&briefing, &e.ArtifactID, &input, &output,
 			&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan execution: %w", err)
@@ -101,7 +101,7 @@ func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core
 
 func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.ExecutionStatus) ([]*core.Execution, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, step_id, flow_id, status, agent_id, agent_context_id,
+		`SELECT id, step_id, issue_id, status, agent_id, agent_context_id,
 		        briefing_snapshot, artifact_id, input, output,
 		        error_message, error_kind, attempt, started_at, finished_at, created_at
 		 FROM executions WHERE status = ? ORDER BY id`, status,
@@ -115,7 +115,7 @@ func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.Executio
 	for rows.Next() {
 		e := &core.Execution{}
 		var input, output, briefing, errorKind sql.NullString
-		if err := rows.Scan(&e.ID, &e.StepID, &e.FlowID, &e.Status, &e.AgentID, &e.AgentContextID,
+		if err := rows.Scan(&e.ID, &e.StepID, &e.IssueID, &e.Status, &e.AgentID, &e.AgentContextID,
 			&briefing, &e.ArtifactID, &input, &output,
 			&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan execution: %w", err)

@@ -32,15 +32,15 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
-func (h *Handler) listFlowEvents(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+func (h *Handler) listIssueEvents(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
 	filter := buildEventFilter(r)
-	filter.FlowID = &flowID
+	filter.IssueID = &issueID
 
 	events, err := h.store.ListEvents(r.Context(), filter)
 	if err != nil {
@@ -59,9 +59,9 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 		Offset: queryInt(r, "offset", 0),
 	}
 
-	if s := r.URL.Query().Get("flow_id"); s != "" {
+	if s := r.URL.Query().Get("issue_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-			filter.FlowID = &id
+			filter.IssueID = &id
 		}
 	}
 	if s := r.URL.Query().Get("step_id"); s != "" {
@@ -82,7 +82,7 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 
 // wsEvents upgrades to WebSocket and streams real-time events from the EventBus.
 // Query params:
-//   - flow_id: optional, filter events to a specific flow
+//   - issue_id: optional, filter events to a specific issue
 //   - types: optional, comma-separated event types to subscribe to
 func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -109,9 +109,9 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var flowFilter int64
-	if s := r.URL.Query().Get("flow_id"); s != "" {
-		flowFilter, _ = strconv.ParseInt(s, 10, 64)
+	var issueFilter int64
+	if s := r.URL.Query().Get("issue_id"); s != "" {
+		issueFilter, _ = strconv.ParseInt(s, 10, 64)
 	}
 	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session_id"))
 
@@ -142,8 +142,8 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			// Apply flow filter if specified.
-			if flowFilter != 0 && ev.FlowID != flowFilter {
+			// Apply issue filter if specified.
+			if issueFilter != 0 && ev.IssueID != issueFilter {
 				continue
 			}
 			if sessionFilter != "" {

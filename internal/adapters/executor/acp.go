@@ -60,9 +60,9 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		}
 
 		bridge := eventbridge.New(cfg.Bus, core.EventExecAgentOutput, eventbridge.Scope{
-			FlowID: step.FlowID,
-			StepID: step.ID,
-			ExecID: exec.ID,
+			IssueID: step.IssueID,
+			StepID:  step.ID,
+			ExecID:  exec.ID,
 		})
 
 		caps := profile.EffectiveCapabilities()
@@ -82,7 +82,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			Caps:       acpCaps,
 			WorkDir:    workDir,
 			MCPFactory: mcpFactory,
-			FlowID:     step.FlowID,
+			IssueID:    step.IssueID,
 			StepID:     step.ID,
 			ExecID:     exec.ID,
 			Reuse:      reuse,
@@ -131,7 +131,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		art := &core.Artifact{
 			ExecutionID:    exec.ID,
 			StepID:         step.ID,
-			FlowID:         step.FlowID,
+			IssueID:        step.IssueID,
 			ResultMarkdown: replyText,
 		}
 		if step.Type == core.StepGate {
@@ -161,12 +161,12 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 				durationMs = time.Since(*exec.StartedAt).Milliseconds()
 			}
 			var projectID *int64
-			if flow, fErr := cfg.Store.GetFlow(ctx, step.FlowID); fErr == nil && flow.ProjectID != nil {
-				projectID = flow.ProjectID
+			if issue, fErr := cfg.Store.GetIssue(ctx, step.IssueID); fErr == nil && issue.ProjectID != nil {
+				projectID = issue.ProjectID
 			}
 			usageRec := &core.UsageRecord{
 				ExecutionID:      exec.ID,
-				FlowID:           step.FlowID,
+				IssueID:          step.IssueID,
 				StepID:           step.ID,
 				ProjectID:        projectID,
 				AgentID:          profile.ID,

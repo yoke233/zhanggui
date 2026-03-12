@@ -15,7 +15,7 @@ import (
 )
 
 type acpSessionKey struct {
-	flowID  int64
+	issueID  int64
 	agentID string // runtime AgentProfile.ID
 }
 
@@ -33,7 +33,7 @@ type pooledACPSession struct {
 
 // switchingEventHandler forwards ACP events to the currently active handler.
 // This allows a pooled session to reuse the same ACP process while emitting events
-// scoped to the current (flow, step, exec) prompt.
+// scoped to the current (issue, step, exec) prompt.
 type switchingEventHandler struct {
 	mu sync.RWMutex
 	h  acpclient.EventHandler
@@ -55,7 +55,7 @@ func (s *switchingEventHandler) HandleSessionUpdate(ctx context.Context, update 
 	return h.HandleSessionUpdate(ctx, update)
 }
 
-// ACPSessionPool caches ACP processes + sessions per (flow, agent profile).
+// ACPSessionPool caches ACP processes + sessions per (issue, agent profile).
 // It enables session reuse (prompt caching + conversational continuity).
 type ACPSessionPool struct {
 	store core.Store
@@ -77,13 +77,13 @@ func NewACPSessionPool(store core.Store, bus core.EventBus) *ACPSessionPool {
 	if bus != nil {
 		p.sub = bus.Subscribe(core.SubscribeOpts{
 			Types: []core.EventType{
-				core.EventFlowCompleted,
-				core.EventFlowFailed,
-				core.EventFlowCancelled,
+				core.EventIssueCompleted,
+				core.EventIssueFailed,
+				core.EventIssueCancelled,
 			},
 			BufferSize: 64,
 		})
-		go p.watchFlowLifecycle()
+		go p.watchIssueLifecycle()
 	}
 
 	return p
@@ -107,27 +107,27 @@ func (p *ACPSessionPool) Close() {
 	}
 }
 
-func (p *ACPSessionPool) watchFlowLifecycle() {
+func (p *ACPSessionPool) watchIssueLifecycle() {
 	if p == nil || p.sub == nil {
 		return
 	}
 	for ev := range p.sub.C {
-		flowID := ev.FlowID
-		if flowID == 0 {
+		issueID := ev.IssueID
+		if issueID == 0 {
 			continue
 		}
-		p.CleanupFlow(flowID)
+		p.CleanupIssue(issueID)
 	}
 }
 
-func (p *ACPSessionPool) CleanupFlow(flowID int64) {
+func (p *ACPSessionPool) CleanupIssue(issueID int64) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for k, s := range p.sessions {
-		if k.flowID != flowID {
+		if k.issueID != issueID {
 			continue
 		}
 		delete(p.sessions, k)
@@ -145,7 +145,7 @@ type acpSessionAcquireInput struct {
 	Caps       acpclient.ClientCapabilities
 	WorkDir    string
 	MCPFactory func(agentSupportsSSE bool) []acpproto.McpServer
-	FlowID     int64
+	IssueID     int64
 	StepID     int64
 	ExecID     int64
 	IdleTTL    time.Duration
@@ -160,7 +160,7 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 		return nil, nil, fmt.Errorf("profile/driver required")
 	}
 
-	key := acpSessionKey{flowID: in.FlowID, agentID: in.Profile.ID}
+	key := acpSessionKey{issueID: in.IssueID, agentID: in.Profile.ID}
 
 	// Fast path: existing session, evict if idle/max-turns exceeded.
 	p.mu.Lock()
@@ -176,7 +176,7 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 			_ = existing.client.Close(context.Background())
 		} else {
 			p.mu.Unlock()
-			ac, _ := p.store.FindAgentContext(ctx, in.Profile.ID, in.FlowID)
+			ac, _ := p.store.FindAgentContext(ctx, in.Profile.ID, in.IssueID)
 			return existing, ac, nil
 		}
 	} else {
@@ -184,23 +184,23 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	}
 
 	// Ensure AgentContext row exists (best-effort).
-	ac, err := p.store.FindAgentContext(ctx, in.Profile.ID, in.FlowID)
+	ac, err := p.store.FindAgentContext(ctx, in.Profile.ID, in.IssueID)
 	if err == core.ErrNotFound {
 		ac = &core.AgentContext{
 			AgentID:   in.Profile.ID,
-			FlowID:    in.FlowID,
+			IssueID:    in.IssueID,
 			TurnCount: 0,
 		}
 		id, cErr := p.store.CreateAgentContext(ctx, ac)
 		if cErr == nil {
 			ac.ID = id
 		} else {
-			slog.Warn("runtime acp pool: create agent context failed", "agent", in.Profile.ID, "flow_id", in.FlowID, "error", cErr)
+			slog.Warn("runtime acp pool: create agent context failed", "agent", in.Profile.ID, "issue_id", in.IssueID, "error", cErr)
 			ac = nil
 		}
 	} else if err != nil {
 		// Non-fatal; proceed without persistence.
-		slog.Warn("runtime acp pool: find agent context failed", "agent", in.Profile.ID, "flow_id", in.FlowID, "error", err)
+		slog.Warn("runtime acp pool: find agent context failed", "agent", in.Profile.ID, "issue_id", in.IssueID, "error", err)
 		ac = nil
 	}
 
@@ -268,7 +268,7 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	}
 
 	slog.Info("runtime acp pool: session acquired",
-		"flow_id", in.FlowID, "agent", in.Profile.ID,
+		"issue_id", in.IssueID, "agent", in.Profile.ID,
 		"loaded", loaded)
 
 	return sess, ac, nil

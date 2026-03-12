@@ -26,7 +26,7 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 	art := &core.Artifact{
 		ExecutionID:    execRec.ID,
 		StepID:         step.ID,
-		FlowID:         step.FlowID,
+		IssueID:        step.IssueID,
 		ResultMarkdown: strings.TrimSpace(markdown),
 		Metadata:       metadata,
 	}
@@ -41,7 +41,7 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 	if bus != nil {
 		bus.Publish(ctx, core.Event{
 			Type:      core.EventExecAgentOutput,
-			FlowID:    step.FlowID,
+			IssueID:   step.IssueID,
 			StepID:    step.ID,
 			ExecID:    execRec.ID,
 			Timestamp: now,

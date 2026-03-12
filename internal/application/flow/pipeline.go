@@ -25,7 +25,7 @@ type Collector interface {
 	Extract(ctx context.Context, stepType core.StepType, markdown string) (map[string]any, error)
 }
 
-// CompositeExpander decomposes a composite step into child steps for its sub-flow.
+// CompositeExpander decomposes a composite step into child steps for its child issue.
 type CompositeExpander interface {
 	Expand(ctx context.Context, step *core.Step) ([]*core.Step, error)
 }
@@ -45,7 +45,7 @@ func (f CollectorFunc) Extract(ctx context.Context, stepType core.StepType, mark
 }
 
 // prepare resolves agent, builds briefing, and returns values for the Execution record.
-func (e *FlowEngine) prepare(ctx context.Context, step *core.Step) (agentID, briefingSnapshot string, err error) {
+func (e *IssueEngine) prepare(ctx context.Context, step *core.Step) (agentID, briefingSnapshot string, err error) {
 	if e.resolver != nil {
 		agentID, err = e.resolver.Resolve(ctx, step)
 		if err != nil {
@@ -156,7 +156,7 @@ func minInt(a, b int) int {
 }
 
 // finalize handles the execution result: failure path or success path.
-func (e *FlowEngine) finalize(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
+func (e *IssueEngine) finalize(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
 	finished := time.Now().UTC()
 	exec.FinishedAt = &finished
 
@@ -167,7 +167,7 @@ func (e *FlowEngine) finalize(ctx context.Context, step *core.Step, exec *core.E
 }
 
 // handleFailure classifies the error and decides: retry, block, or fail.
-func (e *FlowEngine) handleFailure(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
+func (e *IssueEngine) handleFailure(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
 	exec.Status = core.ExecFailed
 	exec.ErrorMessage = execErr.Error()
 
@@ -180,7 +180,7 @@ func (e *FlowEngine) handleFailure(ctx context.Context, step *core.Step, exec *c
 
 	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventExecFailed,
-		FlowID:    step.FlowID,
+		IssueID:   step.IssueID,
 		StepID:    step.ID,
 		ExecID:    exec.ID,
 		Timestamp: time.Now().UTC(),
@@ -214,13 +214,13 @@ func (e *FlowEngine) handleFailure(ctx context.Context, step *core.Step, exec *c
 }
 
 // handleSuccess processes a successful execution: collect metadata, then gate finalize or step done.
-func (e *FlowEngine) handleSuccess(ctx context.Context, step *core.Step, exec *core.Execution) error {
+func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *core.Execution) error {
 	exec.Status = core.ExecSucceeded
 	_ = e.store.UpdateExecution(ctx, exec)
 
 	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventExecSucceeded,
-		FlowID:    step.FlowID,
+		IssueID:   step.IssueID,
 		StepID:    step.ID,
 		ExecID:    exec.ID,
 		Timestamp: time.Now().UTC(),
@@ -231,7 +231,7 @@ func (e *FlowEngine) handleSuccess(ctx context.Context, step *core.Step, exec *c
 		// Collection failure is non-fatal — log via event but don't fail the step.
 		e.bus.Publish(ctx, core.Event{
 			Type:      core.EventExecFailed,
-			FlowID:    step.FlowID,
+			IssueID:   step.IssueID,
 			StepID:    step.ID,
 			Timestamp: time.Now().UTC(),
 			Data:      map[string]any{"collect_error": err.Error()},
@@ -247,7 +247,7 @@ func (e *FlowEngine) handleSuccess(ctx context.Context, step *core.Step, exec *c
 }
 
 // collectMetadata runs the Collector (if set) to extract structured metadata from the step's latest Artifact.
-func (e *FlowEngine) collectMetadata(ctx context.Context, step *core.Step) error {
+func (e *IssueEngine) collectMetadata(ctx context.Context, step *core.Step) error {
 	if e.collector == nil {
 		return nil
 	}
@@ -277,4 +277,3 @@ func (e *FlowEngine) collectMetadata(ctx context.Context, step *core.Step) error
 
 	return e.store.UpdateArtifact(ctx, art)
 }
-

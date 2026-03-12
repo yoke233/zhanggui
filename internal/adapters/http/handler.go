@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/adapters/http/server"
 	"github.com/yoke233/ai-workflow/internal/adapters/sandbox"
-	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	issueapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/core"
 	skillset "github.com/yoke233/ai-workflow/internal/skills"
@@ -17,21 +17,21 @@ import (
 type Handler struct {
 	store               Store
 	bus                 EventBus
-	engine              flowapp.Runner
+	engine              issueapp.Runner
 	lead                LeadChatService
-	scheduler           flowapp.Scheduler
+	scheduler           issueapp.Scheduler
 	registry            core.AgentRegistry
 	dagGen              DAGGenerator
 	probeSvc            probeapp.Service
 	skillsRoot          string
 	skillGitHubImporter skillset.GitHubImporter
 	sandbox             sandbox.ControlService
-	prPrompts           flowapp.PRFlowPromptsProvider
+	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
 }
 
 // NewHandler creates the workflow API handler.
-func NewHandler(store Store, bus EventBus, eng flowapp.Runner, opts ...HandlerOption) *Handler {
+func NewHandler(store Store, bus EventBus, eng issueapp.Runner, opts ...HandlerOption) *Handler {
 	h := &Handler{store: store, bus: bus, engine: eng}
 	for _, opt := range opts {
 		opt(h)
@@ -47,8 +47,8 @@ func WithLeadAgent(lead LeadChatService) HandlerOption {
 	return func(h *Handler) { h.lead = lead }
 }
 
-// WithScheduler sets the flow scheduler for queued execution.
-func WithScheduler(s flowapp.Scheduler) HandlerOption {
+// WithScheduler sets the issue scheduler for queued execution.
+func WithScheduler(s issueapp.Scheduler) HandlerOption {
 	return func(h *Handler) { h.scheduler = s }
 }
 
@@ -88,8 +88,8 @@ func WithSandboxController(controller sandbox.ControlService) HandlerOption {
 	return func(h *Handler) { h.sandbox = controller }
 }
 
-// WithPRFlowPromptsProvider sets a provider for built-in PR flow prompt text.
-func WithPRFlowPromptsProvider(provider flowapp.PRFlowPromptsProvider) HandlerOption {
+// WithPRFlowPromptsProvider sets a provider for built-in PR issue prompt text.
+func WithPRFlowPromptsProvider(provider issueapp.PRFlowPromptsProvider) HandlerOption {
 	return func(h *Handler) { h.prPrompts = provider }
 }
 
@@ -125,29 +125,24 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/issues/{issueID}", h.getIssue)
 	r.Put("/issues/{issueID}", h.updateIssue)
 	r.Delete("/issues/{issueID}", h.deleteIssue)
-
-	// Flows
-	r.Post("/flows", h.createFlow)
-	r.Get("/flows", h.listFlows)
-	r.Get("/flows/{flowID}", h.getFlow)
-	r.Post("/flows/{flowID}/bootstrap-pr", h.bootstrapPRFlow)
-	r.Post("/flows/{flowID}/archive", h.archiveFlow)
-	r.Post("/flows/{flowID}/unarchive", h.unarchiveFlow)
-	r.Post("/flows/{flowID}/run", h.runFlow)
-	r.Post("/flows/{flowID}/cancel", h.cancelFlow)
+	r.Post("/issues/{issueID}/bootstrap-pr", h.bootstrapPRIssue)
+	r.Post("/issues/{issueID}/archive", h.archiveIssue)
+	r.Post("/issues/{issueID}/unarchive", h.unarchiveIssue)
+	r.Post("/issues/{issueID}/run", h.runIssue)
+	r.Post("/issues/{issueID}/cancel", h.cancelIssue)
 
 	// Steps
-	r.Post("/flows/{flowID}/steps", h.createStep)
-	r.Get("/flows/{flowID}/steps", h.listSteps)
+	r.Post("/issues/{issueID}/steps", h.createStep)
+	r.Get("/issues/{issueID}/steps", h.listSteps)
 	r.Get("/steps/{stepID}", h.getStep)
 	r.Put("/steps/{stepID}", h.updateStep)
 	r.Delete("/steps/{stepID}", h.deleteStep)
 
 	// DAG generation (AI-powered)
-	r.Post("/flows/{flowID}/generate-steps", h.generateSteps)
+	r.Post("/issues/{issueID}/generate-steps", h.generateSteps)
 
-	// Save flow as template
-	r.Post("/flows/{flowID}/save-as-template", h.saveFlowAsTemplate)
+	// Save issue as template
+	r.Post("/issues/{issueID}/save-as-template", h.saveIssueAsTemplate)
 
 	// DAG Templates
 	r.Post("/templates", h.createDAGTemplate)
@@ -155,7 +150,7 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/templates/{templateID}", h.getDAGTemplate)
 	r.Put("/templates/{templateID}", h.updateDAGTemplate)
 	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
-	r.Post("/templates/{templateID}/create-flow", h.createFlowFromTemplate)
+	r.Post("/templates/{templateID}/create-issue", h.createIssueFromTemplate)
 
 	// Executions
 	r.Get("/steps/{stepID}/executions", h.listExecutions)
@@ -172,16 +167,16 @@ func (h *Handler) Register(r chi.Router) {
 
 	// Events
 	r.Get("/events", h.listEvents)
-	r.Get("/flows/{flowID}/events", h.listFlowEvents)
+	r.Get("/issues/{issueID}/events", h.listIssueEvents)
 
 	// Analytics
 	r.Get("/analytics/summary", h.getAnalyticsSummary)
 	r.Get("/analytics/project-errors", h.getProjectErrorRanking)
-	r.Get("/analytics/bottlenecks", h.getFlowBottleneckSteps)
+	r.Get("/analytics/bottlenecks", h.getIssueBottleneckSteps)
 	r.Get("/analytics/duration-stats", h.getExecutionDurationStats)
 	r.Get("/analytics/error-breakdown", h.getErrorBreakdown)
 	r.Get("/analytics/recent-failures", h.getRecentFailures)
-	r.Get("/analytics/status-distribution", h.getFlowStatusDistribution)
+	r.Get("/analytics/status-distribution", h.getIssueStatusDistribution)
 
 	// Usage analytics
 	r.Get("/analytics/usage", h.getUsageSummary)
@@ -190,11 +185,11 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/analytics/usage/by-profile", h.getUsageByProfile)
 	r.Get("/executions/{execID}/usage", h.getUsageByExecution)
 
-	// Cron (scheduled flows)
-	r.Get("/cron/flows", h.listCronFlows)
-	r.Get("/flows/{flowID}/cron", h.getFlowCronStatus)
-	r.Post("/flows/{flowID}/cron", h.setupFlowCron)
-	r.Delete("/flows/{flowID}/cron", h.disableFlowCron)
+	// Cron (scheduled issues)
+	r.Get("/cron/issues", h.listCronIssues)
+	r.Get("/issues/{issueID}/cron", h.getIssueCronStatus)
+	r.Post("/issues/{issueID}/cron", h.setupIssueCron)
+	r.Delete("/issues/{issueID}/cron", h.disableIssueCron)
 
 	// Git tags (version tagging & CI/CD trigger)
 	h.registerGitTagRoutes(r)

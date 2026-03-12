@@ -15,7 +15,7 @@ type setupCronRequest struct {
 }
 
 type cronStatusResponse struct {
-	FlowID       int64  `json:"flow_id"`
+	IssueID      int64  `json:"issue_id"`
 	Enabled      bool   `json:"enabled"`
 	IsTemplate   bool   `json:"is_template"`
 	Schedule     string `json:"schedule,omitempty"`
@@ -23,11 +23,11 @@ type cronStatusResponse struct {
 	LastTriggered string `json:"last_triggered,omitempty"`
 }
 
-// setupFlowCron enables cron scheduling on a flow (making it a template).
-func (h *Handler) setupFlowCron(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+// setupIssueCron enables cron scheduling on an issue (making it a template).
+func (h *Handler) setupIssueCron(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
 		return
 	}
 
@@ -41,33 +41,33 @@ func (h *Handler) setupFlowCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flow, err := h.store.GetFlow(r.Context(), flowID)
+	issue, err := h.store.GetIssue(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
-	if flow.Metadata == nil {
-		flow.Metadata = make(map[string]string)
+	if issue.Metadata == nil {
+		issue.Metadata = make(map[string]any)
 	}
-	flow.Metadata[cronapp.MetaSchedule] = req.Schedule
-	flow.Metadata[cronapp.MetaEnabled] = "true"
-	flow.Metadata[cronapp.MetaTemplateID] = "true"
+	issue.Metadata[cronapp.MetaSchedule] = req.Schedule
+	issue.Metadata[cronapp.MetaEnabled] = "true"
+	issue.Metadata[cronapp.MetaTemplateID] = "true"
 	if req.MaxInstances > 0 {
-		flow.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
+		issue.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
 	}
 
-	if err := h.store.UpdateFlowMetadata(r.Context(), flowID, flow.Metadata); err != nil {
+	if err := h.store.UpdateIssueMetadata(r.Context(), issueID, issue.Metadata); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, cronStatusResponse{
-		FlowID:       flowID,
+		IssueID:      issueID,
 		Enabled:      true,
 		IsTemplate:   true,
 		Schedule:     req.Schedule,
@@ -75,65 +75,84 @@ func (h *Handler) setupFlowCron(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// disableFlowCron disables cron scheduling on a flow.
-func (h *Handler) disableFlowCron(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+// disableIssueCron disables cron scheduling on an issue.
+func (h *Handler) disableIssueCron(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
 		return
 	}
 
-	flow, err := h.store.GetFlow(r.Context(), flowID)
+	issue, err := h.store.GetIssue(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
-	if flow.Metadata != nil {
-		flow.Metadata[cronapp.MetaEnabled] = "false"
-		if err := h.store.UpdateFlowMetadata(r.Context(), flowID, flow.Metadata); err != nil {
+	if issue.Metadata != nil {
+		issue.Metadata[cronapp.MetaEnabled] = "false"
+		if err := h.store.UpdateIssueMetadata(r.Context(), issueID, issue.Metadata); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
 	}
 
+	metaTemplateID := ""
+	metaSchedule := ""
+	if issue.Metadata != nil {
+		if v, ok := issue.Metadata[cronapp.MetaTemplateID].(string); ok {
+			metaTemplateID = v
+		}
+		if v, ok := issue.Metadata[cronapp.MetaSchedule].(string); ok {
+			metaSchedule = v
+		}
+	}
+
 	writeJSON(w, http.StatusOK, cronStatusResponse{
-		FlowID:     flowID,
+		IssueID:    issueID,
 		Enabled:    false,
-		IsTemplate: flow.Metadata != nil && flow.Metadata[cronapp.MetaTemplateID] == "true",
-		Schedule:   flow.Metadata[cronapp.MetaSchedule],
+		IsTemplate: metaTemplateID == "true",
+		Schedule:   metaSchedule,
 	})
 }
 
-// getFlowCronStatus returns the cron status for a flow.
-func (h *Handler) getFlowCronStatus(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+// getIssueCronStatus returns the cron status for an issue.
+func (h *Handler) getIssueCronStatus(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
 		return
 	}
 
-	flow, err := h.store.GetFlow(r.Context(), flowID)
+	issue, err := h.store.GetIssue(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
-	resp := cronStatusResponse{FlowID: flowID}
-	if flow.Metadata != nil {
-		resp.Enabled = flow.Metadata[cronapp.MetaEnabled] == "true"
-		resp.IsTemplate = flow.Metadata[cronapp.MetaTemplateID] == "true"
-		resp.Schedule = flow.Metadata[cronapp.MetaSchedule]
-		resp.LastTriggered = flow.Metadata[cronapp.MetaLastTriggered]
-		if v, ok := flow.Metadata[cronapp.MetaMaxInstances]; ok {
+	resp := cronStatusResponse{IssueID: issueID}
+	if issue.Metadata != nil {
+		if v, ok := issue.Metadata[cronapp.MetaEnabled].(string); ok {
+			resp.Enabled = v == "true"
+		}
+		if v, ok := issue.Metadata[cronapp.MetaTemplateID].(string); ok {
+			resp.IsTemplate = v == "true"
+		}
+		if v, ok := issue.Metadata[cronapp.MetaSchedule].(string); ok {
+			resp.Schedule = v
+		}
+		if v, ok := issue.Metadata[cronapp.MetaLastTriggered].(string); ok {
+			resp.LastTriggered = v
+		}
+		if v, ok := issue.Metadata[cronapp.MetaMaxInstances].(string); ok {
 			resp.MaxInstances, _ = strconv.Atoi(v)
 		}
 	}
@@ -141,10 +160,10 @@ func (h *Handler) getFlowCronStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// listCronFlows lists all flows that are configured as cron templates.
-func (h *Handler) listCronFlows(w http.ResponseWriter, r *http.Request) {
+// listCronIssues lists all issues that are configured as cron templates.
+func (h *Handler) listCronIssues(w http.ResponseWriter, r *http.Request) {
 	archived := false
-	flows, err := h.store.ListFlows(r.Context(), core.FlowFilter{
+	issues, err := h.store.ListIssues(r.Context(), core.IssueFilter{
 		Archived: &archived,
 		Limit:    200,
 	})
@@ -153,28 +172,33 @@ func (h *Handler) listCronFlows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cronFlows []cronStatusResponse
-	for _, f := range flows {
-		if f.Metadata == nil {
+	var cronIssues []cronStatusResponse
+	for _, iss := range issues {
+		if iss.Metadata == nil {
 			continue
 		}
-		if f.Metadata[cronapp.MetaTemplateID] != "true" {
+		metaTemplateID, _ := iss.Metadata[cronapp.MetaTemplateID].(string)
+		if metaTemplateID != "true" {
 			continue
 		}
+		metaEnabled, _ := iss.Metadata[cronapp.MetaEnabled].(string)
+		metaSchedule, _ := iss.Metadata[cronapp.MetaSchedule].(string)
+		metaLastTriggered, _ := iss.Metadata[cronapp.MetaLastTriggered].(string)
+
 		resp := cronStatusResponse{
-			FlowID:        f.ID,
-			Enabled:       f.Metadata[cronapp.MetaEnabled] == "true",
+			IssueID:       iss.ID,
+			Enabled:       metaEnabled == "true",
 			IsTemplate:    true,
-			Schedule:      f.Metadata[cronapp.MetaSchedule],
-			LastTriggered: f.Metadata[cronapp.MetaLastTriggered],
+			Schedule:      metaSchedule,
+			LastTriggered: metaLastTriggered,
 		}
-		if v, ok := f.Metadata[cronapp.MetaMaxInstances]; ok {
+		if v, ok := iss.Metadata[cronapp.MetaMaxInstances].(string); ok {
 			resp.MaxInstances, _ = strconv.Atoi(v)
 		}
-		cronFlows = append(cronFlows, resp)
+		cronIssues = append(cronIssues, resp)
 	}
-	if cronFlows == nil {
-		cronFlows = []cronStatusResponse{}
+	if cronIssues == nil {
+		cronIssues = []cronStatusResponse{}
 	}
-	writeJSON(w, http.StatusOK, cronFlows)
+	writeJSON(w, http.StatusOK, cronIssues)
 }

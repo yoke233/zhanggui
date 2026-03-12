@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yoke233/ai-workflow/internal/adapters/workspace/clone"
-	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	workspaceclone "github.com/yoke233/ai-workflow/internal/adapters/workspace/clone"
+	issueapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-type bootstrapPRFlowRequest struct {
+type bootstrapPRIssueRequest struct {
 	BaseBranch *string `json:"base_branch,omitempty"`
 	Title      *string `json:"title,omitempty"`
 	Body       *string `json:"body,omitempty"`
@@ -32,8 +32,8 @@ type scmBindingInfo struct {
 	RemoteRepo    string
 }
 
-type bootstrapPRFlowResponse struct {
-	FlowID       int64 `json:"flow_id"`
+type bootstrapPRIssueResponse struct {
+	IssueID      int64 `json:"issue_id"`
 	ImplementID  int64 `json:"implement_step_id"`
 	CommitPushID int64 `json:"commit_push_step_id"`
 	OpenPRID     int64 `json:"open_pr_step_id"`
@@ -41,25 +41,25 @@ type bootstrapPRFlowResponse struct {
 }
 
 var (
-	errBootstrapPRFlowMissingProject = errors.New("flow must belong to a project")
-	errBootstrapPRFlowMissingBinding = errors.New("project does not have an enabled supported SCM git binding")
-	errBootstrapPRFlowHasSteps       = errors.New("flow already has steps")
+	errBootstrapPRIssueMissingProject = errors.New("issue must belong to a project")
+	errBootstrapPRIssueMissingBinding = errors.New("project does not have an enabled supported SCM git binding")
+	errBootstrapPRIssueHasSteps       = errors.New("issue already has steps")
 )
 
-// bootstrapPRFlow creates a standard PR automation flow:
+// bootstrapPRIssue creates a standard PR automation pipeline for an issue:
 // implement(exec) → commit_push(exec,builtin) → open_pr(exec,builtin) → review_merge_gate(gate).
 //
 // Requirements:
-// - Flow must belong to a project
+// - Issue must belong to a project
 // - Project must have an enabled supported SCM git resource binding (GitHub / Codeup)
-func (h *Handler) bootstrapPRFlow(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+func (h *Handler) bootstrapPRIssue(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	var req bootstrapPRFlowRequest
+	var req bootstrapPRIssueRequest
 	var err error
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != context.Canceled {
 		// Allow empty body.
@@ -69,13 +69,13 @@ func (h *Handler) bootstrapPRFlow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := h.bootstrapPRFlowForFlow(r.Context(), flowID, req)
+	resp, err := h.bootstrapPRIssueForIssue(r.Context(), issueID, req)
 	if err != nil {
 		switch {
-		case errors.Is(err, errBootstrapPRFlowMissingProject), errors.Is(err, errBootstrapPRFlowMissingBinding):
+		case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding):
 			writeError(w, http.StatusBadRequest, err.Error(), "MISSING_SCM_BINDING")
-		case errors.Is(err, errBootstrapPRFlowHasSteps):
-			writeError(w, http.StatusConflict, err.Error(), "FLOW_HAS_STEPS")
+		case errors.Is(err, errBootstrapPRIssueHasSteps):
+			writeError(w, http.StatusConflict, err.Error(), "ISSUE_HAS_STEPS")
 		default:
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		}
@@ -84,30 +84,30 @@ func (h *Handler) bootstrapPRFlow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req bootstrapPRFlowRequest) (bootstrapPRFlowResponse, error) {
-	flow, err := h.store.GetFlow(ctx, flowID)
+func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, req bootstrapPRIssueRequest) (bootstrapPRIssueResponse, error) {
+	issue, err := h.store.GetIssue(ctx, issueID)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
-	if flow.ProjectID == nil {
-		return bootstrapPRFlowResponse{}, errBootstrapPRFlowMissingProject
+	if issue.ProjectID == nil {
+		return bootstrapPRIssueResponse{}, errBootstrapPRIssueMissingProject
 	}
 
-	bindings, err := h.store.ListResourceBindings(ctx, *flow.ProjectID)
+	bindings, err := h.store.ListResourceBindings(ctx, *issue.ProjectID)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 	bindingInfo, ok := resolveEnabledSCMRepoFromBindings(ctx, bindings)
 	if !ok {
-		return bootstrapPRFlowResponse{}, errBootstrapPRFlowMissingBinding
+		return bootstrapPRIssueResponse{}, errBootstrapPRIssueMissingBinding
 	}
 
-	steps, err := h.store.ListStepsByFlow(ctx, flowID)
+	steps, err := h.store.ListStepsByIssue(ctx, issueID)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 	if len(steps) > 0 {
-		return bootstrapPRFlowResponse{}, errBootstrapPRFlowHasSteps
+		return bootstrapPRIssueResponse{}, errBootstrapPRIssueHasSteps
 	}
 
 	baseBranch := bindingInfo.DefaultBranch
@@ -115,7 +115,7 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 		baseBranch = strings.TrimSpace(*req.BaseBranch)
 	}
 
-	title := fmt.Sprintf("ai-flow: flow %d", flowID)
+	title := fmt.Sprintf("ai-flow: issue %d", issueID)
 	body := fmt.Sprintf("Automated change request for %s/%s.", bindingInfo.RemoteOwner, bindingInfo.RemoteRepo)
 	if req.Title != nil && strings.TrimSpace(*req.Title) != "" {
 		title = strings.TrimSpace(*req.Title)
@@ -124,16 +124,17 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 		body = strings.TrimSpace(*req.Body)
 	}
 
-	providerPrompts := h.currentPRFlowPrompts().Provider(bindingInfo.Provider)
+	providerPrompts := h.currentPRIssuePrompts().Provider(bindingInfo.Provider)
 	implementObjective := providerPrompts.ImplementObjective
 	gateObjective := providerPrompts.GateObjective
-	commitMessage := defaultPRCommitMessage(flowID)
+	commitMessage := defaultPRCommitMessage(issueID)
 
 	implement := &core.Step{
-		FlowID:     flowID,
+		IssueID:    issueID,
 		Name:       "implement",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
+		Position:   0,
 		AgentRole:  "worker",
 		Timeout:    15 * time.Minute,
 		MaxRetries: 3,
@@ -143,15 +144,15 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 	}
 	implementID, err := h.store.CreateStep(ctx, implement)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 
 	commitPush := &core.Step{
-		FlowID:     flowID,
+		IssueID:    issueID,
 		Name:       "commit_push",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
-		DependsOn:  []int64{implementID},
+		Position:   1,
 		AgentRole:  "worker",
 		Timeout:    5 * time.Minute,
 		MaxRetries: 0,
@@ -162,15 +163,15 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 	}
 	commitPushID, err := h.store.CreateStep(ctx, commitPush)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 
 	openPR := &core.Step{
-		FlowID:     flowID,
+		IssueID:    issueID,
 		Name:       "open_pr",
 		Type:       core.StepExec,
 		Status:     core.StepPending,
-		DependsOn:  []int64{commitPushID},
+		Position:   2,
 		AgentRole:  "worker",
 		Timeout:    5 * time.Minute,
 		MaxRetries: 0,
@@ -183,15 +184,15 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 	}
 	openPRID, err := h.store.CreateStep(ctx, openPR)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 
 	gate := &core.Step{
-		FlowID:     flowID,
+		IssueID:    issueID,
 		Name:       "review_merge_gate",
 		Type:       core.StepGate,
 		Status:     core.StepPending,
-		DependsOn:  []int64{openPRID},
+		Position:   3,
 		AgentRole:  "gate",
 		Timeout:    10 * time.Minute,
 		MaxRetries: 0,
@@ -207,11 +208,11 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 	}
 	gateID, err := h.store.CreateStep(ctx, gate)
 	if err != nil {
-		return bootstrapPRFlowResponse{}, err
+		return bootstrapPRIssueResponse{}, err
 	}
 
-	return bootstrapPRFlowResponse{
-		FlowID:       flowID,
+	return bootstrapPRIssueResponse{
+		IssueID:      issueID,
 		ImplementID:  implementID,
 		CommitPushID: commitPushID,
 		OpenPRID:     openPRID,
@@ -219,15 +220,15 @@ func (h *Handler) bootstrapPRFlowForFlow(ctx context.Context, flowID int64, req 
 	}, nil
 }
 
-func (h *Handler) currentPRFlowPrompts() flowapp.PRFlowPrompts {
+func (h *Handler) currentPRIssuePrompts() issueapp.PRFlowPrompts {
 	if h != nil && h.prPrompts != nil {
-		return flowapp.MergePRFlowPrompts(h.prPrompts())
+		return issueapp.MergePRFlowPrompts(h.prPrompts())
 	}
-	return flowapp.DefaultPRFlowPrompts()
+	return issueapp.DefaultPRFlowPrompts()
 }
 
-func defaultPRCommitMessage(flowID int64) string {
-	return fmt.Sprintf("chore(pr-flow): apply flow %d updates", flowID)
+func defaultPRCommitMessage(issueID int64) string {
+	return fmt.Sprintf("chore(pr-issue): apply issue %d updates", issueID)
 }
 
 func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.ResourceBinding) (scmBindingInfo, bool) {

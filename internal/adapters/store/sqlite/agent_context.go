@@ -12,9 +12,9 @@ import (
 func (s *Store) CreateAgentContext(ctx context.Context, ac *core.AgentContext) (int64, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_contexts (agent_id, flow_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at)
+		`INSERT INTO agent_contexts (agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ac.AgentID, ac.FlowID, ac.SystemPrompt, ac.SessionID, ac.Summary, ac.TurnCount, ac.WorkerID, ac.WorkerLastSeenAt, now, now,
+		ac.AgentID, ac.IssueID, ac.SystemPrompt, ac.SessionID, ac.Summary, ac.TurnCount, ac.WorkerID, ac.WorkerLastSeenAt, now, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert agent_context: %w", err)
@@ -29,9 +29,9 @@ func (s *Store) CreateAgentContext(ctx context.Context, ac *core.AgentContext) (
 func (s *Store) GetAgentContext(ctx context.Context, id int64) (*core.AgentContext, error) {
 	ac := &core.AgentContext{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, agent_id, flow_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
+		`SELECT id, agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
 		 FROM agent_contexts WHERE id = ?`, id,
-	).Scan(&ac.ID, &ac.AgentID, &ac.FlowID, &ac.SystemPrompt, &ac.SessionID,
+	).Scan(&ac.ID, &ac.AgentID, &ac.IssueID, &ac.SystemPrompt, &ac.SessionID,
 		&ac.Summary, &ac.TurnCount, &ac.WorkerID, &ac.WorkerLastSeenAt, &ac.CreatedAt, &ac.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, core.ErrNotFound
@@ -42,12 +42,12 @@ func (s *Store) GetAgentContext(ctx context.Context, id int64) (*core.AgentConte
 	return ac, nil
 }
 
-func (s *Store) FindAgentContext(ctx context.Context, agentID string, flowID int64) (*core.AgentContext, error) {
+func (s *Store) FindAgentContext(ctx context.Context, agentID string, issueID int64) (*core.AgentContext, error) {
 	ac := &core.AgentContext{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, agent_id, flow_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
-		 FROM agent_contexts WHERE agent_id = ? AND flow_id = ?`, agentID, flowID,
-	).Scan(&ac.ID, &ac.AgentID, &ac.FlowID, &ac.SystemPrompt, &ac.SessionID,
+		`SELECT id, agent_id, issue_id, system_prompt, session_id, summary, turn_count, worker_id, worker_last_seen_at, created_at, updated_at
+		 FROM agent_contexts WHERE agent_id = ? AND issue_id = ?`, agentID, issueID,
+	).Scan(&ac.ID, &ac.AgentID, &ac.IssueID, &ac.SystemPrompt, &ac.SessionID,
 		&ac.Summary, &ac.TurnCount, &ac.WorkerID, &ac.WorkerLastSeenAt, &ac.CreatedAt, &ac.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, core.ErrNotFound

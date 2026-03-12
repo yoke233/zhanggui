@@ -1,6 +1,6 @@
 module github.com/yoke233/ai-workflow
 
-go 1.25.6
+go 1.24.7
 
 require (
 	github.com/a2aproject/a2a-go v0.3.7

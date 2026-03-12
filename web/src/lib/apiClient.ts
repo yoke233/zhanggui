@@ -1,7 +1,7 @@
 import type {
-  BootstrapPRFlowRequest,
-  BootstrapPRFlowResponse,
-  CancelFlowResponse,
+  BootstrapPRIssueRequest,
+  BootstrapPRIssueResponse,
+  CancelIssueResponse,
   AgentDriver,
   AgentProfile,
   AnalyticsFilter,
@@ -21,18 +21,16 @@ import type {
   ChatStatusResponse,
   CreateResourceBindingRequest,
   CreateProjectRequest,
-  CreateFlowRequest,
   CreateIssueRequest,
   Issue,
   CreateStepRequest,
   GenerateStepsRequest,
   Event,
   Execution,
-  Flow,
   ImportGitHubSkillRequest,
   Project,
   ResourceBinding,
-  RunFlowResponse,
+  RunIssueResponse,
   SchedulerStats,
   SkillDetail,
   SkillInfo,
@@ -42,9 +40,9 @@ import type {
   DAGTemplate,
   CreateDAGTemplateRequest,
   UpdateDAGTemplateRequest,
-  SaveFlowAsTemplateRequest,
-  CreateFlowFromTemplateRequest,
-  CreateFlowFromTemplateResponse,
+  SaveIssueAsTemplateRequest,
+  CreateIssueFromTemplateRequest,
+  CreateIssueFromTemplateResponse,
   GitCommitEntry,
   GitTagEntry,
   CreateGitTagRequest,
@@ -184,24 +182,23 @@ export interface ApiClient {
   closeChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
 
-  listFlows(params?: {
+  listIssues(params?: {
     project_id?: number;
     status?: string;
     archived?: boolean | "all";
     limit?: number;
     offset?: number;
-  }): Promise<Flow[]>;
-  createFlow(body: CreateFlowRequest): Promise<Flow>;
-  getFlow(flowId: number): Promise<Flow>;
-  runFlow(flowId: number): Promise<RunFlowResponse>;
-  cancelFlow(flowId: number): Promise<CancelFlowResponse>;
-  bootstrapPRFlow(flowId: number, body?: BootstrapPRFlowRequest): Promise<BootstrapPRFlowResponse>;
-
+  }): Promise<Issue[]>;
   createIssue(body: CreateIssueRequest): Promise<Issue>;
+  getIssue(issueId: number): Promise<Issue>;
+  runIssue(issueId: number): Promise<RunIssueResponse>;
+  cancelIssue(issueId: number): Promise<CancelIssueResponse>;
+  archiveIssue(issueId: number): Promise<void>;
+  bootstrapPRIssue(issueId: number, body?: BootstrapPRIssueRequest): Promise<BootstrapPRIssueResponse>;
 
-  listSteps(flowId: number): Promise<Step[]>;
-  createStep(flowId: number, body: CreateStepRequest): Promise<Step>;
-  generateSteps(flowId: number, body: GenerateStepsRequest): Promise<Step[]>;
+  listSteps(issueId: number): Promise<Step[]>;
+  createStep(issueId: number, body: CreateStepRequest): Promise<Step>;
+  generateSteps(issueId: number, body: GenerateStepsRequest): Promise<Step[]>;
   getStep(stepId: number): Promise<Step>;
   updateStep(stepId: number, body: UpdateStepRequest): Promise<Step>;
   deleteStep(stepId: number): Promise<void>;
@@ -210,15 +207,15 @@ export interface ApiClient {
   getExecution(execId: number): Promise<Execution>;
 
   listEvents(params?: {
-    flow_id?: number;
+    issue_id?: number;
     step_id?: number;
     session_id?: string;
     types?: string[];
     limit?: number;
     offset?: number;
   }): Promise<Event[]>;
-  listFlowEvents(
-    flowId: number,
+  listIssueEvents(
+    issueId: number,
     params?: { types?: string[]; limit?: number; offset?: number },
   ): Promise<Event[]>;
 
@@ -237,10 +234,10 @@ export interface ApiClient {
   getUsageSummary(params?: AnalyticsFilter): Promise<UsageAnalyticsSummary>;
   getUsageByExecution(execId: number): Promise<UsageRecord>;
 
-  listCronFlows(): Promise<CronStatus[]>;
-  getFlowCronStatus(flowId: number): Promise<CronStatus>;
-  setupFlowCron(flowId: number, body: SetupCronRequest): Promise<CronStatus>;
-  disableFlowCron(flowId: number): Promise<CronStatus>;
+  listCronIssues(): Promise<CronStatus[]>;
+  getIssueCronStatus(issueId: number): Promise<CronStatus>;
+  setupIssueCron(issueId: number, body: SetupCronRequest): Promise<CronStatus>;
+  disableIssueCron(issueId: number): Promise<CronStatus>;
 
   // DAG Templates
   listDAGTemplates(params?: {
@@ -254,8 +251,8 @@ export interface ApiClient {
   getDAGTemplate(templateId: number): Promise<DAGTemplate>;
   updateDAGTemplate(templateId: number, body: UpdateDAGTemplateRequest): Promise<DAGTemplate>;
   deleteDAGTemplate(templateId: number): Promise<void>;
-  saveFlowAsTemplate(flowId: number, body: SaveFlowAsTemplateRequest): Promise<DAGTemplate>;
-  createFlowFromTemplate(templateId: number, body: CreateFlowFromTemplateRequest): Promise<CreateFlowFromTemplateResponse>;
+  saveIssueAsTemplate(issueId: number, body: SaveIssueAsTemplateRequest): Promise<DAGTemplate>;
+  createIssueFromTemplate(templateId: number, body: CreateIssueFromTemplateRequest): Promise<CreateIssueFromTemplateResponse>;
 
   // Git Tags
   listGitCommits(projectId: number, params?: { limit?: number }): Promise<GitCommitEntry[]>;
@@ -434,9 +431,9 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<ChatStatusResponse>({
         path: `/chat/${encodeURIComponent(sessionId)}/status`,
       }),
-    listFlows: (params) =>
-      request<Flow[]>({
-        path: "/flows",
+    listIssues: (params) =>
+      request<Issue[]>({
+        path: "/issues",
         query: {
           project_id: params?.project_id,
           status: params?.status,
@@ -445,53 +442,51 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           offset: params?.offset,
         },
       }).then((items) => (Array.isArray(items) ? items : [])),
-    createFlow: (body) =>
-      request<Flow, CreateFlowRequest>({
-        path: "/flows",
-        method: "POST",
-        body,
-      }),
-    getFlow: (flowId) =>
-      request<Flow>({
-        path: `/flows/${flowId}`,
-      }),
-    runFlow: (flowId) =>
-      request<RunFlowResponse>({
-        path: `/flows/${flowId}/run`,
-        method: "POST",
-      }),
-    cancelFlow: (flowId) =>
-      request<CancelFlowResponse>({
-        path: `/flows/${flowId}/cancel`,
-        method: "POST",
-      }),
-    bootstrapPRFlow: (flowId, body) =>
-      request<BootstrapPRFlowResponse, BootstrapPRFlowRequest>({
-        path: `/flows/${flowId}/bootstrap-pr`,
-        method: "POST",
-        body,
-      }),
-
     createIssue: (body) =>
       request<Issue, CreateIssueRequest>({
         path: "/issues",
         method: "POST",
         body,
       }),
-
-    listSteps: (flowId) =>
-      request<Step[]>({
-        path: `/flows/${flowId}/steps`,
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    createStep: (flowId, body) =>
-      request<Step, CreateStepRequest>({
-        path: `/flows/${flowId}/steps`,
+    getIssue: (issueId) =>
+      request<Issue>({
+        path: `/issues/${issueId}`,
+      }),
+    runIssue: (issueId) =>
+      request<RunIssueResponse>({
+        path: `/issues/${issueId}/run`,
+        method: "POST",
+      }),
+    cancelIssue: (issueId) =>
+      request<CancelIssueResponse>({
+        path: `/issues/${issueId}/cancel`,
+        method: "POST",
+      }),
+    archiveIssue: (issueId) =>
+      request<void>({
+        path: `/issues/${issueId}/archive`,
+        method: "POST",
+      }),
+    bootstrapPRIssue: (issueId, body) =>
+      request<BootstrapPRIssueResponse, BootstrapPRIssueRequest>({
+        path: `/issues/${issueId}/bootstrap-pr`,
         method: "POST",
         body,
       }),
-    generateSteps: (flowId, body) =>
+
+    listSteps: (issueId) =>
+      request<Step[]>({
+        path: `/issues/${issueId}/steps`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createStep: (issueId, body) =>
+      request<Step, CreateStepRequest>({
+        path: `/issues/${issueId}/steps`,
+        method: "POST",
+        body,
+      }),
+    generateSteps: (issueId, body) =>
       request<Step[], GenerateStepsRequest>({
-        path: `/flows/${flowId}/generate-steps`,
+        path: `/issues/${issueId}/generate-steps`,
         method: "POST",
         body,
       }).then((items) => (Array.isArray(items) ? items : [])),
@@ -524,7 +519,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<Event[]>({
         path: "/events",
         query: {
-          flow_id: params?.flow_id,
+          issue_id: params?.issue_id,
           step_id: params?.step_id,
           session_id: params?.session_id,
           types: params?.types?.join(","),
@@ -532,9 +527,9 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           offset: params?.offset,
         },
       }).then((items) => (Array.isArray(items) ? items : [])),
-    listFlowEvents: (flowId, params) =>
+    listIssueEvents: (issueId, params) =>
       request<Event[]>({
-        path: `/flows/${flowId}/events`,
+        path: `/issues/${issueId}/events`,
         query: {
           types: params?.types?.join(","),
           limit: params?.limit,
@@ -618,23 +613,23 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/executions/${execId}/usage`,
       }),
 
-    listCronFlows: () =>
+    listCronIssues: () =>
       request<CronStatus[]>({
-        path: "/cron/flows",
+        path: "/cron/issues",
       }).then((items) => (Array.isArray(items) ? items : [])),
-    getFlowCronStatus: (flowId) =>
+    getIssueCronStatus: (issueId) =>
       request<CronStatus>({
-        path: `/flows/${flowId}/cron`,
+        path: `/issues/${issueId}/cron`,
       }),
-    setupFlowCron: (flowId, body) =>
+    setupIssueCron: (issueId, body) =>
       request<CronStatus, SetupCronRequest>({
-        path: `/flows/${flowId}/cron`,
+        path: `/issues/${issueId}/cron`,
         method: "POST",
         body,
       }),
-    disableFlowCron: (flowId) =>
+    disableIssueCron: (issueId) =>
       request<CronStatus>({
-        path: `/flows/${flowId}/cron`,
+        path: `/issues/${issueId}/cron`,
         method: "DELETE",
       }),
 
@@ -671,15 +666,15 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/templates/${templateId}`,
         method: "DELETE",
       }),
-    saveFlowAsTemplate: (flowId, body) =>
-      request<DAGTemplate, SaveFlowAsTemplateRequest>({
-        path: `/flows/${flowId}/save-as-template`,
+    saveIssueAsTemplate: (issueId, body) =>
+      request<DAGTemplate, SaveIssueAsTemplateRequest>({
+        path: `/issues/${issueId}/save-as-template`,
         method: "POST",
         body,
       }),
-    createFlowFromTemplate: (templateId, body) =>
-      request<CreateFlowFromTemplateResponse, CreateFlowFromTemplateRequest>({
-        path: `/templates/${templateId}/create-flow`,
+    createIssueFromTemplate: (templateId, body) =>
+      request<CreateIssueFromTemplateResponse, CreateIssueFromTemplateRequest>({
+        path: `/templates/${templateId}/create-issue`,
         method: "POST",
         body,
       }),

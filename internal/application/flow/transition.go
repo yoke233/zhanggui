@@ -2,12 +2,13 @@ package flow
 
 import "github.com/yoke233/ai-workflow/internal/core"
 
-// validFlowTransitions defines legal Flow status transitions.
-var validFlowTransitions = map[core.FlowStatus][]core.FlowStatus{
-	core.FlowPending: {core.FlowQueued, core.FlowRunning, core.FlowCancelled},
-	core.FlowQueued:  {core.FlowRunning, core.FlowCancelled},
-	core.FlowRunning: {core.FlowBlocked, core.FlowFailed, core.FlowDone, core.FlowCancelled},
-	core.FlowBlocked: {core.FlowRunning, core.FlowFailed, core.FlowCancelled},
+// validIssueTransitions defines legal Issue status transitions.
+var validIssueTransitions = map[core.IssueStatus][]core.IssueStatus{
+	core.IssueOpen:     {core.IssueAccepted, core.IssueQueued, core.IssueRunning, core.IssueCancelled},
+	core.IssueAccepted: {core.IssueQueued, core.IssueRunning, core.IssueCancelled},
+	core.IssueQueued:   {core.IssueRunning, core.IssueCancelled},
+	core.IssueRunning:  {core.IssueBlocked, core.IssueFailed, core.IssueDone, core.IssueCancelled},
+	core.IssueBlocked:  {core.IssueRunning, core.IssueFailed, core.IssueCancelled},
 }
 
 // validStepTransitions defines legal Step status transitions.
@@ -27,9 +28,9 @@ var validExecTransitions = map[core.ExecutionStatus][]core.ExecutionStatus{
 	core.ExecRunning: {core.ExecSucceeded, core.ExecFailed, core.ExecCancelled},
 }
 
-// ValidFlowTransition checks if transitioning from → to is legal.
-func ValidFlowTransition(from, to core.FlowStatus) bool {
-	return contains(validFlowTransitions[from], to)
+// ValidIssueTransition checks if transitioning from → to is legal.
+func ValidIssueTransition(from, to core.IssueStatus) bool {
+	return contains(validIssueTransitions[from], to)
 }
 
 // ValidStepTransition checks if transitioning from → to is legal.
@@ -50,4 +51,3 @@ func contains[T comparable](slice []T, val T) bool {
 	}
 	return false
 }
-

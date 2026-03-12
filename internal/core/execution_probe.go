@@ -37,7 +37,7 @@ const (
 type ExecutionProbe struct {
 	ID             int64                       `json:"id"`
 	ExecutionID    int64                       `json:"execution_id"`
-	FlowID         int64                       `json:"flow_id"`
+	IssueID         int64                       `json:"flow_id"`
 	StepID         int64                       `json:"step_id"`
 	AgentContextID *int64                      `json:"agent_context_id,omitempty"`
 	SessionID      string                      `json:"-"`
@@ -56,7 +56,7 @@ type ExecutionProbe struct {
 // ExecutionProbeRoute resolves the internal runtime route for probing an execution.
 type ExecutionProbeRoute struct {
 	ExecutionID     int64
-	FlowID          int64
+	IssueID          int64
 	StepID          int64
 	AgentContextID  *int64
 	SessionID       string

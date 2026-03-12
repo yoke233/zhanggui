@@ -12,25 +12,25 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// Metadata keys used in Flow.Metadata to define cron triggers.
+// Metadata keys used in Issue.Metadata to define cron triggers.
 const (
-	MetaSchedule      = "cron_schedule"       // cron expression, e.g. "0 */6 * * *"
-	MetaEnabled       = "cron_enabled"        // "true" to activate
-	MetaTemplateID    = "cron_template"       // "true" marks this flow as a template (not submitted itself)
-	MetaMaxInstances  = "cron_max_instances"  // max concurrent instances from this template (default 1)
-	MetaSourceFlowID  = "cron_source_flow_id" // set on cloned flows to trace origin
-	MetaLastTriggered = "cron_last_triggered" // ISO8601 timestamp of last trigger
+	MetaSchedule       = "cron_schedule"        // cron expression, e.g. "0 */6 * * *"
+	MetaEnabled        = "cron_enabled"         // "true" to activate
+	MetaTemplateID     = "cron_template"        // "true" marks this issue as a template (not submitted itself)
+	MetaMaxInstances   = "cron_max_instances"   // max concurrent instances from this template (default 1)
+	MetaSourceIssueID  = "cron_source_issue_id" // set on cloned issues to trace origin
+	MetaLastTriggered  = "cron_last_triggered"  // ISO8601 timestamp of last trigger
 )
 
 // Store is the persistence port required by the cron trigger.
 type Store interface {
-	core.FlowStore
+	core.IssueStore
 	core.StepStore
 }
 
-// Scheduler is the flow submission port.
+// Scheduler is the issue submission port.
 type Scheduler interface {
-	Submit(ctx context.Context, flowID int64) error
+	Submit(ctx context.Context, issueID int64) error
 }
 
 // EventPublisher publishes domain events.
@@ -45,7 +45,7 @@ type Config struct {
 }
 
 // Trigger is a background service that periodically scans for cron-enabled
-// flow templates and creates+submits new flow instances on schedule.
+// issue templates and creates+submits new issue instances on schedule.
 type Trigger struct {
 	store     Store
 	scheduler Scheduler
@@ -53,7 +53,7 @@ type Trigger struct {
 	cfg       Config
 
 	mu        sync.Mutex
-	schedules map[int64]*templateState // flowID → state
+	schedules map[int64]*templateState // issueID → state
 }
 
 type templateState struct {
@@ -115,38 +115,38 @@ func (t *Trigger) tick(ctx context.Context) {
 	}
 }
 
-type flowTemplate struct {
-	flow        *core.Flow
+type issueTemplate struct {
+	issue       *core.Issue
 	schedule    cronSchedule
 	maxInst     int
 	lastFired   time.Time
 }
 
-func (t *Trigger) loadTemplates(ctx context.Context) ([]flowTemplate, error) {
+func (t *Trigger) loadTemplates(ctx context.Context) ([]issueTemplate, error) {
 	const pageSize = 200
-	var templates []flowTemplate
+	var templates []issueTemplate
 	offset := 0
 
 	archived := false
 	for {
-		flows, err := t.store.ListFlows(ctx, core.FlowFilter{
+		issues, err := t.store.ListIssues(ctx, core.IssueFilter{
 			Archived:       &archived,
 			MetadataHasKey: MetaTemplateID,
 			Limit:          pageSize,
 			Offset:         offset,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list flows: %w", err)
+			return nil, fmt.Errorf("list issues: %w", err)
 		}
 
-		for _, f := range flows {
-			tmpl, ok := parseTemplate(f)
+		for _, iss := range issues {
+			tmpl, ok := parseTemplate(iss)
 			if ok {
 				templates = append(templates, tmpl)
 			}
 		}
 
-		if len(flows) < pageSize {
+		if len(issues) < pageSize {
 			break
 		}
 		offset += pageSize
@@ -154,59 +154,59 @@ func (t *Trigger) loadTemplates(ctx context.Context) ([]flowTemplate, error) {
 	return templates, nil
 }
 
-func parseTemplate(f *core.Flow) (flowTemplate, bool) {
-	if f == nil || f.Metadata == nil {
-		return flowTemplate{}, false
+func parseTemplate(iss *core.Issue) (issueTemplate, bool) {
+	if iss == nil || iss.Metadata == nil {
+		return issueTemplate{}, false
 	}
-	if !metaBool(f.Metadata, MetaEnabled) {
-		return flowTemplate{}, false
+	if !metaBool(iss.Metadata, MetaEnabled) {
+		return issueTemplate{}, false
 	}
-	if !metaBool(f.Metadata, MetaTemplateID) {
-		return flowTemplate{}, false
+	if !metaBool(iss.Metadata, MetaTemplateID) {
+		return issueTemplate{}, false
 	}
-	expr := strings.TrimSpace(f.Metadata[MetaSchedule])
+	expr := metaString(iss.Metadata, MetaSchedule)
 	if expr == "" {
-		return flowTemplate{}, false
+		return issueTemplate{}, false
 	}
 
 	sched, err := parseCron(expr)
 	if err != nil {
-		slog.Warn("cron: invalid schedule", "flow_id", f.ID, "expr", expr, "error", err)
-		return flowTemplate{}, false
+		slog.Warn("cron: invalid schedule", "issue_id", iss.ID, "expr", expr, "error", err)
+		return issueTemplate{}, false
 	}
 
 	maxInst := 1
-	if v, ok := f.Metadata[MetaMaxInstances]; ok {
+	if v := metaString(iss.Metadata, MetaMaxInstances); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			maxInst = n
 		}
 	}
 
 	var lastFired time.Time
-	if v, ok := f.Metadata[MetaLastTriggered]; ok {
+	if v := metaString(iss.Metadata, MetaLastTriggered); v != "" {
 		if parsed, err := time.Parse(time.RFC3339, v); err == nil {
 			lastFired = parsed
 		}
 	}
 
-	return flowTemplate{
-		flow:     f,
-		schedule: sched,
-		maxInst:  maxInst,
+	return issueTemplate{
+		issue:     iss,
+		schedule:  sched,
+		maxInst:   maxInst,
 		lastFired: lastFired,
 	}, true
 }
 
-func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now time.Time) {
+func (t *Trigger) processTemplate(ctx context.Context, tmpl issueTemplate, now time.Time) {
 	t.mu.Lock()
-	state, ok := t.schedules[tmpl.flow.ID]
+	state, ok := t.schedules[tmpl.issue.ID]
 	if !ok {
 		state = &templateState{
 			schedule:  tmpl.schedule,
 			lastFired: tmpl.lastFired,
 			maxInst:   tmpl.maxInst,
 		}
-		t.schedules[tmpl.flow.ID] = state
+		t.schedules[tmpl.issue.ID] = state
 	}
 	t.mu.Unlock()
 
@@ -215,11 +215,11 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now ti
 		return
 	}
 
-	// Check maxInstances: count active (pending/queued/running) clones of this template.
-	activeCount := t.countActiveInstances(ctx, tmpl.flow.ID)
+	// Check maxInstances: count active (open/queued/running) clones of this template.
+	activeCount := t.countActiveInstances(ctx, tmpl.issue.ID)
 	if activeCount >= tmpl.maxInst {
 		slog.Debug("cron: skipping trigger, max instances reached",
-			"template_flow_id", tmpl.flow.ID,
+			"template_issue_id", tmpl.issue.ID,
 			"active", activeCount,
 			"max", tmpl.maxInst,
 		)
@@ -227,9 +227,9 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now ti
 	}
 
 	// Clone and submit.
-	newFlowID, err := t.cloneAndSubmit(ctx, tmpl.flow)
+	newIssueID, err := t.cloneAndSubmit(ctx, tmpl.issue)
 	if err != nil {
-		slog.Error("cron: clone+submit failed", "template_flow_id", tmpl.flow.ID, "error", err)
+		slog.Error("cron: clone+submit failed", "template_issue_id", tmpl.issue.ID, "error", err)
 		return
 	}
 
@@ -239,36 +239,35 @@ func (t *Trigger) processTemplate(ctx context.Context, tmpl flowTemplate, now ti
 	t.mu.Unlock()
 
 	// Persist lastTriggered back to template metadata.
-	tmpl.flow.Metadata[MetaLastTriggered] = now.Format(time.RFC3339)
-	if err := t.store.UpdateFlowMetadata(ctx, tmpl.flow.ID, tmpl.flow.Metadata); err != nil {
-		slog.Warn("cron: failed to persist last_triggered", "template_flow_id", tmpl.flow.ID, "error", err)
+	tmpl.issue.Metadata[MetaLastTriggered] = now.Format(time.RFC3339)
+	if err := t.store.UpdateIssueMetadata(ctx, tmpl.issue.ID, tmpl.issue.Metadata); err != nil {
+		slog.Warn("cron: failed to persist last_triggered", "template_issue_id", tmpl.issue.ID, "error", err)
 	}
 
-	slog.Info("cron: triggered flow",
-		"template_flow_id", tmpl.flow.ID,
-		"new_flow_id", newFlowID,
-		"schedule", tmpl.flow.Metadata[MetaSchedule],
+	slog.Info("cron: triggered issue",
+		"template_issue_id", tmpl.issue.ID,
+		"new_issue_id", newIssueID,
+		"schedule", metaString(tmpl.issue.Metadata, MetaSchedule),
 	)
 }
 
-// countActiveInstances counts non-terminal flows cloned from the given template.
-func (t *Trigger) countActiveInstances(ctx context.Context, templateFlowID int64) int {
-	sourceID := strconv.FormatInt(templateFlowID, 10)
+// countActiveInstances counts non-terminal issues cloned from the given template.
+func (t *Trigger) countActiveInstances(ctx context.Context, templateIssueID int64) int {
+	sourceID := strconv.FormatInt(templateIssueID, 10)
 	count := 0
 
-	// Check active statuses: pending, queued, running, blocked.
-	for _, status := range []core.FlowStatus{core.FlowPending, core.FlowQueued, core.FlowRunning, core.FlowBlocked} {
-		flows, err := t.store.ListFlows(ctx, core.FlowFilter{
-			Status:         &status,
-			MetadataHasKey: MetaSourceFlowID,
-			Limit:          100,
+	// Check active statuses: open, accepted, queued, running, blocked.
+	for _, status := range []core.IssueStatus{core.IssueOpen, core.IssueAccepted, core.IssueQueued, core.IssueRunning, core.IssueBlocked} {
+		issues, err := t.store.ListIssues(ctx, core.IssueFilter{
+			Status: &status,
+			Limit:  100,
 		})
 		if err != nil {
 			slog.Warn("cron: failed to count active instances", "error", err)
 			continue
 		}
-		for _, f := range flows {
-			if f.Metadata[MetaSourceFlowID] == sourceID {
+		for _, iss := range issues {
+			if metaString(iss.Metadata, MetaSourceIssueID) == sourceID {
 				count++
 			}
 		}
@@ -276,35 +275,35 @@ func (t *Trigger) countActiveInstances(ctx context.Context, templateFlowID int64
 	return count
 }
 
-func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Flow) (int64, error) {
-	// 1. Clone flow.
-	newFlow := &core.Flow{
+func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Issue) (int64, error) {
+	// 1. Clone issue.
+	newIssue := &core.Issue{
 		ProjectID: source.ProjectID,
-		Name:      source.Name + " [cron " + time.Now().UTC().Format("01-02 15:04") + "]",
-		Status:    core.FlowPending,
-		Metadata: map[string]string{
-			MetaSourceFlowID: strconv.FormatInt(source.ID, 10),
+		Title:     source.Title + " [cron " + time.Now().UTC().Format("01-02 15:04") + "]",
+		Status:    core.IssueOpen,
+		Metadata: map[string]any{
+			MetaSourceIssueID: strconv.FormatInt(source.ID, 10),
 		},
 	}
-	newFlowID, err := t.store.CreateFlow(ctx, newFlow)
+	newIssueID, err := t.store.CreateIssue(ctx, newIssue)
 	if err != nil {
-		return 0, fmt.Errorf("create flow clone: %w", err)
+		return 0, fmt.Errorf("create issue clone: %w", err)
 	}
 
 	// 2. Clone steps.
-	steps, err := t.store.ListStepsByFlow(ctx, source.ID)
+	steps, err := t.store.ListStepsByIssue(ctx, source.ID)
 	if err != nil {
 		return 0, fmt.Errorf("list source steps: %w", err)
 	}
 
-	oldToNew := make(map[int64]int64, len(steps))
-	for _, s := range steps {
+	for i, s := range steps {
 		newStep := &core.Step{
-			FlowID:               newFlowID,
+			IssueID:              newIssueID,
 			Name:                 s.Name,
 			Description:          s.Description,
 			Type:                 s.Type,
 			Status:               core.StepPending,
+			Position:             i,
 			AgentRole:            s.AgentRole,
 			RequiredCapabilities: s.RequiredCapabilities,
 			AcceptanceCriteria:   s.AcceptanceCriteria,
@@ -312,39 +311,15 @@ func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Flow) (int64,
 			MaxRetries:           s.MaxRetries,
 			Config:               s.Config,
 		}
-		newStepID, err := t.store.CreateStep(ctx, newStep)
-		if err != nil {
+		if _, err := t.store.CreateStep(ctx, newStep); err != nil {
 			return 0, fmt.Errorf("clone step %d: %w", s.ID, err)
 		}
-		oldToNew[s.ID] = newStepID
 	}
 
-	// 3. Fix DependsOn references.
-	for _, s := range steps {
-		if len(s.DependsOn) == 0 {
-			continue
-		}
-		newStepID := oldToNew[s.ID]
-		newDeps := make([]int64, 0, len(s.DependsOn))
-		for _, dep := range s.DependsOn {
-			if newDep, ok := oldToNew[dep]; ok {
-				newDeps = append(newDeps, newDep)
-			}
-		}
-		newStep, err := t.store.GetStep(ctx, newStepID)
-		if err != nil {
-			return 0, fmt.Errorf("get cloned step %d: %w", newStepID, err)
-		}
-		newStep.DependsOn = newDeps
-		if err := t.store.UpdateStep(ctx, newStep); err != nil {
-			return 0, fmt.Errorf("update cloned step deps %d: %w", newStepID, err)
-		}
-	}
-
-	// 4. Publish event.
+	// 3. Publish event.
 	t.bus.Publish(ctx, core.Event{
-		Type:   core.EventFlowQueued,
-		FlowID: newFlowID,
+		Type:    core.EventIssueQueued,
+		IssueID: newIssueID,
 		Data: map[string]any{
 			"source":       "cron",
 			"template_id":  source.ID,
@@ -352,15 +327,30 @@ func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.Flow) (int64,
 		Timestamp: time.Now().UTC(),
 	})
 
-	// 5. Submit to scheduler.
-	if err := t.scheduler.Submit(ctx, newFlowID); err != nil {
-		return 0, fmt.Errorf("submit cloned flow: %w", err)
+	// 4. Submit to scheduler.
+	if err := t.scheduler.Submit(ctx, newIssueID); err != nil {
+		return 0, fmt.Errorf("submit cloned issue: %w", err)
 	}
 
-	return newFlowID, nil
+	return newIssueID, nil
 }
 
-func metaBool(m map[string]string, key string) bool {
-	v := strings.TrimSpace(strings.ToLower(m[key]))
+func metaBool(m map[string]any, key string) bool {
+	v := strings.TrimSpace(strings.ToLower(metaString(m, key)))
 	return v == "true" || v == "1" || v == "yes"
+}
+
+func metaString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Sprintf("%v", v)
+	}
+	return strings.TrimSpace(s)
 }

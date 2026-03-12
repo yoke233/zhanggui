@@ -8,48 +8,58 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// RecoverInterruptedFlows scans the store for flows that were running or queued
+// RecoverInterruptedIssues scans the store for issues that were running or queued
 // when the process last stopped, resets their in-progress steps, and re-submits
 // them to the scheduler for execution.
 //
 // Call this once during bootstrap, after the scheduler has been started.
-func RecoverInterruptedFlows(ctx context.Context, store Store, scheduler *FlowScheduler) (int, error) {
-	return recoverFlowsByStatus(ctx, store, scheduler, []core.FlowStatus{core.FlowQueued, core.FlowRunning})
+func RecoverInterruptedIssues(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
+	return recoverIssuesByStatus(ctx, store, scheduler, []core.IssueStatus{core.IssueQueued, core.IssueRunning})
 }
 
-// RecoverQueuedFlows re-enqueues flows that were queued before the process stopped.
-func RecoverQueuedFlows(ctx context.Context, store Store, scheduler *FlowScheduler) (int, error) {
-	return recoverFlowsByStatus(ctx, store, scheduler, []core.FlowStatus{core.FlowQueued})
+// RecoverQueuedIssues re-enqueues issues that were queued before the process stopped.
+func RecoverQueuedIssues(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
+	return recoverIssuesByStatus(ctx, store, scheduler, []core.IssueStatus{core.IssueQueued})
 }
 
-func recoverFlowsByStatus(ctx context.Context, store Store, scheduler *FlowScheduler, statuses []core.FlowStatus) (int, error) {
+// RecoverInterruptedFlows is an alias for backward compatibility.
+func RecoverInterruptedFlows(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
+	return RecoverInterruptedIssues(ctx, store, scheduler)
+}
+
+// RecoverQueuedFlows is an alias for backward compatibility.
+func RecoverQueuedFlows(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
+	return RecoverQueuedIssues(ctx, store, scheduler)
+}
+
+func recoverIssuesByStatus(ctx context.Context, store Store, scheduler *IssueScheduler, statuses []core.IssueStatus) (int, error) {
 	recovered := 0
 
 	for _, status := range statuses {
-		flows, err := store.ListFlows(ctx, core.FlowFilter{Status: &status, Limit: 1000})
+		issues, err := store.ListIssues(ctx, core.IssueFilter{Status: &status, Limit: 1000})
 		if err != nil {
-			return recovered, fmt.Errorf("list %s flows: %w", status, err)
+			return recovered, fmt.Errorf("list %s issues: %w", status, err)
 		}
 
-		for _, flow := range flows {
-			if err := recoverFlow(ctx, store, scheduler, flow); err != nil {
-				slog.Error("recovery: failed to recover flow", "flow_id", flow.ID, "status", flow.Status, "error", err)
+		for _, issue := range issues {
+			if err := recoverIssue(ctx, store, scheduler, issue); err != nil {
+				slog.Error("recovery: failed to recover issue", "issue_id", issue.ID, "status", issue.Status, "error", err)
 				continue
 			}
 			recovered++
-			slog.Info("recovery: re-queued flow", "flow_id", flow.ID, "original_status", flow.Status)
+			slog.Info("recovery: re-queued issue", "issue_id", issue.ID, "original_status", issue.Status)
 		}
 	}
 
 	return recovered, nil
 }
 
-// recoverFlow resets a single interrupted flow so it can be re-executed.
-func recoverFlow(ctx context.Context, store Store, scheduler *FlowScheduler, flow *core.Flow) error {
+// recoverIssue resets a single interrupted issue so it can be re-executed.
+func recoverIssue(ctx context.Context, store Store, scheduler *IssueScheduler, issue *core.Issue) error {
 	// Reset in-progress steps back to pending.
-	steps, err := store.ListStepsByFlow(ctx, flow.ID)
+	steps, err := store.ListStepsByIssue(ctx, issue.ID)
 	if err != nil {
-		return fmt.Errorf("list steps for flow %d: %w", flow.ID, err)
+		return fmt.Errorf("list steps for issue %d: %w", issue.ID, err)
 	}
 
 	for _, step := range steps {
@@ -62,7 +72,7 @@ func recoverFlow(ctx context.Context, store Store, scheduler *FlowScheduler, flo
 			}
 			slog.Info("recovery: reset step to pending", "step_id", step.ID, "was", step.Status)
 		case core.StepReady:
-			// Ready but not started — reset to pending so DAG promotion re-evaluates.
+			// Ready but not started — reset to pending so promotion re-evaluates.
 			if err := store.UpdateStepStatus(ctx, step.ID, core.StepPending); err != nil {
 				return fmt.Errorf("reset step %d: %w", step.ID, err)
 			}
@@ -86,11 +96,11 @@ func recoverFlow(ctx context.Context, store Store, scheduler *FlowScheduler, flo
 		}
 	}
 
-	// Reset flow status to pending so it can be submitted.
-	if err := store.UpdateFlowStatus(ctx, flow.ID, core.FlowPending); err != nil {
-		return fmt.Errorf("reset flow %d to pending: %w", flow.ID, err)
+	// Reset issue status to open so it can be submitted.
+	if err := store.UpdateIssueStatus(ctx, issue.ID, core.IssueOpen); err != nil {
+		return fmt.Errorf("reset issue %d to open: %w", issue.ID, err)
 	}
 
 	// Submit to scheduler queue.
-	return scheduler.Submit(ctx, flow.ID)
+	return scheduler.Submit(ctx, issue.ID)
 }

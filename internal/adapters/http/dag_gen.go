@@ -12,32 +12,32 @@ type generateStepsRequest struct {
 }
 
 // generateSteps uses AI to decompose a task description into a DAG of Steps
-// and creates them in the given flow.
-// POST /flows/{flowID}/generate-steps
+// and creates them in the given issue.
+// POST /issues/{issueID}/generate-steps
 func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
 	if h.dagGen == nil {
 		writeError(w, http.StatusServiceUnavailable, "DAG generator is not configured (requires LLM)", "DAG_GEN_UNAVAILABLE")
 		return
 	}
 
-	flowID, ok := urlParamInt64(r, "flowID")
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	// Verify flow exists and is pending.
-	f, err := h.store.GetFlow(r.Context(), flowID)
+	// Verify issue exists and is open.
+	iss, err := h.store.GetIssue(r.Context(), issueID)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if f.Status != core.FlowPending {
-		writeError(w, http.StatusConflict, "flow is not pending, cannot generate steps", "INVALID_STATE")
+	if iss.Status != core.IssueOpen {
+		writeError(w, http.StatusConflict, "issue is not open, cannot generate steps", "INVALID_STATE")
 		return
 	}
 
@@ -59,7 +59,7 @@ func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Materialize steps into the store.
-	steps, err := h.dagGen.Materialize(r.Context(), h.store, flowID, dag)
+	steps, err := h.dagGen.Materialize(r.Context(), h.store, issueID, dag)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "MATERIALIZE_ERROR")
 		return
@@ -67,4 +67,3 @@ func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, steps)
 }
-

@@ -10,49 +10,60 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// FlowScheduler manages a queue of Flows and limits concurrent execution.
-// API callers submit Flows via Submit(); the scheduler runs them when capacity
+// IssueScheduler manages a queue of Issues and limits concurrent execution.
+// API callers submit Issues via Submit(); the scheduler runs them when capacity
 // is available.
-type FlowScheduler struct {
-	engine *FlowEngine
+type IssueScheduler struct {
+	engine *IssueEngine
 	store  Store
 	bus    EventPublisher
 
-	maxConcurrent int // max flows running in parallel
+	maxConcurrent int // max issues running in parallel
 
 	mu      sync.Mutex
-	queue   []int64                      // flow IDs waiting to run
-	running map[int64]context.CancelFunc // flow ID → cancel func
+	queue   []int64                      // issue IDs waiting to run
+	running map[int64]context.CancelFunc // issue ID → cancel func
 	closed  bool
 
-	// notify is signalled when a flow finishes or a new flow is submitted.
+	// notify is signalled when an issue finishes or a new issue is submitted.
 	notify chan struct{}
 	done   chan struct{} // closed when scheduler loop exits
 }
 
-// FlowSchedulerConfig configures the FlowScheduler.
-type FlowSchedulerConfig struct {
-	MaxConcurrentFlows int // default 2
+// IssueSchedulerConfig configures the IssueScheduler.
+type IssueSchedulerConfig struct {
+	MaxConcurrentIssues int // default 2
 }
 
-// NewFlowScheduler creates a multi-flow scheduler.
-func NewFlowScheduler(engine *FlowEngine, store Store, bus EventPublisher, cfg FlowSchedulerConfig) *FlowScheduler {
-	if cfg.MaxConcurrentFlows <= 0 {
-		cfg.MaxConcurrentFlows = 2
+// NewIssueScheduler creates a multi-issue scheduler.
+func NewIssueScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg IssueSchedulerConfig) *IssueScheduler {
+	if cfg.MaxConcurrentIssues <= 0 {
+		cfg.MaxConcurrentIssues = 2
 	}
-	return &FlowScheduler{
+	return &IssueScheduler{
 		engine:        engine,
 		store:         store,
 		bus:           bus,
-		maxConcurrent: cfg.MaxConcurrentFlows,
+		maxConcurrent: cfg.MaxConcurrentIssues,
 		running:       make(map[int64]context.CancelFunc),
 		notify:        make(chan struct{}, 1),
 		done:          make(chan struct{}),
 	}
 }
 
+// FlowSchedulerConfig is an alias for backward compatibility.
+type FlowSchedulerConfig = IssueSchedulerConfig
+
+// NewFlowScheduler is an alias for backward compatibility.
+func NewFlowScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg FlowSchedulerConfig) *IssueScheduler {
+	// Map the old MaxConcurrentFlows field if set.
+	return NewIssueScheduler(engine, store, bus, IssueSchedulerConfig{
+		MaxConcurrentIssues: cfg.MaxConcurrentIssues,
+	})
+}
+
 // Start begins the scheduler loop. It blocks until ctx is cancelled.
-func (s *FlowScheduler) Start(ctx context.Context) {
+func (s *IssueScheduler) Start(ctx context.Context) {
 	defer close(s.done)
 
 	for {
@@ -63,14 +74,14 @@ func (s *FlowScheduler) Start(ctx context.Context) {
 			s.drainRunning()
 			return
 		case <-s.notify:
-			// new submission or a flow finished — re-check
+			// new submission or an issue finished — re-check
 		}
 	}
 }
 
-// Submit enqueues a flow for execution. The flow must be in pending state.
-// It transitions the flow to queued and returns immediately.
-func (s *FlowScheduler) Submit(ctx context.Context, flowID int64) error {
+// Submit enqueues an issue for execution. The issue must be in open/accepted state.
+// It transitions the issue to queued and returns immediately.
+func (s *IssueScheduler) Submit(ctx context.Context, issueID int64) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -78,40 +89,40 @@ func (s *FlowScheduler) Submit(ctx context.Context, flowID int64) error {
 	}
 	s.mu.Unlock()
 
-	// Atomically transition pending, unarchived flows to queued.
-	if err := s.store.PrepareFlowRun(ctx, flowID, core.FlowQueued); err != nil {
-		return fmt.Errorf("queue flow %d: %w", flowID, err)
+	// Atomically transition open/accepted, unarchived issues to queued.
+	if err := s.store.PrepareIssueRun(ctx, issueID, core.IssueQueued); err != nil {
+		return fmt.Errorf("queue issue %d: %w", issueID, err)
 	}
 	s.bus.Publish(ctx, core.Event{
-		Type:      core.EventFlowQueued,
-		FlowID:    flowID,
+		Type:      core.EventIssueQueued,
+		IssueID:   issueID,
 		Timestamp: time.Now().UTC(),
 	})
 
 	s.mu.Lock()
-	s.queue = append(s.queue, flowID)
+	s.queue = append(s.queue, issueID)
 	s.mu.Unlock()
 
 	s.signal()
 	return nil
 }
 
-// Cancel cancels a flow. If queued, removes from queue. If running, cancels its context.
-func (s *FlowScheduler) Cancel(ctx context.Context, flowID int64) error {
+// Cancel cancels an issue. If queued, removes from queue. If running, cancels its context.
+func (s *IssueScheduler) Cancel(ctx context.Context, issueID int64) error {
 	s.mu.Lock()
 
 	// Check if in queue — remove it.
 	for i, id := range s.queue {
-		if id == flowID {
+		if id == issueID {
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
 			s.mu.Unlock()
 			// Update state to cancelled.
-			if err := s.store.UpdateFlowStatus(ctx, flowID, core.FlowCancelled); err != nil {
+			if err := s.store.UpdateIssueStatus(ctx, issueID, core.IssueCancelled); err != nil {
 				return err
 			}
 			s.bus.Publish(ctx, core.Event{
-				Type:      core.EventFlowCancelled,
-				FlowID:    flowID,
+				Type:      core.EventIssueCancelled,
+				IssueID:   issueID,
 				Timestamp: time.Now().UTC(),
 			})
 			return nil
@@ -119,7 +130,7 @@ func (s *FlowScheduler) Cancel(ctx context.Context, flowID int64) error {
 	}
 
 	// Check if running — cancel its context.
-	cancel, ok := s.running[flowID]
+	cancel, ok := s.running[issueID]
 	s.mu.Unlock()
 
 	if ok {
@@ -129,25 +140,25 @@ func (s *FlowScheduler) Cancel(ctx context.Context, flowID int64) error {
 	}
 
 	// Fallback: delegate to engine's Cancel for direct state update.
-	return s.engine.Cancel(ctx, flowID)
+	return s.engine.Cancel(ctx, issueID)
 }
 
-// QueueLen returns the number of flows waiting to run.
-func (s *FlowScheduler) QueueLen() int {
+// QueueLen returns the number of issues waiting to run.
+func (s *IssueScheduler) QueueLen() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.queue)
 }
 
-// RunningCount returns the number of currently running flows.
-func (s *FlowScheduler) RunningCount() int {
+// RunningCount returns the number of currently running issues.
+func (s *IssueScheduler) RunningCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.running)
 }
 
 // Stats returns scheduler statistics.
-func (s *FlowScheduler) Stats() SchedulerStats {
+func (s *IssueScheduler) Stats() SchedulerStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -177,7 +188,7 @@ type SchedulerStats struct {
 }
 
 // Shutdown gracefully stops the scheduler and waits for it to finish.
-func (s *FlowScheduler) Shutdown() {
+func (s *IssueScheduler) Shutdown() {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
@@ -185,56 +196,56 @@ func (s *FlowScheduler) Shutdown() {
 	<-s.done
 }
 
-// dispatch starts as many queued flows as capacity allows.
-func (s *FlowScheduler) dispatch(ctx context.Context) {
+// dispatch starts as many queued issues as capacity allows.
+func (s *IssueScheduler) dispatch(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for len(s.queue) > 0 && len(s.running) < s.maxConcurrent {
-		flowID := s.queue[0]
+		issueID := s.queue[0]
 		s.queue = s.queue[1:]
 
-		flowCtx, cancel := context.WithCancel(ctx)
-		s.running[flowID] = cancel
+		issueCtx, cancel := context.WithCancel(ctx)
+		s.running[issueID] = cancel
 
-		go s.runFlow(flowCtx, flowID)
+		go s.runIssue(issueCtx, issueID)
 	}
 }
 
-// runFlow executes a single flow and cleans up when done.
-func (s *FlowScheduler) runFlow(ctx context.Context, flowID int64) {
+// runIssue executes a single issue and cleans up when done.
+func (s *IssueScheduler) runIssue(ctx context.Context, issueID int64) {
 	defer func() {
 		s.mu.Lock()
-		delete(s.running, flowID)
+		delete(s.running, issueID)
 		s.mu.Unlock()
 		s.signal()
 	}()
 
-	err := s.engine.Run(ctx, flowID)
+	err := s.engine.Run(ctx, issueID)
 	if err != nil {
 		// If context was cancelled, mark as cancelled (not failed).
 		if ctx.Err() != nil {
-			_ = s.store.UpdateFlowStatus(context.Background(), flowID, core.FlowCancelled)
+			_ = s.store.UpdateIssueStatus(context.Background(), issueID, core.IssueCancelled)
 			s.bus.Publish(context.Background(), core.Event{
-				Type:      core.EventFlowCancelled,
-				FlowID:    flowID,
+				Type:      core.EventIssueCancelled,
+				IssueID:   issueID,
 				Timestamp: time.Now().UTC(),
 			})
 		}
-		slog.Error("flow execution failed", "flow_id", flowID, "error", err)
+		slog.Error("issue execution failed", "issue_id", issueID, "error", err)
 	}
 }
 
 // signal pokes the scheduler loop to re-check capacity.
-func (s *FlowScheduler) signal() {
+func (s *IssueScheduler) signal() {
 	select {
 	case s.notify <- struct{}{}:
 	default:
 	}
 }
 
-// drainRunning cancels all running flows and waits for them to finish.
-func (s *FlowScheduler) drainRunning() {
+// drainRunning cancels all running issues and waits for them to finish.
+func (s *IssueScheduler) drainRunning() {
 	s.mu.Lock()
 	for _, cancel := range s.running {
 		cancel()

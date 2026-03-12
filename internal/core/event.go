@@ -9,11 +9,11 @@ import (
 type EventType string
 
 const (
-	EventFlowQueued    EventType = "flow.queued"
-	EventFlowStarted   EventType = "flow.started"
-	EventFlowCompleted EventType = "flow.completed"
-	EventFlowFailed    EventType = "flow.failed"
-	EventFlowCancelled EventType = "flow.cancelled"
+	EventIssueQueued    EventType = "issue.queued"
+	EventIssueStarted   EventType = "issue.started"
+	EventIssueCompleted EventType = "issue.completed"
+	EventIssueFailed    EventType = "issue.failed"
+	EventIssueCancelled EventType = "issue.cancelled"
 
 	EventStepReady     EventType = "step.ready"
 	EventStepStarted   EventType = "step.started"
@@ -56,11 +56,11 @@ func IsTransientAgentEvent(ev Event) bool {
 	return false
 }
 
-// Event is a domain event emitted during Flow execution.
+// Event is a domain event emitted during Issue execution.
 type Event struct {
 	ID        int64          `json:"id"`
 	Type      EventType      `json:"type"`
-	FlowID    int64          `json:"flow_id,omitempty"`
+	IssueID   int64          `json:"issue_id,omitempty"`
 	StepID    int64          `json:"step_id,omitempty"`
 	ExecID    int64          `json:"exec_id,omitempty"`
 	Data      map[string]any `json:"data,omitempty"`

@@ -27,17 +27,17 @@ type updateDAGTemplateRequest struct {
 	Steps       *[]core.DAGTemplateStep `json:"steps,omitempty"`
 }
 
-type saveFlowAsTemplateRequest struct {
+type saveIssueAsTemplateRequest struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
-type createFlowFromTemplateRequest struct {
-	Name      string            `json:"name"`
+type createIssueFromTemplateRequest struct {
+	Title     string            `json:"title"`
 	ProjectID *int64            `json:"project_id,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
 }
 
 // --- Handlers ---
@@ -184,18 +184,18 @@ func (h *Handler) deleteDAGTemplate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// POST /flows/{flowID}/save-as-template
-// Snapshots the current flow's steps into a new DAGTemplate.
-func (h *Handler) saveFlowAsTemplate(w http.ResponseWriter, r *http.Request) {
-	flowID, ok := urlParamInt64(r, "flowID")
+// POST /issues/{issueID}/save-as-template
+// Snapshots the current issue's steps into a new DAGTemplate.
+func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid flow ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	flow, err := h.store.GetFlow(r.Context(), flowID)
+	issue, err := h.store.GetIssue(r.Context(), issueID)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "flow not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
@@ -203,45 +203,32 @@ func (h *Handler) saveFlowAsTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	steps, err := h.store.ListStepsByFlow(r.Context(), flowID)
+	steps, err := h.store.ListStepsByIssue(r.Context(), issueID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if len(steps) == 0 {
-		writeError(w, http.StatusBadRequest, "flow has no steps to save as template", "NO_STEPS")
+		writeError(w, http.StatusBadRequest, "issue has no steps to save as template", "NO_STEPS")
 		return
 	}
 
-	var req saveFlowAsTemplateRequest
+	var req saveIssueAsTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
 	if req.Name == "" {
-		req.Name = flow.Name + " (template)"
+		req.Name = issue.Title + " (template)"
 	}
 
-	// Build step ID -> name lookup for dependency resolution.
-	idToName := make(map[int64]string, len(steps))
-	for _, s := range steps {
-		idToName[s.ID] = s.Name
-	}
-
-	// Convert runtime steps to template steps (name-based dependencies).
+	// Convert runtime steps to template steps (position-ordered).
 	templateSteps := make([]core.DAGTemplateStep, 0, len(steps))
 	for _, s := range steps {
-		var depNames []string
-		for _, depID := range s.DependsOn {
-			if name, ok := idToName[depID]; ok {
-				depNames = append(depNames, name)
-			}
-		}
 		templateSteps = append(templateSteps, core.DAGTemplateStep{
 			Name:                 s.Name,
 			Description:          s.Description,
 			Type:                 string(s.Type),
-			DependsOn:            depNames,
 			AgentRole:            s.AgentRole,
 			RequiredCapabilities: s.RequiredCapabilities,
 			AcceptanceCriteria:   s.AcceptanceCriteria,
@@ -251,7 +238,7 @@ func (h *Handler) saveFlowAsTemplate(w http.ResponseWriter, r *http.Request) {
 	t := &core.DAGTemplate{
 		Name:        req.Name,
 		Description: req.Description,
-		ProjectID:   flow.ProjectID,
+		ProjectID:   issue.ProjectID,
 		Tags:        req.Tags,
 		Metadata:    req.Metadata,
 		Steps:       templateSteps,
@@ -265,9 +252,9 @@ func (h *Handler) saveFlowAsTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, t)
 }
 
-// POST /templates/{templateID}/create-flow
-// Creates a new Flow and materializes template steps into it.
-func (h *Handler) createFlowFromTemplate(w http.ResponseWriter, r *http.Request) {
+// POST /templates/{templateID}/create-issue
+// Creates a new Issue and materializes template steps into it.
+func (h *Handler) createIssueFromTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, ok := urlParamInt64(r, "templateID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid template ID", "BAD_ID")
@@ -284,13 +271,13 @@ func (h *Handler) createFlowFromTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req createFlowFromTemplateRequest
+	var req createIssueFromTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	if req.Name == "" {
-		req.Name = tmpl.Name
+	if req.Title == "" {
+		req.Title = tmpl.Name
 	}
 
 	projectID := req.ProjectID
@@ -298,32 +285,31 @@ func (h *Handler) createFlowFromTemplate(w http.ResponseWriter, r *http.Request)
 		projectID = tmpl.ProjectID
 	}
 
-	// Create the flow.
-	flow := &core.Flow{
-		Name:      req.Name,
+	// Create the issue.
+	issue := &core.Issue{
+		Title:     req.Title,
 		ProjectID: projectID,
-		Status:    core.FlowPending,
+		Status:    core.IssueOpen,
 		Metadata:  req.Metadata,
 	}
-	flowID, err := h.store.CreateFlow(r.Context(), flow)
+	issueID, err := h.store.CreateIssue(r.Context(), issue)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	flow.ID = flowID
+	issue.ID = issueID
 
-	// Materialize template steps into the flow.
-	// First pass: create all steps with no dependencies to get their IDs.
-	nameToID := make(map[string]int64, len(tmpl.Steps))
+	// Materialize template steps into the issue with position-based ordering.
 	createdSteps := make([]*core.Step, 0, len(tmpl.Steps))
 
-	for _, ts := range tmpl.Steps {
+	for i, ts := range tmpl.Steps {
 		step := &core.Step{
-			FlowID:               flowID,
+			IssueID:              issueID,
 			Name:                 ts.Name,
 			Description:          ts.Description,
 			Type:                 core.StepType(ts.Type),
 			Status:               core.StepPending,
+			Position:             i,
 			AgentRole:            ts.AgentRole,
 			RequiredCapabilities: ts.RequiredCapabilities,
 			AcceptanceCriteria:   ts.AcceptanceCriteria,
@@ -334,30 +320,11 @@ func (h *Handler) createFlowFromTemplate(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		step.ID = id
-		nameToID[ts.Name] = id
 		createdSteps = append(createdSteps, step)
 	}
 
-	// Second pass: resolve name-based dependencies to ID-based.
-	for i, ts := range tmpl.Steps {
-		if len(ts.DependsOn) == 0 {
-			continue
-		}
-		var depIDs []int64
-		for _, depName := range ts.DependsOn {
-			if depID, ok := nameToID[depName]; ok {
-				depIDs = append(depIDs, depID)
-			}
-		}
-		createdSteps[i].DependsOn = depIDs
-		if err := h.store.UpdateStep(r.Context(), createdSteps[i]); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-			return
-		}
-	}
-
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"flow":  flow,
+		"issue": issue,
 		"steps": createdSteps,
 	})
 }

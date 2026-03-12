@@ -51,7 +51,7 @@ func (s *AnalyticsServer) Tools() []ToolDefinition {
 		},
 		{
 			Name:        "analytics_duration_stats",
-			Description: "Get flow execution duration statistics. Shows avg/min/max execution time per flow.",
+			Description: "Get issue execution duration statistics. Shows avg/min/max execution time per issue.",
 			InputSchema: filterSchema,
 		},
 		{
@@ -66,7 +66,7 @@ func (s *AnalyticsServer) Tools() []ToolDefinition {
 		},
 		{
 			Name:        "analytics_status_distribution",
-			Description: "Get flow status distribution (how many pending/running/done/failed).",
+			Description: "Get issue status distribution (how many pending/running/done/failed).",
 			InputSchema: filterSchema,
 		},
 		{
@@ -88,7 +88,7 @@ func (s *AnalyticsServer) HandleToolCall(ctx context.Context, toolName string, i
 	case "analytics_project_errors":
 		result, err = s.store.ProjectErrorRanking(ctx, filter)
 	case "analytics_bottlenecks":
-		result, err = s.store.FlowBottleneckSteps(ctx, filter)
+		result, err = s.store.IssueBottleneckSteps(ctx, filter)
 	case "analytics_duration_stats":
 		result, err = s.store.ExecutionDurationStats(ctx, filter)
 	case "analytics_error_breakdown":
@@ -96,7 +96,7 @@ func (s *AnalyticsServer) HandleToolCall(ctx context.Context, toolName string, i
 	case "analytics_recent_failures":
 		result, err = s.store.RecentFailures(ctx, filter)
 	case "analytics_status_distribution":
-		result, err = s.store.FlowStatusDistribution(ctx, filter)
+		result, err = s.store.IssueStatusDistribution(ctx, filter)
 	case "analytics_summary":
 		result, err = s.handleSummary(ctx, filter)
 	default:
@@ -128,7 +128,7 @@ func (s *AnalyticsServer) handleSummary(ctx context.Context, filter core.Analyti
 	if err != nil {
 		return nil, err
 	}
-	s2, err := s.store.FlowBottleneckSteps(ctx, filter)
+	s2, err := s.store.IssueBottleneckSteps(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (s *AnalyticsServer) handleSummary(ctx context.Context, filter core.Analyti
 	if err != nil {
 		return nil, err
 	}
-	s6, err := s.store.FlowStatusDistribution(ctx, filter)
+	s6, err := s.store.IssueStatusDistribution(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

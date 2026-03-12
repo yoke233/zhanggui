@@ -26,7 +26,7 @@ const (
 type Execution struct {
 	ID               int64           `json:"id"`
 	StepID           int64           `json:"step_id"`
-	FlowID           int64           `json:"flow_id"`
+	IssueID          int64           `json:"issue_id"`
 	Status           ExecutionStatus `json:"status"`
 	AgentID          string          `json:"agent_id,omitempty"`
 	AgentContextID   *int64          `json:"agent_context_id,omitempty"`

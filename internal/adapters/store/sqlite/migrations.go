@@ -29,27 +29,30 @@ CREATE TABLE IF NOT EXISTS resource_bindings (
 );
 CREATE INDEX IF NOT EXISTS idx_rb_project ON resource_bindings(project_id);
 
-CREATE TABLE IF NOT EXISTS flows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER,
-    name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    parent_step_id INTEGER,
-    metadata TEXT,
-    archived_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS issues (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id          INTEGER,
+    resource_binding_id INTEGER,
+    title               TEXT    NOT NULL,
+    body                TEXT    NOT NULL DEFAULT '',
+    status              TEXT    NOT NULL DEFAULT 'open',
+    priority            TEXT    NOT NULL DEFAULT 'medium',
+    labels              TEXT,
+    depends_on          TEXT,
+    metadata            TEXT,
+    archived_at         DATETIME,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    flow_id INTEGER NOT NULL REFERENCES flows(id),
+    issue_id INTEGER NOT NULL REFERENCES issues(id),
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     type TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    depends_on TEXT,
-    sub_flow_id INTEGER,
+    position INTEGER NOT NULL DEFAULT 0,
     agent_role TEXT,
     required_capabilities TEXT,
     acceptance_criteria TEXT,
@@ -64,7 +67,7 @@ CREATE TABLE IF NOT EXISTS steps (
 CREATE TABLE IF NOT EXISTS executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     step_id INTEGER NOT NULL REFERENCES steps(id),
-    flow_id INTEGER NOT NULL,
+    issue_id INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'created',
     agent_id TEXT,
     agent_context_id INTEGER,
@@ -84,7 +87,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER NOT NULL REFERENCES executions(id),
     step_id INTEGER NOT NULL,
-    flow_id INTEGER NOT NULL,
+    issue_id INTEGER NOT NULL,
     result_markdown TEXT NOT NULL,
     metadata TEXT,
     assets TEXT,
@@ -103,7 +106,7 @@ CREATE TABLE IF NOT EXISTS briefings (
 CREATE TABLE IF NOT EXISTS agent_contexts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_id TEXT NOT NULL,
-    flow_id INTEGER NOT NULL,
+    issue_id INTEGER NOT NULL,
     system_prompt TEXT,
     session_id TEXT,
     summary TEXT,
@@ -117,7 +120,7 @@ CREATE TABLE IF NOT EXISTS agent_contexts (
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL,
-    flow_id INTEGER,
+    issue_id INTEGER,
     step_id INTEGER,
     exec_id INTEGER,
     data TEXT,
@@ -127,7 +130,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS execution_probes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER NOT NULL REFERENCES executions(id),
-    flow_id INTEGER NOT NULL,
+    issue_id INTEGER NOT NULL,
     step_id INTEGER NOT NULL,
     agent_context_id INTEGER,
     session_id TEXT NOT NULL DEFAULT '',
@@ -173,32 +176,15 @@ CREATE TABLE IF NOT EXISTS agent_drivers (
      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS issues (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id  INTEGER,
-    title       TEXT    NOT NULL,
-    body        TEXT    NOT NULL DEFAULT '',
-    status      TEXT    NOT NULL DEFAULT 'open',
-    priority    TEXT    NOT NULL DEFAULT 'medium',
-    labels      TEXT,
-    flow_id     INTEGER,
-    metadata    TEXT,
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
 CREATE INDEX IF NOT EXISTS idx_issues_status  ON issues(status);
-CREATE INDEX IF NOT EXISTS idx_issues_flow    ON issues(flow_id);
-
-CREATE INDEX IF NOT EXISTS idx_steps_flow ON steps(flow_id);
+CREATE INDEX IF NOT EXISTS idx_steps_issue ON steps(issue_id);
 CREATE INDEX IF NOT EXISTS idx_executions_step ON executions(step_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_exec ON artifacts(execution_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_step ON artifacts(step_id);
 CREATE INDEX IF NOT EXISTS idx_briefings_step ON briefings(step_id);
-CREATE INDEX IF NOT EXISTS idx_events_flow ON events(flow_id);
-CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, flow_id);
-CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id);
+CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id);
+CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, issue_id);
 CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id);
 CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id);
 `
@@ -224,9 +210,6 @@ func runMigrations(db *sql.DB) error {
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-		`ALTER TABLE flows ADD COLUMN project_id INTEGER`,
-		`ALTER TABLE flows ADD COLUMN archived_at DATETIME`,
-		`CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id)`,
 		// Upgrade old projects table: add new columns (ignore if already present).
 		`ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'`,
 		`ALTER TABLE projects ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
@@ -238,43 +221,24 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE agent_profiles ADD COLUMN skills TEXT`,
 		`ALTER TABLE agent_contexts ADD COLUMN worker_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agent_contexts ADD COLUMN worker_last_seen_at DATETIME`,
-		`CREATE TABLE IF NOT EXISTS execution_probes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            execution_id INTEGER NOT NULL REFERENCES executions(id),
-            flow_id INTEGER NOT NULL,
-            step_id INTEGER NOT NULL,
-            agent_context_id INTEGER,
-            session_id TEXT NOT NULL DEFAULT '',
-            owner_id TEXT NOT NULL DEFAULT '',
-            trigger_source TEXT NOT NULL,
-            question TEXT NOT NULL,
-            status TEXT NOT NULL,
-            verdict TEXT NOT NULL,
-            reply_text TEXT NOT NULL DEFAULT '',
-            error TEXT NOT NULL DEFAULT '',
-            sent_at DATETIME,
-            answered_at DATETIME,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )`,
-		`CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id)`,
-		`CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id)`,
-		// issues table (runtime schema upgrade for existing DBs).
-		`CREATE TABLE IF NOT EXISTS issues (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id  INTEGER,
-            title       TEXT    NOT NULL,
-            body        TEXT    NOT NULL DEFAULT '',
-            status      TEXT    NOT NULL DEFAULT 'open',
-            priority    TEXT    NOT NULL DEFAULT 'medium',
-            labels      TEXT,
-            flow_id     INTEGER,
-            metadata    TEXT,
-            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )`,
-		`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_issues_flow ON issues(flow_id)`,
+		// Issue-centric migration: add new Issue columns.
+		`ALTER TABLE issues ADD COLUMN resource_binding_id INTEGER`,
+		`ALTER TABLE issues ADD COLUMN depends_on TEXT`,
+		`ALTER TABLE issues ADD COLUMN archived_at DATETIME`,
+		// Step migration: add position column.
+		`ALTER TABLE steps ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+		// Column renames (SQLite 3.25+): flow_id → issue_id across tables.
+		`ALTER TABLE steps RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE executions RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE artifacts RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE agent_contexts RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE events RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE execution_probes RENAME COLUMN flow_id TO issue_id`,
+		`ALTER TABLE usage_records RENAME COLUMN flow_id TO issue_id`,
+		// Updated indexes for the renamed columns.
+		`CREATE INDEX IF NOT EXISTS idx_steps_issue ON steps(issue_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, issue_id)`,
 		// dag_templates table (reusable DAG template storage).
 		`CREATE TABLE IF NOT EXISTS dag_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,7 +256,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS usage_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             execution_id INTEGER NOT NULL REFERENCES executions(id),
-            flow_id INTEGER NOT NULL,
+            issue_id INTEGER NOT NULL,
             step_id INTEGER NOT NULL,
             project_id INTEGER,
             agent_id TEXT NOT NULL DEFAULT '',
@@ -312,6 +276,26 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_agent ON usage_records(agent_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_profile ON usage_records(profile_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_records_created ON usage_records(created_at)`,
+		`CREATE TABLE IF NOT EXISTS execution_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_id INTEGER NOT NULL REFERENCES executions(id),
+            issue_id INTEGER NOT NULL,
+            step_id INTEGER NOT NULL,
+            agent_context_id INTEGER,
+            session_id TEXT NOT NULL DEFAULT '',
+            owner_id TEXT NOT NULL DEFAULT '',
+            trigger_source TEXT NOT NULL,
+            question TEXT NOT NULL,
+            status TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            reply_text TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            sent_at DATETIME,
+            answered_at DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {
@@ -321,10 +305,13 @@ func runMigrations(db *sql.DB) error {
 			if strings.Contains(err.Error(), "already exists") && strings.Contains(stmt, "ALTER TABLE") {
 				continue
 			}
+			// RENAME COLUMN fails if column already has the new name.
+			if strings.Contains(err.Error(), "no such column") && strings.Contains(stmt, "RENAME COLUMN") {
+				continue
+			}
 			return fmt.Errorf("migration failed: %s: %w", stmt, err)
 		}
 	}
 
 	return nil
 }
-

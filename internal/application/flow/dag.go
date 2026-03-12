@@ -1,67 +1,36 @@
 package flow
 
-import "github.com/yoke233/ai-workflow/internal/core"
+import (
+	"sort"
 
-// ValidateDAG checks that the Steps form a valid DAG (no cycles).
-// Returns core.ErrCycleDetected if a cycle is found.
-func ValidateDAG(steps []*core.Step) error {
-	// Build adjacency: step ID → downstream step IDs
-	// Also track in-degree for topological sort.
-	idSet := make(map[int64]struct{}, len(steps))
-	inDegree := make(map[int64]int, len(steps))
-	downstream := make(map[int64][]int64, len(steps))
+	"github.com/yoke233/ai-workflow/internal/core"
+)
 
-	for _, s := range steps {
-		idSet[s.ID] = struct{}{}
-		inDegree[s.ID] = 0
-	}
-	for _, s := range steps {
-		for _, dep := range s.DependsOn {
-			downstream[dep] = append(downstream[dep], s.ID)
-			inDegree[s.ID]++
-		}
-	}
-
-	// Kahn's algorithm
-	var queue []int64
-	for id, deg := range inDegree {
-		if deg == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	visited := 0
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		visited++
-		for _, next := range downstream[cur] {
-			inDegree[next]--
-			if inDegree[next] == 0 {
-				queue = append(queue, next)
-			}
-		}
-	}
-
-	if visited != len(steps) {
-		return core.ErrCycleDetected
-	}
+// ValidateSteps checks that steps have valid positions.
+// Steps are sequential by Position; no DAG validation is needed.
+func ValidateSteps(steps []*core.Step) error {
 	return nil
 }
 
-// EntrySteps returns steps that have no upstream dependencies (DependsOn is empty).
+// EntrySteps returns steps that should run first (those with the lowest Position).
 func EntrySteps(steps []*core.Step) []*core.Step {
+	if len(steps) == 0 {
+		return nil
+	}
+	sorted := make([]*core.Step, len(steps))
+	copy(sorted, steps)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Position < sorted[j].Position })
+	minPos := sorted[0].Position
 	var entries []*core.Step
-	for _, s := range steps {
-		if len(s.DependsOn) == 0 {
+	for _, s := range sorted {
+		if s.Position == minPos {
 			entries = append(entries, s)
 		}
 	}
 	return entries
 }
 
-// PromotableSteps returns steps that are pending and whose upstream dependencies are all done.
-// These should be promoted to "ready" status by the engine.
+// PromotableSteps returns steps that are pending and whose predecessors (by Position) are all done.
 func PromotableSteps(steps []*core.Step) []*core.Step {
 	doneSet := make(map[int64]bool, len(steps))
 	for _, s := range steps {
@@ -75,14 +44,14 @@ func PromotableSteps(steps []*core.Step) []*core.Step {
 		if s.Status != core.StepPending {
 			continue
 		}
-		allDone := true
-		for _, dep := range s.DependsOn {
-			if !doneSet[dep] {
-				allDone = false
+		allPriorDone := true
+		for _, other := range steps {
+			if other.Position < s.Position && !doneSet[other.ID] {
+				allPriorDone = false
 				break
 			}
 		}
-		if allDone {
+		if allPriorDone {
 			promotable = append(promotable, s)
 		}
 	}
@@ -100,3 +69,14 @@ func RunnableSteps(steps []*core.Step) []*core.Step {
 	return runnable
 }
 
+// predecessorStepIDs returns the IDs of steps with Position strictly less than the given step.
+// This replaces the old DependsOn field for gate reset targets.
+func predecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
+	var ids []int64
+	for _, s := range steps {
+		if s.Position < step.Position {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}

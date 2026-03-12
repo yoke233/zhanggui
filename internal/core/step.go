@@ -25,16 +25,16 @@ const (
 	StepCancelled   StepStatus = "cancelled"
 )
 
-// Step is a single node in the Flow DAG.
+// Step is a single unit of work within an Issue's execution pipeline.
+// Steps are ordered by Position and executed sequentially.
 type Step struct {
 	ID          int64      `json:"id"`
-	FlowID      int64      `json:"flow_id"`
+	IssueID     int64      `json:"issue_id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"` // what this step should accomplish
 	Type        StepType   `json:"type"`
 	Status      StepStatus `json:"status"`
-	DependsOn   []int64    `json:"depends_on,omitempty"`  // upstream Step IDs
-	SubFlowID   *int64     `json:"sub_flow_id,omitempty"` // composite -> child Flow
+	Position    int        `json:"position"` // execution order within the Issue (0-based)
 
 	// Agent binding
 	AgentRole            string   `json:"agent_role,omitempty"`            // lead | worker | gate | support

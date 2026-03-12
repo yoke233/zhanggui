@@ -21,9 +21,9 @@ func (s *Store) CreateArtifact(ctx context.Context, a *core.Artifact) (int64, er
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO artifacts (execution_id, step_id, flow_id, result_markdown, metadata, assets, created_at)
+		`INSERT INTO artifacts (execution_id, step_id, issue_id, result_markdown, metadata, assets, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		a.ExecutionID, a.StepID, a.FlowID, a.ResultMarkdown, meta, assets, now,
+		a.ExecutionID, a.StepID, a.IssueID, a.ResultMarkdown, meta, assets, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert artifact: %w", err)
@@ -38,9 +38,9 @@ func (s *Store) GetArtifact(ctx context.Context, id int64) (*core.Artifact, erro
 	a := &core.Artifact{}
 	var meta, assets sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, execution_id, step_id, flow_id, result_markdown, metadata, assets, created_at
+		`SELECT id, execution_id, step_id, issue_id, result_markdown, metadata, assets, created_at
 		 FROM artifacts WHERE id = ?`, id,
-	).Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.FlowID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt)
+	).Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.IssueID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, core.ErrNotFound
 	}
@@ -58,9 +58,9 @@ func (s *Store) GetLatestArtifactByStep(ctx context.Context, stepID int64) (*cor
 	a := &core.Artifact{}
 	var meta, assets sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, execution_id, step_id, flow_id, result_markdown, metadata, assets, created_at
+		`SELECT id, execution_id, step_id, issue_id, result_markdown, metadata, assets, created_at
 		 FROM artifacts WHERE step_id = ? ORDER BY id DESC LIMIT 1`, stepID,
-	).Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.FlowID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt)
+	).Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.IssueID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, core.ErrNotFound
 	}
@@ -95,7 +95,7 @@ func (s *Store) UpdateArtifact(ctx context.Context, a *core.Artifact) error {
 
 func (s *Store) ListArtifactsByExecution(ctx context.Context, execID int64) ([]*core.Artifact, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, execution_id, step_id, flow_id, result_markdown, metadata, assets, created_at
+		`SELECT id, execution_id, step_id, issue_id, result_markdown, metadata, assets, created_at
 		 FROM artifacts WHERE execution_id = ? ORDER BY id`, execID,
 	)
 	if err != nil {
@@ -107,7 +107,7 @@ func (s *Store) ListArtifactsByExecution(ctx context.Context, execID int64) ([]*
 	for rows.Next() {
 		a := &core.Artifact{}
 		var meta, assets sql.NullString
-		if err := rows.Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.FlowID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExecutionID, &a.StepID, &a.IssueID, &a.ResultMarkdown, &meta, &assets, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan artifact: %w", err)
 		}
 		unmarshalNullJSON(meta, &a.Metadata)

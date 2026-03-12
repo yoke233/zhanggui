@@ -13,12 +13,12 @@ import (
 func (s *Store) CreateUsageRecord(ctx context.Context, r *core.UsageRecord) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO usage_records (
-			execution_id, flow_id, step_id, project_id,
+			execution_id, issue_id, step_id, project_id,
 			agent_id, profile_id, model_id,
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
 			reasoning_tokens, total_tokens, duration_ms
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ExecutionID, r.FlowID, r.StepID, r.ProjectID,
+		r.ExecutionID, r.IssueID, r.StepID, r.ProjectID,
 		r.AgentID, r.ProfileID, r.ModelID,
 		r.InputTokens, r.OutputTokens, r.CacheReadTokens, r.CacheWriteTokens,
 		r.ReasoningTokens, r.TotalTokens, r.DurationMs,
@@ -33,13 +33,13 @@ func (s *Store) CreateUsageRecord(ctx context.Context, r *core.UsageRecord) (int
 func (s *Store) GetUsageRecord(ctx context.Context, id int64) (*core.UsageRecord, error) {
 	r := &core.UsageRecord{}
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, execution_id, flow_id, step_id, project_id,
+		SELECT id, execution_id, issue_id, step_id, project_id,
 			agent_id, profile_id, model_id,
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
 			reasoning_tokens, total_tokens, duration_ms, created_at
 		FROM usage_records WHERE id = ?`, id,
 	).Scan(
-		&r.ID, &r.ExecutionID, &r.FlowID, &r.StepID, &r.ProjectID,
+		&r.ID, &r.ExecutionID, &r.IssueID, &r.StepID, &r.ProjectID,
 		&r.AgentID, &r.ProfileID, &r.ModelID,
 		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 		&r.ReasoningTokens, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,
@@ -57,13 +57,13 @@ func (s *Store) GetUsageRecord(ctx context.Context, id int64) (*core.UsageRecord
 func (s *Store) GetUsageByExecution(ctx context.Context, executionID int64) (*core.UsageRecord, error) {
 	r := &core.UsageRecord{}
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, execution_id, flow_id, step_id, project_id,
+		SELECT id, execution_id, issue_id, step_id, project_id,
 			agent_id, profile_id, model_id,
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
 			reasoning_tokens, total_tokens, duration_ms, created_at
 		FROM usage_records WHERE execution_id = ?`, executionID,
 	).Scan(
-		&r.ID, &r.ExecutionID, &r.FlowID, &r.StepID, &r.ProjectID,
+		&r.ID, &r.ExecutionID, &r.IssueID, &r.StepID, &r.ProjectID,
 		&r.AgentID, &r.ProfileID, &r.ModelID,
 		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 		&r.ReasoningTokens, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,

@@ -2,15 +2,15 @@ package core
 
 import "context"
 
-// Workspace represents the prepared execution environment for a Flow.
+// Workspace represents the prepared execution environment for an Issue.
 type Workspace struct {
 	Path     string            // agent working directory
 	Env      map[string]string // extra environment variables
 	Metadata map[string]any    // provider-specific data (branch name, repo path, etc.)
 }
 
-// WorkspaceProvider prepares and releases execution workspaces for Flows.
+// WorkspaceProvider prepares and releases execution workspaces for Issues.
 type WorkspaceProvider interface {
-	Prepare(ctx context.Context, project *Project, bindings []*ResourceBinding, flowID int64) (*Workspace, error)
+	Prepare(ctx context.Context, project *Project, bindings []*ResourceBinding, issueID int64) (*Workspace, error)
 	Release(ctx context.Context, ws *Workspace) error
 }

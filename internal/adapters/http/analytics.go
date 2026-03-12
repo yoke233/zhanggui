@@ -20,9 +20,9 @@ func (h *Handler) getProjectErrorRanking(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, data)
 }
 
-func (h *Handler) getFlowBottleneckSteps(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getIssueBottleneckSteps(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
-	data, err := h.store.FlowBottleneckSteps(r.Context(), filter)
+	data, err := h.store.IssueBottleneckSteps(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
@@ -41,7 +41,7 @@ func (h *Handler) getExecutionDurationStats(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if data == nil {
-		data = []core.FlowDurationStat{}
+		data = []core.IssueDurationStat{}
 	}
 	writeJSON(w, http.StatusOK, data)
 }
@@ -72,9 +72,9 @@ func (h *Handler) getRecentFailures(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, data)
 }
 
-func (h *Handler) getFlowStatusDistribution(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getIssueStatusDistribution(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
-	data, err := h.store.FlowStatusDistribution(r.Context(), filter)
+	data, err := h.store.IssueStatusDistribution(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
@@ -92,7 +92,7 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	type summary struct {
 		ProjectErrors    []core.ProjectErrorRank `json:"project_errors"`
 		Bottlenecks      []core.StepBottleneck   `json:"bottlenecks"`
-		DurationStats    []core.FlowDurationStat `json:"duration_stats"`
+		DurationStats    []core.IssueDurationStat `json:"duration_stats"`
 		ErrorBreakdown   []core.ErrorKindCount   `json:"error_breakdown"`
 		RecentFailures   []core.FailureRecord    `json:"recent_failures"`
 		StatusDist       []core.StatusCount       `json:"status_distribution"`
@@ -106,7 +106,7 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
-	if s.Bottlenecks, err = h.store.FlowBottleneckSteps(ctx, filter); err != nil {
+	if s.Bottlenecks, err = h.store.IssueBottleneckSteps(ctx, filter); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
-	if s.StatusDist, err = h.store.FlowStatusDistribution(ctx, filter); err != nil {
+	if s.StatusDist, err = h.store.IssueStatusDistribution(ctx, filter); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
@@ -135,7 +135,7 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		s.Bottlenecks = []core.StepBottleneck{}
 	}
 	if s.DurationStats == nil {
-		s.DurationStats = []core.FlowDurationStat{}
+		s.DurationStats = []core.IssueDurationStat{}
 	}
 	if s.ErrorBreakdown == nil {
 		s.ErrorBreakdown = []core.ErrorKindCount{}

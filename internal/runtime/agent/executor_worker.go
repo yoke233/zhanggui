@@ -213,7 +213,7 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	slog.Info("executor worker: executing execution",
-		"exec_id", invocation.ExecID, "agent", invocation.AgentID, "flow_id", invocation.FlowID)
+		"exec_id", invocation.ExecID, "agent", invocation.AgentID, "issue_id", invocation.IssueID)
 
 	// Create event forwarder that publishes to NATS.
 	eventSeq := int64(0)
@@ -289,7 +289,7 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 		Profile: profile,
 		Driver:  driver,
 		Launch:  launchCfg,
-		Scope:   fmt.Sprintf("flow-%d-exec-%d", invocation.FlowID, invocation.ExecID),
+		Scope:   fmt.Sprintf("issue-%d-exec-%d", invocation.IssueID, invocation.ExecID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare sandbox: %w", err)
@@ -308,7 +308,7 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 		Launch:  sandboxedLaunch,
 		Caps:    acpCaps,
 		WorkDir: workDir,
-		FlowID:  invocation.FlowID,
+		IssueID: invocation.IssueID,
 		StepID:  invocation.StepID,
 		ExecID:  invocation.ExecID,
 	}

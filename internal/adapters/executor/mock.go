@@ -22,15 +22,15 @@ func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecut
 
 		now := time.Now().UTC()
 		reply := fmt.Sprintf(
-			"## Mock executor\n\n- step_id: %d\n- flow_id: %d\n- step_type: %s\n- agent_role: %s\n- work_dir: %s\n- time_utc: %s\n",
-			step.ID, step.FlowID, step.Type, step.AgentRole, workDir, now.Format(time.RFC3339),
+			"## Mock executor\n\n- step_id: %d\n- issue_id: %d\n- step_type: %s\n- agent_role: %s\n- work_dir: %s\n- time_utc: %s\n",
+			step.ID, step.IssueID, step.Type, step.AgentRole, workDir, now.Format(time.RFC3339),
 		)
 
 		// Publish done event with full reply (matches ACP bridge "done" shape).
 		if bus != nil {
 			bus.Publish(ctx, core.Event{
 				Type:      core.EventExecAgentOutput,
-				FlowID:    step.FlowID,
+				IssueID:   step.IssueID,
 				StepID:    step.ID,
 				ExecID:    exec.ID,
 				Timestamp: now,
@@ -46,7 +46,7 @@ func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecut
 			art := &core.Artifact{
 				ExecutionID:    exec.ID,
 				StepID:         step.ID,
-				FlowID:         step.FlowID,
+				IssueID:        step.IssueID,
 				ResultMarkdown: reply,
 			}
 			artID, err := store.CreateArtifact(ctx, art)

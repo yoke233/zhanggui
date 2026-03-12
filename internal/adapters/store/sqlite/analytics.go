@@ -15,25 +15,26 @@ func (s *Store) ProjectErrorRanking(ctx context.Context, filter core.AnalyticsFi
 		SELECT
 			p.id,
 			p.name,
-			COUNT(DISTINCT f.id) AS total_flows,
-			COUNT(DISTINCT CASE WHEN f.status = 'failed' THEN f.id END) AS failed_flows,
-			CASE WHEN COUNT(DISTINCT f.id) > 0
-				THEN CAST(COUNT(DISTINCT CASE WHEN f.status = 'failed' THEN f.id END) AS REAL) / COUNT(DISTINCT f.id)
+			COUNT(DISTINCT i.id) AS total_issues,
+			COUNT(DISTINCT CASE WHEN i.status = 'failed' THEN i.id END) AS failed_issues,
+			CASE WHEN COUNT(DISTINCT i.id) > 0
+				THEN CAST(COUNT(DISTINCT CASE WHEN i.status = 'failed' THEN i.id END) AS REAL) / COUNT(DISTINCT i.id)
 				ELSE 0 END AS failure_rate,
 			COUNT(DISTINCT CASE WHEN e.status = 'failed' THEN e.id END) AS failed_execs
 		FROM projects p
-		LEFT JOIN flows f ON f.project_id = p.id
-		LEFT JOIN executions e ON e.flow_id = f.id`
+		LEFT JOIN issues i ON i.project_id = p.id
+		LEFT JOIN steps st ON st.issue_id = i.id
+		LEFT JOIN executions e ON e.step_id = st.id`
 
 	var conditions []string
 	var args []any
 
-	conditions, args = appendTimeConditions(conditions, args, "f.created_at", filter)
+	conditions, args = appendTimeConditions(conditions, args, "i.created_at", filter)
 
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += ` GROUP BY p.id ORDER BY failed_flows DESC, failure_rate DESC`
+	query += ` GROUP BY p.id ORDER BY failed_issues DESC, failure_rate DESC`
 	query += limitClause(filter.Limit, 20)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -45,8 +46,8 @@ func (s *Store) ProjectErrorRanking(ctx context.Context, filter core.AnalyticsFi
 	var out []core.ProjectErrorRank
 	for rows.Next() {
 		var r core.ProjectErrorRank
-		if err := rows.Scan(&r.ProjectID, &r.ProjectName, &r.TotalFlows,
-			&r.FailedFlows, &r.FailureRate, &r.FailedExecs); err != nil {
+		if err := rows.Scan(&r.ProjectID, &r.ProjectName, &r.TotalIssues,
+			&r.FailedIssues, &r.FailureRate, &r.FailedExecs); err != nil {
 			return nil, fmt.Errorf("scan project error rank: %w", err)
 		}
 		out = append(out, r)
@@ -54,15 +55,15 @@ func (s *Store) ProjectErrorRanking(ctx context.Context, filter core.AnalyticsFi
 	return out, rows.Err()
 }
 
-// FlowBottleneckSteps returns the slowest/most-failing steps across flows.
-func (s *Store) FlowBottleneckSteps(ctx context.Context, filter core.AnalyticsFilter) ([]core.StepBottleneck, error) {
+// IssueBottleneckSteps returns the slowest/most-failing steps across issues.
+func (s *Store) IssueBottleneckSteps(ctx context.Context, filter core.AnalyticsFilter) ([]core.StepBottleneck, error) {
 	query := `
 		SELECT
 			st.id,
 			st.name,
-			st.flow_id,
-			f.name,
-			f.project_id,
+			st.issue_id,
+			i.title,
+			i.project_id,
 			COALESCE(AVG(
 				CASE WHEN e.started_at IS NOT NULL AND e.finished_at IS NOT NULL
 					THEN (julianday(e.finished_at) - julianday(e.started_at)) * 86400
@@ -80,14 +81,14 @@ func (s *Store) FlowBottleneckSteps(ctx context.Context, filter core.AnalyticsFi
 				THEN CAST(COUNT(CASE WHEN e.status = 'failed' THEN 1 END) AS REAL) / COUNT(e.id)
 				ELSE 0 END AS fail_rate
 		FROM steps st
-		JOIN flows f ON f.id = st.flow_id
+		JOIN issues i ON i.id = st.issue_id
 		LEFT JOIN executions e ON e.step_id = st.id`
 
 	var conditions []string
 	var args []any
 
 	if filter.ProjectID != nil {
-		conditions = append(conditions, "f.project_id = ?")
+		conditions = append(conditions, "i.project_id = ?")
 		args = append(args, *filter.ProjectID)
 	}
 	conditions, args = appendTimeConditions(conditions, args, "e.created_at", filter)
@@ -102,14 +103,14 @@ func (s *Store) FlowBottleneckSteps(ctx context.Context, filter core.AnalyticsFi
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("flow bottleneck steps: %w", err)
+		return nil, fmt.Errorf("issue bottleneck steps: %w", err)
 	}
 	defer rows.Close()
 
 	var out []core.StepBottleneck
 	for rows.Next() {
 		var b core.StepBottleneck
-		if err := rows.Scan(&b.StepID, &b.StepName, &b.FlowID, &b.FlowName, &b.ProjectID,
+		if err := rows.Scan(&b.StepID, &b.StepName, &b.IssueID, &b.IssueTitle, &b.ProjectID,
 			&b.AvgDurationS, &b.MaxDurationS, &b.ExecCount, &b.FailCount,
 			&b.RetryCount, &b.FailRate); err != nil {
 			return nil, fmt.Errorf("scan step bottleneck: %w", err)
@@ -119,23 +120,22 @@ func (s *Store) FlowBottleneckSteps(ctx context.Context, filter core.AnalyticsFi
 	return out, rows.Err()
 }
 
-// ExecutionDurationStats returns per-flow duration statistics.
-func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.AnalyticsFilter) ([]core.FlowDurationStat, error) {
-	// SQLite doesn't have a PERCENTILE function, so we compute p50 with a subquery approach.
-	// For simplicity, we use a CTE approach with ROW_NUMBER.
+// ExecutionDurationStats returns per-issue duration statistics.
+func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.AnalyticsFilter) ([]core.IssueDurationStat, error) {
 	query := `
 		WITH exec_dur AS (
 			SELECT
-				e.flow_id,
+				st.issue_id,
 				(julianday(e.finished_at) - julianday(e.started_at)) * 86400 AS dur_s
 			FROM executions e
-			JOIN flows f ON f.id = e.flow_id
+			JOIN steps st ON st.id = e.step_id
+			JOIN issues i ON i.id = st.issue_id
 			WHERE e.started_at IS NOT NULL AND e.finished_at IS NOT NULL
 				AND e.status IN ('succeeded', 'failed')`
 
 	var args []any
 	if filter.ProjectID != nil {
-		query += " AND f.project_id = ?"
+		query += " AND i.project_id = ?"
 		args = append(args, *filter.ProjectID)
 	}
 	if filter.Since != nil {
@@ -150,17 +150,17 @@ func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.Analytic
 	query += `
 		)
 		SELECT
-			f.id,
-			f.name,
-			f.project_id,
+			i.id,
+			i.title,
+			i.project_id,
 			COUNT(*) AS exec_count,
 			AVG(d.dur_s) AS avg_dur,
 			MIN(d.dur_s) AS min_dur,
 			MAX(d.dur_s) AS max_dur,
 			0 AS p50_dur
 		FROM exec_dur d
-		JOIN flows f ON f.id = d.flow_id
-		GROUP BY f.id
+		JOIN issues i ON i.id = d.issue_id
+		GROUP BY i.id
 		ORDER BY avg_dur DESC`
 	query += limitClause(filter.Limit, 20)
 
@@ -170,10 +170,10 @@ func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.Analytic
 	}
 	defer rows.Close()
 
-	var out []core.FlowDurationStat
+	var out []core.IssueDurationStat
 	for rows.Next() {
-		var d core.FlowDurationStat
-		if err := rows.Scan(&d.FlowID, &d.FlowName, &d.ProjectID,
+		var d core.IssueDurationStat
+		if err := rows.Scan(&d.IssueID, &d.IssueTitle, &d.ProjectID,
 			&d.ExecCount, &d.AvgDurationS, &d.MinDurationS, &d.MaxDurationS, &d.P50DurationS); err != nil {
 			return nil, fmt.Errorf("scan duration stat: %w", err)
 		}
@@ -189,12 +189,13 @@ func (s *Store) ErrorBreakdown(ctx context.Context, filter core.AnalyticsFilter)
 			COALESCE(e.error_kind, 'unknown') AS ek,
 			COUNT(*) AS cnt
 		FROM executions e
-		JOIN flows f ON f.id = e.flow_id
+		JOIN steps st ON st.id = e.step_id
+		JOIN issues i ON i.id = st.issue_id
 		WHERE e.status = 'failed'`
 
 	var args []any
 	if filter.ProjectID != nil {
-		query += " AND f.project_id = ?"
+		query += " AND i.project_id = ?"
 		args = append(args, *filter.ProjectID)
 	}
 	if filter.Since != nil {
@@ -242,9 +243,9 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 			e.id,
 			e.step_id,
 			st.name,
-			e.flow_id,
-			f.name,
-			f.project_id,
+			st.issue_id,
+			i.title,
+			i.project_id,
 			COALESCE(p.name, ''),
 			COALESCE(e.error_message, ''),
 			COALESCE(e.error_kind, ''),
@@ -255,13 +256,13 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 			COALESCE(e.finished_at, e.created_at) AS failed_at
 		FROM executions e
 		JOIN steps st ON st.id = e.step_id
-		JOIN flows f ON f.id = e.flow_id
-		LEFT JOIN projects p ON p.id = f.project_id
+		JOIN issues i ON i.id = st.issue_id
+		LEFT JOIN projects p ON p.id = i.project_id
 		WHERE e.status = 'failed'`
 
 	var args []any
 	if filter.ProjectID != nil {
-		query += " AND f.project_id = ?"
+		query += " AND i.project_id = ?"
 		args = append(args, *filter.ProjectID)
 	}
 	if filter.Since != nil {
@@ -286,7 +287,7 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 	for rows.Next() {
 		var r core.FailureRecord
 		var ek sql.NullString
-		if err := rows.Scan(&r.ExecID, &r.StepID, &r.StepName, &r.FlowID, &r.FlowName,
+		if err := rows.Scan(&r.ExecID, &r.StepID, &r.StepName, &r.IssueID, &r.IssueTitle,
 			&r.ProjectID, &r.ProjectName, &r.ErrorMessage, &ek,
 			&r.Attempt, &r.DurationS, &r.FailedAt); err != nil {
 			return nil, fmt.Errorf("scan failure record: %w", err)
@@ -299,11 +300,11 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 	return out, rows.Err()
 }
 
-// FlowStatusDistribution returns flow counts grouped by status.
-func (s *Store) FlowStatusDistribution(ctx context.Context, filter core.AnalyticsFilter) ([]core.StatusCount, error) {
+// IssueStatusDistribution returns issue counts grouped by status.
+func (s *Store) IssueStatusDistribution(ctx context.Context, filter core.AnalyticsFilter) ([]core.StatusCount, error) {
 	query := `
 		SELECT status, COUNT(*) AS cnt
-		FROM flows
+		FROM issues
 		WHERE 1=1`
 
 	var args []any
@@ -324,7 +325,7 @@ func (s *Store) FlowStatusDistribution(ctx context.Context, filter core.Analytic
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("flow status distribution: %w", err)
+		return nil, fmt.Errorf("issue status distribution: %w", err)
 	}
 	defer rows.Close()
 

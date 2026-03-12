@@ -44,7 +44,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 		headBranch = "HEAD"
 	}
 
-	title := fmt.Sprintf("ai-flow: flow %d", step.FlowID)
+	title := fmt.Sprintf("ai-flow: issue %d", step.IssueID)
 	body := "Automated change request created by ai-workflow."
 	if step.Config != nil {
 		if v, ok := step.Config["title"].(string); ok && strings.TrimSpace(v) != "" {

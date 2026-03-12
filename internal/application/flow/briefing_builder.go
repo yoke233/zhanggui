@@ -3,7 +3,6 @@ package flow
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -27,22 +26,10 @@ func (b *DefaultBriefingBuilder) Build(ctx context.Context, step *core.Step) (*c
 		Constraints: step.AcceptanceCriteria,
 	}
 
-	// Collect upstream artifact references.
-	//
-	// For gate steps, include transitive upstream artifacts when configured so the reviewer can
-	// see the implementer's output (e.g. test commands/results) even when the gate only depends
-	// on later automation steps like "open_pr".
-	depIDs := append([]int64(nil), step.DependsOn...)
-	if step.Type == core.StepGate && step.Config != nil {
-		if v, ok := step.Config["reset_upstream_closure"].(bool); ok && v {
-			closure, err := upstreamClosure(ctx, b.store, step.FlowID, step.ID)
-			if err == nil && len(closure) > 0 {
-				depIDs = closure
-			}
-		}
-	}
+	// Collect upstream artifact references from predecessor steps (by Position).
+	predecessors := predecessorStepIDsFromStore(ctx, b.store, step)
 
-	for _, depID := range depIDs {
+	for _, depID := range predecessors {
 		art, err := b.store.GetLatestArtifactByStep(ctx, depID)
 		if err == core.ErrNotFound {
 			continue
@@ -61,34 +48,13 @@ func (b *DefaultBriefingBuilder) Build(ctx context.Context, step *core.Step) (*c
 	return briefing, nil
 }
 
-func upstreamClosure(ctx context.Context, store Store, flowID int64, stepID int64) ([]int64, error) {
-	steps, err := store.ListStepsByFlow(ctx, flowID)
+// predecessorStepIDsFromStore returns IDs of steps with lower Position in the same issue.
+func predecessorStepIDsFromStore(ctx context.Context, store Store, step *core.Step) []int64 {
+	steps, err := store.ListStepsByIssue(ctx, step.IssueID)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	depsByID := make(map[int64][]int64, len(steps))
-	for _, s := range steps {
-		if s == nil {
-			continue
-		}
-		depsByID[s.ID] = append([]int64(nil), s.DependsOn...)
-	}
-	seen := map[int64]struct{}{}
-	var stack []int64
-	stack = append(stack, depsByID[stepID]...)
-	var result []int64
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if _, ok := seen[n]; ok {
-			continue
-		}
-		seen[n] = struct{}{}
-		result = append(result, n)
-		stack = append(stack, depsByID[n]...)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
-	return result, nil
+	return predecessorStepIDs(steps, step)
 }
 
 // buildObjective derives a brief objective string from step config or name.

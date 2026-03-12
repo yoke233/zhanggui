@@ -1,23 +1,42 @@
-export type FlowStatus =
-  | "pending"
+export type IssueStatus =
+  | "open"
+  | "accepted"
   | "queued"
   | "running"
   | "blocked"
   | "failed"
   | "done"
   | "cancelled"
+  | "closed"
   | string;
 
-export interface Flow {
+export type IssuePriority = "low" | "medium" | "high" | "urgent";
+
+export interface Issue {
   id: number;
   project_id?: number | null;
-  name: string;
-  status: FlowStatus;
-  parent_step_id?: number | null;
-  metadata?: Record<string, string>;
+  resource_binding_id?: number | null;
+  title: string;
+  body: string;
+  priority: IssuePriority;
+  labels?: string[];
+  depends_on?: number[];
+  status: IssueStatus;
+  metadata?: Record<string, unknown>;
   archived_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateIssueRequest {
+  project_id?: number;
+  resource_binding_id?: number;
+  title: string;
+  body?: string;
+  priority?: IssuePriority;
+  labels?: string[];
+  depends_on?: number[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface Project {
@@ -45,13 +64,12 @@ export type StepStatus =
 
 export interface Step {
   id: number;
-  flow_id: number;
+  issue_id: number;
   name: string;
   description?: string;
   type: StepType;
   status: StepStatus;
-  depends_on?: number[];
-  sub_flow_id?: number | null;
+  position: number;
   agent_role?: string;
   required_capabilities?: string[];
   acceptance_criteria?: string[];
@@ -80,7 +98,7 @@ export type ExecutionErrorKind =
 export interface Execution {
   id: number;
   step_id: number;
-  flow_id: number;
+  issue_id: number;
   status: ExecutionStatus;
   agent_id?: string;
   agent_context_id?: number | null;
@@ -97,11 +115,11 @@ export interface Execution {
 }
 
 export type EventType =
-  | "flow.queued"
-  | "flow.started"
-  | "flow.completed"
-  | "flow.failed"
-  | "flow.cancelled"
+  | "issue.queued"
+  | "issue.started"
+  | "issue.completed"
+  | "issue.failed"
+  | "issue.cancelled"
   | "step.ready"
   | "step.started"
   | "step.completed"
@@ -120,68 +138,36 @@ export type EventType =
 export interface Event {
   id: number;
   type: EventType;
-  flow_id?: number;
+  issue_id?: number;
   step_id?: number;
   exec_id?: number;
   data?: Record<string, unknown>;
   timestamp: string;
 }
 
-export interface RunFlowResponse {
-  flow_id: number;
+export interface RunIssueResponse {
+  issue_id: number;
   status: "accepted" | string;
   message?: string;
 }
 
-export interface CancelFlowResponse {
-  flow_id: number;
+export interface CancelIssueResponse {
+  issue_id: number;
   status: "cancelled" | string;
 }
 
-export interface BootstrapPRFlowRequest {
+export interface BootstrapPRIssueRequest {
   base_branch?: string;
   title?: string;
   body?: string;
 }
 
-export interface BootstrapPRFlowResponse {
-  flow_id: number;
+export interface BootstrapPRIssueResponse {
+  issue_id: number;
   implement_step_id: number;
   commit_push_step_id: number;
   open_pr_step_id: number;
   gate_step_id: number;
-}
-
-export interface CreateFlowRequest {
-  project_id?: number;
-  name: string;
-  metadata?: Record<string, string>;
-}
-
-export type IssueStatus = "open" | "accepted" | "in_progress" | "done" | "closed";
-export type IssuePriority = "low" | "medium" | "high" | "urgent";
-
-export interface Issue {
-  id: number;
-  project_id?: number;
-  title: string;
-  body: string;
-  status: IssueStatus;
-  priority: IssuePriority;
-  labels?: string[];
-  flow_id?: number;
-  metadata?: Record<string, string>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateIssueRequest {
-  project_id?: number;
-  title: string;
-  body?: string;
-  priority?: IssuePriority;
-  labels?: string[];
-  metadata?: Record<string, string>;
 }
 
 export interface CreateProjectRequest {
@@ -218,7 +204,7 @@ export interface CreateResourceBindingRequest {
 export interface CreateStepRequest {
   name: string;
   type: "exec" | "gate" | "composite";
-  depends_on?: number[];
+  position?: number;
   agent_role?: string;
   required_capabilities?: string[];
   acceptance_criteria?: string[];
@@ -234,7 +220,7 @@ export interface GenerateStepsRequest {
 export interface UpdateStepRequest {
   name?: string;
   type?: "exec" | "gate" | "composite";
-  depends_on?: number[];
+  position?: number;
   description?: string;
   agent_role?: string;
   required_capabilities?: string[];
@@ -413,7 +399,7 @@ export interface Artifact {
   id: number;
   execution_id: number;
   step_id: number;
-  flow_id: number;
+  issue_id: number;
   result_markdown: string;
   metadata?: Record<string, unknown>;
   assets?: ArtifactAsset[];
@@ -421,7 +407,7 @@ export interface Artifact {
 }
 
 export type ContextRefType =
-  | "flow_summary"
+  | "issue_summary"
   | "project_brief"
   | "upstream_artifact"
   | "agent_memory"
@@ -444,8 +430,8 @@ export interface Briefing {
 }
 
 export interface StatsResponse {
-  total_flows: number;
-  active_flows: number;
+  total_issues: number;
+  active_issues: number;
   success_rate: number;
   avg_duration: string;
 }
@@ -464,8 +450,8 @@ export interface AdminSystemEventResponse {
 export interface ProjectErrorRank {
   project_id: number;
   project_name: string;
-  total_flows: number;
-  failed_flows: number;
+  total_issues: number;
+  failed_issues: number;
   failure_rate: number;
   failed_execs: number;
 }
@@ -473,8 +459,8 @@ export interface ProjectErrorRank {
 export interface StepBottleneck {
   step_id: number;
   step_name: string;
-  flow_id: number;
-  flow_name: string;
+  issue_id: number;
+  issue_title: string;
   project_id?: number | null;
   avg_duration_s: number;
   max_duration_s: number;
@@ -484,9 +470,9 @@ export interface StepBottleneck {
   fail_rate: number;
 }
 
-export interface FlowDurationStat {
-  flow_id: number;
-  flow_name: string;
+export interface IssueDurationStat {
+  issue_id: number;
+  issue_title: string;
   project_id?: number | null;
   exec_count: number;
   avg_duration_s: number;
@@ -505,8 +491,8 @@ export interface FailureRecord {
   exec_id: number;
   step_id: number;
   step_name: string;
-  flow_id: number;
-  flow_name: string;
+  issue_id: number;
+  issue_title: string;
   project_id?: number | null;
   project_name?: string;
   error_message: string;
@@ -524,7 +510,7 @@ export interface StatusCount {
 export interface AnalyticsSummary {
   project_errors: ProjectErrorRank[];
   bottlenecks: StepBottleneck[];
-  duration_stats: FlowDurationStat[];
+  duration_stats: IssueDurationStat[];
   error_breakdown: ErrorKindCount[];
   recent_failures: FailureRecord[];
   status_distribution: StatusCount[];
@@ -542,7 +528,7 @@ export interface AnalyticsFilter {
 export interface UsageRecord {
   id: number;
   execution_id: number;
-  flow_id: number;
+  issue_id: number;
   step_id: number;
   project_id?: number | null;
   agent_id: string;
@@ -617,7 +603,7 @@ export interface UsageAnalyticsSummary {
 // Cron types
 
 export interface CronStatus {
-  flow_id: number;
+  issue_id: number;
   enabled: boolean;
   is_template: boolean;
   schedule?: string;
@@ -673,21 +659,21 @@ export interface UpdateDAGTemplateRequest {
   steps?: DAGTemplateStep[];
 }
 
-export interface SaveFlowAsTemplateRequest {
+export interface SaveIssueAsTemplateRequest {
   name?: string;
   description?: string;
   tags?: string[];
   metadata?: Record<string, string>;
 }
 
-export interface CreateFlowFromTemplateRequest {
-  name?: string;
+export interface CreateIssueFromTemplateRequest {
+  title?: string;
   project_id?: number;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
-export interface CreateFlowFromTemplateResponse {
-  flow: Flow;
+export interface CreateIssueFromTemplateResponse {
+  issue: Issue;
   steps: Step[];
 }
 

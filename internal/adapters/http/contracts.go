@@ -13,7 +13,6 @@ type Store interface {
 	core.ProjectStore
 	core.ResourceBindingStore
 	core.IssueStore
-	core.FlowStore
 	core.StepStore
 	core.ExecutionStore
 	core.ArtifactStore
@@ -49,5 +48,5 @@ type LeadChatService interface {
 // DAGGenerator is the planning contract required by the HTTP adapter.
 type DAGGenerator interface {
 	Generate(ctx context.Context, taskDescription string) (*planningapp.GeneratedDAG, error)
-	Materialize(ctx context.Context, store core.Store, flowID int64, dag *planningapp.GeneratedDAG) ([]*core.Step, error)
+	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Step, error)
 }
