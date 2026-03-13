@@ -47,7 +47,7 @@ export function AttachmentUploader({
 
   return (
     <div className="space-y-1.5">
-      <label className="text-sm font-medium">{t("createFlow.attachments")}</label>
+      <label className="text-sm font-medium">{t("createWorkItem.attachments")}</label>
       <div
         className={cn(
           "relative flex min-h-[100px] flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
@@ -75,12 +75,12 @@ export function AttachmentUploader({
         {dragOver ? (
           <div className="flex flex-col items-center gap-2 text-primary">
             <Upload className="h-8 w-8" />
-            <span className="text-sm font-medium">{t("createFlow.dropFilesHere")}</span>
+            <span className="text-sm font-medium">{t("createWorkItem.dropFilesHere")}</span>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-muted-foreground">
             <Paperclip className="h-6 w-6" />
-            <span className="text-xs">{t("createFlow.attachmentsDesc")}</span>
+            <span className="text-xs">{t("createWorkItem.attachmentsDesc")}</span>
             <Button
               type="button"
               variant="outline"
@@ -88,7 +88,7 @@ export function AttachmentUploader({
               className="mt-1"
               onClick={() => fileInputRef.current?.click()}
             >
-              {t("createFlow.browseFiles")}
+              {t("createWorkItem.browseFiles")}
             </Button>
           </div>
         )}
@@ -157,7 +157,7 @@ export function AttachmentUploader({
       {uploading && (
         <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {t("createFlow.uploadingFiles")}
+          {t("createWorkItem.uploadingFiles")}
         </div>
       )}
     </div>

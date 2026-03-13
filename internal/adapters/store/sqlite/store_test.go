@@ -24,8 +24,8 @@ func TestIssueCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	f := &core.Issue{Title: "test-issue", Status: core.IssueOpen, Metadata: map[string]any{"env": "test"}}
-	id, err := s.CreateIssue(ctx, f)
+	f := &core.WorkItem{Title: "test-issue", Status: core.WorkItemOpen, Metadata: map[string]any{"env": "test"}}
+	id, err := s.CreateWorkItem(ctx, f)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -33,29 +33,29 @@ func TestIssueCRUD(t *testing.T) {
 		t.Fatal("expected positive id")
 	}
 
-	got, err := s.GetIssue(ctx, id)
+	got, err := s.GetWorkItem(ctx, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Title != "test-issue" || got.Status != core.IssueOpen {
+	if got.Title != "test-issue" || got.Status != core.WorkItemOpen {
 		t.Fatalf("unexpected issue: %+v", got)
 	}
 	if got.Metadata["env"] != "test" {
 		t.Fatalf("metadata not preserved: %v", got.Metadata)
 	}
 
-	if err := s.UpdateIssueStatus(ctx, id, core.IssueRunning); err != nil {
+	if err := s.UpdateWorkItemStatus(ctx, id, core.WorkItemRunning); err != nil {
 		t.Fatalf("update status: %v", err)
 	}
-	got, _ = s.GetIssue(ctx, id)
-	if got.Status != core.IssueRunning {
+	got, _ = s.GetWorkItem(ctx, id)
+	if got.Status != core.WorkItemRunning {
 		t.Fatalf("expected running, got %s", got.Status)
 	}
-	if err := s.UpdateIssueStatus(ctx, id, core.IssueDone); err != nil {
+	if err := s.UpdateWorkItemStatus(ctx, id, core.WorkItemDone); err != nil {
 		t.Fatalf("update status to done: %v", err)
 	}
 
-	issues, err := s.ListIssues(ctx, core.IssueFilter{Limit: 10})
+	issues, err := s.ListWorkItems(ctx, core.WorkItemFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -63,10 +63,10 @@ func TestIssueCRUD(t *testing.T) {
 		t.Fatalf("expected 1 issue, got %d", len(issues))
 	}
 
-	if err := s.SetIssueArchived(ctx, id, true); err != nil {
+	if err := s.SetWorkItemArchived(ctx, id, true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
-	got, err = s.GetIssue(ctx, id)
+	got, err = s.GetWorkItem(ctx, id)
 	if err != nil {
 		t.Fatalf("get archived issue: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestIssueCRUD(t *testing.T) {
 	}
 
 	archived := true
-	issues, err = s.ListIssues(ctx, core.IssueFilter{Archived: &archived, Limit: 10})
+	issues, err = s.ListWorkItems(ctx, core.WorkItemFilter{Archived: &archived, Limit: 10})
 	if err != nil {
 		t.Fatalf("list archived: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestIssueCRUD(t *testing.T) {
 	}
 
 	archived = false
-	issues, err = s.ListIssues(ctx, core.IssueFilter{Archived: &archived, Limit: 10})
+	issues, err = s.ListWorkItems(ctx, core.WorkItemFilter{Archived: &archived, Limit: 10})
 	if err != nil {
 		t.Fatalf("list unarchived: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestIssueCRUD(t *testing.T) {
 		t.Fatalf("expected 0 unarchived issues, got %d", len(issues))
 	}
 
-	issues, err = s.ListIssues(ctx, core.IssueFilter{Limit: 10})
+	issues, err = s.ListWorkItems(ctx, core.WorkItemFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list all issues by default: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestIssueCRUD(t *testing.T) {
 
 func TestIssueNotFound(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.GetIssue(context.Background(), 9999)
+	_, err := s.GetWorkItem(context.Background(), 9999)
 	if err != core.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -113,13 +113,13 @@ func TestStepCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
-	st := &core.Step{
-		IssueID:              fID,
+	st := &core.Action{
+		WorkItemID:              fID,
 		Name:                 "implement",
-		Type:                 core.StepExec,
-		Status:               core.StepPending,
+		Type:                 core.ActionExec,
+		Status:               core.ActionPending,
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"backend", "go"},
 		AcceptanceCriteria:   []string{"unit tests pass", "no lint errors"},
@@ -127,16 +127,16 @@ func TestStepCRUD(t *testing.T) {
 		MaxRetries:           2,
 		Config:               map[string]any{"timeout": "5m"},
 	}
-	id, err := s.CreateStep(ctx, st)
+	id, err := s.CreateAction(ctx, st)
 	if err != nil {
 		t.Fatalf("create step: %v", err)
 	}
 
-	got, err := s.GetStep(ctx, id)
+	got, err := s.GetAction(ctx, id)
 	if err != nil {
 		t.Fatalf("get step: %v", err)
 	}
-	if got.Name != "implement" || got.Type != core.StepExec || got.MaxRetries != 2 {
+	if got.Name != "implement" || got.Type != core.ActionExec || got.MaxRetries != 2 {
 		t.Fatalf("unexpected step: %+v", got)
 	}
 	if got.Config["timeout"] != "5m" {
@@ -153,20 +153,20 @@ func TestStepCRUD(t *testing.T) {
 	}
 
 	// Second step with position
-	st2 := &core.Step{
-		IssueID:  fID,
+	st2 := &core.Action{
+		WorkItemID:  fID,
 		Name:     "review",
-		Type:     core.StepGate,
-		Status:   core.StepPending,
+		Type:     core.ActionGate,
+		Status:   core.ActionPending,
 		Position: 1,
 	}
-	id2, _ := s.CreateStep(ctx, st2)
-	got2, _ := s.GetStep(ctx, id2)
+	id2, _ := s.CreateAction(ctx, st2)
+	got2, _ := s.GetAction(ctx, id2)
 	if got2.Position != 1 {
 		t.Fatalf("position not preserved: %v", got2.Position)
 	}
 
-	steps, err := s.ListStepsByIssue(ctx, fID)
+	steps, err := s.ListActionsByWorkItem(ctx, fID)
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestStepCRUD(t *testing.T) {
 		t.Fatalf("expected 2 steps, got %d", len(steps))
 	}
 
-	if err := s.UpdateStepStatus(ctx, id, core.StepRunning); err != nil {
+	if err := s.UpdateActionStatus(ctx, id, core.ActionRunning); err != nil {
 		t.Fatalf("update step status: %v", err)
 	}
 }
@@ -183,17 +183,17 @@ func TestStepUpdate(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
-	id, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
+	id, _ := s.CreateAction(ctx, &core.Action{WorkItemID: fID, Name: "s", Type: core.ActionExec, Status: core.ActionPending})
 
-	got, _ := s.GetStep(ctx, id)
+	got, _ := s.GetAction(ctx, id)
 	got.AcceptanceCriteria = []string{"new criteria"}
 	got.RequiredCapabilities = []string{"frontend"}
-	if err := s.UpdateStep(ctx, got); err != nil {
+	if err := s.UpdateAction(ctx, got); err != nil {
 		t.Fatalf("update step: %v", err)
 	}
 
-	got, _ = s.GetStep(ctx, id)
+	got, _ = s.GetAction(ctx, id)
 	if len(got.AcceptanceCriteria) != 1 || got.AcceptanceCriteria[0] != "new criteria" {
 		t.Fatalf("update not applied: %v", got.AcceptanceCriteria)
 	}
@@ -203,25 +203,25 @@ func TestExecutionCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
-	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
+	sID, _ := s.CreateAction(ctx, &core.Action{WorkItemID: fID, Name: "s", Type: core.ActionExec, Status: core.ActionPending})
 
 	now := time.Now().UTC()
-	e := &core.Execution{
-		StepID:           sID,
-		IssueID:          fID,
-		Status:           core.ExecCreated,
+	e := &core.Run{
+		ActionID:         sID,
+		WorkItemID:       fID,
+		Status:           core.RunCreated,
 		AgentID:          "claude-1",
 		BriefingSnapshot: "implement login API",
 		Attempt:          1,
 		Input:            map[string]any{"prompt": "do something"},
 	}
-	id, err := s.CreateExecution(ctx, e)
+	id, err := s.CreateRun(ctx, e)
 	if err != nil {
 		t.Fatalf("create exec: %v", err)
 	}
 
-	got, err := s.GetExecution(ctx, id)
+	got, err := s.GetRun(ctx, id)
 	if err != nil {
 		t.Fatalf("get exec: %v", err)
 	}
@@ -233,20 +233,20 @@ func TestExecutionCRUD(t *testing.T) {
 	}
 
 	// Update with error_kind
-	got.Status = core.ExecFailed
+	got.Status = core.RunFailed
 	got.StartedAt = &now
 	got.ErrorMessage = "timeout"
 	got.ErrorKind = core.ErrKindTransient
-	if err := s.UpdateExecution(ctx, got); err != nil {
+	if err := s.UpdateRun(ctx, got); err != nil {
 		t.Fatalf("update exec: %v", err)
 	}
 
-	got, _ = s.GetExecution(ctx, id)
-	if got.Status != core.ExecFailed || got.ErrorKind != core.ErrKindTransient {
+	got, _ = s.GetRun(ctx, id)
+	if got.Status != core.RunFailed || got.ErrorKind != core.ErrKindTransient {
 		t.Fatalf("expected failed/transient, got %s/%s", got.Status, got.ErrorKind)
 	}
 
-	execs, err := s.ListExecutionsByStep(ctx, sID)
+	execs, err := s.ListRunsByAction(ctx, sID)
 	if err != nil {
 		t.Fatalf("list execs: %v", err)
 	}
@@ -259,24 +259,24 @@ func TestArtifactCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
-	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
-	eID, _ := s.CreateExecution(ctx, &core.Execution{StepID: sID, IssueID: fID, Status: core.ExecCreated, Attempt: 1})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
+	sID, _ := s.CreateAction(ctx, &core.Action{WorkItemID: fID, Name: "s", Type: core.ActionExec, Status: core.ActionPending})
+	eID, _ := s.CreateRun(ctx, &core.Run{ActionID: sID, WorkItemID: fID, Status: core.RunCreated, Attempt: 1})
 
-	art := &core.Artifact{
-		ExecutionID:    eID,
-		StepID:         sID,
-		IssueID:        fID,
+	art := &core.Deliverable{
+		RunID:          eID,
+		ActionID:       sID,
+		WorkItemID:     fID,
 		ResultMarkdown: "## Done\nImplemented login API.",
 		Metadata:       map[string]any{"status": "completed", "deliverables": []any{map[string]any{"type": "branch", "ref": "feat/login"}}},
 		Assets:         []core.Asset{{Name: "screenshot.png", URI: "file:///tmp/screenshot.png", MediaType: "image/png"}},
 	}
-	id, err := s.CreateArtifact(ctx, art)
+	id, err := s.CreateDeliverable(ctx, art)
 	if err != nil {
 		t.Fatalf("create artifact: %v", err)
 	}
 
-	got, err := s.GetArtifact(ctx, id)
+	got, err := s.GetDeliverable(ctx, id)
 	if err != nil {
 		t.Fatalf("get artifact: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestArtifactCRUD(t *testing.T) {
 	}
 
 	// GetLatestByStep
-	latest, err := s.GetLatestArtifactByStep(ctx, sID)
+	latest, err := s.GetLatestDeliverableByAction(ctx, sID)
 	if err != nil {
 		t.Fatalf("get latest: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestArtifactCRUD(t *testing.T) {
 	}
 
 	// ListByExecution
-	artifacts, err := s.ListArtifactsByExecution(ctx, eID)
+	artifacts, err := s.ListDeliverablesByRun(ctx, eID)
 	if err != nil {
 		t.Fatalf("list by exec: %v", err)
 	}
@@ -308,13 +308,13 @@ func TestArtifactCRUD(t *testing.T) {
 		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
 	}
 
-	// UpdateArtifact
+	// UpdateDeliverable
 	got.Metadata["verdict"] = "pass"
 	got.ResultMarkdown = "## Updated\nRevised output."
-	if err := s.UpdateArtifact(ctx, got); err != nil {
+	if err := s.UpdateDeliverable(ctx, got); err != nil {
 		t.Fatalf("update artifact: %v", err)
 	}
-	updated, _ := s.GetArtifact(ctx, id)
+	updated, _ := s.GetDeliverable(ctx, id)
 	if updated.Metadata["verdict"] != "pass" {
 		t.Fatalf("metadata not updated: %v", updated.Metadata)
 	}
@@ -323,60 +323,15 @@ func TestArtifactCRUD(t *testing.T) {
 	}
 }
 
-func TestBriefingCRUD(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
-	sID, _ := s.CreateStep(ctx, &core.Step{IssueID: fID, Name: "s", Type: core.StepExec, Status: core.StepPending})
-
-	b := &core.Briefing{
-		StepID:    sID,
-		Objective: "Implement user login API with JWT authentication",
-		ContextRefs: []core.ContextRef{
-			{Type: core.CtxIssueSummary, RefID: fID, Label: "issue summary"},
-			{Type: core.CtxUpstreamArtifact, RefID: 42, Label: "design doc"},
-		},
-		Constraints: []string{"use existing auth middleware", "no new dependencies"},
-	}
-	id, err := s.CreateBriefing(ctx, b)
-	if err != nil {
-		t.Fatalf("create briefing: %v", err)
-	}
-
-	got, err := s.GetBriefing(ctx, id)
-	if err != nil {
-		t.Fatalf("get briefing: %v", err)
-	}
-	if got.Objective != b.Objective {
-		t.Fatalf("objective not preserved")
-	}
-	if len(got.ContextRefs) != 2 {
-		t.Fatalf("context_refs not preserved: %v", got.ContextRefs)
-	}
-	if len(got.Constraints) != 2 {
-		t.Fatalf("constraints not preserved: %v", got.Constraints)
-	}
-
-	// GetByStep
-	byStep, err := s.GetBriefingByStep(ctx, sID)
-	if err != nil {
-		t.Fatalf("get by step: %v", err)
-	}
-	if byStep.ID != id {
-		t.Fatalf("expected %d, got %d", id, byStep.ID)
-	}
-}
-
 func TestAgentContextCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
 	ac := &core.AgentContext{
 		AgentID:      "claude-1",
-		IssueID:      fID,
+		WorkItemID:      fID,
 		SystemPrompt: "You are a developer",
 		TurnCount:    0,
 	}
@@ -416,18 +371,18 @@ func TestEventCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
-	e1 := &core.Event{Type: core.EventIssueStarted, IssueID: fID, Data: map[string]any{"reason": "manual"}}
+	e1 := &core.Event{Type: core.EventWorkItemStarted, WorkItemID: fID, Data: map[string]any{"reason": "manual"}}
 	_, err := s.CreateEvent(ctx, e1)
 	if err != nil {
 		t.Fatalf("create event: %v", err)
 	}
 
-	e2 := &core.Event{Type: core.EventStepReady, IssueID: fID, StepID: 1}
+	e2 := &core.Event{Type: core.EventActionReady, WorkItemID: fID, ActionID: 1}
 	s.CreateEvent(ctx, e2)
 
-	events, err := s.ListEvents(ctx, core.EventFilter{IssueID: &fID})
+	events, err := s.ListEvents(ctx, core.EventFilter{WorkItemID: &fID})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -435,8 +390,8 @@ func TestEventCRUD(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
 
-	types := []core.EventType{core.EventIssueStarted}
-	events, err = s.ListEvents(ctx, core.EventFilter{IssueID: &fID, Types: types})
+	types := []core.EventType{core.EventWorkItemStarted}
+	events, err = s.ListEvents(ctx, core.EventFilter{WorkItemID: &fID, Types: types})
 	if err != nil {
 		t.Fatalf("list events filtered: %v", err)
 	}
@@ -449,11 +404,11 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	fID, _ := s.CreateIssue(ctx, &core.Issue{Title: "f", Status: core.IssueOpen})
+	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
 	if _, err := s.CreateEvent(ctx, &core.Event{
 		Type:    core.EventChatOutput,
-		IssueID: fID,
+		WorkItemID: fID,
 		Data: map[string]any{
 			"session_id": "session-a",
 			"type":       "agent_message",
@@ -464,7 +419,7 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 	}
 	if _, err := s.CreateEvent(ctx, &core.Event{
 		Type:    core.EventChatOutput,
-		IssueID: fID,
+		WorkItemID: fID,
 		Data: map[string]any{
 			"session_id": "session-b",
 			"type":       "agent_message",
@@ -668,22 +623,22 @@ func TestStepSignalCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create prerequisite issue + step.
-	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "signal-test", Status: core.IssueOpen})
-	stepID, _ := s.CreateStep(ctx, &core.Step{
-		IssueID: issueID, Name: "exec-step", Type: core.StepExec, Status: core.StepRunning, Position: 0,
+	issueID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "signal-test", Status: core.WorkItemOpen})
+	stepID, _ := s.CreateAction(ctx, &core.Action{
+		WorkItemID: issueID, Name: "exec-step", Type: core.ActionExec, Status: core.ActionRunning, Position: 0,
 	})
 
 	// Create a signal.
-	sig := &core.StepSignal{
-		StepID:  stepID,
-		IssueID: issueID,
-		ExecID:  100,
+	sig := &core.ActionSignal{
+		ActionID:   stepID,
+		WorkItemID: issueID,
+		RunID:      100,
 		Type:    core.SignalComplete,
 		Source:  core.SignalSourceAgent,
 		Payload: map[string]any{"summary": "did stuff"},
 		Actor:   "agent",
 	}
-	id, err := s.CreateStepSignal(ctx, sig)
+	id, err := s.CreateActionSignal(ctx, sig)
 	if err != nil {
 		t.Fatalf("create signal: %v", err)
 	}
@@ -692,7 +647,7 @@ func TestStepSignalCRUD(t *testing.T) {
 	}
 
 	// List signals.
-	signals, err := s.ListStepSignals(ctx, stepID)
+	signals, err := s.ListActionSignals(ctx, stepID)
 	if err != nil {
 		t.Fatalf("list signals: %v", err)
 	}
@@ -706,8 +661,8 @@ func TestStepSignalCRUD(t *testing.T) {
 		t.Fatalf("payload mismatch: %v", signals[0].Payload)
 	}
 
-	// GetLatestStepSignal — match type.
-	latest, err := s.GetLatestStepSignal(ctx, stepID, core.SignalComplete)
+	// GetLatestActionSignal — match type.
+	latest, err := s.GetLatestActionSignal(ctx, stepID, core.SignalComplete)
 	if err != nil {
 		t.Fatalf("get latest: %v", err)
 	}
@@ -715,8 +670,8 @@ func TestStepSignalCRUD(t *testing.T) {
 		t.Fatalf("expected signal %d, got %v", id, latest)
 	}
 
-	// GetLatestStepSignal — no match.
-	none, err := s.GetLatestStepSignal(ctx, stepID, core.SignalApprove)
+	// GetLatestActionSignal — no match.
+	none, err := s.GetLatestActionSignal(ctx, stepID, core.SignalApprove)
 	if err != nil {
 		t.Fatalf("get latest approve: %v", err)
 	}
@@ -725,38 +680,38 @@ func TestStepSignalCRUD(t *testing.T) {
 	}
 
 	// Create a second signal and verify ordering.
-	sig2 := &core.StepSignal{
-		StepID: stepID, IssueID: issueID, ExecID: 100,
+	sig2 := &core.ActionSignal{
+		ActionID: stepID, WorkItemID: issueID, RunID: 100,
 		Type: core.SignalNeedHelp, Source: core.SignalSourceAgent,
 		Payload: map[string]any{"reason": "stuck"}, Actor: "agent",
 	}
-	s.CreateStepSignal(ctx, sig2)
+	s.CreateActionSignal(ctx, sig2)
 
-	latest2, _ := s.GetLatestStepSignal(ctx, stepID, core.SignalComplete, core.SignalNeedHelp)
+	latest2, _ := s.GetLatestActionSignal(ctx, stepID, core.SignalComplete, core.SignalNeedHelp)
 	if latest2 == nil || latest2.Type != core.SignalNeedHelp {
 		t.Fatalf("expected need_help as latest, got %v", latest2)
 	}
 }
 
-func TestListPendingHumanSteps(t *testing.T) {
+func TestListPendingHumanActions(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "pending-test", Status: core.IssueOpen})
+	issueID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "pending-test", Status: core.WorkItemOpen})
 	// Blocked step — should appear.
-	s.CreateStep(ctx, &core.Step{
-		IssueID: issueID, Name: "blocked", Type: core.StepExec, Status: core.StepBlocked, Position: 0,
+	s.CreateAction(ctx, &core.Action{
+		WorkItemID: issueID, Name: "blocked", Type: core.ActionExec, Status: core.ActionBlocked, Position: 0,
 	})
 	// Running step — should NOT appear.
-	s.CreateStep(ctx, &core.Step{
-		IssueID: issueID, Name: "running", Type: core.StepExec, Status: core.StepRunning, Position: 1,
+	s.CreateAction(ctx, &core.Action{
+		WorkItemID: issueID, Name: "running", Type: core.ActionExec, Status: core.ActionRunning, Position: 1,
 	})
 	// Done step — should NOT appear.
-	s.CreateStep(ctx, &core.Step{
-		IssueID: issueID, Name: "done", Type: core.StepExec, Status: core.StepDone, Position: 2,
+	s.CreateAction(ctx, &core.Action{
+		WorkItemID: issueID, Name: "done", Type: core.ActionExec, Status: core.ActionDone, Position: 2,
 	})
 
-	pending, err := s.ListPendingHumanSteps(ctx, issueID)
+	pending, err := s.ListPendingHumanActions(ctx, issueID)
 	if err != nil {
 		t.Fatalf("list pending: %v", err)
 	}
@@ -768,7 +723,7 @@ func TestListPendingHumanSteps(t *testing.T) {
 	}
 
 	// Global query.
-	allPending, err := s.ListAllPendingHumanSteps(ctx)
+	allPending, err := s.ListAllPendingHumanActions(ctx)
 	if err != nil {
 		t.Fatalf("list all pending: %v", err)
 	}

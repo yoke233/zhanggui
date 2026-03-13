@@ -16,7 +16,7 @@ type generateTitleResponse struct {
 }
 
 // generateTitle uses the LLM to generate a concise title from a description.
-// POST /issues/generate-title
+// POST /work-items/generate-title
 func (h *Handler) generateTitle(w http.ResponseWriter, r *http.Request) {
 	if h.textCompleter == nil {
 		writeError(w, http.StatusServiceUnavailable, "text completer is not configured (requires LLM)", "LLM_UNAVAILABLE")

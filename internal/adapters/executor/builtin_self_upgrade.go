@@ -16,7 +16,7 @@ import (
 // The string argument is the absolute path to the newly built binary.
 type UpgradeFunc func(binaryPath string)
 
-func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.EventBus, step *core.Step, execRec *core.Execution, upgradeFn UpgradeFunc) error {
+func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, execRec *core.Run, upgradeFn UpgradeFunc) error {
 	if store == nil {
 		return fmt.Errorf("builtin self_upgrade: store is nil")
 	}

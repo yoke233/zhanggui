@@ -202,7 +202,7 @@ func TestConfigRegistry_CapabilityOverflow(t *testing.T) {
 		ID:             "writer",
 		DriverID:       "read-only",
 		Role:           core.RoleWorker,
-		ActionsAllowed: []core.Action{core.ActionFSWrite},
+		ActionsAllowed: []core.AgentAction{core.AgentActionFSWrite},
 	}
 	if err := reg.CreateProfile(ctx, p); !errors.Is(err, core.ErrCapabilityOverflow) {
 		t.Fatalf("expected ErrCapabilityOverflow, got %v", err)
@@ -213,14 +213,14 @@ func TestConfigRegistry_CapabilityOverflow(t *testing.T) {
 		ID:             "reader",
 		DriverID:       "read-only",
 		Role:           core.RoleSupport,
-		ActionsAllowed: []core.Action{core.ActionReadContext},
+		ActionsAllowed: []core.AgentAction{core.AgentActionReadContext},
 	}
 	if err := reg.CreateProfile(ctx, p2); err != nil {
 		t.Fatalf("CreateProfile reader: %v", err)
 	}
 }
 
-func TestConfigRegistry_ResolveForStep(t *testing.T) {
+func TestConfigRegistry_ResolveForAction(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
 	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp"), testDriver("codex-acp")})
@@ -233,35 +233,35 @@ func TestConfigRegistry_ResolveForStep(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		step    *core.Step
+		action  *core.Action
 		wantID  string
 		wantErr error
 	}{
 		{
 			name:   "match by role",
-			step:   &core.Step{AgentRole: "lead"},
+			action: &core.Action{AgentRole: "lead"},
 			wantID: "lead",
 		},
 		{
 			name:   "match by role + capability",
-			step:   &core.Step{AgentRole: "worker", RequiredCapabilities: []string{"backend"}},
+			action: &core.Action{AgentRole: "worker", RequiredCapabilities: []string{"backend"}},
 			wantID: "worker-be",
 		},
 		{
 			name:   "match by capability only",
-			step:   &core.Step{RequiredCapabilities: []string{"frontend"}},
+			action: &core.Action{RequiredCapabilities: []string{"frontend"}},
 			wantID: "worker-fe",
 		},
 		{
 			name:    "no match",
-			step:    &core.Step{AgentRole: "worker", RequiredCapabilities: []string{"mobile"}},
+			action:  &core.Action{AgentRole: "worker", RequiredCapabilities: []string{"mobile"}},
 			wantErr: core.ErrNoMatchingAgent,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, d, err := reg.ResolveForStep(ctx, tt.step)
+			p, d, err := reg.ResolveForAction(ctx, tt.action)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("expected %v, got %v", tt.wantErr, err)
@@ -316,7 +316,7 @@ func TestConfigRegistry_Resolve_EngineInterface(t *testing.T) {
 
 	// Use as flow resolver interface.
 	var resolver flowapp.Resolver = reg
-	id, err := resolver.Resolve(ctx, &core.Step{AgentRole: "worker"})
+	id, err := resolver.Resolve(ctx, &core.Action{AgentRole: "worker"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

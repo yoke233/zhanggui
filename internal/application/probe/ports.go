@@ -6,11 +6,11 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// Store is the application-facing persistence port required by execution probe use cases.
+// Store is the application-facing persistence port required by run probe use cases.
 type Store interface {
-	core.ExecutionStore
+	core.RunStore
 	core.EventStore
-	core.ExecutionProbeStore
+	core.RunProbeStore
 }
 
 // EventPublisher is the minimal outbound event port required by probe workflows.

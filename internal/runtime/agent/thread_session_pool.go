@@ -209,12 +209,12 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 	parts, _ := p.store.ListThreadParticipants(ctx, threadID)
 
 	// Resolve linked work items.
-	var workItems []*core.Issue
+	var workItems []*core.WorkItem
 	links, _ := p.store.ListWorkItemsByThread(ctx, threadID)
 	for _, link := range links {
-		issue, err := p.store.GetIssue(ctx, link.WorkItemID)
+		wi, err := p.store.GetWorkItem(ctx, link.WorkItemID)
 		if err == nil {
-			workItems = append(workItems, issue)
+			workItems = append(workItems, wi)
 		}
 	}
 

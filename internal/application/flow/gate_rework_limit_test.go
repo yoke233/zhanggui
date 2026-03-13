@@ -15,12 +15,12 @@ func TestGateReworkLimit_DefaultBlocksAfter3Rounds(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
-			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
+		if action.Type == core.ActionGate {
+			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
+				RunID:          run.ID,
+				ActionID:       action.ID,
+				WorkItemID:     action.WorkItemID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": "reject", "reason": "conflict"},
 			})
@@ -31,37 +31,37 @@ func TestGateReworkLimit_DefaultBlocksAfter3Rounds(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "rework-limit", Status: core.IssueOpen})
-	store.CreateStep(ctx, &core.Step{
-		IssueID:    issueID,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "rework-limit", Status: core.WorkItemOpen})
+	store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
 		Name:       "impl",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   0,
 		MaxRetries: 10, // high limit so upstream doesn't block first
 	})
-	gateID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "review",
-		Type:     core.StepGate,
-		Status:   core.StepPending,
-		Position: 1,
+	gateID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
+		Position:   1,
 		// No max_rework_rounds config → default 3
 	})
 
 	// Run should stop because gate reaches rework limit → blocked → engine sees "stuck".
-	err := eng.Run(ctx, issueID)
+	err := eng.Run(ctx, workItemID)
 	if err == nil || !strings.Contains(err.Error(), "stuck") {
 		t.Fatalf("expected 'stuck' error when gate is blocked, got: %v", err)
 	}
 
-	gate, _ := store.GetStep(ctx, gateID)
-	if gate.Status != core.StepBlocked {
+	gate, _ := store.GetAction(ctx, gateID)
+	if gate.Status != core.ActionBlocked {
 		t.Fatalf("expected gate status=blocked, got %s", gate.Status)
 	}
 
 	// Verify rework_count via signal count (single source of truth).
-	rejectCount, _ := store.CountStepSignals(ctx, gateID, core.SignalReject)
+	rejectCount, _ := store.CountActionSignals(ctx, gateID, core.SignalReject)
 	if rejectCount < 3 {
 		t.Fatalf("expected at least 3 reject signals, got %d", rejectCount)
 	}
@@ -73,13 +73,13 @@ func TestGateReworkLimit_CustomLimit(t *testing.T) {
 	ctx := context.Background()
 
 	var gateCount int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
+		if action.Type == core.ActionGate {
 			atomic.AddInt32(&gateCount, 1)
-			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
+				RunID:          run.ID,
+				ActionID:       action.ID,
+				WorkItemID:     action.WorkItemID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": "reject", "reason": "always reject"},
 			})
@@ -90,33 +90,33 @@ func TestGateReworkLimit_CustomLimit(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "rework-limit-custom", Status: core.IssueOpen})
-	store.CreateStep(ctx, &core.Step{
-		IssueID:    issueID,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "rework-limit-custom", Status: core.WorkItemOpen})
+	store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
 		Name:       "impl",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   0,
 		MaxRetries: 10,
 	})
-	gateID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "review",
-		Type:     core.StepGate,
-		Status:   core.StepPending,
-		Position: 1,
+	gateID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
+		Position:   1,
 		Config: map[string]any{
 			"max_rework_rounds": float64(1),
 		},
 	})
 
-	err := eng.Run(ctx, issueID)
+	err := eng.Run(ctx, workItemID)
 	if err == nil || !strings.Contains(err.Error(), "stuck") {
 		t.Fatalf("expected 'stuck' error when gate is blocked, got: %v", err)
 	}
 
-	gate, _ := store.GetStep(ctx, gateID)
-	if gate.Status != core.StepBlocked {
+	gate, _ := store.GetAction(ctx, gateID)
+	if gate.Status != core.ActionBlocked {
 		t.Fatalf("expected gate status=blocked, got %s", gate.Status)
 	}
 
@@ -132,17 +132,17 @@ func TestGateReworkLimit_PassBeforeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	var gateCount int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
+		if action.Type == core.ActionGate {
 			n := atomic.AddInt32(&gateCount, 1)
 			verdict := "reject"
 			if n > 1 {
 				verdict = "pass"
 			}
-			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
+				RunID:          run.ID,
+				ActionID:       action.ID,
+				WorkItemID:     action.WorkItemID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": verdict, "reason": fmt.Sprintf("round %d", n)},
 			})
@@ -153,39 +153,39 @@ func TestGateReworkLimit_PassBeforeLimit(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "rework-passes", Status: core.IssueOpen})
-	store.CreateStep(ctx, &core.Step{
-		IssueID:    issueID,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "rework-passes", Status: core.WorkItemOpen})
+	store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
 		Name:       "impl",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   0,
 		MaxRetries: 5,
 	})
-	gateID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "review",
-		Type:     core.StepGate,
-		Status:   core.StepPending,
-		Position: 1,
+	gateID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
+		Position:   1,
 		Config: map[string]any{
 			"max_rework_rounds": float64(3),
 		},
 	})
 
-	err := eng.Run(ctx, issueID)
+	err := eng.Run(ctx, workItemID)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	gate, _ := store.GetStep(ctx, gateID)
-	if gate.Status != core.StepDone {
+	gate, _ := store.GetAction(ctx, gateID)
+	if gate.Status != core.ActionDone {
 		t.Fatalf("expected gate status=done, got %s", gate.Status)
 	}
 
-	issue, _ := store.GetIssue(ctx, issueID)
-	if issue.Status != core.IssueDone {
-		t.Fatalf("expected issue done, got %s", issue.Status)
+	workItem, _ := store.GetWorkItem(ctx, workItemID)
+	if workItem.Status != core.WorkItemDone {
+		t.Fatalf("expected work item done, got %s", workItem.Status)
 	}
 }
 
@@ -194,12 +194,12 @@ func TestGateReworkLimit_EventPublished(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
-			_, err := store.CreateArtifact(ctx, &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
+		if action.Type == core.ActionGate {
+			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
+				RunID:          run.ID,
+				ActionID:       action.ID,
+				WorkItemID:     action.WorkItemID,
 				ResultMarkdown: "Review feedback",
 				Metadata:       map[string]any{"verdict": "reject", "reason": "conflict"},
 			})
@@ -217,27 +217,27 @@ func TestGateReworkLimit_EventPublished(t *testing.T) {
 
 	eng := New(store, bus, executor, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "rework-event", Status: core.IssueOpen})
-	store.CreateStep(ctx, &core.Step{
-		IssueID:    issueID,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "rework-event", Status: core.WorkItemOpen})
+	store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
 		Name:       "impl",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   0,
 		MaxRetries: 10,
 	})
-	store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "review",
-		Type:     core.StepGate,
-		Status:   core.StepPending,
-		Position: 1,
+	store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
+		Position:   1,
 		Config: map[string]any{
 			"max_rework_rounds": float64(2),
 		},
 	})
 
-	_ = eng.Run(ctx, issueID)
+	_ = eng.Run(ctx, workItemID)
 
 	// Drain events and check for rework limit event.
 	found := false

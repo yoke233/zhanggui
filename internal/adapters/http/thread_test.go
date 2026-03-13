@@ -233,8 +233,8 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	decodeJSON(resp, &thread)
 
 	// Create issue (work item).
-	resp, _ = post(ts, "/issues", map[string]any{"title": "work-item-1"})
-	var issue core.Issue
+	resp, _ = post(ts, "/work-items", map[string]any{"title": "work-item-1"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
 	// Create link.
@@ -267,7 +267,7 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	}
 
 	// List threads by work item.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d/threads", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/threads", issue.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -290,6 +290,35 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	decodeJSON(resp, &links)
 	if len(links) != 0 {
 		t.Fatalf("expected 0 links after delete, got %d", len(links))
+	}
+}
+
+func TestThreadWorkItemReverseLookupAlias(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "link-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, _ = post(ts, "/work-items", map[string]any{"title": "work-item-1"})
+	var issue core.WorkItem
+	decodeJSON(resp, &issue)
+
+	resp, _ = post(ts, fmt.Sprintf("/threads/%d/links/work-items", thread.ID), map[string]any{
+		"work_item_id": issue.ID,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating link, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/threads", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /work-items/{id}/threads, got %d", resp.StatusCode)
+	}
+	var reverseLinks []core.ThreadWorkItemLink
+	decodeJSON(resp, &reverseLinks)
+	if len(reverseLinks) != 1 || reverseLinks[0].ThreadID != thread.ID {
+		t.Fatalf("unexpected reverse links from alias route: %+v", reverseLinks)
 	}
 }
 
@@ -407,16 +436,16 @@ func TestThreadCreateWorkItem(t *testing.T) {
 	}
 }
 
-func TestThreadAndIssueRoutesIndependent(t *testing.T) {
+func TestThreadAndWorkItemRoutesIndependent(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	// /issues should still be accessible alongside /threads
-	resp, err := get(ts, "/issues")
+	// /work-items should be accessible alongside /threads.
+	resp, err := get(ts, "/work-items")
 	if err != nil {
-		t.Fatalf("get issues: %v", err)
+		t.Fatalf("get work-items: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/issues expected 200, got %d", resp.StatusCode)
+		t.Fatalf("/work-items expected 200, got %d", resp.StatusCode)
 	}
 
 	// /threads should also be accessible

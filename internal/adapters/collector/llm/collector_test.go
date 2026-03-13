@@ -19,7 +19,7 @@ func TestLLMCollector_ExecExtraction(t *testing.T) {
 		return json.RawMessage(`{"summary":"Added login endpoint","files_changed":["api/auth.go","api/auth_test.go"],"tests_passed":true}`), nil
 	})
 
-	result, err := collector.Extract(context.Background(), core.StepExec, "## Changes\nAdded login endpoint in api/auth.go\nAll tests pass.")
+	result, err := collector.Extract(context.Background(), core.ActionExec, "## Changes\nAdded login endpoint in api/auth.go\nAll tests pass.")
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestLLMCollector_GateExtraction(t *testing.T) {
 		return json.RawMessage(`{"verdict":"reject","reason":"Missing error handling"}`), nil
 	})
 
-	result, err := collector.Extract(context.Background(), core.StepGate, "Review: code lacks error handling and tests.")
+	result, err := collector.Extract(context.Background(), core.ActionGate, "Review: code lacks error handling and tests.")
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestLLMCollector_CompositeExtraction(t *testing.T) {
 		return json.RawMessage(`{"sub_tasks":["implement API","write tests","update docs"]}`), nil
 	})
 
-	result, err := collector.Extract(context.Background(), core.StepComposite, "Decomposed into: implement API, write tests, update docs.")
+	result, err := collector.Extract(context.Background(), core.ActionPlan, "Decomposed into: implement API, write tests, update docs.")
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -72,14 +72,14 @@ func TestLLMCollector_CompositeExtraction(t *testing.T) {
 
 func TestLLMCollector_NilComplete(t *testing.T) {
 	collector := &LLMCollector{}
-	_, err := collector.Extract(context.Background(), core.StepExec, "some markdown")
+	_, err := collector.Extract(context.Background(), core.ActionExec, "some markdown")
 	if err == nil {
 		t.Fatal("expected error when Complete is nil")
 	}
 }
 
 func TestBuildExtractionPrompt(t *testing.T) {
-	prompt := buildExtractionPrompt(core.StepGate, "review content")
+	prompt := buildExtractionPrompt(core.ActionGate, "review content")
 	if len(prompt) == 0 {
 		t.Fatal("prompt should not be empty")
 	}
@@ -95,12 +95,12 @@ func TestBuildExtractionPrompt(t *testing.T) {
 
 func TestExtractionTools(t *testing.T) {
 	tests := []struct {
-		stepType core.StepType
+		stepType core.ActionType
 		toolName string
 	}{
-		{core.StepExec, "extract_exec_metadata"},
-		{core.StepGate, "extract_gate_metadata"},
-		{core.StepComposite, "extract_composite_metadata"},
+		{core.ActionExec, "extract_exec_metadata"},
+		{core.ActionGate, "extract_gate_metadata"},
+		{core.ActionPlan, "extract_composite_metadata"},
 	}
 	for _, tt := range tests {
 		tools := extractionTools(tt.stepType)

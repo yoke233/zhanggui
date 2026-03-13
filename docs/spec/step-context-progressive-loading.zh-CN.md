@@ -1,5 +1,11 @@
 # Step Context 渐进式加载
 
+> 状态：草案
+>
+> 最后按代码核对：2026-03-13
+>
+> 当前实现状态：当前主链仍以一次性 `BriefingSnapshot` 注入为准，本文描述的“把完整上下文预投放到磁盘并让 Agent 按需读取”尚未成为现行行为。
+
 ## 概述
 
 当前 Step 执行时，所有上下文（Issue 摘要、上游 Artifact、Feature Manifest 等）被塞入一个 ≤12000 字符的 BriefingSnapshot prompt，一次性发送给 Agent。这带来两个问题：

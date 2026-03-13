@@ -55,8 +55,8 @@ type ExecutorWorkerConfig struct {
 	MaxConcurrent int
 }
 
-type activeExecutionProbeTarget struct {
-	ExecutionID    int64
+type activeRunProbeTarget struct {
+	RunID          int64
 	AgentContextID *int64
 	SessionID      acpproto.SessionId
 	Launch         acpclient.LaunchConfig
@@ -73,12 +73,12 @@ type ExecutorWorker struct {
 	prefix string
 	pool   *ACPSessionPool
 
-	mu               sync.Mutex
-	running          int
-	cancel           context.CancelFunc
-	activeExecutions map[int64]*activeExecutionProbeTarget
-	probeSub         *nats.Subscription
-	wg               sync.WaitGroup
+	mu         sync.Mutex
+	running    int
+	cancel     context.CancelFunc
+	activeRuns map[int64]*activeRunProbeTarget
+	probeSub   *nats.Subscription
+	wg         sync.WaitGroup
 }
 
 // NewExecutorWorker creates a new remote executor worker.
@@ -123,7 +123,7 @@ func NewExecutorWorker(cfg ExecutorWorkerConfig) (*ExecutorWorker, error) {
 		js:               js,
 		prefix:           prefix,
 		pool:             pool,
-		activeExecutions: make(map[int64]*activeExecutionProbeTarget),
+		activeRuns: make(map[int64]*activeRunProbeTarget),
 	}, nil
 }
 
@@ -218,8 +218,8 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	slog.Info("executor worker: executing execution",
-		"exec_id", invocation.ExecID, "agent", invocation.AgentID, "issue_id", invocation.IssueID)
+	slog.Info("executor worker: executing run",
+		"run_id", invocation.ExecID, "agent", invocation.AgentID, "workitem_id", invocation.IssueID)
 
 	// Create event forwarder that publishes to NATS.
 	eventSeq := int64(0)
@@ -231,7 +231,7 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		id:      invocation.InvocationID,
 	}
 
-	result, execErr := w.executeExecution(ctx, &invocation, eventForwarder)
+	result, execErr := w.executeRun(ctx, &invocation, eventForwarder)
 
 	// Publish result.
 	resultMsg := natsInvocationResult{
@@ -255,26 +255,26 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	resultSubject := fmt.Sprintf("%s.invocation.result.%s", w.prefix, invocation.InvocationID)
 	if err := publishInvocationResult(w.js, msg, resultSubject, resultData); err != nil {
 		slog.Error("executor worker: failed to publish result",
-			"exec_id", invocation.ExecID, "error", err)
+			"run_id", invocation.ExecID, "error", err)
 		return
 	}
 
 	if execErr != nil {
-		slog.Error("executor worker: execution failed",
-			"exec_id", invocation.ExecID, "error", execErr)
+		slog.Error("executor worker: run failed",
+			"run_id", invocation.ExecID, "error", execErr)
 	} else {
-		slog.Info("executor worker: execution completed",
-			"exec_id", invocation.ExecID, "output_len", len(resultMsg.Text))
+		slog.Info("executor worker: run completed",
+			"run_id", invocation.ExecID, "output_len", len(resultMsg.Text))
 	}
 }
 
-func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*runtimeapp.ExecutionResult, error) {
+func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*runtimeapp.ExecutionResult, error) {
 	workDir := invocation.WorkDir
 	if workDir == "" {
 		workDir = w.cfg.DefaultWorkDir
 	}
 
-	profile, driver, err := resolveExecutionProfile(ctx, w.cfg.Registry, invocation)
+	profile, driver, err := resolveRunProfile(ctx, w.cfg.Registry, invocation)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +294,7 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 		Profile: profile,
 		Driver:  driver,
 		Launch:  launchCfg,
-		Scope:   fmt.Sprintf("issue-%d-exec-%d", invocation.IssueID, invocation.ExecID),
+		Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.IssueID, invocation.ExecID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare sandbox: %w", err)
@@ -308,14 +308,14 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 	}
 
 	acquireInput := acpSessionAcquireInput{
-		Profile: profile,
-		Driver:  driver,
-		Launch:  sandboxedLaunch,
-		Caps:    acpCaps,
-		WorkDir: workDir,
-		IssueID: invocation.IssueID,
-		StepID:  invocation.StepID,
-		ExecID:  invocation.ExecID,
+		Profile:    profile,
+		Driver:     driver,
+		Launch:     sandboxedLaunch,
+		Caps:       acpCaps,
+		WorkDir:    workDir,
+		WorkItemID: invocation.IssueID,
+		ActionID:   invocation.StepID,
+		RunID:      invocation.ExecID,
 	}
 	if w.cfg.MCPResolver != nil {
 		acquireInput.MCPFactory = func(agentSupportsSSE bool) []acpproto.McpServer {
@@ -337,18 +337,18 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 		mcpServers = acquireInput.MCPFactory(session.client.SupportsSSEMCP())
 	}
 
-	w.registerActiveExecution(invocation.ExecID, &activeExecutionProbeTarget{
-		ExecutionID: invocation.ExecID,
-		SessionID:   session.sessionID,
-		Launch:      sandboxedLaunch,
-		Caps:        acpCaps,
-		WorkDir:     workDir,
-		MCPServers:  append([]acpproto.McpServer(nil), mcpServers...),
+	w.registerActiveRun(invocation.ExecID, &activeRunProbeTarget{
+		RunID:      invocation.ExecID,
+		SessionID:  session.sessionID,
+		Launch:     sandboxedLaunch,
+		Caps:       acpCaps,
+		WorkDir:    workDir,
+		MCPServers: append([]acpproto.McpServer(nil), mcpServers...),
 	})
-	defer w.unregisterActiveExecution(invocation.ExecID)
+	defer w.unregisterActiveRun(invocation.ExecID)
 
-	if err := w.persistExecutionRoute(ctx, invocation.ExecID, agentCtx); err != nil {
-		slog.Warn("executor worker: persist execution route failed", "exec_id", invocation.ExecID, "error", err)
+	if err := w.persistRunRoute(ctx, invocation.ExecID, agentCtx); err != nil {
+		slog.Warn("executor worker: persist run route failed", "run_id", invocation.ExecID, "error", err)
 	}
 
 	collector := session.events
@@ -372,7 +372,7 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 
 	w.pool.NoteTurn(ctx, agentCtx, session)
 	if agentCtx != nil {
-		w.touchExecutionOwner(ctx, agentCtx)
+		w.touchRunOwner(ctx, agentCtx)
 	}
 
 	out := &runtimeapp.ExecutionResult{
@@ -399,20 +399,20 @@ func (w *ExecutorWorker) executeExecution(ctx context.Context, invocation *natsI
 	return out, nil
 }
 
-func (w *ExecutorWorker) persistExecutionRoute(ctx context.Context, executionID int64, agentCtx *core.AgentContext) error {
+func (w *ExecutorWorker) persistRunRoute(ctx context.Context, runID int64, agentCtx *core.AgentContext) error {
 	if w.cfg.Store == nil || agentCtx == nil {
 		return nil
 	}
-	w.touchExecutionOwner(ctx, agentCtx)
-	execRec, err := w.cfg.Store.GetExecution(ctx, executionID)
+	w.touchRunOwner(ctx, agentCtx)
+	runRec, err := w.cfg.Store.GetRun(ctx, runID)
 	if err != nil {
 		return err
 	}
-	execRec.AgentContextID = &agentCtx.ID
-	return w.cfg.Store.UpdateExecution(ctx, execRec)
+	runRec.AgentContextID = &agentCtx.ID
+	return w.cfg.Store.UpdateRun(ctx, runRec)
 }
 
-func (w *ExecutorWorker) touchExecutionOwner(ctx context.Context, agentCtx *core.AgentContext) {
+func (w *ExecutorWorker) touchRunOwner(ctx context.Context, agentCtx *core.AgentContext) {
 	if agentCtx == nil || w.cfg.Store == nil {
 		return
 	}
@@ -422,15 +422,15 @@ func (w *ExecutorWorker) touchExecutionOwner(ctx context.Context, agentCtx *core
 	_ = w.cfg.Store.UpdateAgentContext(ctx, agentCtx)
 }
 
-func (w *ExecutorWorker) registerActiveExecution(executionID int64, target *activeExecutionProbeTarget) {
+func (w *ExecutorWorker) registerActiveRun(runID int64, target *activeRunProbeTarget) {
 	w.mu.Lock()
-	w.activeExecutions[executionID] = target
+	w.activeRuns[runID] = target
 	w.mu.Unlock()
 }
 
-func (w *ExecutorWorker) unregisterActiveExecution(executionID int64) {
+func (w *ExecutorWorker) unregisterActiveRun(runID int64) {
 	w.mu.Lock()
-	delete(w.activeExecutions, executionID)
+	delete(w.activeRuns, runID)
 	w.mu.Unlock()
 }
 
@@ -447,13 +447,13 @@ func (w *ExecutorWorker) handleProbeRequest(msg *nats.Msg) {
 	}
 
 	w.mu.Lock()
-	target := w.activeExecutions[req.ExecutionID]
+	target := w.activeRuns[req.ExecutionID]
 	w.mu.Unlock()
 	if target == nil {
 		w.respondProbe(msg, natsprobe.Response{
 			Reachable:  false,
 			Answered:   false,
-			Error:      "execution is not active on worker",
+			Error:      "run is not active on worker",
 			ObservedAt: time.Now().UTC(),
 		})
 		return
@@ -462,7 +462,7 @@ func (w *ExecutorWorker) handleProbeRequest(msg *nats.Msg) {
 		w.respondProbe(msg, natsprobe.Response{
 			Reachable:  false,
 			Answered:   false,
-			Error:      "execution session route mismatch",
+			Error:      "run session route mismatch",
 			ObservedAt: time.Now().UTC(),
 		})
 		return
@@ -507,7 +507,7 @@ func (w *ExecutorWorker) respondProbe(msg *nats.Msg, res natsprobe.Response) {
 	}
 }
 
-func resolveExecutionProfile(ctx context.Context, registry core.AgentRegistry, invocation *natsInvocationMessage) (*core.AgentProfile, *core.AgentDriver, error) {
+func resolveRunProfile(ctx context.Context, registry core.AgentRegistry, invocation *natsInvocationMessage) (*core.AgentProfile, *core.AgentDriver, error) {
 	if registry == nil {
 		return nil, nil, fmt.Errorf("registry is required")
 	}

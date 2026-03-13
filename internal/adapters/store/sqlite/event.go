@@ -24,14 +24,14 @@ func (s *Store) CreateEvent(ctx context.Context, e *core.Event) (int64, error) {
 
 func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*core.Event, error) {
 	query := s.orm.WithContext(ctx).Model(&EventModel{})
-	if filter.IssueID != nil {
-		query = query.Where("issue_id = ?", *filter.IssueID)
+	if filter.WorkItemID != nil {
+		query = query.Where("issue_id = ?", *filter.WorkItemID)
 	}
-	if filter.StepID != nil {
-		query = query.Where("step_id = ?", *filter.StepID)
+	if filter.ActionID != nil {
+		query = query.Where("step_id = ?", *filter.ActionID)
 	}
-	if filter.ExecID != nil {
-		query = query.Where("exec_id = ?", *filter.ExecID)
+	if filter.RunID != nil {
+		query = query.Where("exec_id = ?", *filter.RunID)
 	}
 	if strings.TrimSpace(filter.SessionID) != "" {
 		query = query.Where("json_extract(data, '$.session_id') = ?", strings.TrimSpace(filter.SessionID))
@@ -61,7 +61,7 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 	return events, nil
 }
 
-func (s *Store) GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType core.EventType) (*time.Time, error) {
+func (s *Store) GetLatestRunEventTime(ctx context.Context, execID int64, eventType core.EventType) (*time.Time, error) {
 	var model EventModel
 	err := s.orm.WithContext(ctx).
 		Where("exec_id = ? AND type = ?", execID, string(eventType)).

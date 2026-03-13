@@ -31,7 +31,7 @@ func (s *Store) GetUsageRecord(ctx context.Context, id int64) (*core.UsageRecord
 	return model.toCore(), nil
 }
 
-func (s *Store) GetUsageByExecution(ctx context.Context, executionID int64) (*core.UsageRecord, error) {
+func (s *Store) GetUsageByRun(ctx context.Context, executionID int64) (*core.UsageRecord, error) {
 	var model UsageRecordModel
 	err := s.orm.WithContext(ctx).Where("execution_id = ?", executionID).First(&model).Error
 	if err != nil {
@@ -75,7 +75,7 @@ func (s *Store) UsageByProject(ctx context.Context, filter core.AnalyticsFilter)
 	for rows.Next() {
 		var r core.ProjectUsageSummary
 		if err := rows.Scan(
-			&r.ProjectID, &r.ProjectName, &r.ExecutionCount,
+			&r.ProjectID, &r.ProjectName, &r.RunCount,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 			&r.ReasoningTokens, &r.TotalTokens,
 		); err != nil {
@@ -119,7 +119,7 @@ func (s *Store) UsageByAgent(ctx context.Context, filter core.AnalyticsFilter) (
 	for rows.Next() {
 		var r core.AgentUsageSummary
 		if err := rows.Scan(
-			&r.AgentID, &r.ProjectID, &r.ProjectName, &r.ExecutionCount,
+			&r.AgentID, &r.ProjectID, &r.ProjectName, &r.RunCount,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 			&r.ReasoningTokens, &r.TotalTokens,
 		); err != nil {
@@ -164,7 +164,7 @@ func (s *Store) UsageByProfile(ctx context.Context, filter core.AnalyticsFilter)
 	for rows.Next() {
 		var r core.ProfileUsageSummary
 		if err := rows.Scan(
-			&r.ProfileID, &r.AgentID, &r.ProjectID, &r.ProjectName, &r.ExecutionCount,
+			&r.ProfileID, &r.AgentID, &r.ProjectID, &r.ProjectName, &r.RunCount,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 			&r.ReasoningTokens, &r.TotalTokens,
 		); err != nil {
@@ -194,7 +194,7 @@ func (s *Store) UsageTotals(ctx context.Context, filter core.AnalyticsFilter) (*
 
 	r := &core.UsageTotalSummary{}
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(
-		&r.ExecutionCount,
+		&r.RunCount,
 		&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
 		&r.ReasoningTokens, &r.TotalTokens,
 	)

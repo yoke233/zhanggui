@@ -6,62 +6,62 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestValidIssueTransitions(t *testing.T) {
+func TestValidWorkItemTransitions(t *testing.T) {
 	cases := []struct {
-		from, to core.IssueStatus
+		from, to core.WorkItemStatus
 		valid    bool
 	}{
-		{core.IssueOpen, core.IssueRunning, true},
-		{core.IssueOpen, core.IssueCancelled, true},
-		{core.IssueOpen, core.IssueDone, false},
-		{core.IssueRunning, core.IssueDone, true},
-		{core.IssueRunning, core.IssueFailed, true},
-		{core.IssueRunning, core.IssueOpen, false},
-		{core.IssueDone, core.IssueRunning, false},
+		{core.WorkItemOpen, core.WorkItemRunning, true},
+		{core.WorkItemOpen, core.WorkItemCancelled, true},
+		{core.WorkItemOpen, core.WorkItemDone, false},
+		{core.WorkItemRunning, core.WorkItemDone, true},
+		{core.WorkItemRunning, core.WorkItemFailed, true},
+		{core.WorkItemRunning, core.WorkItemOpen, false},
+		{core.WorkItemDone, core.WorkItemRunning, false},
 	}
 	for _, tc := range cases {
-		got := ValidIssueTransition(tc.from, tc.to)
+		got := ValidWorkItemTransition(tc.from, tc.to)
 		if got != tc.valid {
-			t.Errorf("Issue %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
+			t.Errorf("WorkItem %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
 		}
 	}
 }
 
-func TestValidStepTransitions(t *testing.T) {
+func TestValidActionTransitions(t *testing.T) {
 	cases := []struct {
-		from, to core.StepStatus
+		from, to core.ActionStatus
 		valid    bool
 	}{
-		{core.StepPending, core.StepReady, true},
-		{core.StepReady, core.StepRunning, true},
-		{core.StepRunning, core.StepDone, true},
-		{core.StepRunning, core.StepFailed, true},
-		{core.StepDone, core.StepRunning, false},
-		{core.StepFailed, core.StepPending, true}, // retry
-		{core.StepBlocked, core.StepReady, true},
+		{core.ActionPending, core.ActionReady, true},
+		{core.ActionReady, core.ActionRunning, true},
+		{core.ActionRunning, core.ActionDone, true},
+		{core.ActionRunning, core.ActionFailed, true},
+		{core.ActionDone, core.ActionRunning, false},
+		{core.ActionFailed, core.ActionPending, true}, // retry
+		{core.ActionBlocked, core.ActionReady, true},
 	}
 	for _, tc := range cases {
-		got := ValidStepTransition(tc.from, tc.to)
+		got := ValidActionTransition(tc.from, tc.to)
 		if got != tc.valid {
-			t.Errorf("Step %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
+			t.Errorf("Action %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
 		}
 	}
 }
 
-func TestValidExecTransitions(t *testing.T) {
+func TestValidRunTransitions(t *testing.T) {
 	cases := []struct {
-		from, to core.ExecutionStatus
+		from, to core.RunStatus
 		valid    bool
 	}{
-		{core.ExecCreated, core.ExecRunning, true},
-		{core.ExecRunning, core.ExecSucceeded, true},
-		{core.ExecRunning, core.ExecFailed, true},
-		{core.ExecSucceeded, core.ExecRunning, false},
+		{core.RunCreated, core.RunRunning, true},
+		{core.RunRunning, core.RunSucceeded, true},
+		{core.RunRunning, core.RunFailed, true},
+		{core.RunSucceeded, core.RunRunning, false},
 	}
 	for _, tc := range cases {
-		got := ValidExecTransition(tc.from, tc.to)
+		got := ValidRunTransition(tc.from, tc.to)
 		if got != tc.valid {
-			t.Errorf("Exec %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
+			t.Errorf("Run %s -> %s: expected %v, got %v", tc.from, tc.to, tc.valid, got)
 		}
 	}
 }

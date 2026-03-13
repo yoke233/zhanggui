@@ -10,11 +10,11 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// createStepRequest is the request body for POST /issues/{issueID}/steps.
+// createStepRequest is the request body for POST /work-items/{issueID}/steps.
 type createStepRequest struct {
 	Name                 string         `json:"name"`
 	Description          string         `json:"description,omitempty"`
-	Type                 core.StepType  `json:"type"`
+	Type                 core.ActionType  `json:"type"`
 	Position             *int           `json:"position,omitempty"`
 	AgentRole            string         `json:"agent_role,omitempty"`
 	RequiredCapabilities []string       `json:"required_capabilities,omitempty"`
@@ -24,7 +24,7 @@ type createStepRequest struct {
 	Config               map[string]any `json:"config,omitempty"`
 }
 
-func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
@@ -59,12 +59,12 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s := &core.Step{
-		IssueID:              issueID,
+	s := &core.Action{
+		WorkItemID:           issueID,
 		Name:                 req.Name,
 		Description:          req.Description,
 		Type:                 req.Type,
-		Status:               core.StepPending,
+		Status:               core.ActionPending,
 		Position:             position,
 		AgentRole:            req.AgentRole,
 		RequiredCapabilities: req.RequiredCapabilities,
@@ -73,7 +73,7 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 		MaxRetries:           req.MaxRetries,
 		Config:               req.Config,
 	}
-	id, err := h.store.CreateStep(r.Context(), s)
+	id, err := h.store.CreateAction(r.Context(), s)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -82,20 +82,20 @@ func (h *Handler) createStep(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s)
 }
 
-func (h *Handler) listSteps(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listActions(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	steps, err := h.store.ListStepsByIssue(r.Context(), issueID)
+	steps, err := h.store.ListActionsByWorkItem(r.Context(), issueID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if steps == nil {
-		steps = []*core.Step{}
+		steps = []*core.Action{}
 	}
 	writeJSON(w, http.StatusOK, steps)
 }
@@ -105,7 +105,7 @@ func (h *Handler) listSteps(w http.ResponseWriter, r *http.Request) {
 type updateStepRequest struct {
 	Name                 *string        `json:"name,omitempty"`
 	Description          *string        `json:"description,omitempty"`
-	Type                 *core.StepType `json:"type,omitempty"`
+	Type                 *core.ActionType `json:"type,omitempty"`
 	Position             *int           `json:"position,omitempty"`
 	AgentRole            *string        `json:"agent_role,omitempty"`
 	RequiredCapabilities *[]string      `json:"required_capabilities,omitempty"`
@@ -115,14 +115,14 @@ type updateStepRequest struct {
 	Config               map[string]any `json:"config,omitempty"`
 }
 
-func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateAction(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
 		return
 	}
 
-	existing, err := h.store.GetStep(r.Context(), id)
+	existing, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 		return
@@ -133,7 +133,7 @@ func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only allow editing pending steps.
-	if existing.Status != core.StepPending {
+	if existing.Status != core.ActionPending {
 		writeError(w, http.StatusConflict, "only pending steps can be edited", "INVALID_STATE")
 		return
 	}
@@ -154,7 +154,7 @@ func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
 		existing.Type = *req.Type
 	}
 	if req.Position != nil {
-		if err := h.validateStepPosition(r.Context(), existing.IssueID, existing.ID, *req.Position); err != nil {
+		if err := h.validateStepPosition(r.Context(), existing.WorkItemID, existing.ID, *req.Position); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_POSITION")
 			return
 		}
@@ -184,14 +184,14 @@ func (h *Handler) updateStep(w http.ResponseWriter, r *http.Request) {
 		existing.Config = req.Config
 	}
 
-	if err := h.store.UpdateStep(r.Context(), existing); err != nil {
+	if err := h.store.UpdateAction(r.Context(), existing); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
 }
 
-func (h *Handler) deleteStep(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteAction(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
@@ -199,7 +199,7 @@ func (h *Handler) deleteStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only allow deleting pending steps.
-	existing, err := h.store.GetStep(r.Context(), id)
+	existing, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 		return
@@ -208,12 +208,12 @@ func (h *Handler) deleteStep(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if existing.Status != core.StepPending {
+	if existing.Status != core.ActionPending {
 		writeError(w, http.StatusConflict, "only pending steps can be deleted", "INVALID_STATE")
 		return
 	}
 
-	if err := h.store.DeleteStep(r.Context(), id); err != nil {
+	if err := h.store.DeleteAction(r.Context(), id); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 			return
@@ -224,14 +224,14 @@ func (h *Handler) deleteStep(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) getStep(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getAction(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
 		return
 	}
 
-	s, err := h.store.GetStep(r.Context(), id)
+	s, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 		return
@@ -251,7 +251,7 @@ func (h *Handler) resolveCreateStepPosition(ctx context.Context, issueID int64, 
 		return *requested, nil
 	}
 
-	steps, err := h.store.ListStepsByIssue(ctx, issueID)
+	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
 	if err != nil {
 		return 0, err
 	}
@@ -268,7 +268,7 @@ func (h *Handler) validateStepPosition(ctx context.Context, issueID, stepID int6
 	if position < 0 {
 		return fmt.Errorf("position must be non-negative")
 	}
-	steps, err := h.store.ListStepsByIssue(ctx, issueID)
+	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
 	if err != nil {
 		return err
 	}

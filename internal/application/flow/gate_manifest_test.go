@@ -20,8 +20,8 @@ func TestManifestCheckEnabled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := &core.Step{Config: tt.config}
-			if got := manifestCheckEnabled(step); got != tt.want {
+			action := &core.Action{Config: tt.config}
+			if got := manifestCheckEnabled(action); got != tt.want {
 				t.Errorf("manifestCheckEnabled() = %v, want %v", got, tt.want)
 			}
 		})

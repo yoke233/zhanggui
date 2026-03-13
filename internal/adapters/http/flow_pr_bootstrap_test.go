@@ -202,31 +202,31 @@ func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
 	}
 	binding.ID = bindingID
 
-	issue := &core.Issue{
+	issue := &core.WorkItem{
 		ProjectID:         &project.ID,
 		ResourceBindingID: &binding.ID,
 		Title:             "rollback issue",
-		Status:            core.IssueOpen,
+		Status:            core.WorkItemOpen,
 		Priority:          core.PriorityMedium,
 	}
-	issueID, err := h.store.CreateIssue(context.Background(), issue)
+	issueID, err := h.store.CreateWorkItem(context.Background(), issue)
 	if err != nil {
 		t.Fatalf("create issue: %v", err)
 	}
 	issue.ID = issueID
 
-	wrapped := &failNthCreateStepStore{
+	wrapped := &failNthCreateActionStore{
 		Store:  h.store,
 		failAt: 3,
 		err:    errors.New("boom"),
 	}
 	h.store = wrapped
 
-	if _, err := h.bootstrapPRIssueForIssue(context.Background(), issue.ID, bootstrapPRIssueRequest{}); err == nil {
+	if _, err := h.bootstrapPRWorkItemForIssue(context.Background(), issue.ID, bootstrapPRWorkItemRequest{}); err == nil {
 		t.Fatal("expected bootstrap failure")
 	}
 
-	steps, err := wrapped.ListStepsByIssue(context.Background(), issue.ID)
+	steps, err := wrapped.ListActionsByWorkItem(context.Background(), issue.ID)
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}

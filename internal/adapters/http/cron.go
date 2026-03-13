@@ -23,8 +23,8 @@ type cronStatusResponse struct {
 	LastTriggered string `json:"last_triggered,omitempty"`
 }
 
-// setupIssueCron enables cron scheduling on an issue (making it a template).
-func (h *Handler) setupIssueCron(w http.ResponseWriter, r *http.Request) {
+// setupWorkItemCron enables cron scheduling on an issue (making it a template).
+func (h *Handler) setupWorkItemCron(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
@@ -41,7 +41,7 @@ func (h *Handler) setupIssueCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issue, err := h.store.GetIssue(r.Context(), issueID)
+	issue, err := h.store.GetWorkItem(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
@@ -61,7 +61,7 @@ func (h *Handler) setupIssueCron(w http.ResponseWriter, r *http.Request) {
 		issue.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
 	}
 
-	if err := h.store.UpdateIssueMetadata(r.Context(), issueID, issue.Metadata); err != nil {
+	if err := h.store.UpdateWorkItemMetadata(r.Context(), issueID, issue.Metadata); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
@@ -75,15 +75,15 @@ func (h *Handler) setupIssueCron(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// disableIssueCron disables cron scheduling on an issue.
-func (h *Handler) disableIssueCron(w http.ResponseWriter, r *http.Request) {
+// disableWorkItemCron disables cron scheduling on an issue.
+func (h *Handler) disableWorkItemCron(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
 		return
 	}
 
-	issue, err := h.store.GetIssue(r.Context(), issueID)
+	issue, err := h.store.GetWorkItem(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
@@ -95,7 +95,7 @@ func (h *Handler) disableIssueCron(w http.ResponseWriter, r *http.Request) {
 
 	if issue.Metadata != nil {
 		issue.Metadata[cronapp.MetaEnabled] = "false"
-		if err := h.store.UpdateIssueMetadata(r.Context(), issueID, issue.Metadata); err != nil {
+		if err := h.store.UpdateWorkItemMetadata(r.Context(), issueID, issue.Metadata); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
@@ -120,15 +120,15 @@ func (h *Handler) disableIssueCron(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getIssueCronStatus returns the cron status for an issue.
-func (h *Handler) getIssueCronStatus(w http.ResponseWriter, r *http.Request) {
+// getWorkItemCronStatus returns the cron status for an issue.
+func (h *Handler) getWorkItemCronStatus(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
 		return
 	}
 
-	issue, err := h.store.GetIssue(r.Context(), issueID)
+	issue, err := h.store.GetWorkItem(r.Context(), issueID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
@@ -160,10 +160,10 @@ func (h *Handler) getIssueCronStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// listCronIssues lists all issues that are configured as cron templates.
-func (h *Handler) listCronIssues(w http.ResponseWriter, r *http.Request) {
+// listCronWorkItems lists all issues that are configured as cron templates.
+func (h *Handler) listCronWorkItems(w http.ResponseWriter, r *http.Request) {
 	archived := false
-	issues, err := h.store.ListIssues(r.Context(), core.IssueFilter{
+	issues, err := h.store.ListWorkItems(r.Context(), core.WorkItemFilter{
 		Archived: &archived,
 		Limit:    200,
 	})
@@ -172,7 +172,7 @@ func (h *Handler) listCronIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cronIssues []cronStatusResponse
+	var cronWorkItems []cronStatusResponse
 	for _, iss := range issues {
 		if iss.Metadata == nil {
 			continue
@@ -195,10 +195,10 @@ func (h *Handler) listCronIssues(w http.ResponseWriter, r *http.Request) {
 		if v, ok := iss.Metadata[cronapp.MetaMaxInstances].(string); ok {
 			resp.MaxInstances, _ = strconv.Atoi(v)
 		}
-		cronIssues = append(cronIssues, resp)
+		cronWorkItems = append(cronWorkItems, resp)
 	}
-	if cronIssues == nil {
-		cronIssues = []cronStatusResponse{}
+	if cronWorkItems == nil {
+		cronWorkItems = []cronStatusResponse{}
 	}
-	writeJSON(w, http.StatusOK, cronIssues)
+	writeJSON(w, http.StatusOK, cronWorkItems)
 }

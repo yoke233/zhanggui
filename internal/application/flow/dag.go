@@ -8,100 +8,100 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// ValidateSteps checks that steps have valid positions.
-// Steps are sequential by Position, so positions must be non-negative and unique.
-func ValidateSteps(steps []*core.Step) error {
-	seen := make(map[int]struct{}, len(steps))
-	for _, step := range steps {
-		if step == nil {
-			return fmt.Errorf("step is nil")
+// ValidateActions checks that actions have valid positions.
+// Actions are sequential by Position, so positions must be non-negative and unique.
+func ValidateActions(actions []*core.Action) error {
+	seen := make(map[int]struct{}, len(actions))
+	for _, action := range actions {
+		if action == nil {
+			return fmt.Errorf("action is nil")
 		}
-		if step.Position < 0 {
-			return fmt.Errorf("step %d has negative position %d", step.ID, step.Position)
+		if action.Position < 0 {
+			return fmt.Errorf("action %d has negative position %d", action.ID, action.Position)
 		}
-		if _, ok := seen[step.Position]; ok {
-			return fmt.Errorf("duplicate step position %d", step.Position)
+		if _, ok := seen[action.Position]; ok {
+			return fmt.Errorf("duplicate action position %d", action.Position)
 		}
-		seen[step.Position] = struct{}{}
+		seen[action.Position] = struct{}{}
 	}
 	return nil
 }
 
-// EntrySteps returns steps that should run first (those with the lowest Position).
-func EntrySteps(steps []*core.Step) []*core.Step {
-	if len(steps) == 0 {
+// EntryActions returns actions that should run first (those with the lowest Position).
+func EntryActions(actions []*core.Action) []*core.Action {
+	if len(actions) == 0 {
 		return nil
 	}
-	sorted := make([]*core.Step, len(steps))
-	copy(sorted, steps)
+	sorted := make([]*core.Action, len(actions))
+	copy(sorted, actions)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Position < sorted[j].Position })
 	minPos := sorted[0].Position
-	var entries []*core.Step
-	for _, s := range sorted {
-		if s.Position == minPos {
-			entries = append(entries, s)
+	var entries []*core.Action
+	for _, a := range sorted {
+		if a.Position == minPos {
+			entries = append(entries, a)
 		}
 	}
 	return entries
 }
 
-// PromotableSteps returns steps that are pending and whose predecessors (by Position) are all done.
-func PromotableSteps(steps []*core.Step) []*core.Step {
-	doneSet := make(map[int64]bool, len(steps))
-	for _, s := range steps {
-		if s.Status == core.StepDone {
-			doneSet[s.ID] = true
+// PromotableActions returns actions that are pending and whose predecessors (by Position) are all done.
+func PromotableActions(actions []*core.Action) []*core.Action {
+	doneSet := make(map[int64]bool, len(actions))
+	for _, a := range actions {
+		if a.Status == core.ActionDone {
+			doneSet[a.ID] = true
 		}
 	}
 
-	var promotable []*core.Step
-	for _, s := range steps {
-		if s.Status != core.StepPending {
+	var promotable []*core.Action
+	for _, a := range actions {
+		if a.Status != core.ActionPending {
 			continue
 		}
 		allPriorDone := true
-		for _, other := range steps {
-			if other.Position < s.Position && !doneSet[other.ID] {
+		for _, other := range actions {
+			if other.Position < a.Position && !doneSet[other.ID] {
 				allPriorDone = false
 				break
 			}
 		}
 		if allPriorDone {
-			promotable = append(promotable, s)
+			promotable = append(promotable, a)
 		}
 	}
 	return promotable
 }
 
-// RunnableSteps returns steps that have status "ready" and can be dispatched for execution.
-func RunnableSteps(steps []*core.Step) []*core.Step {
-	var runnable []*core.Step
-	for _, s := range steps {
-		if s.Status == core.StepReady {
-			runnable = append(runnable, s)
+// RunnableActions returns actions that have status "ready" and can be dispatched for execution.
+func RunnableActions(actions []*core.Action) []*core.Action {
+	var runnable []*core.Action
+	for _, a := range actions {
+		if a.Status == core.ActionReady {
+			runnable = append(runnable, a)
 		}
 	}
 	return runnable
 }
 
-// predecessorStepIDs returns the IDs of steps with Position strictly less than the given step.
+// predecessorActionIDs returns the IDs of actions with Position strictly less than the given action.
 // This replaces the old DependsOn field for gate reset targets.
-func predecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
+func predecessorActionIDs(actions []*core.Action, action *core.Action) []int64 {
 	var ids []int64
-	for _, s := range steps {
-		if s.Position < step.Position {
-			ids = append(ids, s.ID)
+	for _, a := range actions {
+		if a.Position < action.Position {
+			ids = append(ids, a.ID)
 		}
 	}
 	return ids
 }
 
-// immediatePredecessorStepIDs returns the IDs of steps at the closest lower Position.
-func immediatePredecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
+// immediatePredecessorActionIDs returns the IDs of actions at the closest lower Position.
+func immediatePredecessorActionIDs(actions []*core.Action, action *core.Action) []int64 {
 	closest := math.MinInt
-	for _, s := range steps {
-		if s.Position < step.Position && s.Position > closest {
-			closest = s.Position
+	for _, a := range actions {
+		if a.Position < action.Position && a.Position > closest {
+			closest = a.Position
 		}
 	}
 	if closest == math.MinInt {
@@ -109,9 +109,9 @@ func immediatePredecessorStepIDs(steps []*core.Step, step *core.Step) []int64 {
 	}
 
 	var ids []int64
-	for _, s := range steps {
-		if s.Position == closest {
-			ids = append(ids, s.ID)
+	for _, a := range actions {
+		if a.Position == closest {
+			ids = append(ids, a.ID)
 		}
 	}
 	return ids

@@ -19,7 +19,7 @@ import (
 )
 
 type probeRuntimeStub struct {
-	result *runtimeapp.ExecutionProbeRuntimeResult
+	result *runtimeapp.RunProbeRuntimeResult
 }
 
 func (s *probeRuntimeStub) Acquire(context.Context, runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
@@ -34,7 +34,7 @@ func (s *probeRuntimeStub) WatchExecution(context.Context, string, int64, runtim
 func (s *probeRuntimeStub) RecoverExecutions(context.Context, time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) ProbeExecution(context.Context, runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
+func (s *probeRuntimeStub) ProbeRun(context.Context, runtimeapp.RunProbeRuntimeRequest) (*runtimeapp.RunProbeRuntimeResult, error) {
 	return s.result, nil
 }
 func (s *probeRuntimeStub) Release(context.Context, *runtimeapp.SessionHandle) error { return nil }
@@ -52,30 +52,30 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	issueID, err := store.CreateIssue(ctx, &core.Issue{Title: "api-probe", Priority: core.PriorityMedium, Status: core.IssueRunning})
+	issueID, err := store.CreateWorkItem(ctx, &core.WorkItem{Title: "api-probe", Priority: core.PriorityMedium, Status: core.WorkItemRunning})
 	if err != nil {
 		t.Fatalf("create issue: %v", err)
 	}
-	stepID, err := store.CreateStep(ctx, &core.Step{IssueID: issueID, Name: "step", Type: core.StepExec, Status: core.StepRunning})
+	stepID, err := store.CreateAction(ctx, &core.Action{WorkItemID: issueID, Name: "step", Type: core.ActionExec, Status: core.ActionRunning})
 	if err != nil {
 		t.Fatalf("create step: %v", err)
 	}
-	agentCtx := &core.AgentContext{AgentID: "worker", IssueID: issueID, SessionID: "session-api", WorkerID: "worker-api"}
+	agentCtx := &core.AgentContext{AgentID: "worker", WorkItemID: issueID, SessionID: "session-api", WorkerID: "worker-api"}
 	agentCtxID, err := store.CreateAgentContext(ctx, agentCtx)
 	if err != nil {
 		t.Fatalf("create agent context: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-15 * time.Minute)
-	execRec := &core.Execution{StepID: stepID, IssueID: issueID, Status: core.ExecRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
-	execID, err := store.CreateExecution(ctx, execRec)
+	execRec := &core.Run{ActionID: stepID, WorkItemID: issueID, Status: core.RunRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
+	execID, err := store.CreateRun(ctx, execRec)
 	if err != nil {
 		t.Fatalf("create execution: %v", err)
 	}
 
-	probeSvc := probeapp.NewExecutionProbeService(probeapp.ExecutionProbeServiceConfig{
+	probeSvc := probeapp.NewRunProbeService(probeapp.RunProbeServiceConfig{
 		Store: store,
 		SessionManager: &probeRuntimeStub{
-			result: &runtimeapp.ExecutionProbeRuntimeResult{
+			result: &runtimeapp.RunProbeRuntimeResult{
 				Reachable:  true,
 				Answered:   true,
 				ReplyText:  "alive",
@@ -84,7 +84,7 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 		},
 	})
 
-	h := NewHandler(store, nil, nil, WithExecutionProbeService(probeSvc))
+	h := NewHandler(store, nil, nil, WithRunProbeService(probeSvc))
 	r := chi.NewRouter()
 	h.Register(r)
 	ts := httptest.NewServer(r)
@@ -96,8 +96,8 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("POST probe: %v", err)
 	}
 	requireStatus(t, resp, http.StatusOK)
-	probe := decode[core.ExecutionProbe](t, resp)
-	if probe.Status != core.ExecutionProbeAnswered {
+	probe := decode[core.RunProbe](t, resp)
+	if probe.Status != core.RunProbeAnswered {
 		t.Fatalf("probe status = %s, want answered", probe.Status)
 	}
 
@@ -106,7 +106,7 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("GET probes: %v", err)
 	}
 	requireStatus(t, resp, http.StatusOK)
-	probes := decode[[]*core.ExecutionProbe](t, resp)
+	probes := decode[[]*core.RunProbe](t, resp)
 	if len(probes) != 1 {
 		t.Fatalf("expected 1 probe, got %d", len(probes))
 	}
@@ -116,7 +116,7 @@ func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("GET latest probe: %v", err)
 	}
 	requireStatus(t, resp, http.StatusOK)
-	latest := decode[core.ExecutionProbe](t, resp)
+	latest := decode[core.RunProbe](t, resp)
 	if latest.ID != probe.ID {
 		t.Fatalf("latest probe id = %d, want %d", latest.ID, probe.ID)
 	}

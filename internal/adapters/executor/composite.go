@@ -20,15 +20,15 @@ type CompositeStepExecutorConfig struct {
 	// with a newly built binary. If nil, self_upgrade is disabled.
 	UpgradeFunc UpgradeFunc
 
-	ACPExecutor flowapp.StepExecutor
+	ACPExecutor flowapp.ActionExecutor
 }
 
-// NewCompositeStepExecutor returns a StepExecutor that routes certain exec steps to builtin
+// NewCompositeActionExecutor returns a ActionExecutor that routes certain exec steps to builtin
 // implementations (git commit/push, open PR), and falls back to ACP for everything else.
 //
 // Builtin routing is controlled by step.Config["builtin"].
-func NewCompositeStepExecutor(cfg CompositeStepExecutorConfig) flowapp.StepExecutor {
-	return func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+func NewCompositeActionExecutor(cfg CompositeStepExecutorConfig) flowapp.ActionExecutor {
+	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		if step == nil {
 			return fmt.Errorf("step is nil")
 		}

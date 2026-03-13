@@ -12,13 +12,13 @@ import (
 )
 
 type probeRuntimeStub struct {
-	result *ExecutionProbeRuntimeResult
+	result *RunProbeRuntimeResult
 	err    error
 	calls  int
-	last   ExecutionProbeRuntimeRequest
+	last   RunProbeRuntimeRequest
 }
 
-func (s *probeRuntimeStub) ProbeExecution(_ context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error) {
+func (s *probeRuntimeStub) ProbeRun(_ context.Context, req RunProbeRuntimeRequest) (*RunProbeRuntimeResult, error) {
 	s.calls++
 	s.last = req
 	if s.err != nil {
@@ -27,7 +27,7 @@ func (s *probeRuntimeStub) ProbeExecution(_ context.Context, req ExecutionProbeR
 	if s.result != nil {
 		return s.result, nil
 	}
-	return &ExecutionProbeRuntimeResult{Reachable: true, Answered: true, ReplyText: "alive", ObservedAt: time.Now().UTC()}, nil
+	return &RunProbeRuntimeResult{Reachable: true, Answered: true, ReplyText: "alive", ObservedAt: time.Now().UTC()}, nil
 }
 
 func setupProbeStore(t *testing.T) core.Store {
@@ -41,24 +41,24 @@ func setupProbeStore(t *testing.T) core.Store {
 	return store
 }
 
-func seedRunningExecution(t *testing.T, store core.Store) (*core.Execution, *core.AgentContext) {
+func seedRunningRun(t *testing.T, store core.Store) (*core.Run, *core.AgentContext) {
 	t.Helper()
 	ctx := context.Background()
-	issue := &core.Issue{Title: "probe-issue", Status: core.IssueRunning}
-	issueID, err := store.CreateIssue(ctx, issue)
+	workItem := &core.WorkItem{Title: "probe-workitem", Status: core.WorkItemRunning}
+	workItemID, err := store.CreateWorkItem(ctx, workItem)
 	if err != nil {
-		t.Fatalf("create issue: %v", err)
+		t.Fatalf("create work item: %v", err)
 	}
-	step := &core.Step{IssueID: issueID, Name: "probe-step", Type: core.StepExec, Status: core.StepRunning}
-	stepID, err := store.CreateStep(ctx, step)
+	action := &core.Action{WorkItemID: workItemID, Name: "probe-action", Type: core.ActionExec, Status: core.ActionRunning}
+	actionID, err := store.CreateAction(ctx, action)
 	if err != nil {
-		t.Fatalf("create step: %v", err)
+		t.Fatalf("create action: %v", err)
 	}
 	agentCtx := &core.AgentContext{
-		AgentID:   "worker",
-		IssueID:   issueID,
-		SessionID: "session-1",
-		WorkerID:  "worker-a",
+		AgentID:    "worker",
+		WorkItemID: workItemID,
+		SessionID:  "session-1",
+		WorkerID:   "worker-a",
 	}
 	agentCtxID, err := store.CreateAgentContext(ctx, agentCtx)
 	if err != nil {
@@ -66,35 +66,35 @@ func seedRunningExecution(t *testing.T, store core.Store) (*core.Execution, *cor
 	}
 	agentCtx.ID = agentCtxID
 	startedAt := time.Now().UTC().Add(-30 * time.Minute)
-	execRec := &core.Execution{
-		StepID:         stepID,
-		IssueID:        issueID,
-		Status:         core.ExecRunning,
+	runRec := &core.Run{
+		ActionID:       actionID,
+		WorkItemID:     workItemID,
+		Status:         core.RunRunning,
 		Attempt:        1,
 		StartedAt:      &startedAt,
 		AgentContextID: &agentCtxID,
 	}
-	execID, err := store.CreateExecution(ctx, execRec)
+	runID, err := store.CreateRun(ctx, runRec)
 	if err != nil {
-		t.Fatalf("create execution: %v", err)
+		t.Fatalf("create run: %v", err)
 	}
-	execRec.ID = execID
-	return execRec, agentCtx
+	runRec.ID = runID
+	return runRec, agentCtx
 }
 
-func TestExecutionProbeService_RequestExecutionProbeAnsweredBlocked(t *testing.T) {
+func TestRunProbeService_RequestRunProbeAnsweredBlocked(t *testing.T) {
 	store := setupProbeStore(t)
 	bus := NewMemBus()
-	execRec, _ := seedRunningExecution(t, store)
+	runRec, _ := seedRunningRun(t, store)
 	runtime := &probeRuntimeStub{
-		result: &ExecutionProbeRuntimeResult{
+		result: &RunProbeRuntimeResult{
 			Reachable:  true,
 			Answered:   true,
 			ReplyText:  "I need authorization to continue.",
 			ObservedAt: time.Now().UTC(),
 		},
 	}
-	service := NewExecutionProbeService(ExecutionProbeServiceConfig{
+	service := NewRunProbeService(RunProbeServiceConfig{
 		Store:          store,
 		Bus:            bus,
 		SessionManager: runtime,
@@ -103,14 +103,14 @@ func TestExecutionProbeService_RequestExecutionProbeAnsweredBlocked(t *testing.T
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 10})
 	defer sub.Cancel()
 
-	probe, err := service.RequestExecutionProbe(context.Background(), execRec.ID, core.ExecutionProbeTriggerManual, "", 15*time.Second)
+	probe, err := service.RequestRunProbe(context.Background(), runRec.ID, core.RunProbeTriggerManual, "", 15*time.Second)
 	if err != nil {
-		t.Fatalf("RequestExecutionProbe: %v", err)
+		t.Fatalf("RequestRunProbe: %v", err)
 	}
-	if probe.Status != core.ExecutionProbeAnswered {
+	if probe.Status != core.RunProbeAnswered {
 		t.Fatalf("probe status = %s, want answered", probe.Status)
 	}
-	if probe.Verdict != core.ExecutionProbeBlocked {
+	if probe.Verdict != core.RunProbeBlocked {
 		t.Fatalf("probe verdict = %s, want blocked", probe.Verdict)
 	}
 	if runtime.calls != 1 {
@@ -126,11 +126,11 @@ func TestExecutionProbeService_RequestExecutionProbeAnsweredBlocked(t *testing.T
 		select {
 		case ev := <-sub.C:
 			switch ev.Type {
-			case core.EventExecProbeRequested:
+			case core.EventRunProbeRequested:
 				gotRequested = true
-			case core.EventExecProbeSent:
+			case core.EventRunProbeSent:
 				gotSent = true
-			case core.EventExecProbeAnswered:
+			case core.EventRunProbeAnswered:
 				gotAnswered = true
 			}
 		case <-timeout:
@@ -139,65 +139,65 @@ func TestExecutionProbeService_RequestExecutionProbeAnsweredBlocked(t *testing.T
 	}
 }
 
-func TestExecutionProbeService_RejectsConcurrentActiveProbe(t *testing.T) {
+func TestRunProbeService_RejectsConcurrentActiveProbe(t *testing.T) {
 	store := setupProbeStore(t)
-	execRec, agentCtx := seedRunningExecution(t, store)
+	runRec, agentCtx := seedRunningRun(t, store)
 	now := time.Now().UTC()
-	if _, err := store.CreateExecutionProbe(context.Background(), &core.ExecutionProbe{
-		ExecutionID:    execRec.ID,
-		IssueID:        execRec.IssueID,
-		StepID:         execRec.StepID,
+	if _, err := store.CreateRunProbe(context.Background(), &core.RunProbe{
+		RunID:          runRec.ID,
+		WorkItemID:     runRec.WorkItemID,
+		ActionID:       runRec.ActionID,
 		AgentContextID: &agentCtx.ID,
 		SessionID:      agentCtx.SessionID,
 		OwnerID:        agentCtx.WorkerID,
-		TriggerSource:  core.ExecutionProbeTriggerManual,
+		TriggerSource:  core.RunProbeTriggerManual,
 		Question:       "probe",
-		Status:         core.ExecutionProbeSent,
-		Verdict:        core.ExecutionProbeUnknown,
+		Status:         core.RunProbeSent,
+		Verdict:        core.RunProbeUnknown,
 		SentAt:         &now,
 	}); err != nil {
-		t.Fatalf("CreateExecutionProbe: %v", err)
+		t.Fatalf("CreateRunProbe: %v", err)
 	}
 
-	service := NewExecutionProbeService(ExecutionProbeServiceConfig{
+	service := NewRunProbeService(RunProbeServiceConfig{
 		Store:          store,
 		SessionManager: &probeRuntimeStub{},
 	})
-	_, err := service.RequestExecutionProbe(context.Background(), execRec.ID, core.ExecutionProbeTriggerManual, "probe", 0)
-	if !errors.Is(err, ErrExecutionProbeConflict) {
-		t.Fatalf("expected ErrExecutionProbeConflict, got %v", err)
+	_, err := service.RequestRunProbe(context.Background(), runRec.ID, core.RunProbeTriggerManual, "probe", 0)
+	if !errors.Is(err, ErrRunProbeConflict) {
+		t.Fatalf("expected ErrRunProbeConflict, got %v", err)
 	}
 }
 
-func TestExecutionProbeWatchdog_TriggersOnlyWhenIdle(t *testing.T) {
+func TestRunProbeWatchdog_TriggersOnlyWhenIdle(t *testing.T) {
 	ctx := context.Background()
 	store := setupProbeStore(t)
-	execRec, _ := seedRunningExecution(t, store)
+	runRec, _ := seedRunningRun(t, store)
 	oldActivity := time.Now().UTC().Add(-20 * time.Minute)
 	if _, err := store.CreateEvent(ctx, &core.Event{
-		Type:      core.EventExecAgentOutput,
-		IssueID:   execRec.IssueID,
-		StepID:    execRec.StepID,
-		ExecID:    execRec.ID,
-		Data:      map[string]any{"type": "agent_message", "content": "still running"},
-		Timestamp: oldActivity,
+		Type:       core.EventRunAgentOutput,
+		WorkItemID: runRec.WorkItemID,
+		ActionID:   runRec.ActionID,
+		RunID:      runRec.ID,
+		Data:       map[string]any{"type": "agent_message", "content": "still running"},
+		Timestamp:  oldActivity,
 	}); err != nil {
 		t.Fatalf("CreateEvent: %v", err)
 	}
 
 	runtime := &probeRuntimeStub{
-		result: &ExecutionProbeRuntimeResult{
+		result: &RunProbeRuntimeResult{
 			Reachable:  true,
 			Answered:   true,
 			ReplyText:  "alive",
 			ObservedAt: time.Now().UTC(),
 		},
 	}
-	service := NewExecutionProbeService(ExecutionProbeServiceConfig{
+	service := NewRunProbeService(RunProbeServiceConfig{
 		Store:          store,
 		SessionManager: runtime,
 	})
-	watchdog := NewExecutionProbeWatchdog(store, service, ExecutionProbeWatchdogConfig{
+	watchdog := NewRunProbeWatchdog(store, service, RunProbeWatchdogConfig{
 		Enabled:      true,
 		ProbeAfter:   10 * time.Minute,
 		IdleAfter:    5 * time.Minute,
@@ -211,25 +211,25 @@ func TestExecutionProbeWatchdog_TriggersOnlyWhenIdle(t *testing.T) {
 	}
 
 	store2 := setupProbeStore(t)
-	execRec2, _ := seedRunningExecution(t, store2)
+	runRec2, _ := seedRunningRun(t, store2)
 	recentActivity := time.Now().UTC().Add(-30 * time.Second)
 	if _, err := store2.CreateEvent(ctx, &core.Event{
-		Type:      core.EventExecAgentOutput,
-		IssueID:   execRec2.IssueID,
-		StepID:    execRec2.StepID,
-		ExecID:    execRec2.ID,
-		Data:      map[string]any{"type": "agent_message", "content": "fresh output"},
-		Timestamp: recentActivity,
+		Type:       core.EventRunAgentOutput,
+		WorkItemID: runRec2.WorkItemID,
+		ActionID:   runRec2.ActionID,
+		RunID:      runRec2.ID,
+		Data:       map[string]any{"type": "agent_message", "content": "fresh output"},
+		Timestamp:  recentActivity,
 	}); err != nil {
 		t.Fatalf("CreateEvent recent: %v", err)
 	}
 
 	runtime2 := &probeRuntimeStub{}
-	service2 := NewExecutionProbeService(ExecutionProbeServiceConfig{
+	service2 := NewRunProbeService(RunProbeServiceConfig{
 		Store:          store2,
 		SessionManager: runtime2,
 	})
-	watchdog2 := NewExecutionProbeWatchdog(store2, service2, ExecutionProbeWatchdogConfig{
+	watchdog2 := NewRunProbeWatchdog(store2, service2, RunProbeWatchdogConfig{
 		Enabled:      true,
 		ProbeAfter:   10 * time.Minute,
 		IdleAfter:    5 * time.Minute,

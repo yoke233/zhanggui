@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Artifact, Briefing, Event, Execution, Issue, Step } from "@/types/apiV2";
+import type { Deliverable, Event, Run, WorkItem, Action } from "@/types/apiV2";
 
 interface LogLine {
   time: string;
@@ -62,11 +62,11 @@ export function ExecutionDetailPage() {
   const numericExecId = Number.parseInt(execId ?? "", 10);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const [execution, setExecution] = useState<Execution | null>(null);
-  const [step, setStep] = useState<Step | null>(null);
-  const [issue, setIssue] = useState<Issue | null>(null);
-  const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const [execution, setExecution] = useState<Run | null>(null);
+  const [step, setStep] = useState<Action | null>(null);
+  const [workItem, setWorkItem] = useState<WorkItem | null>(null);
+  const [briefing, setBriefing] = useState<{ objective: string; constraints?: string[]; context_refs?: unknown[] } | null>(null);
+  const [artifact, setArtifact] = useState<Deliverable | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,20 +81,23 @@ export function ExecutionDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const execResp = await apiClient.getExecution(numericExecId);
+        const execResp = await apiClient.getRun(numericExecId);
         if (cancelled) {
           return;
         }
         setExecution(execResp);
 
-        const [stepResp, issueResp, briefingResp, artifactsResp, eventResp] = await Promise.all([
-          apiClient.getStep(execResp.step_id),
-          apiClient.getIssue(execResp.issue_id),
-          apiClient.getBriefingByStep(execResp.step_id).catch(() => null),
-          apiClient.listArtifactsByExecution(execResp.id),
+        const [stepResp, workItemResp, briefingResp, artifactsResp, eventResp] = await Promise.all([
+          apiClient.getAction(execResp.action_id),
+          apiClient.getWorkItem(execResp.work_item_id),
+          apiClient.getAction(execResp.action_id).then((a) => ({
+            objective: a.description ?? "",
+            constraints: [] as string[],
+          })).catch(() => null),
+          apiClient.listDeliverablesByRun(execResp.id),
           apiClient.listEvents({
-            issue_id: execResp.issue_id,
-            step_id: execResp.step_id,
+            issue_id: execResp.work_item_id,
+            step_id: execResp.action_id,
             limit: 200,
             offset: 0,
           }),
@@ -103,7 +106,7 @@ export function ExecutionDetailPage() {
           return;
         }
         setStep(stepResp);
-        setIssue(issueResp);
+        setWorkItem(workItemResp);
         setBriefing(briefingResp);
         setArtifact(artifactsResp[0] ?? null);
         setEvents(eventResp);
@@ -140,9 +143,9 @@ export function ExecutionDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b px-8 py-4">
         <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/issues" className="hover:text-foreground">{t("execDetail.flows")}</Link>
+          <Link to="/work-items" className="hover:text-foreground">{t("execDetail.workItems")}</Link>
           <ChevronRight className="h-3 w-3" />
-          {issue ? <Link to={`/issues/${issue.id}`} className="hover:text-foreground">{issue.title}</Link> : <span>Issue</span>}
+          {workItem ? <Link to={`/work-items/${workItem.id}`} className="hover:text-foreground">{workItem.title}</Link> : <span>Work Item</span>}
           <ChevronRight className="h-3 w-3" />
           <span className="text-foreground">{step?.name ?? "Execution"}</span>
           <span className="mx-1">·</span>

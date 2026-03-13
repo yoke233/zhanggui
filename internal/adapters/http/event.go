@@ -32,7 +32,7 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
-func (h *Handler) listIssueEvents(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listWorkItemEvents(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
@@ -40,7 +40,7 @@ func (h *Handler) listIssueEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := buildEventFilter(r)
-	filter.IssueID = &issueID
+	filter.WorkItemID = &issueID
 
 	events, err := h.store.ListEvents(r.Context(), filter)
 	if err != nil {
@@ -61,12 +61,12 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 
 	if s := r.URL.Query().Get("issue_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-			filter.IssueID = &id
+			filter.WorkItemID = &id
 		}
 	}
 	if s := r.URL.Query().Get("step_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-			filter.StepID = &id
+			filter.ActionID = &id
 		}
 	}
 	if s := r.URL.Query().Get("types"); s != "" {
@@ -201,7 +201,7 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// Apply issue filter if specified.
-			if issueFilter != 0 && ev.IssueID != issueFilter {
+			if issueFilter != 0 && ev.WorkItemID != issueFilter {
 				continue
 			}
 			if sessionFilter != "" {

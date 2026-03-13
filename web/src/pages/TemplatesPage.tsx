@@ -78,14 +78,14 @@ export function TemplatesPage() {
     }
   };
 
-  const handleCreateIssue = async (template: DAGTemplate) => {
+  const handleCreateWorkItem = async (template: DAGTemplate) => {
     setError(null);
     try {
-      const result = await apiClient.createIssueFromTemplate(template.id, {
+      const result = await apiClient.createWorkItemFromTemplate(template.id, {
         title: template.name,
         project_id: selectedProjectId ?? undefined,
       });
-      navigate(`/issues/${result.issue.id}`);
+      navigate(`/work-items/${result.issue.id}`);
     } catch (createError) {
       setError(getErrorMessage(createError));
     }
@@ -105,10 +105,10 @@ export function TemplatesPage() {
             {t("templates.subtitle")}
           </p>
         </div>
-        <Link to="/issues/new">
+        <Link to="/work-items/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            {t("templates.newFlow")}
+            {t("templates.newWorkItem")}
           </Button>
         </Link>
       </div>
@@ -175,7 +175,7 @@ export function TemplatesPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {t("templates.nSteps", { count: template.steps.length })}
+                        {t("templates.nSteps", { count: template.actions.length })}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -195,11 +195,11 @@ export function TemplatesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => void handleCreateIssue(template)}
-                          title={t("templates.createFlowFromTemplate")}
+                          onClick={() => void handleCreateWorkItem(template)}
+                          title={t("templates.createWorkItemFromTemplate")}
                         >
                           <Play className="mr-1 h-3.5 w-3.5" />
-                          {t("templates.createFlow")}
+                          {t("templates.createWorkItem")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -235,7 +235,7 @@ export function TemplatesPage() {
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-2">
-                {template.steps.map((step, i) => (
+                {template.actions.map((step, i) => (
                   <div
                     key={step.name}
                     className="flex items-center gap-2 text-sm"

@@ -16,7 +16,7 @@ type stepDecisionRequest struct {
 	RejectTargets []int64 `json:"reject_targets,omitempty"` // for reject only
 }
 
-func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 	stepID, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
@@ -48,7 +48,7 @@ func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	step, err := h.store.GetStep(r.Context(), stepID)
+	step, err := h.store.GetAction(r.Context(), stepID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 		return
@@ -59,7 +59,7 @@ func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only allow decisions on running or blocked steps.
-	if step.Status != core.StepRunning && step.Status != core.StepBlocked {
+	if step.Status != core.ActionRunning && step.Status != core.ActionBlocked {
 		writeError(w, http.StatusConflict, "step is not in a decidable state", "INVALID_STATE")
 		return
 	}
@@ -73,16 +73,16 @@ func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
 		payload["reject_targets"] = targets
 	}
 
-	sig := &core.StepSignal{
-		StepID:    stepID,
-		IssueID:   step.IssueID,
+	sig := &core.ActionSignal{
+		ActionID:  stepID,
+		WorkItemID: step.WorkItemID,
 		Type:      sigType,
 		Source:    core.SignalSourceHuman,
 		Payload:   payload,
 		Actor:     "human",
 		CreatedAt: time.Now().UTC(),
 	}
-	id, err := h.store.CreateStepSignal(r.Context(), sig)
+	id, err := h.store.CreateActionSignal(r.Context(), sig)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -91,11 +91,11 @@ func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
 
 	// Publish event for engine to pick up.
 	h.bus.Publish(r.Context(), core.Event{
-		Type:      core.EventStepSignal,
-		IssueID:   step.IssueID,
-		StepID:    stepID,
-		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"signal_id": id, "type": string(sigType), "source": "human"},
+		Type:       core.EventActionSignal,
+		WorkItemID: step.WorkItemID,
+		ActionID:   stepID,
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]any{"signal_id": id, "type": string(sigType), "source": "human"},
 	})
 
 	writeJSON(w, http.StatusCreated, sig)
@@ -107,7 +107,7 @@ type stepUnblockRequest struct {
 	Instructions string `json:"instructions,omitempty"`   // optional: forwarded to agent as SignalInstruction
 }
 
-func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) actionUnblock(w http.ResponseWriter, r *http.Request) {
 	stepID, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
@@ -124,7 +124,7 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	step, err := h.store.GetStep(r.Context(), stepID)
+	step, err := h.store.GetAction(r.Context(), stepID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
 		return
@@ -133,22 +133,22 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if step.Status != core.StepBlocked {
+	if step.Status != core.ActionBlocked {
 		writeError(w, http.StatusConflict, "step is not blocked", "INVALID_STATE")
 		return
 	}
 
 	// Create unblock signal.
-	sig := &core.StepSignal{
-		StepID:    stepID,
-		IssueID:   step.IssueID,
+	sig := &core.ActionSignal{
+		ActionID:  stepID,
+		WorkItemID: step.WorkItemID,
 		Type:      core.SignalUnblock,
 		Source:    core.SignalSourceHuman,
 		Payload:   map[string]any{"reason": req.Reason},
 		Actor:     "human",
 		CreatedAt: time.Now().UTC(),
 	}
-	sigID, err := h.store.CreateStepSignal(r.Context(), sig)
+	sigID, err := h.store.CreateActionSignal(r.Context(), sig)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -158,9 +158,9 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 	// If instructions are provided, create an additional SignalInstruction
 	// that will be picked up by ResolveLatestFeedback and forwarded to the agent.
 	if strings.TrimSpace(req.Instructions) != "" {
-		instrSig := &core.StepSignal{
-			StepID:    stepID,
-			IssueID:   step.IssueID,
+		instrSig := &core.ActionSignal{
+			ActionID:  stepID,
+			WorkItemID: step.WorkItemID,
 			Type:      core.SignalInstruction,
 			Source:    core.SignalSourceHuman,
 			Summary:   "human instruction on unblock",
@@ -169,22 +169,22 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 			Actor:     "human",
 			CreatedAt: time.Now().UTC(),
 		}
-		_, _ = h.store.CreateStepSignal(r.Context(), instrSig)
+		_, _ = h.store.CreateActionSignal(r.Context(), instrSig)
 	}
 
 	// Transition step back to pending for retry.
-	step.Status = core.StepPending
-	if err := h.store.UpdateStep(r.Context(), step); err != nil {
+	step.Status = core.ActionPending
+	if err := h.store.UpdateAction(r.Context(), step); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
 	h.bus.Publish(r.Context(), core.Event{
-		Type:      core.EventStepUnblocked,
-		IssueID:   step.IssueID,
-		StepID:    stepID,
-		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"signal_id": sigID, "reason": req.Reason},
+		Type:       core.EventActionUnblocked,
+		WorkItemID: step.WorkItemID,
+		ActionID:   stepID,
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]any{"signal_id": sigID, "reason": req.Reason},
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -196,27 +196,27 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 
 // pendingDecisionItem wraps a step with its latest context signals for richer inbox display.
 type pendingDecisionItem struct {
-	Step          *core.Step        `json:"step"`
-	LatestContext *core.StepSignal  `json:"latest_context,omitempty"`
-	Signals       []*core.StepSignal `json:"signals,omitempty"`
+	Step          *core.Action        `json:"step"`
+	LatestContext *core.ActionSignal  `json:"latest_context,omitempty"`
+	Signals       []*core.ActionSignal `json:"signals,omitempty"`
 }
 
 func (h *Handler) listPendingDecisions(w http.ResponseWriter, r *http.Request) {
 	issueID, hasIssue := queryInt64(r, "issue_id")
 
-	var steps []*core.Step
+	var steps []*core.Action
 	var err error
 	if hasIssue {
-		steps, err = h.store.ListPendingHumanSteps(r.Context(), issueID)
+		steps, err = h.store.ListPendingHumanActions(r.Context(), issueID)
 	} else {
-		steps, err = h.store.ListAllPendingHumanSteps(r.Context())
+		steps, err = h.store.ListAllPendingHumanActions(r.Context())
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if steps == nil {
-		steps = []*core.Step{}
+		steps = []*core.Action{}
 	}
 
 	// Enrich each step with latest context signal and recent signals.
@@ -224,11 +224,11 @@ func (h *Handler) listPendingDecisions(w http.ResponseWriter, r *http.Request) {
 	for _, step := range steps {
 		item := pendingDecisionItem{Step: step}
 		// Attach latest context/feedback signal.
-		if latestCtx, _ := h.store.GetLatestStepSignal(r.Context(), step.ID, core.SignalContext, core.SignalFeedback); latestCtx != nil {
+		if latestCtx, _ := h.store.GetLatestActionSignal(r.Context(), step.ID, core.SignalContext, core.SignalFeedback); latestCtx != nil {
 			item.LatestContext = latestCtx
 		}
 		// Attach recent signals (up to 10).
-		if signals, _ := h.store.ListStepSignals(r.Context(), step.ID); len(signals) > 0 {
+		if signals, _ := h.store.ListActionSignals(r.Context(), step.ID); len(signals) > 0 {
 			if len(signals) > 10 {
 				signals = signals[len(signals)-10:]
 			}
@@ -239,19 +239,19 @@ func (h *Handler) listPendingDecisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (h *Handler) listStepSignals(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listActionSignals(w http.ResponseWriter, r *http.Request) {
 	stepID, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
 		return
 	}
-	signals, err := h.store.ListStepSignals(r.Context(), stepID)
+	signals, err := h.store.ListActionSignals(r.Context(), stepID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if signals == nil {
-		signals = []*core.StepSignal{}
+		signals = []*core.ActionSignal{}
 	}
 	writeJSON(w, http.StatusOK, signals)
 }

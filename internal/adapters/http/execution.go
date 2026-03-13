@@ -6,14 +6,14 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func (h *Handler) getExecution(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getRun(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "execID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution ID", "BAD_ID")
 		return
 	}
 
-	e, err := h.store.GetExecution(r.Context(), id)
+	e, err := h.store.GetRun(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "execution not found", "NOT_FOUND")
 		return
@@ -25,20 +25,20 @@ func (h *Handler) getExecution(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
-func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
 	stepID, ok := urlParamInt64(r, "stepID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
 		return
 	}
 
-	execs, err := h.store.ListExecutionsByStep(r.Context(), stepID)
+	execs, err := h.store.ListRunsByAction(r.Context(), stepID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if execs == nil {
-		execs = []*core.Execution{}
+		execs = []*core.Run{}
 	}
 	writeJSON(w, http.StatusOK, execs)
 }

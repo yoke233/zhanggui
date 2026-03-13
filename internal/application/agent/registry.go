@@ -17,7 +17,7 @@ var (
 )
 
 // ConfigRegistry is an in-memory AgentRegistry loaded from TOML config.
-// It supports full CRUD for drivers and profiles, and resolution for steps.
+// It supports full CRUD for drivers and profiles, and resolution for actions.
 type ConfigRegistry struct {
 	mu       sync.RWMutex
 	drivers  map[string]*core.AgentDriver
@@ -168,17 +168,17 @@ func (r *ConfigRegistry) DeleteProfile(_ context.Context, id string) error {
 
 // ---------- Resolution ----------
 
-// ResolveForStep picks the first profile matching the step's AgentRole + RequiredCapabilities.
-func (r *ConfigRegistry) ResolveForStep(_ context.Context, step *core.Step) (*core.AgentProfile, *core.AgentDriver, error) {
+// ResolveForAction picks the first profile matching the action's AgentRole + RequiredCapabilities.
+func (r *ConfigRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	role := core.AgentRole(step.AgentRole)
+	role := core.AgentRole(action.AgentRole)
 	for _, p := range r.profiles {
 		if role != "" && p.Role != role {
 			continue
 		}
-		if !p.MatchesRequirements(step.RequiredCapabilities) {
+		if !p.MatchesRequirements(action.RequiredCapabilities) {
 			continue
 		}
 		d, ok := r.drivers[p.DriverID]
@@ -207,8 +207,8 @@ func (r *ConfigRegistry) ResolveByID(_ context.Context, profileID string) (*core
 }
 
 // Resolve implements the flow resolver interface.
-func (r *ConfigRegistry) Resolve(ctx context.Context, step *core.Step) (string, error) {
-	p, _, err := r.ResolveForStep(ctx, step)
+func (r *ConfigRegistry) Resolve(ctx context.Context, action *core.Action) (string, error) {
+	p, _, err := r.ResolveForAction(ctx, action)
 	if err != nil {
 		return "", err
 	}
@@ -256,7 +256,7 @@ func cloneProfile(p *core.AgentProfile) *core.AgentProfile {
 		cp.Capabilities = append([]string(nil), p.Capabilities...)
 	}
 	if p.ActionsAllowed != nil {
-		cp.ActionsAllowed = append([]core.Action(nil), p.ActionsAllowed...)
+		cp.ActionsAllowed = append([]core.AgentAction(nil), p.ActionsAllowed...)
 	}
 	if p.Skills != nil {
 		cp.Skills = append([]string(nil), p.Skills...)

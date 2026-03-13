@@ -13,7 +13,7 @@ import (
 
 // runBuiltinSCMOpenPR creates or finds an open change request using the registered SCM providers.
 // It is provider-agnostic (GitHub PR today; GitLab MR later).
-func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Step, execRec *core.Execution) error {
+func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Action, execRec *core.Run) error {
 	if store == nil {
 		return fmt.Errorf("builtin scm_open_pr: store is nil")
 	}
@@ -44,7 +44,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 		headBranch = "HEAD"
 	}
 
-	title := fmt.Sprintf("ai-flow: issue %d", step.IssueID)
+	title := fmt.Sprintf("ai-flow: work-item %d", step.WorkItemID)
 	body := "Automated change request created by ai-workflow."
 	if step.Config != nil {
 		if v, ok := step.Config["title"].(string); ok && strings.TrimSpace(v) != "" {

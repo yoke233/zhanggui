@@ -1,7 +1,7 @@
 package flow
 
-// FlowEngine is a backward-compatible alias for IssueEngine.
-type FlowEngine = IssueEngine
+// FlowEngine is a backward-compatible alias for WorkItemEngine.
+type FlowEngine = WorkItemEngine
 
-// FlowScheduler is a backward-compatible alias for IssueScheduler.
-type FlowScheduler = IssueScheduler
+// FlowScheduler is a backward-compatible alias for WorkItemScheduler.
+type FlowScheduler = WorkItemScheduler

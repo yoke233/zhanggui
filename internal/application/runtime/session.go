@@ -34,8 +34,8 @@ type SessionManager interface {
 	// since the given timestamp. Called after server restart to resume tracking.
 	RecoverExecutions(ctx context.Context, since time.Time) ([]ExecutionRuntimeStatus, error)
 
-	// ProbeExecution sends a side-channel diagnostic question to a running execution.
-	ProbeExecution(ctx context.Context, req probeapp.ExecutionProbeRuntimeRequest) (*probeapp.ExecutionProbeRuntimeResult, error)
+	// ProbeRun sends a side-channel diagnostic question to a running run.
+	ProbeRun(ctx context.Context, req probeapp.RunProbeRuntimeRequest) (*probeapp.RunProbeRuntimeResult, error)
 
 	// Release marks a session handle as no longer active.
 	Release(ctx context.Context, handle *SessionHandle) error
@@ -130,6 +130,6 @@ const (
 	ExecutionFailed  ExecutionRuntimeState = "failed"
 )
 
-type ExecutionProbeRuntimeRequest = probeapp.ExecutionProbeRuntimeRequest
+type RunProbeRuntimeRequest = probeapp.RunProbeRuntimeRequest
 
-type ExecutionProbeRuntimeResult = probeapp.ExecutionProbeRuntimeResult
+type RunProbeRuntimeResult = probeapp.RunProbeRuntimeResult

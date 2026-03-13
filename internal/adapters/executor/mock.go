@@ -9,12 +9,12 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// NewMockStepExecutor returns a StepExecutor that does not spawn ACP agents.
+// NewMockActionExecutor returns a ActionExecutor that does not spawn ACP agents.
 // It stores a small markdown artifact and publishes a single "done" agent_output event.
 //
 // Intended for local smoke tests and CI where external agent credentials are unavailable.
-func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecutor {
-	return func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionExecutor {
+	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		workDir := ""
 		if ws := flowapp.WorkspaceFromContext(ctx); ws != nil {
 			workDir = ws.Path
@@ -23,16 +23,16 @@ func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecut
 		now := time.Now().UTC()
 		reply := fmt.Sprintf(
 			"## Mock executor\n\n- step_id: %d\n- issue_id: %d\n- step_type: %s\n- agent_role: %s\n- work_dir: %s\n- time_utc: %s\n",
-			step.ID, step.IssueID, step.Type, step.AgentRole, workDir, now.Format(time.RFC3339),
+			step.ID, step.WorkItemID, step.Type, step.AgentRole, workDir, now.Format(time.RFC3339),
 		)
 
 		// Publish done event with full reply (matches ACP bridge "done" shape).
 		if bus != nil {
 			bus.Publish(ctx, core.Event{
-				Type:      core.EventExecAgentOutput,
-				IssueID:   step.IssueID,
-				StepID:    step.ID,
-				ExecID:    exec.ID,
+				Type:       core.EventRunAgentOutput,
+				WorkItemID: step.WorkItemID,
+				ActionID:   step.ID,
+				RunID:      exec.ID,
 				Timestamp: now,
 				Data: map[string]any{
 					"type":    "done",
@@ -43,17 +43,17 @@ func NewMockStepExecutor(store core.Store, bus core.EventBus) flowapp.StepExecut
 
 		// Store artifact.
 		if store != nil {
-			art := &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+			art := &core.Deliverable{
+				RunID:          exec.ID,
+				ActionID:       step.ID,
+				WorkItemID:     step.WorkItemID,
 				ResultMarkdown: reply,
 			}
-			artID, err := store.CreateArtifact(ctx, art)
+			artID, err := store.CreateDeliverable(ctx, art)
 			if err != nil {
 				return fmt.Errorf("store artifact: %w", err)
 			}
-			exec.ArtifactID = &artID
+			exec.DeliverableID = &artID
 		}
 
 		exec.Output = map[string]any{

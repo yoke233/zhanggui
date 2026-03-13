@@ -6,52 +6,52 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestIssueScheduler_BasicExecution(t *testing.T) {
+func TestWorkItemScheduler_BasicExecution(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	var executed atomic.Int32
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		executed.Add(1)
 		return nil
 	}
 	eng := New(store, bus, executor)
 
-	// Create an issue with one step.
-	issueID := createTestIssue(t, store, "test-issue")
-	createTestStep(t, store, issueID, "step-1", core.StepExec, 0)
+	// Create a work item with one action.
+	workItemID := createTestWorkItem(t, store, "test-work-item")
+	createTestAction(t, store, workItemID, "action-1", core.ActionExec, 0)
 
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go sched.Start(ctx)
 
-	if err := sched.Submit(ctx, issueID); err != nil {
+	if err := sched.Submit(ctx, workItemID); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
 	// Wait for execution.
 	waitFor(t, func() bool { return executed.Load() >= 1 }, 2*time.Second)
 
-	// Issue should be done.
-	issue, _ := store.GetIssue(ctx, issueID)
-	if issue.Status != core.IssueDone {
-		t.Errorf("issue status = %s, want done", issue.Status)
+	// WorkItem should be done.
+	workItem, _ := store.GetWorkItem(ctx, workItemID)
+	if workItem.Status != core.WorkItemDone {
+		t.Errorf("work item status = %s, want done", workItem.Status)
 	}
 }
 
-func TestIssueScheduler_ConcurrencyLimit(t *testing.T) {
+func TestWorkItemScheduler_ConcurrencyLimit(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	var running atomic.Int32
 	var maxSeen atomic.Int32
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		cur := running.Add(1)
 		for {
 			old := maxSeen.Load()
@@ -65,32 +65,32 @@ func TestIssueScheduler_ConcurrencyLimit(t *testing.T) {
 	}
 	eng := New(store, bus, executor)
 
-	// Create 4 issues, each with 1 step.
-	var issueIDs []int64
+	// Create 4 work items, each with 1 action.
+	var workItemIDs []int64
 	for i := 0; i < 4; i++ {
-		id := createTestIssue(t, store, "issue")
-		createTestStep(t, store, id, "step", core.StepExec, 0)
-		issueIDs = append(issueIDs, id)
+		id := createTestWorkItem(t, store, "work-item")
+		createTestAction(t, store, id, "action", core.ActionExec, 0)
+		workItemIDs = append(workItemIDs, id)
 	}
 
-	// Scheduler allows max 2 concurrent issues.
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	// Scheduler allows max 2 concurrent work items.
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go sched.Start(ctx)
 
-	for _, id := range issueIDs {
+	for _, id := range workItemIDs {
 		if err := sched.Submit(ctx, id); err != nil {
-			t.Fatalf("Submit issue %d: %v", id, err)
+			t.Fatalf("Submit work item %d: %v", id, err)
 		}
 	}
 
-	// Wait for all 4 issues to finish.
+	// Wait for all 4 work items to finish.
 	waitFor(t, func() bool {
-		for _, id := range issueIDs {
-			issue, _ := store.GetIssue(ctx, id)
-			if issue.Status != core.IssueDone && issue.Status != core.IssueFailed {
+		for _, id := range workItemIDs {
+			wi, _ := store.GetWorkItem(ctx, id)
+			if wi.Status != core.WorkItemDone && wi.Status != core.WorkItemFailed {
 				return false
 			}
 		}
@@ -99,122 +99,122 @@ func TestIssueScheduler_ConcurrencyLimit(t *testing.T) {
 
 	// Max concurrent should not exceed 2.
 	if maxSeen.Load() > 2 {
-		t.Errorf("max concurrent issues = %d, want <= 2", maxSeen.Load())
+		t.Errorf("max concurrent work items = %d, want <= 2", maxSeen.Load())
 	}
 }
 
-func TestIssueScheduler_CancelQueued(t *testing.T) {
+func TestWorkItemScheduler_CancelQueued(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	blocker := make(chan struct{})
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		<-blocker // block forever until test closes
 		return nil
 	}
 	eng := New(store, bus, executor)
 
-	// Create 3 issues with 1 step each.
-	issue1 := createTestIssue(t, store, "issue-1")
-	createTestStep(t, store, issue1, "step", core.StepExec, 0)
-	issue2 := createTestIssue(t, store, "issue-2")
-	createTestStep(t, store, issue2, "step", core.StepExec, 0)
-	issue3 := createTestIssue(t, store, "issue-3")
-	createTestStep(t, store, issue3, "step", core.StepExec, 0)
+	// Create 3 work items with 1 action each.
+	wi1 := createTestWorkItem(t, store, "work-item-1")
+	createTestAction(t, store, wi1, "action", core.ActionExec, 0)
+	wi2 := createTestWorkItem(t, store, "work-item-2")
+	createTestAction(t, store, wi2, "action", core.ActionExec, 0)
+	wi3 := createTestWorkItem(t, store, "work-item-3")
+	createTestAction(t, store, wi3, "action", core.ActionExec, 0)
 
-	// Max 1 concurrent — issue2 and issue3 will be queued.
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 1})
+	// Max 1 concurrent — wi2 and wi3 will be queued.
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 1})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer close(blocker)
 
 	go sched.Start(ctx)
 
-	sched.Submit(ctx, issue1)
-	sched.Submit(ctx, issue2)
-	sched.Submit(ctx, issue3)
+	sched.Submit(ctx, wi1)
+	sched.Submit(ctx, wi2)
+	sched.Submit(ctx, wi3)
 
-	// Wait for issue1 to be dispatched, issue2+issue3 queued.
+	// Wait for wi1 to be dispatched, wi2+wi3 queued.
 	waitFor(t, func() bool { return sched.RunningCount() == 1 }, 2*time.Second)
 
 	if sched.QueueLen() != 2 {
 		t.Fatalf("queue len = %d, want 2", sched.QueueLen())
 	}
 
-	// Cancel issue2 (which is in queue).
-	if err := sched.Cancel(ctx, issue2); err != nil {
-		t.Fatalf("Cancel queued issue: %v", err)
+	// Cancel wi2 (which is in queue).
+	if err := sched.Cancel(ctx, wi2); err != nil {
+		t.Fatalf("Cancel queued work item: %v", err)
 	}
 
 	if sched.QueueLen() != 1 {
 		t.Errorf("queue len after cancel = %d, want 1", sched.QueueLen())
 	}
 
-	i2, _ := store.GetIssue(ctx, issue2)
-	if i2.Status != core.IssueCancelled {
-		t.Errorf("issue2 status = %s, want cancelled", i2.Status)
+	w2, _ := store.GetWorkItem(ctx, wi2)
+	if w2.Status != core.WorkItemCancelled {
+		t.Errorf("wi2 status = %s, want cancelled", w2.Status)
 	}
 }
 
-func TestIssueScheduler_CancelRunning(t *testing.T) {
+func TestWorkItemScheduler_CancelRunning(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	var cancelledByCtx atomic.Bool
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		<-ctx.Done()
 		cancelledByCtx.Store(true)
 		return ctx.Err()
 	}
 	eng := New(store, bus, executor)
 
-	issueID := createTestIssue(t, store, "issue")
-	createTestStep(t, store, issueID, "step", core.StepExec, 0)
+	workItemID := createTestWorkItem(t, store, "work-item")
+	createTestAction(t, store, workItemID, "action", core.ActionExec, 0)
 
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go sched.Start(ctx)
-	sched.Submit(ctx, issueID)
+	sched.Submit(ctx, workItemID)
 
 	// Wait until running.
 	waitFor(t, func() bool { return sched.RunningCount() == 1 }, 2*time.Second)
 
-	// Cancel the running issue.
-	if err := sched.Cancel(ctx, issueID); err != nil {
-		t.Fatalf("Cancel running issue: %v", err)
+	// Cancel the running work item.
+	if err := sched.Cancel(ctx, workItemID); err != nil {
+		t.Fatalf("Cancel running work item: %v", err)
 	}
 
 	// Wait for the executor to detect cancellation.
 	waitFor(t, func() bool { return cancelledByCtx.Load() }, 2*time.Second)
 }
 
-func TestIssueScheduler_Stats(t *testing.T) {
+func TestWorkItemScheduler_Stats(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	blocker := make(chan struct{})
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		<-blocker
 		return nil
 	}
 	eng := New(store, bus, executor)
 
-	issue1 := createTestIssue(t, store, "issue-1")
-	createTestStep(t, store, issue1, "step", core.StepExec, 0)
-	issue2 := createTestIssue(t, store, "issue-2")
-	createTestStep(t, store, issue2, "step", core.StepExec, 0)
+	wi1 := createTestWorkItem(t, store, "work-item-1")
+	createTestAction(t, store, wi1, "action", core.ActionExec, 0)
+	wi2 := createTestWorkItem(t, store, "work-item-2")
+	createTestAction(t, store, wi2, "action", core.ActionExec, 0)
 
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 1})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 1})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer close(blocker)
 
 	go sched.Start(ctx)
 
-	sched.Submit(ctx, issue1)
-	sched.Submit(ctx, issue2)
+	sched.Submit(ctx, wi1)
+	sched.Submit(ctx, wi2)
 
 	waitFor(t, func() bool { return sched.RunningCount() == 1 }, 2*time.Second)
 
@@ -230,87 +230,87 @@ func TestIssueScheduler_Stats(t *testing.T) {
 	}
 }
 
-func TestIssueScheduler_SubmitRejectNonOpen(t *testing.T) {
+func TestWorkItemScheduler_SubmitRejectNonOpen(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
-	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	eng := New(store, bus, func(ctx context.Context, action *core.Action, run *core.Run) error {
 		return nil
 	})
 
-	issueID := createTestIssue(t, store, "issue")
-	// Mark issue as done.
-	store.UpdateIssueStatus(context.Background(), issueID, core.IssueRunning)
-	store.UpdateIssueStatus(context.Background(), issueID, core.IssueDone)
+	workItemID := createTestWorkItem(t, store, "work-item")
+	// Mark work item as done.
+	store.UpdateWorkItemStatus(context.Background(), workItemID, core.WorkItemRunning)
+	store.UpdateWorkItemStatus(context.Background(), workItemID, core.WorkItemDone)
 
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{})
-	err := sched.Submit(context.Background(), issueID)
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{})
+	err := sched.Submit(context.Background(), workItemID)
 	if err == nil {
-		t.Fatal("expected error submitting non-open issue")
+		t.Fatal("expected error submitting non-open work item")
 	}
 }
 
-func TestIssueScheduler_QueuedTransition(t *testing.T) {
+func TestWorkItemScheduler_QueuedTransition(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 32})
 	defer sub.Cancel()
 
-	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	eng := New(store, bus, func(ctx context.Context, action *core.Action, run *core.Run) error {
 		return nil
 	})
 
-	issueID := createTestIssue(t, store, "issue")
-	createTestStep(t, store, issueID, "step", core.StepExec, 0)
+	workItemID := createTestWorkItem(t, store, "work-item")
+	createTestAction(t, store, workItemID, "action", core.ActionExec, 0)
 
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go sched.Start(ctx)
 
-	sched.Submit(ctx, issueID)
+	sched.Submit(ctx, workItemID)
 
-	// Check that issue.queued event was emitted.
+	// Check that work_item.queued event was emitted.
 	var foundQueued bool
 	timeout := time.After(2 * time.Second)
 	for !foundQueued {
 		select {
 		case ev := <-sub.C:
-			if ev.Type == core.EventIssueQueued && ev.IssueID == issueID {
+			if ev.Type == core.EventWorkItemQueued && ev.WorkItemID == workItemID {
 				foundQueued = true
 			}
 		case <-timeout:
-			t.Fatal("timeout waiting for issue.queued event")
+			t.Fatal("timeout waiting for work_item.queued event")
 		}
 	}
 }
 
 // --- helpers ---
 
-func createTestIssue(t *testing.T, store *sqlite.Store, title string) int64 {
+func createTestWorkItem(t *testing.T, store *sqlite.Store, title string) int64 {
 	t.Helper()
-	id, err := store.CreateIssue(context.Background(), &core.Issue{
+	id, err := store.CreateWorkItem(context.Background(), &core.WorkItem{
 		Title:  title,
-		Status: core.IssueOpen,
+		Status: core.WorkItemOpen,
 	})
 	if err != nil {
-		t.Fatalf("create issue: %v", err)
+		t.Fatalf("create work item: %v", err)
 	}
 	return id
 }
 
-func createTestStep(t *testing.T, store *sqlite.Store, issueID int64, name string, stepType core.StepType, position int) int64 {
+func createTestAction(t *testing.T, store *sqlite.Store, workItemID int64, name string, actionType core.ActionType, position int) int64 {
 	t.Helper()
-	id, err := store.CreateStep(context.Background(), &core.Step{
-		IssueID:  issueID,
-		Name:     name,
-		Type:     stepType,
-		Status:   core.StepPending,
-		Position: position,
+	id, err := store.CreateAction(context.Background(), &core.Action{
+		WorkItemID: workItemID,
+		Name:       name,
+		Type:       actionType,
+		Status:     core.ActionPending,
+		Position:   position,
 	})
 	if err != nil {
-		t.Fatalf("create step: %v", err)
+		t.Fatalf("create action: %v", err)
 	}
 	return id
 }

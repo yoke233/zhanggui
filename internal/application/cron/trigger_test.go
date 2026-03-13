@@ -13,68 +13,68 @@ import (
 // --- mock store ---
 
 type mockStore struct {
-	mu     sync.Mutex
-	issues map[int64]*core.Issue
-	steps  map[int64]*core.Step
-	nextID int64
+	mu         sync.Mutex
+	workItems  map[int64]*core.WorkItem
+	actions    map[int64]*core.Action
+	nextID     int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		issues: make(map[int64]*core.Issue),
-		steps:  make(map[int64]*core.Step),
+		workItems: make(map[int64]*core.WorkItem),
+		actions:   make(map[int64]*core.Action),
 	}
 }
 
-func (s *mockStore) nextIssueID() int64 {
+func (s *mockStore) nextWorkItemID() int64 {
 	s.nextID++
 	return s.nextID
 }
 
-func (s *mockStore) CreateIssue(_ context.Context, iss *core.Issue) (int64, error) {
+func (s *mockStore) CreateWorkItem(_ context.Context, wi *core.WorkItem) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := s.nextIssueID()
-	iss.ID = id
-	iss.CreatedAt = time.Now()
-	iss.UpdatedAt = time.Now()
-	clone := *iss
-	if iss.Metadata != nil {
-		clone.Metadata = make(map[string]any, len(iss.Metadata))
-		for k, v := range iss.Metadata {
+	id := s.nextWorkItemID()
+	wi.ID = id
+	wi.CreatedAt = time.Now()
+	wi.UpdatedAt = time.Now()
+	clone := *wi
+	if wi.Metadata != nil {
+		clone.Metadata = make(map[string]any, len(wi.Metadata))
+		for k, v := range wi.Metadata {
 			clone.Metadata[k] = v
 		}
 	}
-	s.issues[id] = &clone
+	s.workItems[id] = &clone
 	return id, nil
 }
 
-func (s *mockStore) GetIssue(_ context.Context, id int64) (*core.Issue, error) {
+func (s *mockStore) GetWorkItem(_ context.Context, id int64) (*core.WorkItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	iss, ok := s.issues[id]
+	wi, ok := s.workItems[id]
 	if !ok {
 		return nil, core.ErrNotFound
 	}
-	clone := *iss
+	clone := *wi
 	return &clone, nil
 }
 
-func (s *mockStore) ListIssues(_ context.Context, filter core.IssueFilter) ([]*core.Issue, error) {
+func (s *mockStore) ListWorkItems(_ context.Context, filter core.WorkItemFilter) ([]*core.WorkItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var result []*core.Issue
-	for _, iss := range s.issues {
+	var result []*core.WorkItem
+	for _, wi := range s.workItems {
 		if filter.Archived != nil {
-			isArchived := iss.ArchivedAt != nil
+			isArchived := wi.ArchivedAt != nil
 			if *filter.Archived != isArchived {
 				continue
 			}
 		}
-		if filter.Status != nil && iss.Status != *filter.Status {
+		if filter.Status != nil && wi.Status != *filter.Status {
 			continue
 		}
-		result = append(result, iss)
+		result = append(result, wi)
 	}
 	if filter.Offset > 0 && filter.Offset < len(result) {
 		result = result[filter.Offset:]
@@ -87,104 +87,112 @@ func (s *mockStore) ListIssues(_ context.Context, filter core.IssueFilter) ([]*c
 	return result, nil
 }
 
-func (s *mockStore) UpdateIssue(_ context.Context, iss *core.Issue) error {
+func (s *mockStore) UpdateWorkItem(_ context.Context, wi *core.WorkItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	clone := *iss
-	s.issues[iss.ID] = &clone
+	clone := *wi
+	s.workItems[wi.ID] = &clone
 	return nil
 }
 
-func (s *mockStore) UpdateIssueStatus(_ context.Context, id int64, status core.IssueStatus) error {
+func (s *mockStore) UpdateWorkItemStatus(_ context.Context, id int64, status core.WorkItemStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	iss, ok := s.issues[id]
+	wi, ok := s.workItems[id]
 	if !ok {
 		return core.ErrNotFound
 	}
-	iss.Status = status
+	wi.Status = status
 	return nil
 }
 
-func (s *mockStore) UpdateIssueMetadata(_ context.Context, id int64, metadata map[string]any) error {
+func (s *mockStore) UpdateWorkItemMetadata(_ context.Context, id int64, metadata map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	iss, ok := s.issues[id]
+	wi, ok := s.workItems[id]
 	if !ok {
 		return core.ErrNotFound
 	}
-	iss.Metadata = make(map[string]any, len(metadata))
+	wi.Metadata = make(map[string]any, len(metadata))
 	for k, v := range metadata {
-		iss.Metadata[k] = v
+		wi.Metadata[k] = v
 	}
 	return nil
 }
 
-func (s *mockStore) PrepareIssueRun(_ context.Context, id int64, _ core.IssueStatus) error {
+func (s *mockStore) PrepareWorkItemRun(_ context.Context, id int64, _ core.WorkItemStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.issues[id]
+	_, ok := s.workItems[id]
 	if !ok {
 		return core.ErrNotFound
 	}
 	return nil
 }
 
-func (s *mockStore) SetIssueArchived(_ context.Context, _ int64, _ bool) error {
+func (s *mockStore) SetWorkItemArchived(_ context.Context, _ int64, _ bool) error {
 	return nil
 }
 
-func (s *mockStore) DeleteIssue(_ context.Context, _ int64) error {
+func (s *mockStore) DeleteWorkItem(_ context.Context, _ int64) error {
 	return nil
 }
 
-func (s *mockStore) CreateStep(_ context.Context, step *core.Step) (int64, error) {
+func (s *mockStore) CreateAction(_ context.Context, action *core.Action) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	id := s.nextIssueID()
-	step.ID = id
-	clone := *step
-	s.steps[id] = &clone
+	id := s.nextWorkItemID()
+	action.ID = id
+	clone := *action
+	s.actions[id] = &clone
 	return id, nil
 }
 
-func (s *mockStore) GetStep(_ context.Context, id int64) (*core.Step, error) {
+func (s *mockStore) GetAction(_ context.Context, id int64) (*core.Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	step, ok := s.steps[id]
+	action, ok := s.actions[id]
 	if !ok {
 		return nil, core.ErrNotFound
 	}
-	clone := *step
+	clone := *action
 	return &clone, nil
 }
 
-func (s *mockStore) ListStepsByIssue(_ context.Context, issueID int64) ([]*core.Step, error) {
+func (s *mockStore) ListActionsByWorkItem(_ context.Context, workItemID int64) ([]*core.Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var result []*core.Step
-	for _, step := range s.steps {
-		if step.IssueID == issueID {
-			clone := *step
+	var result []*core.Action
+	for _, action := range s.actions {
+		if action.WorkItemID == workItemID {
+			clone := *action
 			result = append(result, &clone)
 		}
 	}
 	return result, nil
 }
 
-func (s *mockStore) UpdateStepStatus(_ context.Context, _ int64, _ core.StepStatus) error {
+func (s *mockStore) UpdateActionStatus(_ context.Context, _ int64, _ core.ActionStatus) error {
 	return nil
 }
 
-func (s *mockStore) UpdateStep(_ context.Context, step *core.Step) error {
+func (s *mockStore) UpdateAction(_ context.Context, action *core.Action) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	clone := *step
-	s.steps[step.ID] = &clone
+	clone := *action
+	s.actions[action.ID] = &clone
 	return nil
 }
 
-func (s *mockStore) DeleteStep(_ context.Context, _ int64) error {
+func (s *mockStore) DeleteAction(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (s *mockStore) BatchCreateActions(_ context.Context, _ []*core.Action) error {
+	return nil
+}
+
+func (s *mockStore) UpdateActionDependsOn(_ context.Context, _ int64, _ []int64) error {
 	return nil
 }
 
@@ -195,10 +203,10 @@ type mockScheduler struct {
 	submitted []int64
 }
 
-func (s *mockScheduler) Submit(_ context.Context, issueID int64) error {
+func (s *mockScheduler) Submit(_ context.Context, workItemID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.submitted = append(s.submitted, issueID)
+	s.submitted = append(s.submitted, workItemID)
 	return nil
 }
 
@@ -235,23 +243,23 @@ func createTemplate(t *testing.T, store *mockStore, name, cronExpr string, maxIn
 	if maxInst > 0 {
 		meta[MetaMaxInstances] = strconv.Itoa(maxInst)
 	}
-	id, err := store.CreateIssue(context.Background(), &core.Issue{
+	id, err := store.CreateWorkItem(context.Background(), &core.WorkItem{
 		Title:    name,
-		Status:   core.IssueOpen,
+		Status:   core.WorkItemOpen,
 		Metadata: meta,
 	})
 	if err != nil {
 		t.Fatalf("create template: %v", err)
 	}
-	// Add a step so clone has something to copy.
-	_, err = store.CreateStep(context.Background(), &core.Step{
-		IssueID: id,
-		Name:    "step-1",
-		Type:    core.StepExec,
-		Status:  core.StepPending,
+	// Add an action so clone has something to copy.
+	_, err = store.CreateAction(context.Background(), &core.Action{
+		WorkItemID: id,
+		Name:       "action-1",
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 	})
 	if err != nil {
-		t.Fatalf("create step: %v", err)
+		t.Fatalf("create action: %v", err)
 	}
 	return id
 }
@@ -294,8 +302,8 @@ func TestTrigger_FiresOnSchedule(t *testing.T) {
 	}
 
 	// Verify lastTriggered was persisted.
-	iss, _ := store.GetIssue(ctx, templateID)
-	if metaString(iss.Metadata, MetaLastTriggered) == "" {
+	wi, _ := store.GetWorkItem(ctx, templateID)
+	if metaString(wi.Metadata, MetaLastTriggered) == "" {
 		t.Error("expected lastTriggered to be persisted")
 	}
 }
@@ -308,11 +316,11 @@ func TestTrigger_RespectsMaxInstances(t *testing.T) {
 	templateID := createTemplate(t, store, "daily", "0 8 * * *", 1)
 
 	// Create an active clone of this template (simulating already running).
-	store.CreateIssue(context.Background(), &core.Issue{
+	store.CreateWorkItem(context.Background(), &core.WorkItem{
 		Title:  "daily [cron clone]",
-		Status: core.IssueRunning,
+		Status: core.WorkItemRunning,
 		Metadata: map[string]any{
-			MetaSourceIssueID: strconv.FormatInt(templateID, 10),
+			MetaSourceWorkItemID: strconv.FormatInt(templateID, 10),
 		},
 	})
 
@@ -344,11 +352,11 @@ func TestTrigger_MaxInstancesAllowsMore(t *testing.T) {
 
 	// Create 2 active clones — maxInst is 3, so one more should be allowed.
 	for i := 0; i < 2; i++ {
-		store.CreateIssue(context.Background(), &core.Issue{
+		store.CreateWorkItem(context.Background(), &core.WorkItem{
 			Title:  "daily [clone]",
-			Status: core.IssueRunning,
+			Status: core.WorkItemRunning,
 			Metadata: map[string]any{
-				MetaSourceIssueID: strconv.FormatInt(templateID, 10),
+				MetaSourceWorkItemID: strconv.FormatInt(templateID, 10),
 			},
 		})
 	}
@@ -406,7 +414,7 @@ func TestTrigger_DoesNotFireBeforeSchedule(t *testing.T) {
 	}
 }
 
-func TestTrigger_ClonesSteps(t *testing.T) {
+func TestTrigger_ClonesActions(t *testing.T) {
 	store := newMockStore()
 	sched := &mockScheduler{}
 	bus := &mockBus{}
@@ -431,14 +439,14 @@ func TestTrigger_ClonesSteps(t *testing.T) {
 		t.Fatalf("expected 1 submission, got %d", len(submitted))
 	}
 
-	// The cloned issue should have steps.
+	// The cloned work item should have actions.
 	cloneID := submitted[0]
-	steps, err := store.ListStepsByIssue(ctx, cloneID)
+	actions, err := store.ListActionsByWorkItem(ctx, cloneID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(steps) != 1 {
-		t.Errorf("expected 1 cloned step, got %d", len(steps))
+	if len(actions) != 1 {
+		t.Errorf("expected 1 cloned action, got %d", len(actions))
 	}
 }
 
@@ -450,10 +458,10 @@ func TestTrigger_LoadTemplatesFilters(t *testing.T) {
 	// Create a template (should be found).
 	createTemplate(t, store, "template", "0 8 * * *", 1)
 
-	// Create a normal issue (should NOT be found).
-	store.CreateIssue(context.Background(), &core.Issue{
-		Title:  "normal-issue",
-		Status: core.IssueOpen,
+	// Create a normal work item (should NOT be found).
+	store.CreateWorkItem(context.Background(), &core.WorkItem{
+		Title:  "normal-workitem",
+		Status: core.WorkItemOpen,
 	})
 
 	trigger := New(store, sched, bus, Config{Enabled: true})

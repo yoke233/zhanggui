@@ -36,7 +36,7 @@ func (f *fakeLeadRegistry) ListProfiles(context.Context) ([]*core.AgentProfile, 
 func (f *fakeLeadRegistry) CreateProfile(context.Context, *core.AgentProfile) error { return nil }
 func (f *fakeLeadRegistry) UpdateProfile(context.Context, *core.AgentProfile) error { return nil }
 func (f *fakeLeadRegistry) DeleteProfile(context.Context, string) error             { return nil }
-func (f *fakeLeadRegistry) ResolveForStep(context.Context, *core.Step) (*core.AgentProfile, *core.AgentDriver, error) {
+func (f *fakeLeadRegistry) ResolveForAction(context.Context, *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
 	return f.profile, f.driver, nil
 }
 func (f *fakeLeadRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, *core.AgentDriver, error) {

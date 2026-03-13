@@ -179,11 +179,11 @@ export function UsagePage() {
               <ArrowDownUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{data.totals.execution_count}</div>
+              <div className="text-2xl font-bold">{data.totals.run_count}</div>
               <p className="text-xs text-muted-foreground">
                 {t("usage.avgTokensPerExec", {
-                  tokens: data.totals.execution_count > 0
-                    ? formatTokens(Math.round(data.totals.total_tokens / data.totals.execution_count))
+                  tokens: data.totals.run_count > 0
+                    ? formatTokens(Math.round(data.totals.total_tokens / data.totals.run_count))
                     : "0",
                 })}
               </p>
@@ -251,7 +251,7 @@ export function UsagePage() {
                   data.by_project.map((p) => (
                     <TableRow key={p.project_id}>
                       <TableCell className="font-medium">{p.project_name}</TableCell>
-                      <TableCell>{p.execution_count}</TableCell>
+                      <TableCell>{p.run_count}</TableCell>
                       <TableCell className="text-blue-600">{formatTokens(p.input_tokens)}</TableCell>
                       <TableCell className="text-emerald-600">{formatTokens(p.output_tokens)}</TableCell>
                       <TableCell>
@@ -297,7 +297,7 @@ export function UsagePage() {
                     <TableRow key={`${a.agent_id}-${a.project_id ?? 0}-${i}`}>
                       <TableCell className="font-medium font-mono text-xs">{a.agent_id}</TableCell>
                       <TableCell className="text-muted-foreground">{a.project_name || "-"}</TableCell>
-                      <TableCell>{a.execution_count}</TableCell>
+                      <TableCell>{a.run_count}</TableCell>
                       <TableCell className="text-blue-600">{formatTokens(a.input_tokens)}</TableCell>
                       <TableCell className="text-emerald-600">{formatTokens(a.output_tokens)}</TableCell>
                       <TableCell>
@@ -349,7 +349,7 @@ export function UsagePage() {
                     <TableCell className="font-medium font-mono text-xs">{p.profile_id}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{p.agent_id}</TableCell>
                     <TableCell className="text-muted-foreground">{p.project_name || "-"}</TableCell>
-                    <TableCell>{p.execution_count}</TableCell>
+                    <TableCell>{p.run_count}</TableCell>
                     <TableCell className="text-blue-600">{formatTokens(p.input_tokens)}</TableCell>
                     <TableCell className="text-emerald-600">{formatTokens(p.output_tokens)}</TableCell>
                     <TableCell className="text-purple-600">{formatTokens(p.cache_read_tokens)}</TableCell>

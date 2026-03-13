@@ -32,9 +32,9 @@ type AgentRegistry interface {
 	DeleteProfile(ctx context.Context, id string) error
 
 	// Resolution
-	// ResolveForStep picks the best profile matching the step's AgentRole + RequiredCapabilities,
+	// ResolveForAction picks the best profile matching the action's AgentRole + RequiredCapabilities,
 	// and returns the resolved profile together with its driver.
-	ResolveForStep(ctx context.Context, step *Step) (*AgentProfile, *AgentDriver, error)
+	ResolveForAction(ctx context.Context, action *Action) (*AgentProfile, *AgentDriver, error)
 
 	// ResolveByID returns a specific profile and its driver by profile ID.
 	ResolveByID(ctx context.Context, profileID string) (*AgentProfile, *AgentDriver, error)

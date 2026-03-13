@@ -12,21 +12,20 @@ import (
 type Store interface {
 	core.ProjectStore
 	core.ResourceBindingStore
-	core.IssueStore
+	core.WorkItemStore
 	core.ThreadStore
-	core.StepStore
-	core.ExecutionStore
-	core.ArtifactStore
-	core.BriefingStore
+	core.ActionStore
+	core.RunStore
+	core.DeliverableStore
 	core.AgentContextStore
 	core.EventStore
-	core.ExecutionProbeStore
+	core.RunProbeStore
 	core.AnalyticsStore
 	core.DAGTemplateStore
 	core.UsageStore
 	core.FeatureManifestStore
-	core.StepSignalStore
-	core.IssueAttachmentStore
+	core.ActionSignalStore
+	core.WorkItemAttachmentStore
 	core.NotificationStore
 	Close() error
 }
@@ -56,7 +55,7 @@ type LeadChatService interface {
 // DAGGenerator is the planning contract required by the HTTP adapter.
 type DAGGenerator interface {
 	Generate(ctx context.Context, taskDescription string) (*planningapp.GeneratedDAG, error)
-	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Step, error)
+	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Action, error)
 }
 
 // TextCompleter generates free-form text from a prompt (used for title generation, etc.).

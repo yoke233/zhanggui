@@ -304,8 +304,8 @@ func TestAPI_WebSocket_UnsubscribeThread(t *testing.T) {
 
 	// Publish a non-thread event to confirm connection is still alive.
 	h.bus.Publish(context.Background(), core.Event{
-		Type:      core.EventIssueStarted,
-		IssueID:   42,
+		Type:      core.EventWorkItemStarted,
+		WorkItemID: 42,
 		Timestamp: time.Now().UTC(),
 	})
 
@@ -318,7 +318,7 @@ func TestAPI_WebSocket_UnsubscribeThread(t *testing.T) {
 	if ev.Type == core.EventThreadMessage {
 		t.Fatal("received thread.message after unsubscribing")
 	}
-	if ev.Type != core.EventIssueStarted {
+	if ev.Type != core.EventWorkItemStarted {
 		t.Fatalf("expected issue.started, got %s", ev.Type)
 	}
 }

@@ -3,29 +3,25 @@ package flow
 import (
 	"strings"
 	"testing"
-
-	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestRenderBriefingSnapshot_IncludesContextRefs(t *testing.T) {
-	briefing := &core.Briefing{
-		Objective: "Review and update the implementation.",
-		ContextRefs: []core.ContextRef{
-			{
-				Type:   core.CtxUpstreamArtifact,
-				RefID:  101,
-				Label:  "implement output",
-				Inline: "Ran `go test ./...` and updated README.md.",
-			},
-			{
-				Type:   core.CtxUpstreamArtifact,
-				RefID:  102,
-				Inline: "Opened PR #12.",
-			},
+func TestRenderInputSnapshot_IncludesContextRefs(t *testing.T) {
+	objective := "Review and update the implementation."
+	contextRefs := []ContextRef{
+		{
+			Type:   CtxUpstreamArtifact,
+			RefID:  101,
+			Label:  "implement output",
+			Inline: "Ran `go test ./...` and updated README.md.",
+		},
+		{
+			Type:   CtxUpstreamArtifact,
+			RefID:  102,
+			Inline: "Opened PR #12.",
 		},
 	}
 
-	got := renderBriefingSnapshot(briefing)
+	got := renderInputSnapshot(objective, contextRefs)
 	if !strings.Contains(got, "Review and update the implementation.") {
 		t.Fatalf("expected objective in snapshot, got: %q", got)
 	}
@@ -43,24 +39,21 @@ func TestRenderBriefingSnapshot_IncludesContextRefs(t *testing.T) {
 	}
 }
 
-func TestRenderBriefingSnapshot_RespectsTotalBudget(t *testing.T) {
-	longObjective := strings.Repeat("o", maxBriefingTotalChars+500)
-	longRef := strings.Repeat("x", maxBriefingRefChars+500)
-	briefing := &core.Briefing{
-		Objective: longObjective,
-		ContextRefs: []core.ContextRef{
-			{
-				Type:   core.CtxUpstreamArtifact,
-				RefID:  201,
-				Label:  "upstream",
-				Inline: longRef,
-			},
+func TestRenderInputSnapshot_RespectsTotalBudget(t *testing.T) {
+	longObjective := strings.Repeat("o", maxInputTotalChars+500)
+	longRef := strings.Repeat("x", maxInputRefChars+500)
+	contextRefs := []ContextRef{
+		{
+			Type:   CtxUpstreamArtifact,
+			RefID:  201,
+			Label:  "upstream",
+			Inline: longRef,
 		},
 	}
 
-	got := renderBriefingSnapshot(briefing)
-	if len(got) > maxBriefingTotalChars {
-		t.Fatalf("snapshot length=%d exceeds budget=%d", len(got), maxBriefingTotalChars)
+	got := renderInputSnapshot(longObjective, contextRefs)
+	if len(got) > maxInputTotalChars {
+		t.Fatalf("snapshot length=%d exceeds budget=%d", len(got), maxInputTotalChars)
 	}
 	if strings.Contains(got, "# Context") {
 		t.Fatalf("expected no context when objective already exhausted budget, got length=%d", len(got))
@@ -69,4 +62,3 @@ func TestRenderBriefingSnapshot_RespectsTotalBudget(t *testing.T) {
 		t.Fatalf("expected truncated marker in snapshot, got: %q", got)
 	}
 }
-

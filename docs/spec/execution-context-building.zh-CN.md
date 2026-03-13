@@ -1,5 +1,11 @@
 # 执行上下文构建流程
 
+> 状态：现行
+>
+> 最后按代码核对：2026-03-13
+>
+> 当前实现状态：本文描述的是当前已落地的 Step briefing 组装主链。对外产品语义虽然逐步统一为 `Work Item`，但内部实现仍以 `IssueEngine`、`Issue`、`Step` 为主；后端 REST 现状仍是 `/issues/*`。
+
 ## 概述
 
 Step 执行时，上下文通过 `IssueEngine` 的三阶段管道（Prepare → Execute → Finalize）逐层组装，最终以 Markdown 形式发送给 Agent。

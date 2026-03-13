@@ -228,6 +228,10 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE issues ADD COLUMN archived_at DATETIME`,
 		// Step migration: add position column.
 		`ALTER TABLE steps ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+		// Step migration: add depends_on column (JSON array of predecessor step IDs).
+		`ALTER TABLE steps ADD COLUMN depends_on TEXT`,
+		// Step migration: add input column (assembled run input text).
+		`ALTER TABLE steps ADD COLUMN input TEXT`,
 		// Column renames (SQLite 3.25+): flow_id → issue_id across tables.
 		`ALTER TABLE steps RENAME COLUMN flow_id TO issue_id`,
 		`ALTER TABLE executions RENAME COLUMN flow_id TO issue_id`,
@@ -390,8 +394,8 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_manifest ON feature_entries(manifest_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_status ON feature_entries(manifest_id, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_issue ON feature_entries(issue_id)`,
-		// step_signals table (explicit agent/human declarations about step outcomes).
-		`CREATE TABLE IF NOT EXISTS step_signals (
+		// action_signals table (explicit agent/human declarations about step outcomes).
+		`CREATE TABLE IF NOT EXISTS action_signals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             step_id INTEGER NOT NULL REFERENCES steps(id),
             issue_id INTEGER NOT NULL,
@@ -402,15 +406,15 @@ func runMigrations(db *sql.DB) error {
             actor TEXT NOT NULL DEFAULT '',
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-		`CREATE INDEX IF NOT EXISTS idx_step_signals_step ON step_signals(step_id, id)`,
-		`CREATE INDEX IF NOT EXISTS idx_step_signals_exec ON step_signals(exec_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_action_signals_step ON action_signals(step_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_action_signals_exec ON action_signals(exec_id)`,
 		// Step signals: new columns for unified interaction records.
-		`ALTER TABLE step_signals ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE step_signals ADD COLUMN content TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE step_signals ADD COLUMN source_step_id INTEGER`,
-		`CREATE INDEX IF NOT EXISTS idx_step_signals_type ON step_signals(step_id, type)`,
-		// issue_attachments table (file attachments for issues).
-		`CREATE TABLE IF NOT EXISTS issue_attachments (
+		`ALTER TABLE action_signals ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE action_signals ADD COLUMN content TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE action_signals ADD COLUMN source_step_id INTEGER`,
+		`CREATE INDEX IF NOT EXISTS idx_action_signals_type ON action_signals(step_id, type)`,
+		// work_item_attachments table (file attachments for issues).
+		`CREATE TABLE IF NOT EXISTS work_item_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
             file_name TEXT NOT NULL,
@@ -419,7 +423,7 @@ func runMigrations(db *sql.DB) error {
             size INTEGER NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-		`CREATE INDEX IF NOT EXISTS idx_issue_attachments_issue ON issue_attachments(issue_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_work_item_attachments_issue ON work_item_attachments(issue_id)`,
 		// notifications table (user-facing notification center).
 		`CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -460,14 +464,14 @@ func runMigrations(db *sql.DB) error {
 	}
 
 	// One-time data migration: convert legacy Config rework_history / blocked_type
-	// into StepSignal records. Idempotent — skips steps that already have signals.
+	// into ActionSignal records. Idempotent — skips steps that already have signals.
 	migrateConfigToSignals(db)
 
 	return nil
 }
 
 // migrateConfigToSignals scans steps with rework_history or blocked_type in Config
-// and creates corresponding StepSignal records. Idempotent: skips if signals exist.
+// and creates corresponding ActionSignal records. Idempotent: skips if signals exist.
 func migrateConfigToSignals(db *sql.DB) {
 	rows, err := db.Query(`SELECT id, issue_id, config FROM steps WHERE config IS NOT NULL AND config != '' AND config != '{}'`)
 	if err != nil {
@@ -489,7 +493,7 @@ func migrateConfigToSignals(db *sql.DB) {
 
 		// Check if this step already has feedback/context signals (idempotent guard).
 		var existingCount int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM step_signals WHERE step_id = ? AND type IN ('feedback','context')`, stepID).Scan(&existingCount); err == nil && existingCount > 0 {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM action_signals WHERE step_id = ? AND type IN ('feedback','context')`, stepID).Scan(&existingCount); err == nil && existingCount > 0 {
 			continue
 		}
 
@@ -525,7 +529,7 @@ func migrateConfigToSignals(db *sql.DB) {
 				entryJSON, _ := json.Marshal(m)
 
 				_, _ = db.Exec(
-					`INSERT INTO step_signals (step_id, issue_id, type, source, summary, content, source_step_id, payload, actor, created_at) VALUES (?, ?, 'feedback', 'system', ?, ?, ?, ?, 'gate', ?)`,
+					`INSERT INTO action_signals (step_id, issue_id, type, source, summary, content, source_step_id, payload, actor, created_at) VALUES (?, ?, 'feedback', 'system', ?, ?, ?, ?, 'gate', ?)`,
 					stepID, issueID, reason, reason, sourceStepID, string(entryJSON), createdAt,
 				)
 			}
@@ -560,7 +564,7 @@ func migrateConfigToSignals(db *sql.DB) {
 			}
 			payloadJSON, _ := json.Marshal(blockedPayload)
 			_, _ = db.Exec(
-				`INSERT INTO step_signals (step_id, issue_id, type, source, summary, content, payload, actor, created_at) VALUES (?, ?, 'context', 'system', 'merge_conflict', ?, ?, 'system', ?)`,
+				`INSERT INTO action_signals (step_id, issue_id, type, source, summary, content, payload, actor, created_at) VALUES (?, ?, 'context', 'system', 'merge_conflict', ?, ?, 'system', ?)`,
 				stepID, issueID, blockedReason, string(payloadJSON), blockedAt,
 			)
 		}

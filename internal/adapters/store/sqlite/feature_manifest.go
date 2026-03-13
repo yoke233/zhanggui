@@ -186,8 +186,8 @@ func (s *Store) ListFeatureEntries(ctx context.Context, filter core.FeatureEntry
 	if filter.Status != nil {
 		query = query.Where("status = ?", string(*filter.Status))
 	}
-	if filter.IssueID != nil {
-		query = query.Where("issue_id = ?", *filter.IssueID)
+	if filter.WorkItemID != nil {
+		query = query.Where("issue_id = ?", *filter.WorkItemID)
 	}
 	// Tags filter: match entries whose JSON tags column contains ALL requested tags.
 	for _, tag := range filter.Tags {

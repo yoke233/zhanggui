@@ -1,16 +1,16 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import SystemEventBanner from "@/components/SystemEventBanner";
 import { WorkbenchProvider, useWorkbench } from "@/contexts/WorkbenchContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AgentsPage } from "@/pages/AgentsPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ChatPage } from "@/pages/ChatPage";
-import { CreateIssuePage } from "@/pages/CreateFlowPage";
+import { CreateWorkItemPage } from "@/pages/CreateWorkItemPage";
 import { CreateProjectPage } from "@/pages/CreateProjectPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
-import { IssueDetailPage } from "@/pages/FlowDetailPage";
-import { IssuesPage } from "@/pages/FlowsPage";
+import { WorkItemDetailPage } from "@/pages/WorkItemDetailPage";
+import { WorkItemsPage } from "@/pages/WorkItemsPage";
 import { FeatureManifestPage } from "@/pages/FeatureManifestPage";
 import { GitTagsPage } from "@/pages/GitTagsPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -36,6 +36,18 @@ const App = (_props: AppProps = {}) => {
   );
 };
 
+const LegacyWorkItemRedirect = ({ target }: { target: "detail" | "list" | "new" }) => {
+  const { workItemId } = useParams();
+
+  if (target === "new") {
+    return <Navigate to="/work-items/new" replace />;
+  }
+  if (target === "detail" && workItemId) {
+    return <Navigate to={`/work-items/${workItemId}`} replace />;
+  }
+  return <Navigate to="/work-items" replace />;
+};
+
 const WorkbenchRoutes = () => {
   const { authStatus, authError, wsClient, login } = useWorkbench();
 
@@ -59,17 +71,17 @@ const WorkbenchRoutes = () => {
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
           {/* Work Items (primary entry) */}
-          <Route path="/work-items" element={<IssuesPage />} />
-          <Route path="/work-items/new" element={<CreateIssuePage />} />
-          <Route path="/work-items/:flowId" element={<IssueDetailPage />} />
+          <Route path="/work-items" element={<WorkItemsPage />} />
+          <Route path="/work-items/new" element={<CreateWorkItemPage />} />
+          <Route path="/work-items/:workItemId" element={<WorkItemDetailPage />} />
           {/* Legacy /issues routes redirect to /work-items */}
-          <Route path="/issues" element={<Navigate to="/work-items" replace />} />
-          <Route path="/issues/new" element={<Navigate to="/work-items/new" replace />} />
-          <Route path="/issues/:flowId" element={<Navigate to="/work-items" replace />} />
+          <Route path="/issues" element={<LegacyWorkItemRedirect target="list" />} />
+          <Route path="/issues/new" element={<LegacyWorkItemRedirect target="new" />} />
+          <Route path="/issues/:workItemId" element={<LegacyWorkItemRedirect target="detail" />} />
           {/* Legacy /flows routes redirect to /work-items */}
-          <Route path="/flows" element={<Navigate to="/work-items" replace />} />
-          <Route path="/flows/new" element={<Navigate to="/work-items/new" replace />} />
-          <Route path="/flows/:flowId" element={<Navigate to="/work-items" replace />} />
+          <Route path="/flows" element={<LegacyWorkItemRedirect target="list" />} />
+          <Route path="/flows/new" element={<LegacyWorkItemRedirect target="new" />} />
+          <Route path="/flows/:workItemId" element={<LegacyWorkItemRedirect target="detail" />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />

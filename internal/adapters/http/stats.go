@@ -21,7 +21,7 @@ func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issues, err := listAllIssues(r.Context(), h.store)
+	issues, err := listAllWorkItems(r.Context(), h.store)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -39,11 +39,11 @@ func (h *Handler) getStats(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		switch iss.Status {
-		case core.IssueOpen, core.IssueQueued, core.IssueRunning, core.IssueBlocked:
+		case core.WorkItemOpen, core.WorkItemQueued, core.WorkItemRunning, core.WorkItemBlocked:
 			active++
-		case core.IssueDone, core.IssueFailed, core.IssueCancelled:
+		case core.WorkItemDone, core.WorkItemFailed, core.WorkItemCancelled:
 			finished++
-			if iss.Status == core.IssueDone {
+			if iss.Status == core.WorkItemDone {
 				success++
 			}
 			if !iss.CreatedAt.IsZero() && !iss.UpdatedAt.IsZero() && iss.UpdatedAt.After(iss.CreatedAt) {
@@ -87,13 +87,13 @@ func (h *Handler) getSchedulerStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func listAllIssues(ctx context.Context, store core.IssueStore) ([]*core.Issue, error) {
+func listAllWorkItems(ctx context.Context, store core.WorkItemStore) ([]*core.WorkItem, error) {
 	const pageSize = 500
 	offset := 0
-	var out []*core.Issue
+	var out []*core.WorkItem
 
 	for {
-		page, err := store.ListIssues(ctx, core.IssueFilter{
+		page, err := store.ListWorkItems(ctx, core.WorkItemFilter{
 			Limit:  pageSize,
 			Offset: offset,
 		})
@@ -101,7 +101,7 @@ func listAllIssues(ctx context.Context, store core.IssueStore) ([]*core.Issue, e
 			return nil, err
 		}
 		if page == nil {
-			page = []*core.Issue{}
+			page = []*core.WorkItem{}
 		}
 		out = append(out, page...)
 		if len(page) < pageSize {

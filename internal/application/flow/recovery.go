@@ -8,99 +8,109 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// RecoverInterruptedIssues scans the store for issues that were running or queued
-// when the process last stopped, resets their in-progress steps, and re-submits
+// RecoverInterruptedWorkItems scans the store for work items that were running or queued
+// when the process last stopped, resets their in-progress actions, and re-submits
 // them to the scheduler for execution.
 //
 // Call this once during bootstrap, after the scheduler has been started.
-func RecoverInterruptedIssues(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
-	return recoverIssuesByStatus(ctx, store, scheduler, []core.IssueStatus{core.IssueQueued, core.IssueRunning})
+func RecoverInterruptedWorkItems(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return recoverWorkItemsByStatus(ctx, store, scheduler, []core.WorkItemStatus{core.WorkItemQueued, core.WorkItemRunning})
 }
 
-// RecoverQueuedIssues re-enqueues issues that were queued before the process stopped.
-func RecoverQueuedIssues(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
-	return recoverIssuesByStatus(ctx, store, scheduler, []core.IssueStatus{core.IssueQueued})
+// RecoverQueuedWorkItems re-enqueues work items that were queued before the process stopped.
+func RecoverQueuedWorkItems(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return recoverWorkItemsByStatus(ctx, store, scheduler, []core.WorkItemStatus{core.WorkItemQueued})
+}
+
+// RecoverInterruptedIssues is an alias for backward compatibility.
+func RecoverInterruptedIssues(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return RecoverInterruptedWorkItems(ctx, store, scheduler)
 }
 
 // RecoverInterruptedFlows is an alias for backward compatibility.
-func RecoverInterruptedFlows(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
-	return RecoverInterruptedIssues(ctx, store, scheduler)
+func RecoverInterruptedFlows(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return RecoverInterruptedWorkItems(ctx, store, scheduler)
+}
+
+// RecoverQueuedIssues is an alias for backward compatibility.
+func RecoverQueuedIssues(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return RecoverQueuedWorkItems(ctx, store, scheduler)
 }
 
 // RecoverQueuedFlows is an alias for backward compatibility.
-func RecoverQueuedFlows(ctx context.Context, store Store, scheduler *IssueScheduler) (int, error) {
-	return RecoverQueuedIssues(ctx, store, scheduler)
+func RecoverQueuedFlows(ctx context.Context, store Store, scheduler *WorkItemScheduler) (int, error) {
+	return RecoverQueuedWorkItems(ctx, store, scheduler)
 }
 
-func recoverIssuesByStatus(ctx context.Context, store Store, scheduler *IssueScheduler, statuses []core.IssueStatus) (int, error) {
+func recoverWorkItemsByStatus(ctx context.Context, store Store, scheduler *WorkItemScheduler, statuses []core.WorkItemStatus) (int, error) {
 	recovered := 0
 
 	for _, status := range statuses {
-		issues, err := store.ListIssues(ctx, core.IssueFilter{Status: &status, Limit: 1000})
+		workItems, err := store.ListWorkItems(ctx, core.WorkItemFilter{Status: &status, Limit: 1000})
 		if err != nil {
-			return recovered, fmt.Errorf("list %s issues: %w", status, err)
+			return recovered, fmt.Errorf("list %s work items: %w", status, err)
 		}
 
-		for _, issue := range issues {
-			if err := recoverIssue(ctx, store, scheduler, issue); err != nil {
-				slog.Error("recovery: failed to recover issue", "issue_id", issue.ID, "status", issue.Status, "error", err)
+		for _, wi := range workItems {
+			if err := recoverWorkItem(ctx, store, scheduler, wi); err != nil {
+				slog.Error("recovery: failed to recover work item", "work_item_id", wi.ID, "status", wi.Status, "error", err)
 				continue
 			}
 			recovered++
-			slog.Info("recovery: re-queued issue", "issue_id", issue.ID, "original_status", issue.Status)
+			slog.Info("recovery: re-queued work item", "work_item_id", wi.ID, "original_status", wi.Status)
 		}
 	}
 
 	return recovered, nil
 }
 
-// recoverIssue resets a single interrupted issue so it can be re-executed.
-func recoverIssue(ctx context.Context, store Store, scheduler *IssueScheduler, issue *core.Issue) error {
-	// Reset in-progress steps back to pending.
-	steps, err := store.ListStepsByIssue(ctx, issue.ID)
+// recoverWorkItem resets a single interrupted work item so it can be re-executed.
+func recoverWorkItem(ctx context.Context, store Store, scheduler *WorkItemScheduler, workItem *core.WorkItem) error {
+	// Reset in-progress actions back to pending.
+	actions, err := store.ListActionsByWorkItem(ctx, workItem.ID)
 	if err != nil {
-		return fmt.Errorf("list steps for issue %d: %w", issue.ID, err)
+		return fmt.Errorf("list actions for work item %d: %w", workItem.ID, err)
 	}
 
-	for _, step := range steps {
-		switch step.Status {
-		case core.StepRunning, core.StepWaitingGate:
+	for _, action := range actions {
+		switch action.Status {
+		case core.ActionRunning, core.ActionWaitingGate:
 			// These were mid-execution when the process died. Reset to pending
 			// so they will be re-dispatched.
-			if err := store.UpdateStepStatus(ctx, step.ID, core.StepPending); err != nil {
-				return fmt.Errorf("reset step %d: %w", step.ID, err)
+			if err := store.UpdateActionStatus(ctx, action.ID, core.ActionPending); err != nil {
+				return fmt.Errorf("reset action %d: %w", action.ID, err)
 			}
-			slog.Info("recovery: reset step to pending", "step_id", step.ID, "was", step.Status)
-		case core.StepReady:
+			slog.Info("recovery: reset action to pending", "action_id", action.ID, "was", action.Status)
+		case core.ActionReady:
 			// Ready but not started — reset to pending so promotion re-evaluates.
-			if err := store.UpdateStepStatus(ctx, step.ID, core.StepPending); err != nil {
-				return fmt.Errorf("reset step %d: %w", step.ID, err)
+			if err := store.UpdateActionStatus(ctx, action.ID, core.ActionPending); err != nil {
+				return fmt.Errorf("reset action %d: %w", action.ID, err)
 			}
 		}
-		// StepDone, StepFailed, StepCancelled, StepPending, StepBlocked — keep as-is.
+		// ActionDone, ActionFailed, ActionCancelled, ActionPending, ActionBlocked — keep as-is.
 	}
 
-	// Also cancel any running executions (they are stale from the old process).
-	for _, step := range steps {
-		execs, err := store.ListExecutionsByStep(ctx, step.ID)
+	// Also cancel any running runs (they are stale from the old process).
+	for _, action := range actions {
+		runs, err := store.ListRunsByAction(ctx, action.ID)
 		if err != nil {
 			continue
 		}
-		for _, exec := range execs {
-			if exec.Status == core.ExecRunning || exec.Status == core.ExecCreated {
-				exec.Status = core.ExecFailed
-				exec.ErrorMessage = "process restarted during execution"
-				exec.ErrorKind = core.ErrKindTransient
-				_ = store.UpdateExecution(ctx, exec)
+		for _, run := range runs {
+			if run.Status == core.RunRunning || run.Status == core.RunCreated {
+				run.Status = core.RunFailed
+				run.ErrorMessage = "process restarted during execution"
+				run.ErrorKind = core.ErrKindTransient
+				_ = store.UpdateRun(ctx, run)
 			}
 		}
 	}
 
-	// Reset issue status to open so it can be submitted.
-	if err := store.UpdateIssueStatus(ctx, issue.ID, core.IssueOpen); err != nil {
-		return fmt.Errorf("reset issue %d to open: %w", issue.ID, err)
+	// Reset work item status to open so it can be submitted.
+	if err := store.UpdateWorkItemStatus(ctx, workItem.ID, core.WorkItemOpen); err != nil {
+		return fmt.Errorf("reset work item %d to open: %w", workItem.ID, err)
 	}
 
 	// Submit to scheduler queue.
-	return scheduler.Submit(ctx, issue.ID)
+	return scheduler.Submit(ctx, workItem.ID)
 }

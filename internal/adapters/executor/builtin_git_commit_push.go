@@ -14,7 +14,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Step, execRec *core.Execution) error {
+func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Action, execRec *core.Run) error {
 	if store == nil {
 		return fmt.Errorf("builtin git_commit_push: store is nil")
 	}

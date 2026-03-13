@@ -20,28 +20,28 @@ func (h *Handler) getProjectErrorRanking(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, data)
 }
 
-func (h *Handler) getIssueBottleneckSteps(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getWorkItemBottleneckActions(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
-	data, err := h.store.IssueBottleneckSteps(r.Context(), filter)
+	data, err := h.store.WorkItemBottleneckActions(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
 	if data == nil {
-		data = []core.StepBottleneck{}
+		data = []core.ActionBottleneck{}
 	}
 	writeJSON(w, http.StatusOK, data)
 }
 
-func (h *Handler) getExecutionDurationStats(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getRunDurationStats(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
-	data, err := h.store.ExecutionDurationStats(r.Context(), filter)
+	data, err := h.store.RunDurationStats(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
 	if data == nil {
-		data = []core.IssueDurationStat{}
+		data = []core.WorkItemDurationStat{}
 	}
 	writeJSON(w, http.StatusOK, data)
 }
@@ -72,9 +72,9 @@ func (h *Handler) getRecentFailures(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, data)
 }
 
-func (h *Handler) getIssueStatusDistribution(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getWorkItemStatusDistribution(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
-	data, err := h.store.IssueStatusDistribution(r.Context(), filter)
+	data, err := h.store.WorkItemStatusDistribution(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
@@ -91,8 +91,8 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 
 	type summary struct {
 		ProjectErrors    []core.ProjectErrorRank `json:"project_errors"`
-		Bottlenecks      []core.StepBottleneck   `json:"bottlenecks"`
-		DurationStats    []core.IssueDurationStat `json:"duration_stats"`
+		Bottlenecks      []core.ActionBottleneck   `json:"bottlenecks"`
+		DurationStats    []core.WorkItemDurationStat `json:"duration_stats"`
 		ErrorBreakdown   []core.ErrorKindCount   `json:"error_breakdown"`
 		RecentFailures   []core.FailureRecord    `json:"recent_failures"`
 		StatusDist       []core.StatusCount       `json:"status_distribution"`
@@ -106,11 +106,11 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
-	if s.Bottlenecks, err = h.store.IssueBottleneckSteps(ctx, filter); err != nil {
+	if s.Bottlenecks, err = h.store.WorkItemBottleneckActions(ctx, filter); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
-	if s.DurationStats, err = h.store.ExecutionDurationStats(ctx, filter); err != nil {
+	if s.DurationStats, err = h.store.RunDurationStats(ctx, filter); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
-	if s.StatusDist, err = h.store.IssueStatusDistribution(ctx, filter); err != nil {
+	if s.StatusDist, err = h.store.WorkItemStatusDistribution(ctx, filter); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ANALYTICS_ERROR")
 		return
 	}
@@ -132,10 +132,10 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		s.ProjectErrors = []core.ProjectErrorRank{}
 	}
 	if s.Bottlenecks == nil {
-		s.Bottlenecks = []core.StepBottleneck{}
+		s.Bottlenecks = []core.ActionBottleneck{}
 	}
 	if s.DurationStats == nil {
-		s.DurationStats = []core.IssueDurationStat{}
+		s.DurationStats = []core.WorkItemDurationStat{}
 	}
 	if s.ErrorBreakdown == nil {
 		s.ErrorBreakdown = []core.ErrorKindCount{}

@@ -8,54 +8,54 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// ExpandComposite creates a child Issue for a composite Step and links them.
-// The caller provides the child steps to populate the child Issue.
-func (e *IssueEngine) ExpandComposite(ctx context.Context, step *core.Step, childSteps []*core.Step) (int64, error) {
-	if step.Type != core.StepComposite {
-		return 0, fmt.Errorf("step %d is not composite (type=%s)", step.ID, step.Type)
+// ExpandComposite creates a child WorkItem for a composite Action and links them.
+// The caller provides the child actions to populate the child WorkItem.
+func (e *WorkItemEngine) ExpandComposite(ctx context.Context, action *core.Action, childActions []*core.Action) (int64, error) {
+	if action.Type != core.ActionPlan {
+		return 0, fmt.Errorf("action %d is not composite (type=%s)", action.ID, action.Type)
 	}
 
-	childIssue := &core.Issue{
-		Title:  fmt.Sprintf("%s/sub", step.Name),
-		Status: core.IssueOpen,
+	childWorkItem := &core.WorkItem{
+		Title:  fmt.Sprintf("%s/sub", action.Name),
+		Status: core.WorkItemOpen,
 	}
-	// Inherit ProjectID from parent issue.
-	parentIssue, err := e.store.GetIssue(ctx, step.IssueID)
-	if err == nil && parentIssue.ProjectID != nil {
-		childIssue.ProjectID = parentIssue.ProjectID
+	// Inherit ProjectID from parent work item.
+	parentWorkItem, err := e.store.GetWorkItem(ctx, action.WorkItemID)
+	if err == nil && parentWorkItem.ProjectID != nil {
+		childWorkItem.ProjectID = parentWorkItem.ProjectID
 	}
-	childIssueID, err := e.store.CreateIssue(ctx, childIssue)
+	childWorkItemID, err := e.store.CreateWorkItem(ctx, childWorkItem)
 	if err != nil {
-		return 0, fmt.Errorf("create child issue: %w", err)
+		return 0, fmt.Errorf("create child work item: %w", err)
 	}
 
-	for i, cs := range childSteps {
-		cs.IssueID = childIssueID
-		cs.Status = core.StepPending
-		cs.Position = i + 1
-		if _, err := e.store.CreateStep(ctx, cs); err != nil {
-			return 0, fmt.Errorf("create child step %s: %w", cs.Name, err)
+	for i, ca := range childActions {
+		ca.WorkItemID = childWorkItemID
+		ca.Status = core.ActionPending
+		ca.Position = i + 1
+		if _, err := e.store.CreateAction(ctx, ca); err != nil {
+			return 0, fmt.Errorf("create child action %s: %w", ca.Name, err)
 		}
 	}
 
-	// Store the child issue ID in the step's Config for tracking.
-	if step.Config == nil {
-		step.Config = map[string]any{}
+	// Store the child work item ID in the action's Config for tracking.
+	if action.Config == nil {
+		action.Config = map[string]any{}
 	}
-	step.Config["child_issue_id"] = childIssueID
-	if err := e.store.UpdateStep(ctx, step); err != nil {
-		return 0, fmt.Errorf("persist child issue link for step %d: %w", step.ID, err)
+	action.Config["child_work_item_id"] = childWorkItemID
+	if err := e.store.UpdateAction(ctx, action); err != nil {
+		return 0, fmt.Errorf("persist child work item link for action %d: %w", action.ID, err)
 	}
 
-	return childIssueID, nil
+	return childWorkItemID, nil
 }
 
-// childIssueID retrieves the child issue ID from a composite step's config.
-func childIssueID(step *core.Step) *int64 {
-	if step.Config == nil {
+// childWorkItemID retrieves the child work item ID from a composite action's config.
+func childWorkItemID(action *core.Action) *int64 {
+	if action.Config == nil {
 		return nil
 	}
-	v, ok := step.Config["child_issue_id"]
+	v, ok := action.Config["child_work_item_id"]
 	if !ok {
 		return nil
 	}
@@ -65,65 +65,65 @@ func childIssueID(step *core.Step) *int64 {
 	return nil
 }
 
-// executeComposite handles composite step execution:
-// expand child steps → create child issue → run child issue → propagate result.
-func (e *IssueEngine) executeComposite(ctx context.Context, step *core.Step) error {
-	// If child issue exists but is in a terminal state (e.g. after gate reject reset),
+// executeComposite handles composite action execution:
+// expand child actions → create child work item → run child work item → propagate result.
+func (e *WorkItemEngine) executeComposite(ctx context.Context, action *core.Action) error {
+	// If child work item exists but is in a terminal state (e.g. after gate reject reset),
 	// clear it so we create a fresh one.
-	cID := childIssueID(step)
+	cID := childWorkItemID(action)
 	if cID != nil {
-		ci, err := e.store.GetIssue(ctx, *cID)
-		if err == nil && (ci.Status == core.IssueDone || ci.Status == core.IssueFailed || ci.Status == core.IssueCancelled) {
+		ci, err := e.store.GetWorkItem(ctx, *cID)
+		if err == nil && (ci.Status == core.WorkItemDone || ci.Status == core.WorkItemFailed || ci.Status == core.WorkItemCancelled) {
 			cID = nil
-			delete(step.Config, "child_issue_id")
+			delete(action.Config, "child_work_item_id")
 		}
 	}
 
-	// If no child issue exists, expand.
+	// If no child work item exists, expand.
 	if cID == nil {
 		if e.expander == nil {
-			_ = e.transitionStep(ctx, step, core.StepFailed)
-			return fmt.Errorf("composite step %d: no expander configured and no child issue", step.ID)
+			_ = e.transitionAction(ctx, action, core.ActionFailed)
+			return fmt.Errorf("composite action %d: no expander configured and no child work item", action.ID)
 		}
 
-		children, err := e.expander.Expand(ctx, step)
+		children, err := e.expander.Expand(ctx, action)
 		if err != nil {
-			_ = e.transitionStep(ctx, step, core.StepFailed)
-			return fmt.Errorf("expand composite step %d: %w", step.ID, err)
+			_ = e.transitionAction(ctx, action, core.ActionFailed)
+			return fmt.Errorf("expand composite action %d: %w", action.ID, err)
 		}
 
-		newID, err := e.ExpandComposite(ctx, step, children)
+		newID, err := e.ExpandComposite(ctx, action, children)
 		if err != nil {
-			_ = e.transitionStep(ctx, step, core.StepFailed)
-			return fmt.Errorf("create child issue for step %d: %w", step.ID, err)
+			_ = e.transitionAction(ctx, action, core.ActionFailed)
+			return fmt.Errorf("create child work item for action %d: %w", action.ID, err)
 		}
 		cID = &newID
 	}
 
-	childIssID := *cID
+	childWIID := *cID
 
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventIssueStarted,
-		IssueID:   childIssID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"parent_issue_id": step.IssueID},
+		Type:       core.EventWorkItemStarted,
+		WorkItemID: childWIID,
+		ActionID:   action.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]any{"parent_work_item_id": action.WorkItemID},
 	})
 
-	// Run child issue. This blocks until the child issue completes.
-	if err := e.Run(ctx, childIssID); err != nil {
-		// Child issue failed — check retry budget on the composite step.
-		if step.RetryCount < step.MaxRetries {
-			step.RetryCount++
-			step.Status = core.StepPending
-			delete(step.Config, "child_issue_id") // clear link so next attempt creates fresh child issue
-			return e.store.UpdateStep(ctx, step)
+	// Run child work item. This blocks until the child work item completes.
+	if err := e.Run(ctx, childWIID); err != nil {
+		// Child work item failed — check retry budget on the composite action.
+		if action.RetryCount < action.MaxRetries {
+			action.RetryCount++
+			action.Status = core.ActionPending
+			delete(action.Config, "child_work_item_id") // clear link so next attempt creates fresh child work item
+			return e.store.UpdateAction(ctx, action)
 		}
 
-		_ = e.transitionStep(ctx, step, core.StepFailed)
-		return fmt.Errorf("composite step %d child issue failed: %w", step.ID, err)
+		_ = e.transitionAction(ctx, action, core.ActionFailed)
+		return fmt.Errorf("composite action %d child work item failed: %w", action.ID, err)
 	}
 
-	// Child issue succeeded → parent step done.
-	return e.transitionStep(ctx, step, core.StepDone)
+	// Child work item succeeded → parent action done.
+	return e.transitionAction(ctx, action, core.ActionDone)
 }

@@ -50,7 +50,7 @@ func TestOpenAICollector_Real(t *testing.T) {
 	defer cancel()
 
 	md := "## Changes\n- Added login endpoint in api/auth.go\n- Updated tests in api/auth_test.go\n\nAll tests pass."
-	out, err := collector.Extract(ctx, core.StepExec, md)
+	out, err := collector.Extract(ctx, core.ActionExec, md)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}

@@ -9,13 +9,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateStep(ctx context.Context, st *core.Step) (int64, error) {
+func (s *Store) CreateAction(ctx context.Context, st *core.Action) (int64, error) {
 	if s == nil || s.orm == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
 
 	now := time.Now().UTC()
-	model := stepModelFromCore(st)
+	model := actionModelFromCore(st)
 	model.CreatedAt = now
 	model.UpdatedAt = now
 
@@ -28,8 +28,8 @@ func (s *Store) CreateStep(ctx context.Context, st *core.Step) (int64, error) {
 	return model.ID, nil
 }
 
-func (s *Store) GetStep(ctx context.Context, id int64) (*core.Step, error) {
-	var model StepModel
+func (s *Store) GetAction(ctx context.Context, id int64) (*core.Action, error) {
+	var model ActionModel
 	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -40,8 +40,8 @@ func (s *Store) GetStep(ctx context.Context, id int64) (*core.Step, error) {
 	return model.toCore(), nil
 }
 
-func (s *Store) ListStepsByIssue(ctx context.Context, issueID int64) ([]*core.Step, error) {
-	var models []StepModel
+func (s *Store) ListActionsByWorkItem(ctx context.Context, issueID int64) ([]*core.Action, error) {
+	var models []ActionModel
 	err := s.orm.WithContext(ctx).
 		Where("issue_id = ?", issueID).
 		Order("position ASC, id ASC").
@@ -50,15 +50,15 @@ func (s *Store) ListStepsByIssue(ctx context.Context, issueID int64) ([]*core.St
 		return nil, fmt.Errorf("list steps by issue: %w", err)
 	}
 
-	steps := make([]*core.Step, 0, len(models))
+	steps := make([]*core.Action, 0, len(models))
 	for i := range models {
 		steps = append(steps, models[i].toCore())
 	}
 	return steps, nil
 }
 
-func (s *Store) UpdateStepStatus(ctx context.Context, id int64, status core.StepStatus) error {
-	result := s.orm.WithContext(ctx).Model(&StepModel{}).
+func (s *Store) UpdateActionStatus(ctx context.Context, id int64, status core.ActionStatus) error {
+	result := s.orm.WithContext(ctx).Model(&ActionModel{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"status":     string(status),
@@ -73,12 +73,12 @@ func (s *Store) UpdateStepStatus(ctx context.Context, id int64, status core.Step
 	return nil
 }
 
-func (s *Store) UpdateStep(ctx context.Context, st *core.Step) error {
+func (s *Store) UpdateAction(ctx context.Context, st *core.Action) error {
 	now := time.Now().UTC()
-	model := stepModelFromCore(st)
+	model := actionModelFromCore(st)
 	model.UpdatedAt = now
 
-	result := s.orm.WithContext(ctx).Model(&StepModel{}).
+	result := s.orm.WithContext(ctx).Model(&ActionModel{}).
 		Where("id = ?", st.ID).
 		Updates(map[string]any{
 			"name":                  model.Name,
@@ -105,10 +105,49 @@ func (s *Store) UpdateStep(ctx context.Context, st *core.Step) error {
 	return nil
 }
 
-func (s *Store) DeleteStep(ctx context.Context, id int64) error {
-	result := s.orm.WithContext(ctx).Delete(&StepModel{}, id)
+func (s *Store) DeleteAction(ctx context.Context, id int64) error {
+	result := s.orm.WithContext(ctx).Delete(&ActionModel{}, id)
 	if result.Error != nil {
 		return fmt.Errorf("delete step %d: %w", id, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) BatchCreateActions(ctx context.Context, actions []*core.Action) error {
+	if len(actions) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	models := make([]ActionModel, 0, len(actions))
+	for _, a := range actions {
+		m := *actionModelFromCore(a)
+		m.CreatedAt = now
+		m.UpdatedAt = now
+		models = append(models, m)
+	}
+	if err := s.orm.WithContext(ctx).Create(&models).Error; err != nil {
+		return fmt.Errorf("batch insert actions: %w", err)
+	}
+	for i := range models {
+		actions[i].ID = models[i].ID
+		actions[i].CreatedAt = now
+		actions[i].UpdatedAt = now
+	}
+	return nil
+}
+
+func (s *Store) UpdateActionDependsOn(ctx context.Context, id int64, dependsOn []int64) error {
+	result := s.orm.WithContext(ctx).Model(&ActionModel{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"depends_on": JSONField[[]int64]{Data: dependsOn},
+			"updated_at": time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("update action depends_on: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound

@@ -6,7 +6,26 @@ describe("apiClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("generateSteps 会命中 /issues/{id}/generate-steps 并 POST JSON body", async () => {
+  it("generateActions 会命中 /work-items/{id}/generate-steps 并 POST JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.generateActions(12, { description: "make a dag" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/generate-steps");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
+  });
+
+  it("generateSteps backward compat alias works", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 201,
@@ -19,18 +38,15 @@ describe("apiClient", () => {
     await client.generateSteps(12, { description: "make a dag" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/issues/12/generate-steps");
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/generate-steps");
   });
 
-  it("updateStep 会命中 /steps/{id} 并 PUT JSON body", async () => {
+  it("updateAction 会命中 /steps/{id} 并 PUT JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           id: 1,
-          issue_id: 2,
+          work_item_id: 2,
           name: "x",
           type: "exec",
           status: "pending",
@@ -48,7 +64,7 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.updateStep(99, { position: 3 });
+    await client.updateAction(99, { position: 3 });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/steps/99");
@@ -57,12 +73,12 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ position: 3 });
   });
 
-  it("deleteStep 会命中 /steps/{id} 并 DELETE", async () => {
+  it("deleteAction 会命中 /steps/{id} 并 DELETE", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.deleteStep(7);
+    await client.deleteAction(7);
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/steps/7");
@@ -136,7 +152,7 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ enabled: true, provider: "home_dir" });
   });
 
-  it("listIssues 会透传 archived 查询参数", async () => {
+  it("listWorkItems 会透传 archived 查询参数", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 200,
@@ -146,15 +162,31 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.listIssues({ project_id: 7, archived: false, limit: 20, offset: 10 });
+    await client.listWorkItems({ project_id: 7, archived: false, limit: 20, offset: 10 });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/issues?project_id=7&archived=false&limit=20&offset=10",
+      "http://localhost:8080/api/work-items?project_id=7&archived=false&limit=20&offset=10",
     );
   });
 
-  it("bootstrapPRIssue 会命中 /issues/{id}/bootstrap-pr 并 POST JSON body", async () => {
+  it("listCronWorkItems 会命中 /work-items/cron", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.listCronWorkItems();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/cron");
+  });
+
+  it("bootstrapPRWorkItem 会命中 /work-items/{id}/bootstrap-pr 并 POST JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -173,13 +205,38 @@ describe("apiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.bootstrapPRIssue(12, { title: "demo", base_branch: "master" });
+    await client.bootstrapPRWorkItem(12, { title: "demo", base_branch: "master" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/issues/12/bootstrap-pr");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/bootstrap-pr");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ title: "demo", base_branch: "master" });
+  });
+
+  it("createWorkItemFromTemplate 会命中 /templates/{id}/create-work-item 并 POST JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          issue: { id: 12, title: "demo" },
+          steps: [],
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.createWorkItemFromTemplate(12, { title: "demo", project_id: 7 });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/templates/12/create-work-item");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ title: "demo", project_id: 7 });
   });
 
   it("listDrivers 会命中 /agents/drivers", async () => {
@@ -316,7 +373,6 @@ describe("apiClient", () => {
     await client.listThreadsByWorkItem(10);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/issues/10/threads");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/10/threads");
   });
 });
-

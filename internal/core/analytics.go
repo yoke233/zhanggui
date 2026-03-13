@@ -10,20 +10,20 @@ type AnalyticsStore interface {
 	// ProjectErrorRanking returns projects ordered by failure count (desc).
 	ProjectErrorRanking(ctx context.Context, filter AnalyticsFilter) ([]ProjectErrorRank, error)
 
-	// IssueBottleneckSteps returns steps that are slowest or fail most within issues.
-	IssueBottleneckSteps(ctx context.Context, filter AnalyticsFilter) ([]StepBottleneck, error)
+	// WorkItemBottleneckActions returns actions that are slowest or fail most within work items.
+	WorkItemBottleneckActions(ctx context.Context, filter AnalyticsFilter) ([]ActionBottleneck, error)
 
-	// ExecutionDurationStats returns execution duration percentiles per issue.
-	ExecutionDurationStats(ctx context.Context, filter AnalyticsFilter) ([]IssueDurationStat, error)
+	// RunDurationStats returns run duration percentiles per work item.
+	RunDurationStats(ctx context.Context, filter AnalyticsFilter) ([]WorkItemDurationStat, error)
 
 	// ErrorBreakdown returns error counts grouped by error_kind.
 	ErrorBreakdown(ctx context.Context, filter AnalyticsFilter) ([]ErrorKindCount, error)
 
-	// RecentFailures returns the most recent failed executions with context.
+	// RecentFailures returns the most recent failed runs with context.
 	RecentFailures(ctx context.Context, filter AnalyticsFilter) ([]FailureRecord, error)
 
-	// IssueStatusDistribution returns issue counts grouped by status.
-	IssueStatusDistribution(ctx context.Context, filter AnalyticsFilter) ([]StatusCount, error)
+	// WorkItemStatusDistribution returns work item counts grouped by status.
+	WorkItemStatusDistribution(ctx context.Context, filter AnalyticsFilter) ([]StatusCount, error)
 }
 
 // AnalyticsFilter constrains analytics queries.
@@ -36,39 +36,39 @@ type AnalyticsFilter struct {
 
 // ProjectErrorRank represents a project's error ranking.
 type ProjectErrorRank struct {
-	ProjectID    int64   `json:"project_id"`
-	ProjectName  string  `json:"project_name"`
-	TotalIssues  int     `json:"total_issues"`
-	FailedIssues int     `json:"failed_issues"`
-	FailureRate  float64 `json:"failure_rate"`
-	FailedExecs  int     `json:"failed_execs"`
+	ProjectID       int64   `json:"project_id"`
+	ProjectName     string  `json:"project_name"`
+	TotalWorkItems  int     `json:"total_work_items"`
+	FailedWorkItems int     `json:"failed_work_items"`
+	FailureRate     float64 `json:"failure_rate"`
+	FailedRuns      int     `json:"failed_runs"`
 }
 
-// StepBottleneck represents a step that is a bottleneck in issue execution.
-type StepBottleneck struct {
-	StepID       int64   `json:"step_id"`
-	StepName     string  `json:"step_name"`
-	IssueID      int64   `json:"issue_id"`
-	IssueTitle   string  `json:"issue_title"`
+// ActionBottleneck represents an action that is a bottleneck in work item execution.
+type ActionBottleneck struct {
+	ActionID     int64   `json:"action_id"`
+	ActionName   string  `json:"action_name"`
+	WorkItemID   int64   `json:"work_item_id"`
+	WorkItemTitle string `json:"work_item_title"`
 	ProjectID    *int64  `json:"project_id,omitempty"`
 	AvgDurationS float64 `json:"avg_duration_s"`
 	MaxDurationS float64 `json:"max_duration_s"`
-	ExecCount    int     `json:"exec_count"`
+	RunCount     int     `json:"run_count"`
 	FailCount    int     `json:"fail_count"`
 	RetryCount   int     `json:"retry_count"`
 	FailRate     float64 `json:"fail_rate"`
 }
 
-// IssueDurationStat provides duration statistics for an issue.
-type IssueDurationStat struct {
-	IssueID      int64   `json:"issue_id"`
-	IssueTitle   string  `json:"issue_title"`
-	ProjectID    *int64  `json:"project_id,omitempty"`
-	ExecCount    int     `json:"exec_count"`
-	AvgDurationS float64 `json:"avg_duration_s"`
-	MinDurationS float64 `json:"min_duration_s"`
-	MaxDurationS float64 `json:"max_duration_s"`
-	P50DurationS float64 `json:"p50_duration_s"`
+// WorkItemDurationStat provides duration statistics for a work item.
+type WorkItemDurationStat struct {
+	WorkItemID    int64   `json:"work_item_id"`
+	WorkItemTitle string  `json:"work_item_title"`
+	ProjectID     *int64  `json:"project_id,omitempty"`
+	RunCount      int     `json:"run_count"`
+	AvgDurationS  float64 `json:"avg_duration_s"`
+	MinDurationS  float64 `json:"min_duration_s"`
+	MaxDurationS  float64 `json:"max_duration_s"`
+	P50DurationS  float64 `json:"p50_duration_s"`
 }
 
 // ErrorKindCount counts errors by classification.
@@ -78,24 +78,24 @@ type ErrorKindCount struct {
 	Pct       float64   `json:"pct"`
 }
 
-// FailureRecord is a recent failed execution with context.
+// FailureRecord is a recent failed run with context.
 type FailureRecord struct {
-	ExecID       int64     `json:"exec_id"`
-	StepID       int64     `json:"step_id"`
-	StepName     string    `json:"step_name"`
-	IssueID      int64     `json:"issue_id"`
-	IssueTitle   string    `json:"issue_title"`
-	ProjectID    *int64    `json:"project_id,omitempty"`
-	ProjectName  string    `json:"project_name,omitempty"`
-	ErrorMessage string    `json:"error_message"`
-	ErrorKind    ErrorKind `json:"error_kind"`
-	Attempt      int       `json:"attempt"`
-	DurationS    float64   `json:"duration_s"`
-	FailedAt     time.Time `json:"failed_at"`
+	RunID         int64     `json:"run_id"`
+	ActionID      int64     `json:"action_id"`
+	ActionName    string    `json:"action_name"`
+	WorkItemID    int64     `json:"work_item_id"`
+	WorkItemTitle string    `json:"work_item_title"`
+	ProjectID     *int64    `json:"project_id,omitempty"`
+	ProjectName   string    `json:"project_name,omitempty"`
+	ErrorMessage  string    `json:"error_message"`
+	ErrorKind     ErrorKind `json:"error_kind"`
+	Attempt       int       `json:"attempt"`
+	DurationS     float64   `json:"duration_s"`
+	FailedAt      time.Time `json:"failed_at"`
 }
 
-// StatusCount counts issues by status.
+// StatusCount counts work items by status.
 type StatusCount struct {
-	Status IssueStatus `json:"status"`
-	Count  int         `json:"count"`
+	Status WorkItemStatus `json:"status"`
+	Count  int            `json:"count"`
 }

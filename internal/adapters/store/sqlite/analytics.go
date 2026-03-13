@@ -46,8 +46,8 @@ func (s *Store) ProjectErrorRanking(ctx context.Context, filter core.AnalyticsFi
 	var out []core.ProjectErrorRank
 	for rows.Next() {
 		var r core.ProjectErrorRank
-		if err := rows.Scan(&r.ProjectID, &r.ProjectName, &r.TotalIssues,
-			&r.FailedIssues, &r.FailureRate, &r.FailedExecs); err != nil {
+		if err := rows.Scan(&r.ProjectID, &r.ProjectName, &r.TotalWorkItems,
+			&r.FailedWorkItems, &r.FailureRate, &r.FailedRuns); err != nil {
 			return nil, fmt.Errorf("scan project error rank: %w", err)
 		}
 		out = append(out, r)
@@ -55,8 +55,8 @@ func (s *Store) ProjectErrorRanking(ctx context.Context, filter core.AnalyticsFi
 	return out, rows.Err()
 }
 
-// IssueBottleneckSteps returns the slowest/most-failing steps across issues.
-func (s *Store) IssueBottleneckSteps(ctx context.Context, filter core.AnalyticsFilter) ([]core.StepBottleneck, error) {
+// WorkItemBottleneckActions returns the slowest/most-failing steps across issues.
+func (s *Store) WorkItemBottleneckActions(ctx context.Context, filter core.AnalyticsFilter) ([]core.ActionBottleneck, error) {
 	query := `
 		SELECT
 			st.id,
@@ -107,11 +107,11 @@ func (s *Store) IssueBottleneckSteps(ctx context.Context, filter core.AnalyticsF
 	}
 	defer rows.Close()
 
-	var out []core.StepBottleneck
+	var out []core.ActionBottleneck
 	for rows.Next() {
-		var b core.StepBottleneck
-		if err := rows.Scan(&b.StepID, &b.StepName, &b.IssueID, &b.IssueTitle, &b.ProjectID,
-			&b.AvgDurationS, &b.MaxDurationS, &b.ExecCount, &b.FailCount,
+		var b core.ActionBottleneck
+		if err := rows.Scan(&b.ActionID, &b.ActionName, &b.WorkItemID, &b.WorkItemTitle, &b.ProjectID,
+			&b.AvgDurationS, &b.MaxDurationS, &b.RunCount, &b.FailCount,
 			&b.RetryCount, &b.FailRate); err != nil {
 			return nil, fmt.Errorf("scan step bottleneck: %w", err)
 		}
@@ -120,8 +120,8 @@ func (s *Store) IssueBottleneckSteps(ctx context.Context, filter core.AnalyticsF
 	return out, rows.Err()
 }
 
-// ExecutionDurationStats returns per-issue duration statistics.
-func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.AnalyticsFilter) ([]core.IssueDurationStat, error) {
+// RunDurationStats returns per-issue duration statistics.
+func (s *Store) RunDurationStats(ctx context.Context, filter core.AnalyticsFilter) ([]core.WorkItemDurationStat, error) {
 	query := `
 		WITH exec_dur AS (
 			SELECT
@@ -170,11 +170,11 @@ func (s *Store) ExecutionDurationStats(ctx context.Context, filter core.Analytic
 	}
 	defer rows.Close()
 
-	var out []core.IssueDurationStat
+	var out []core.WorkItemDurationStat
 	for rows.Next() {
-		var d core.IssueDurationStat
-		if err := rows.Scan(&d.IssueID, &d.IssueTitle, &d.ProjectID,
-			&d.ExecCount, &d.AvgDurationS, &d.MinDurationS, &d.MaxDurationS, &d.P50DurationS); err != nil {
+		var d core.WorkItemDurationStat
+		if err := rows.Scan(&d.WorkItemID, &d.WorkItemTitle, &d.ProjectID,
+			&d.RunCount, &d.AvgDurationS, &d.MinDurationS, &d.MaxDurationS, &d.P50DurationS); err != nil {
 			return nil, fmt.Errorf("scan duration stat: %w", err)
 		}
 		out = append(out, d)
@@ -287,7 +287,7 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 	for rows.Next() {
 		var r core.FailureRecord
 		var ek sql.NullString
-		if err := rows.Scan(&r.ExecID, &r.StepID, &r.StepName, &r.IssueID, &r.IssueTitle,
+		if err := rows.Scan(&r.RunID, &r.ActionID, &r.ActionName, &r.WorkItemID, &r.WorkItemTitle,
 			&r.ProjectID, &r.ProjectName, &r.ErrorMessage, &ek,
 			&r.Attempt, &r.DurationS, &r.FailedAt); err != nil {
 			return nil, fmt.Errorf("scan failure record: %w", err)
@@ -300,8 +300,8 @@ func (s *Store) RecentFailures(ctx context.Context, filter core.AnalyticsFilter)
 	return out, rows.Err()
 }
 
-// IssueStatusDistribution returns issue counts grouped by status.
-func (s *Store) IssueStatusDistribution(ctx context.Context, filter core.AnalyticsFilter) ([]core.StatusCount, error) {
+// WorkItemStatusDistribution returns issue counts grouped by status.
+func (s *Store) WorkItemStatusDistribution(ctx context.Context, filter core.AnalyticsFilter) ([]core.StatusCount, error) {
 	query := `
 		SELECT status, COUNT(*) AS cnt
 		FROM issues

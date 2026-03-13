@@ -10,67 +10,81 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// IssueScheduler manages a queue of Issues and limits concurrent execution.
-// API callers submit Issues via Submit(); the scheduler runs them when capacity
+// WorkItemScheduler manages a queue of WorkItems and limits concurrent execution.
+// API callers submit WorkItems via Submit(); the scheduler runs them when capacity
 // is available.
-type IssueScheduler struct {
-	engine *IssueEngine
+type WorkItemScheduler struct {
+	engine *WorkItemEngine
 	store  Store
 	bus    EventPublisher
 
-	maxConcurrent int // max issues running in parallel
+	maxConcurrent int // max work items running in parallel
 
 	mu      sync.Mutex
-	queue   []int64                      // issue IDs waiting to run
-	running map[int64]context.CancelFunc // issue ID → cancel func
+	queue   []int64                      // work item IDs waiting to run
+	running map[int64]context.CancelFunc // work item ID → cancel func
 	closed  bool
 
-	// notify is signalled when an issue finishes or a new issue is submitted.
+	// notify is signalled when a work item finishes or a new work item is submitted.
 	notify chan struct{}
 	done   chan struct{} // closed when scheduler loop exits
 }
 
-// IssueSchedulerConfig configures the IssueScheduler.
-type IssueSchedulerConfig struct {
-	MaxConcurrentIssues int // default 2
-	MaxConcurrentFlows  int // deprecated compatibility field
+// WorkItemSchedulerConfig configures the WorkItemScheduler.
+type WorkItemSchedulerConfig struct {
+	MaxConcurrentWorkItems int // default 2
+	MaxConcurrentFlows     int // deprecated compatibility field
 }
 
-// NewIssueScheduler creates a multi-issue scheduler.
-func NewIssueScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg IssueSchedulerConfig) *IssueScheduler {
-	if cfg.MaxConcurrentIssues <= 0 && cfg.MaxConcurrentFlows > 0 {
-		cfg.MaxConcurrentIssues = cfg.MaxConcurrentFlows
+// NewWorkItemScheduler creates a multi-work-item scheduler.
+func NewWorkItemScheduler(engine *WorkItemEngine, store Store, bus EventPublisher, cfg WorkItemSchedulerConfig) *WorkItemScheduler {
+	if cfg.MaxConcurrentWorkItems <= 0 && cfg.MaxConcurrentFlows > 0 {
+		cfg.MaxConcurrentWorkItems = cfg.MaxConcurrentFlows
 	}
-	if cfg.MaxConcurrentIssues <= 0 {
-		cfg.MaxConcurrentIssues = 2
+	if cfg.MaxConcurrentWorkItems <= 0 {
+		cfg.MaxConcurrentWorkItems = 2
 	}
-	return &IssueScheduler{
+	return &WorkItemScheduler{
 		engine:        engine,
 		store:         store,
 		bus:           bus,
-		maxConcurrent: cfg.MaxConcurrentIssues,
+		maxConcurrent: cfg.MaxConcurrentWorkItems,
 		running:       make(map[int64]context.CancelFunc),
 		notify:        make(chan struct{}, 1),
 		done:          make(chan struct{}),
 	}
 }
 
+// IssueSchedulerConfig is a compatibility alias.
+type IssueSchedulerConfig = WorkItemSchedulerConfig
+
+// IssueScheduler is a compatibility alias.
+type IssueScheduler = WorkItemScheduler
+
+// NewIssueScheduler is an alias for backward compatibility.
+func NewIssueScheduler(engine *WorkItemEngine, store Store, bus EventPublisher, cfg IssueSchedulerConfig) *WorkItemScheduler {
+	return NewWorkItemScheduler(engine, store, bus, WorkItemSchedulerConfig{
+		MaxConcurrentWorkItems: cfg.MaxConcurrentWorkItems,
+		MaxConcurrentFlows:     cfg.MaxConcurrentFlows,
+	})
+}
+
 // FlowSchedulerConfig is a compatibility wrapper for older callers.
 type FlowSchedulerConfig struct {
-	MaxConcurrentIssues int
-	MaxConcurrentFlows  int
+	MaxConcurrentWorkItems int
+	MaxConcurrentFlows     int
 }
 
 // NewFlowScheduler is an alias for backward compatibility.
-func NewFlowScheduler(engine *IssueEngine, store Store, bus EventPublisher, cfg FlowSchedulerConfig) *IssueScheduler {
-	return NewIssueScheduler(engine, store, bus, IssueSchedulerConfig{
-		MaxConcurrentIssues: cfg.MaxConcurrentIssues,
-		MaxConcurrentFlows:  cfg.MaxConcurrentFlows,
+func NewFlowScheduler(engine *WorkItemEngine, store Store, bus EventPublisher, cfg FlowSchedulerConfig) *WorkItemScheduler {
+	return NewWorkItemScheduler(engine, store, bus, WorkItemSchedulerConfig{
+		MaxConcurrentWorkItems: cfg.MaxConcurrentWorkItems,
+		MaxConcurrentFlows:     cfg.MaxConcurrentFlows,
 	})
 }
 
 // Start begins the scheduler loop. It blocks until ctx is cancelled.
-func (s *IssueScheduler) Start(ctx context.Context) {
+func (s *WorkItemScheduler) Start(ctx context.Context) {
 	defer close(s.done)
 
 	for {
@@ -81,14 +95,14 @@ func (s *IssueScheduler) Start(ctx context.Context) {
 			s.drainRunning()
 			return
 		case <-s.notify:
-			// new submission or an issue finished — re-check
+			// new submission or a work item finished — re-check
 		}
 	}
 }
 
-// Submit enqueues an issue for execution. The issue must be in open/accepted state.
-// It transitions the issue to queued and returns immediately.
-func (s *IssueScheduler) Submit(ctx context.Context, issueID int64) error {
+// Submit enqueues a work item for execution. The work item must be in open/accepted state.
+// It transitions the work item to queued and returns immediately.
+func (s *WorkItemScheduler) Submit(ctx context.Context, workItemID int64) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -96,48 +110,48 @@ func (s *IssueScheduler) Submit(ctx context.Context, issueID int64) error {
 	}
 	s.mu.Unlock()
 
-	// Atomically transition open/accepted, unarchived issues to queued.
-	if err := s.store.PrepareIssueRun(ctx, issueID, core.IssueQueued); err != nil {
-		return fmt.Errorf("queue issue %d: %w", issueID, err)
+	// Atomically transition open/accepted, unarchived work items to queued.
+	if err := s.store.PrepareWorkItemRun(ctx, workItemID, core.WorkItemQueued); err != nil {
+		return fmt.Errorf("queue work item %d: %w", workItemID, err)
 	}
 	s.bus.Publish(ctx, core.Event{
-		Type:      core.EventIssueQueued,
-		IssueID:   issueID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventWorkItemQueued,
+		WorkItemID: workItemID,
+		Timestamp:  time.Now().UTC(),
 	})
 
 	s.mu.Lock()
-	s.queue = append(s.queue, issueID)
+	s.queue = append(s.queue, workItemID)
 	s.mu.Unlock()
 
 	s.signal()
 	return nil
 }
 
-// Cancel cancels an issue. If queued, removes from queue. If running, cancels its context.
-func (s *IssueScheduler) Cancel(ctx context.Context, issueID int64) error {
+// Cancel cancels a work item. If queued, removes from queue. If running, cancels its context.
+func (s *WorkItemScheduler) Cancel(ctx context.Context, workItemID int64) error {
 	s.mu.Lock()
 
 	// Check if in queue — remove it.
 	for i, id := range s.queue {
-		if id == issueID {
+		if id == workItemID {
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
 			s.mu.Unlock()
 			// Update state to cancelled.
-			if err := s.store.UpdateIssueStatus(ctx, issueID, core.IssueCancelled); err != nil {
+			if err := s.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemCancelled); err != nil {
 				return err
 			}
 			s.bus.Publish(ctx, core.Event{
-				Type:      core.EventIssueCancelled,
-				IssueID:   issueID,
-				Timestamp: time.Now().UTC(),
+				Type:       core.EventWorkItemCancelled,
+				WorkItemID: workItemID,
+				Timestamp:  time.Now().UTC(),
 			})
 			return nil
 		}
 	}
 
 	// Check if running — cancel its context.
-	cancel, ok := s.running[issueID]
+	cancel, ok := s.running[workItemID]
 	s.mu.Unlock()
 
 	if ok {
@@ -147,25 +161,25 @@ func (s *IssueScheduler) Cancel(ctx context.Context, issueID int64) error {
 	}
 
 	// Fallback: delegate to engine's Cancel for direct state update.
-	return s.engine.Cancel(ctx, issueID)
+	return s.engine.Cancel(ctx, workItemID)
 }
 
-// QueueLen returns the number of issues waiting to run.
-func (s *IssueScheduler) QueueLen() int {
+// QueueLen returns the number of work items waiting to run.
+func (s *WorkItemScheduler) QueueLen() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.queue)
 }
 
-// RunningCount returns the number of currently running issues.
-func (s *IssueScheduler) RunningCount() int {
+// RunningCount returns the number of currently running work items.
+func (s *WorkItemScheduler) RunningCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.running)
 }
 
 // Stats returns scheduler statistics.
-func (s *IssueScheduler) Stats() SchedulerStats {
+func (s *WorkItemScheduler) Stats() SchedulerStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -195,7 +209,7 @@ type SchedulerStats struct {
 }
 
 // Shutdown gracefully stops the scheduler and waits for it to finish.
-func (s *IssueScheduler) Shutdown() {
+func (s *WorkItemScheduler) Shutdown() {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
@@ -203,56 +217,56 @@ func (s *IssueScheduler) Shutdown() {
 	<-s.done
 }
 
-// dispatch starts as many queued issues as capacity allows.
-func (s *IssueScheduler) dispatch(ctx context.Context) {
+// dispatch starts as many queued work items as capacity allows.
+func (s *WorkItemScheduler) dispatch(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for len(s.queue) > 0 && len(s.running) < s.maxConcurrent {
-		issueID := s.queue[0]
+		workItemID := s.queue[0]
 		s.queue = s.queue[1:]
 
-		issueCtx, cancel := context.WithCancel(ctx)
-		s.running[issueID] = cancel
+		wiCtx, cancel := context.WithCancel(ctx)
+		s.running[workItemID] = cancel
 
-		go s.runIssue(issueCtx, issueID)
+		go s.runWorkItem(wiCtx, workItemID)
 	}
 }
 
-// runIssue executes a single issue and cleans up when done.
-func (s *IssueScheduler) runIssue(ctx context.Context, issueID int64) {
+// runWorkItem executes a single work item and cleans up when done.
+func (s *WorkItemScheduler) runWorkItem(ctx context.Context, workItemID int64) {
 	defer func() {
 		s.mu.Lock()
-		delete(s.running, issueID)
+		delete(s.running, workItemID)
 		s.mu.Unlock()
 		s.signal()
 	}()
 
-	err := s.engine.Run(ctx, issueID)
+	err := s.engine.Run(ctx, workItemID)
 	if err != nil {
 		// If context was cancelled, mark as cancelled (not failed).
 		if ctx.Err() != nil {
-			_ = s.store.UpdateIssueStatus(context.Background(), issueID, core.IssueCancelled)
+			_ = s.store.UpdateWorkItemStatus(context.Background(), workItemID, core.WorkItemCancelled)
 			s.bus.Publish(context.Background(), core.Event{
-				Type:      core.EventIssueCancelled,
-				IssueID:   issueID,
-				Timestamp: time.Now().UTC(),
+				Type:       core.EventWorkItemCancelled,
+				WorkItemID: workItemID,
+				Timestamp:  time.Now().UTC(),
 			})
 		}
-		slog.Error("issue execution failed", "issue_id", issueID, "error", err)
+		slog.Error("work item execution failed", "work_item_id", workItemID, "error", err)
 	}
 }
 
 // signal pokes the scheduler loop to re-check capacity.
-func (s *IssueScheduler) signal() {
+func (s *WorkItemScheduler) signal() {
 	select {
 	case s.notify <- struct{}{}:
 	default:
 	}
 }
 
-// drainRunning cancels all running issues and waits for them to finish.
-func (s *IssueScheduler) drainRunning() {
+// drainRunning cancels all running work items and waits for them to finish.
+func (s *WorkItemScheduler) drainRunning() {
 	s.mu.Lock()
 	for _, cancel := range s.running {
 		cancel()

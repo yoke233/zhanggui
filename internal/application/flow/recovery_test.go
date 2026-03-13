@@ -9,47 +9,47 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestRecoverInterruptedIssues_RunningIssue(t *testing.T) {
+func TestRecoverInterruptedWorkItems_RunningWorkItem(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Simulate an issue that was running when the process crashed.
-	issueID := createTestIssue(t, store, "interrupted-issue")
-	step1ID := createTestStep(t, store, issueID, "step-1", core.StepExec, 0)
-	step2ID := createTestStep(t, store, issueID, "step-2", core.StepExec, 1)
+	// Simulate a work item that was running when the process crashed.
+	workItemID := createTestWorkItem(t, store, "interrupted-work-item")
+	action1ID := createTestAction(t, store, workItemID, "action-1", core.ActionExec, 0)
+	action2ID := createTestAction(t, store, workItemID, "action-2", core.ActionExec, 1)
 
-	// step-1 was done, step-2 was running.
-	store.UpdateIssueStatus(ctx, issueID, core.IssueRunning)
-	store.UpdateStepStatus(ctx, step1ID, core.StepReady)
-	store.UpdateStepStatus(ctx, step1ID, core.StepRunning)
-	store.UpdateStepStatus(ctx, step1ID, core.StepDone)
-	store.UpdateStepStatus(ctx, step2ID, core.StepReady)
-	store.UpdateStepStatus(ctx, step2ID, core.StepRunning)
+	// action-1 was done, action-2 was running.
+	store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemRunning)
+	store.UpdateActionStatus(ctx, action1ID, core.ActionReady)
+	store.UpdateActionStatus(ctx, action1ID, core.ActionRunning)
+	store.UpdateActionStatus(ctx, action1ID, core.ActionDone)
+	store.UpdateActionStatus(ctx, action2ID, core.ActionReady)
+	store.UpdateActionStatus(ctx, action2ID, core.ActionRunning)
 
-	// Create a stale execution for step-2.
-	execID, _ := store.CreateExecution(ctx, &core.Execution{
-		StepID:  step2ID,
-		IssueID: issueID,
-		Status:  core.ExecRunning,
+	// Create a stale run for action-2.
+	runID, _ := store.CreateRun(ctx, &core.Run{
+		ActionID:   action2ID,
+		WorkItemID: workItemID,
+		Status:     core.RunRunning,
 	})
 
 	// Set up scheduler.
 	var executed atomic.Int32
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		executed.Add(1)
 		return nil
 	}
 	eng := New(store, bus, executor)
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
 	// Recover.
-	n, err := RecoverInterruptedIssues(ctx, store, sched)
+	n, err := RecoverInterruptedWorkItems(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedIssues: %v", err)
+		t.Fatalf("RecoverInterruptedWorkItems: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
@@ -57,167 +57,167 @@ func TestRecoverInterruptedIssues_RunningIssue(t *testing.T) {
 
 	// Wait for execution to finish.
 	waitFor(t, func() bool {
-		issue, _ := store.GetIssue(ctx, issueID)
-		return issue.Status == core.IssueDone
+		wi, _ := store.GetWorkItem(ctx, workItemID)
+		return wi.Status == core.WorkItemDone
 	}, 3*time.Second)
 
-	// step-2 should have been re-executed (step-1 stays done).
+	// action-2 should have been re-executed (action-1 stays done).
 	if executed.Load() < 1 {
-		t.Error("expected at least 1 step execution after recovery")
+		t.Error("expected at least 1 action execution after recovery")
 	}
 
-	// The stale execution should be marked failed.
-	exec, _ := store.GetExecution(ctx, execID)
-	if exec.Status != core.ExecFailed {
-		t.Errorf("stale exec status = %s, want failed", exec.Status)
+	// The stale run should be marked failed.
+	run, _ := store.GetRun(ctx, runID)
+	if run.Status != core.RunFailed {
+		t.Errorf("stale run status = %s, want failed", run.Status)
 	}
-	if exec.ErrorKind != core.ErrKindTransient {
-		t.Errorf("stale exec error_kind = %s, want transient", exec.ErrorKind)
+	if run.ErrorKind != core.ErrKindTransient {
+		t.Errorf("stale run error_kind = %s, want transient", run.ErrorKind)
 	}
 }
 
-func TestRecoverInterruptedIssues_QueuedIssue(t *testing.T) {
+func TestRecoverInterruptedWorkItems_QueuedWorkItem(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Simulate an issue that was queued when the process crashed.
-	issueID := createTestIssue(t, store, "queued-issue")
-	createTestStep(t, store, issueID, "step-1", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, issueID, core.IssueQueued)
+	// Simulate a work item that was queued when the process crashed.
+	workItemID := createTestWorkItem(t, store, "queued-work-item")
+	createTestAction(t, store, workItemID, "action-1", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemQueued)
 
 	var executed atomic.Int32
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, action *core.Action, run *core.Run) error {
 		executed.Add(1)
 		return nil
 	}
 	eng := New(store, bus, executor)
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedIssues(ctx, store, sched)
+	n, err := RecoverInterruptedWorkItems(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedIssues: %v", err)
+		t.Fatalf("RecoverInterruptedWorkItems: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
 	}
 
 	waitFor(t, func() bool {
-		issue, _ := store.GetIssue(ctx, issueID)
-		return issue.Status == core.IssueDone
+		wi, _ := store.GetWorkItem(ctx, workItemID)
+		return wi.Status == core.WorkItemDone
 	}, 3*time.Second)
 }
 
-func TestRecoverInterruptedIssues_NoInterrupted(t *testing.T) {
+func TestRecoverInterruptedWorkItems_NoInterrupted(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// Create only done/open issues — nothing to recover.
-	i1 := createTestIssue(t, store, "done-issue")
-	store.UpdateIssueStatus(ctx, i1, core.IssueRunning)
-	store.UpdateIssueStatus(ctx, i1, core.IssueDone)
+	// Create only done/open work items — nothing to recover.
+	wi1 := createTestWorkItem(t, store, "done-work-item")
+	store.UpdateWorkItemStatus(ctx, wi1, core.WorkItemRunning)
+	store.UpdateWorkItemStatus(ctx, wi1, core.WorkItemDone)
 
-	createTestIssue(t, store, "open-issue") // stays open
+	createTestWorkItem(t, store, "open-work-item") // stays open
 
-	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	eng := New(store, bus, func(ctx context.Context, action *core.Action, run *core.Run) error {
 		return nil
 	})
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedIssues(ctx, store, sched)
+	n, err := RecoverInterruptedWorkItems(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedIssues: %v", err)
+		t.Fatalf("RecoverInterruptedWorkItems: %v", err)
 	}
 	if n != 0 {
 		t.Errorf("recovered = %d, want 0", n)
 	}
 }
 
-func TestRecoverQueuedIssues_SkipsRunningIssues(t *testing.T) {
+func TestRecoverQueuedWorkItems_SkipsRunningWorkItems(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	queuedIssueID := createTestIssue(t, store, "queued-issue")
-	createTestStep(t, store, queuedIssueID, "queued-step", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, queuedIssueID, core.IssueQueued)
+	queuedWorkItemID := createTestWorkItem(t, store, "queued-work-item")
+	createTestAction(t, store, queuedWorkItemID, "queued-action", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, queuedWorkItemID, core.WorkItemQueued)
 
-	runningIssueID := createTestIssue(t, store, "running-issue")
-	runningStepID := createTestStep(t, store, runningIssueID, "running-step", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, runningIssueID, core.IssueRunning)
-	store.UpdateStepStatus(ctx, runningStepID, core.StepReady)
-	store.UpdateStepStatus(ctx, runningStepID, core.StepRunning)
+	runningWorkItemID := createTestWorkItem(t, store, "running-work-item")
+	runningActionID := createTestAction(t, store, runningWorkItemID, "running-action", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, runningWorkItemID, core.WorkItemRunning)
+	store.UpdateActionStatus(ctx, runningActionID, core.ActionReady)
+	store.UpdateActionStatus(ctx, runningActionID, core.ActionRunning)
 
 	var executed atomic.Int32
-	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	eng := New(store, bus, func(ctx context.Context, action *core.Action, run *core.Run) error {
 		executed.Add(1)
 		return nil
 	})
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 2})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 2})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverQueuedIssues(ctx, store, sched)
+	n, err := RecoverQueuedWorkItems(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverQueuedIssues: %v", err)
+		t.Fatalf("RecoverQueuedWorkItems: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("recovered = %d, want 1", n)
 	}
 
 	waitFor(t, func() bool {
-		issue, _ := store.GetIssue(ctx, queuedIssueID)
-		return issue.Status == core.IssueDone
+		wi, _ := store.GetWorkItem(ctx, queuedWorkItemID)
+		return wi.Status == core.WorkItemDone
 	}, 3*time.Second)
 
-	runningIssue, _ := store.GetIssue(ctx, runningIssueID)
-	if runningIssue.Status != core.IssueRunning {
-		t.Fatalf("running issue status = %s, want running", runningIssue.Status)
+	runningWI, _ := store.GetWorkItem(ctx, runningWorkItemID)
+	if runningWI.Status != core.WorkItemRunning {
+		t.Fatalf("running work item status = %s, want running", runningWI.Status)
 	}
 	if executed.Load() != 1 {
-		t.Fatalf("executed = %d, want 1 queued issue execution", executed.Load())
+		t.Fatalf("executed = %d, want 1 queued work item execution", executed.Load())
 	}
 }
 
-func TestRecoverInterruptedIssues_MultipleIssues(t *testing.T) {
+func TestRecoverInterruptedWorkItems_MultipleWorkItems(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()
 	ctx := context.Background()
 
-	// 2 running issues + 1 queued.
-	i1 := createTestIssue(t, store, "running-1")
-	createTestStep(t, store, i1, "step", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, i1, core.IssueRunning)
+	// 2 running work items + 1 queued.
+	wi1 := createTestWorkItem(t, store, "running-1")
+	createTestAction(t, store, wi1, "action", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, wi1, core.WorkItemRunning)
 
-	i2 := createTestIssue(t, store, "running-2")
-	createTestStep(t, store, i2, "step", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, i2, core.IssueRunning)
+	wi2 := createTestWorkItem(t, store, "running-2")
+	createTestAction(t, store, wi2, "action", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, wi2, core.WorkItemRunning)
 
-	i3 := createTestIssue(t, store, "queued-1")
-	createTestStep(t, store, i3, "step", core.StepExec, 0)
-	store.UpdateIssueStatus(ctx, i3, core.IssueQueued)
+	wi3 := createTestWorkItem(t, store, "queued-1")
+	createTestAction(t, store, wi3, "action", core.ActionExec, 0)
+	store.UpdateWorkItemStatus(ctx, wi3, core.WorkItemQueued)
 
 	var executed atomic.Int32
-	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	eng := New(store, bus, func(ctx context.Context, action *core.Action, run *core.Run) error {
 		executed.Add(1)
 		return nil
 	})
-	sched := NewIssueScheduler(eng, store, bus, IssueSchedulerConfig{MaxConcurrentIssues: 3})
+	sched := NewWorkItemScheduler(eng, store, bus, WorkItemSchedulerConfig{MaxConcurrentWorkItems: 3})
 	schedCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go sched.Start(schedCtx)
 
-	n, err := RecoverInterruptedIssues(ctx, store, sched)
+	n, err := RecoverInterruptedWorkItems(ctx, store, sched)
 	if err != nil {
-		t.Fatalf("RecoverInterruptedIssues: %v", err)
+		t.Fatalf("RecoverInterruptedWorkItems: %v", err)
 	}
 	if n != 3 {
 		t.Fatalf("recovered = %d, want 3", n)

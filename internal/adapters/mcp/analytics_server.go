@@ -88,15 +88,15 @@ func (s *AnalyticsServer) HandleToolCall(ctx context.Context, toolName string, i
 	case "analytics_project_errors":
 		result, err = s.store.ProjectErrorRanking(ctx, filter)
 	case "analytics_bottlenecks":
-		result, err = s.store.IssueBottleneckSteps(ctx, filter)
+		result, err = s.store.WorkItemBottleneckActions(ctx, filter)
 	case "analytics_duration_stats":
-		result, err = s.store.ExecutionDurationStats(ctx, filter)
+		result, err = s.store.RunDurationStats(ctx, filter)
 	case "analytics_error_breakdown":
 		result, err = s.store.ErrorBreakdown(ctx, filter)
 	case "analytics_recent_failures":
 		result, err = s.store.RecentFailures(ctx, filter)
 	case "analytics_status_distribution":
-		result, err = s.store.IssueStatusDistribution(ctx, filter)
+		result, err = s.store.WorkItemStatusDistribution(ctx, filter)
 	case "analytics_summary":
 		result, err = s.handleSummary(ctx, filter)
 	default:
@@ -128,11 +128,11 @@ func (s *AnalyticsServer) handleSummary(ctx context.Context, filter core.Analyti
 	if err != nil {
 		return nil, err
 	}
-	s2, err := s.store.IssueBottleneckSteps(ctx, filter)
+	s2, err := s.store.WorkItemBottleneckActions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	s3, err := s.store.ExecutionDurationStats(ctx, filter)
+	s3, err := s.store.RunDurationStats(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (s *AnalyticsServer) handleSummary(ctx context.Context, filter core.Analyti
 	if err != nil {
 		return nil, err
 	}
-	s6, err := s.store.IssueStatusDistribution(ctx, filter)
+	s6, err := s.store.WorkItemStatusDistribution(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

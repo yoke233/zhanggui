@@ -161,7 +161,7 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	issueID, err := store.CreateIssue(ctx, &core.Issue{Title: "gen-test", Status: core.IssueOpen})
+	issueID, err := store.CreateWorkItem(ctx, &core.WorkItem{Title: "gen-test", Status: core.WorkItemOpen})
 	if err != nil {
 		t.Fatalf("create issue: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	}
 
 	// Verify types.
-	if steps[2].Type != core.StepGate {
+	if steps[2].Type != core.ActionGate {
 		t.Fatalf("code-review expected gate, got %s", steps[2].Type)
 	}
 
@@ -240,7 +240,7 @@ func TestDAGGenerator_Materialize(t *testing.T) {
 	}
 
 	// Verify all steps are persisted and fetchable.
-	stored, err := store.ListStepsByIssue(ctx, issueID)
+	stored, err := store.ListActionsByWorkItem(ctx, issueID)
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestDAGGenerator_Materialize_BadReference(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "bad-ref", Status: core.IssueOpen})
+	issueID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "bad-ref", Status: core.WorkItemOpen})
 
 	dag := &GeneratedDAG{
 		Steps: []GeneratedStep{

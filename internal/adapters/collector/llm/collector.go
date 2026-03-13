@@ -17,7 +17,7 @@ func NewLLMCollector(complete func(ctx context.Context, prompt string, tools []b
 	return &LLMCollector{Complete: complete}
 }
 
-func (c *LLMCollector) Extract(ctx context.Context, stepType core.StepType, markdown string) (map[string]any, error) {
+func (c *LLMCollector) Extract(ctx context.Context, stepType core.ActionType, markdown string) (map[string]any, error) {
 	if c.Complete == nil {
 		return nil, fmt.Errorf("LLMCollector.Complete is not set")
 	}
@@ -37,16 +37,16 @@ func (c *LLMCollector) Extract(ctx context.Context, stepType core.StepType, mark
 	return result, nil
 }
 
-func buildExtractionPrompt(stepType core.StepType, markdown string) string {
+func buildExtractionPrompt(stepType core.ActionType, markdown string) string {
 	var instruction string
 	switch stepType {
-	case core.StepGate:
+	case core.ActionGate:
 		instruction = `You are a metadata extractor. Analyze the following gate review output and extract:
 - verdict: "pass" or "reject"
  - reason: a short, human-readable reason (empty string if unclear)
  - reject_targets: list of upstream step IDs to reset when verdict is "reject" (optional; omit if unclear)
 Return ONLY a JSON object matching the provided JSON schema.`
-	case core.StepComposite:
+	case core.ActionPlan:
 		instruction = `You are a metadata extractor. Analyze the following composite step output and extract:
 - sub_tasks: list of sub-task names/descriptions identified
 Return ONLY a JSON object matching the provided JSON schema.`
@@ -60,9 +60,9 @@ Return ONLY a JSON object matching the provided JSON schema.`
 	return fmt.Sprintf("%s\n\n---\n\n%s", instruction, markdown)
 }
 
-func extractionTools(stepType core.StepType) []basellm.ToolDef {
+func extractionTools(stepType core.ActionType) []basellm.ToolDef {
 	switch stepType {
-	case core.StepGate:
+	case core.ActionGate:
 		return []basellm.ToolDef{{
 			Name:        "extract_gate_metadata",
 			Description: "Extract structured metadata from a gate review output.",
@@ -87,7 +87,7 @@ func extractionTools(stepType core.StepType) []basellm.ToolDef {
 				"required": []string{"verdict", "reason"},
 			},
 		}}
-	case core.StepComposite:
+	case core.ActionPlan:
 		return []basellm.ToolDef{{
 			Name:        "extract_composite_metadata",
 			Description: "Extract structured metadata from a composite step output.",

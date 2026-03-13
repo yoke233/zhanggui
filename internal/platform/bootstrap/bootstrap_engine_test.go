@@ -12,34 +12,28 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
-func TestResolveFlowSchedulerConfigUsesConfiguredProjectRuns(t *testing.T) {
+func TestResolveWorkItemSchedulerConfigUsesConfiguredProjectRuns(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
 	cfg.Scheduler.MaxProjectRuns = 5
 
-	got := resolveFlowSchedulerConfig(&cfg)
-	if got.MaxConcurrentIssues != 5 {
-		t.Fatalf("MaxConcurrentIssues = %d, want 5", got.MaxConcurrentIssues)
-	}
-	if got.MaxConcurrentFlows != 5 {
-		t.Fatalf("MaxConcurrentFlows = %d, want 5", got.MaxConcurrentFlows)
+	got := resolveWorkItemSchedulerConfig(&cfg)
+	if got.MaxConcurrentWorkItems != 5 {
+		t.Fatalf("MaxConcurrentWorkItems = %d, want 5", got.MaxConcurrentWorkItems)
 	}
 }
 
-func TestResolveFlowSchedulerConfigDefaults(t *testing.T) {
+func TestResolveWorkItemSchedulerConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	got := resolveFlowSchedulerConfig(nil)
-	if got.MaxConcurrentIssues != 2 {
-		t.Fatalf("MaxConcurrentIssues = %d, want 2", got.MaxConcurrentIssues)
-	}
-	if got.MaxConcurrentFlows != 2 {
-		t.Fatalf("MaxConcurrentFlows = %d, want 2", got.MaxConcurrentFlows)
+	got := resolveWorkItemSchedulerConfig(nil)
+	if got.MaxConcurrentWorkItems != 2 {
+		t.Fatalf("MaxConcurrentWorkItems = %d, want 2", got.MaxConcurrentWorkItems)
 	}
 }
 
-func TestBuildFlowEngineAppliesConfiguredAgentConcurrency(t *testing.T) {
+func TestBuildWorkItemEngineAppliesConfiguredAgentConcurrency(t *testing.T) {
 	t.Parallel()
 
 	store := newBootstrapTestStore(t)
@@ -47,13 +41,13 @@ func TestBuildFlowEngineAppliesConfiguredAgentConcurrency(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Scheduler.MaxGlobalAgents = 6
 
-	engine := buildFlowEngine(store, bus, noopStepExecutor, nil, &cfg, SCMTokens{}, nil)
+	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, &cfg, SCMTokens{}, nil)
 	if got := engine.MaxConcurrency(); got != 6 {
 		t.Fatalf("engine.MaxConcurrency() = %d, want 6", got)
 	}
 }
 
-func TestBuildFlowEngineUsesDefaultConcurrencyWhenUnset(t *testing.T) {
+func TestBuildWorkItemEngineUsesDefaultConcurrencyWhenUnset(t *testing.T) {
 	t.Parallel()
 
 	store := newBootstrapTestStore(t)
@@ -61,7 +55,7 @@ func TestBuildFlowEngineUsesDefaultConcurrencyWhenUnset(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Scheduler.MaxGlobalAgents = 0
 
-	engine := buildFlowEngine(store, bus, noopStepExecutor, nil, &cfg, SCMTokens{}, nil)
+	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, &cfg, SCMTokens{}, nil)
 	if got := engine.MaxConcurrency(); got != 4 {
 		t.Fatalf("engine.MaxConcurrency() = %d, want 4", got)
 	}
@@ -80,8 +74,8 @@ func newBootstrapTestStore(t *testing.T) *sqlite.Store {
 	return store
 }
 
-func noopStepExecutor(context.Context, *core.Step, *core.Execution) error {
+func noopActionExecutor(context.Context, *core.Action, *core.Run) error {
 	return nil
 }
 
-var _ flowapp.StepExecutor = noopStepExecutor
+var _ flowapp.ActionExecutor = noopActionExecutor

@@ -22,46 +22,41 @@ type ResourceBindingStore interface {
 	DeleteResourceBinding(ctx context.Context, id int64) error
 }
 
-// StepStore persists Step aggregates.
-type StepStore interface {
-	CreateStep(ctx context.Context, s *Step) (int64, error)
-	GetStep(ctx context.Context, id int64) (*Step, error)
-	ListStepsByIssue(ctx context.Context, issueID int64) ([]*Step, error)
-	UpdateStepStatus(ctx context.Context, id int64, status StepStatus) error
-	UpdateStep(ctx context.Context, s *Step) error
-	DeleteStep(ctx context.Context, id int64) error
+// ActionStore persists Action aggregates.
+type ActionStore interface {
+	CreateAction(ctx context.Context, a *Action) (int64, error)
+	GetAction(ctx context.Context, id int64) (*Action, error)
+	ListActionsByWorkItem(ctx context.Context, workItemID int64) ([]*Action, error)
+	UpdateActionStatus(ctx context.Context, id int64, status ActionStatus) error
+	UpdateAction(ctx context.Context, a *Action) error
+	DeleteAction(ctx context.Context, id int64) error
+	BatchCreateActions(ctx context.Context, actions []*Action) error
+	UpdateActionDependsOn(ctx context.Context, id int64, dependsOn []int64) error
 }
 
-// ExecutionStore persists Execution aggregates.
-type ExecutionStore interface {
-	CreateExecution(ctx context.Context, e *Execution) (int64, error)
-	GetExecution(ctx context.Context, id int64) (*Execution, error)
-	ListExecutionsByStep(ctx context.Context, stepID int64) ([]*Execution, error)
-	ListExecutionsByStatus(ctx context.Context, status ExecutionStatus) ([]*Execution, error)
-	UpdateExecution(ctx context.Context, e *Execution) error
+// RunStore persists Run aggregates.
+type RunStore interface {
+	CreateRun(ctx context.Context, r *Run) (int64, error)
+	GetRun(ctx context.Context, id int64) (*Run, error)
+	ListRunsByAction(ctx context.Context, actionID int64) ([]*Run, error)
+	ListRunsByStatus(ctx context.Context, status RunStatus) ([]*Run, error)
+	UpdateRun(ctx context.Context, r *Run) error
 }
 
-// ArtifactStore persists Artifact records.
-type ArtifactStore interface {
-	CreateArtifact(ctx context.Context, a *Artifact) (int64, error)
-	GetArtifact(ctx context.Context, id int64) (*Artifact, error)
-	GetLatestArtifactByStep(ctx context.Context, stepID int64) (*Artifact, error)
-	ListArtifactsByExecution(ctx context.Context, execID int64) ([]*Artifact, error)
-	UpdateArtifact(ctx context.Context, a *Artifact) error
-}
-
-// BriefingStore persists Briefing records.
-type BriefingStore interface {
-	CreateBriefing(ctx context.Context, b *Briefing) (int64, error)
-	GetBriefing(ctx context.Context, id int64) (*Briefing, error)
-	GetBriefingByStep(ctx context.Context, stepID int64) (*Briefing, error)
+// DeliverableStore persists Deliverable records.
+type DeliverableStore interface {
+	CreateDeliverable(ctx context.Context, d *Deliverable) (int64, error)
+	GetDeliverable(ctx context.Context, id int64) (*Deliverable, error)
+	GetLatestDeliverableByAction(ctx context.Context, actionID int64) (*Deliverable, error)
+	ListDeliverablesByRun(ctx context.Context, runID int64) ([]*Deliverable, error)
+	UpdateDeliverable(ctx context.Context, d *Deliverable) error
 }
 
 // AgentContextStore persists AgentContext records.
 type AgentContextStore interface {
 	CreateAgentContext(ctx context.Context, ac *AgentContext) (int64, error)
 	GetAgentContext(ctx context.Context, id int64) (*AgentContext, error)
-	FindAgentContext(ctx context.Context, agentID string, issueID int64) (*AgentContext, error)
+	FindAgentContext(ctx context.Context, agentID string, workItemID int64) (*AgentContext, error)
 	UpdateAgentContext(ctx context.Context, ac *AgentContext) error
 }
 
@@ -69,7 +64,7 @@ type AgentContextStore interface {
 type EventStore interface {
 	CreateEvent(ctx context.Context, e *Event) (int64, error)
 	ListEvents(ctx context.Context, filter EventFilter) ([]*Event, error)
-	GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType EventType) (*time.Time, error)
+	GetLatestRunEventTime(ctx context.Context, runID int64, eventType EventType) (*time.Time, error)
 }
 
 // DAGTemplateStore persists DAGTemplate records.
@@ -81,47 +76,46 @@ type DAGTemplateStore interface {
 	DeleteDAGTemplate(ctx context.Context, id int64) error
 }
 
-// ExecutionProbeStore persists probe records and execution routing metadata.
-type ExecutionProbeStore interface {
-	CreateExecutionProbe(ctx context.Context, probe *ExecutionProbe) (int64, error)
-	GetExecutionProbe(ctx context.Context, id int64) (*ExecutionProbe, error)
-	ListExecutionProbesByExecution(ctx context.Context, executionID int64) ([]*ExecutionProbe, error)
-	GetLatestExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
-	GetActiveExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
-	UpdateExecutionProbe(ctx context.Context, probe *ExecutionProbe) error
-	GetExecutionProbeRoute(ctx context.Context, executionID int64) (*ExecutionProbeRoute, error)
+// RunProbeStore persists probe records and run routing metadata.
+type RunProbeStore interface {
+	CreateRunProbe(ctx context.Context, probe *RunProbe) (int64, error)
+	GetRunProbe(ctx context.Context, id int64) (*RunProbe, error)
+	ListRunProbesByRun(ctx context.Context, runID int64) ([]*RunProbe, error)
+	GetLatestRunProbe(ctx context.Context, runID int64) (*RunProbe, error)
+	GetActiveRunProbe(ctx context.Context, runID int64) (*RunProbe, error)
+	UpdateRunProbe(ctx context.Context, probe *RunProbe) error
+	GetRunProbeRoute(ctx context.Context, runID int64) (*RunProbeRoute, error)
 }
 
 // Store is the aggregate interface combining all sub-stores.
 type Store interface {
 	ProjectStore
 	ResourceBindingStore
-	IssueStore
+	WorkItemStore
 	ThreadStore
-	StepStore
-	ExecutionStore
-	ArtifactStore
-	BriefingStore
+	ActionStore
+	RunStore
+	DeliverableStore
 	AgentContextStore
 	EventStore
-	ExecutionProbeStore
+	RunProbeStore
 	AnalyticsStore
 	DAGTemplateStore
 	UsageStore
 	FeatureManifestStore
-	StepSignalStore
-	IssueAttachmentStore
+	ActionSignalStore
+	WorkItemAttachmentStore
 	NotificationStore
 	Close() error
 }
 
 // EventFilter constrains Event queries.
 type EventFilter struct {
-	IssueID   *int64
-	StepID    *int64
-	ExecID    *int64
-	SessionID string
-	Types     []EventType
-	Limit     int
-	Offset    int
+	WorkItemID *int64
+	ActionID   *int64
+	RunID      *int64
+	SessionID  string
+	Types      []EventType
+	Limit      int
+	Offset     int
 }

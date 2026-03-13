@@ -65,8 +65,8 @@ func WithDAGGenerator(g DAGGenerator) HandlerOption {
 	return func(h *Handler) { h.dagGen = g }
 }
 
-// WithExecutionProbeService sets the execution probe service for manual/admin probe APIs.
-func WithExecutionProbeService(service probeapp.Service) HandlerOption {
+// WithRunProbeService sets the execution probe service for manual/admin probe APIs.
+func WithRunProbeService(service probeapp.Service) HandlerOption {
 	return func(h *Handler) { h.probeSvc = service }
 }
 
@@ -137,40 +137,16 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/resources/{resourceID}", h.getResourceBinding)
 	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
 
-	// Issues
-	r.Post("/issues", h.createIssue)
-	r.Get("/issues", h.listIssues)
-	r.Get("/issues/{issueID}", h.getIssue)
-	r.Put("/issues/{issueID}", h.updateIssue)
-	r.Delete("/issues/{issueID}", h.deleteIssue)
-	r.Post("/issues/{issueID}/bootstrap-pr", h.bootstrapPRIssue)
-	r.Post("/issues/{issueID}/archive", h.archiveIssue)
-	r.Post("/issues/{issueID}/unarchive", h.unarchiveIssue)
-	r.Post("/issues/{issueID}/run", h.runIssue)
-	r.Post("/issues/{issueID}/cancel", h.cancelIssue)
+	// Work Item public routes.
+	h.registerWorkItemRoutes(r, "/work-items")
 
 	// Issue Attachments
-	r.Post("/issues/{issueID}/attachments", h.uploadIssueAttachment)
-	r.Get("/issues/{issueID}/attachments", h.listIssueAttachments)
-	r.Get("/attachments/{attachmentID}", h.getIssueAttachment)
-	r.Get("/attachments/{attachmentID}/download", h.downloadIssueAttachment)
-	r.Delete("/attachments/{attachmentID}", h.deleteIssueAttachment)
-
-	// Steps
-	r.Post("/issues/{issueID}/steps", h.createStep)
-	r.Get("/issues/{issueID}/steps", h.listSteps)
-	r.Get("/steps/{stepID}", h.getStep)
-	r.Put("/steps/{stepID}", h.updateStep)
-	r.Delete("/steps/{stepID}", h.deleteStep)
-
-	// DAG generation (AI-powered)
-	r.Post("/issues/{issueID}/generate-steps", h.generateSteps)
-
-	// Title generation (AI-powered)
-	r.Post("/issues/generate-title", h.generateTitle)
-
-	// Save issue as template
-	r.Post("/issues/{issueID}/save-as-template", h.saveIssueAsTemplate)
+	r.Get("/attachments/{attachmentID}", h.getWorkItemAttachment)
+	r.Get("/attachments/{attachmentID}/download", h.downloadWorkItemAttachment)
+	r.Delete("/attachments/{attachmentID}", h.deleteWorkItemAttachment)
+	r.Get("/steps/{stepID}", h.getAction)
+	r.Put("/steps/{stepID}", h.updateAction)
+	r.Delete("/steps/{stepID}", h.deleteAction)
 
 	// DAG Templates
 	r.Post("/templates", h.createDAGTemplate)
@@ -178,52 +154,44 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/templates/{templateID}", h.getDAGTemplate)
 	r.Put("/templates/{templateID}", h.updateDAGTemplate)
 	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
-	r.Post("/templates/{templateID}/create-issue", h.createIssueFromTemplate)
+	r.Post("/templates/{templateID}/create-issue", h.createWorkItemFromTemplate)
 
 	// Step signals (human intervention)
-	r.Post("/steps/{stepID}/decision", h.stepDecision)
-	r.Post("/steps/{stepID}/unblock", h.stepUnblock)
-	r.Get("/steps/{stepID}/signals", h.listStepSignals)
+	r.Post("/steps/{stepID}/decision", h.actionDecision)
+	r.Post("/steps/{stepID}/unblock", h.actionUnblock)
+	r.Get("/steps/{stepID}/signals", h.listActionSignals)
 	r.Get("/pending-decisions", h.listPendingDecisions)
 
 	// Executions
-	r.Get("/steps/{stepID}/executions", h.listExecutions)
-	r.Get("/executions/{execID}", h.getExecution)
+	r.Get("/steps/{stepID}/executions", h.listRuns)
+	r.Get("/executions/{execID}", h.getRun)
 
 	// Artifacts
-	r.Get("/artifacts/{artifactID}", h.getArtifact)
-	r.Get("/steps/{stepID}/artifact", h.getLatestArtifact)
-	r.Get("/executions/{execID}/artifacts", h.listArtifactsByExec)
-
-	// Briefings
-	r.Get("/briefings/{briefingID}", h.getBriefing)
-	r.Get("/steps/{stepID}/briefing", h.getBriefingByStep)
+	r.Get("/artifacts/{artifactID}", h.getDeliverable)
+	r.Get("/steps/{stepID}/artifact", h.getLatestDeliverable)
+	r.Get("/executions/{execID}/artifacts", h.listDeliverablesByRun)
 
 	// Events
 	r.Get("/events", h.listEvents)
-	r.Get("/issues/{issueID}/events", h.listIssueEvents)
 
 	// Analytics
 	r.Get("/analytics/summary", h.getAnalyticsSummary)
 	r.Get("/analytics/project-errors", h.getProjectErrorRanking)
-	r.Get("/analytics/bottlenecks", h.getIssueBottleneckSteps)
-	r.Get("/analytics/duration-stats", h.getExecutionDurationStats)
+	r.Get("/analytics/bottlenecks", h.getWorkItemBottleneckActions)
+	r.Get("/analytics/duration-stats", h.getRunDurationStats)
 	r.Get("/analytics/error-breakdown", h.getErrorBreakdown)
 	r.Get("/analytics/recent-failures", h.getRecentFailures)
-	r.Get("/analytics/status-distribution", h.getIssueStatusDistribution)
+	r.Get("/analytics/status-distribution", h.getWorkItemStatusDistribution)
 
 	// Usage analytics
 	r.Get("/analytics/usage", h.getUsageSummary)
 	r.Get("/analytics/usage/by-project", h.getUsageByProject)
 	r.Get("/analytics/usage/by-agent", h.getUsageByAgent)
 	r.Get("/analytics/usage/by-profile", h.getUsageByProfile)
-	r.Get("/executions/{execID}/usage", h.getUsageByExecution)
+	r.Get("/executions/{execID}/usage", h.getUsageByRun)
 
 	// Cron (scheduled issues)
-	r.Get("/cron/issues", h.listCronIssues)
-	r.Get("/issues/{issueID}/cron", h.getIssueCronStatus)
-	r.Post("/issues/{issueID}/cron", h.setupIssueCron)
-	r.Delete("/issues/{issueID}/cron", h.disableIssueCron)
+	r.Get("/cron/issues", h.listCronWorkItems)
 
 	// Git tags (version tagging & CI/CD trigger)
 	h.registerGitTagRoutes(r)
@@ -262,14 +230,38 @@ func (h *Handler) Register(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(httpx.RequireScope(httpx.ScopeAdmin))
 		r.Put("/admin/system/sandbox-support", h.updateSandboxSupport)
-		r.Post("/executions/{execID}/probe", h.createExecutionProbe)
+		r.Post("/executions/{execID}/probe", h.createRunProbe)
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
-		r.Get("/executions/{execID}/probe/latest", h.getLatestExecutionProbe)
+		r.Get("/executions/{execID}/probe/latest", h.getLatestRunProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
 		r.Delete("/projects/{projectID}/manifest", h.deleteManifest)
 		r.Delete("/manifest/entries/{entryID}", h.deleteManifestEntry)
 		registerSkillRoutes(r, h.skillsRoot, h.registry, h.skillGitHubImporter)
 	})
+}
+
+func (h *Handler) registerWorkItemRoutes(r chi.Router, basePath string) {
+	r.Post(basePath, h.createWorkItem)
+	r.Get(basePath, h.listWorkItems)
+	r.Get(basePath+"/{issueID}", h.getWorkItem)
+	r.Put(basePath+"/{issueID}", h.updateWorkItem)
+	r.Delete(basePath+"/{issueID}", h.deleteWorkItem)
+	r.Post(basePath+"/{issueID}/bootstrap-pr", h.bootstrapPRWorkItem)
+	r.Post(basePath+"/{issueID}/archive", h.archiveWorkItem)
+	r.Post(basePath+"/{issueID}/unarchive", h.unarchiveWorkItem)
+	r.Post(basePath+"/{issueID}/run", h.runWorkItem)
+	r.Post(basePath+"/{issueID}/cancel", h.cancelWorkItem)
+	r.Post(basePath+"/{issueID}/attachments", h.uploadWorkItemAttachment)
+	r.Get(basePath+"/{issueID}/attachments", h.listWorkItemAttachments)
+	r.Post(basePath+"/{issueID}/steps", h.createAction)
+	r.Get(basePath+"/{issueID}/steps", h.listActions)
+	r.Post(basePath+"/{issueID}/generate-steps", h.generateActions)
+	r.Post(basePath+"/generate-title", h.generateTitle)
+	r.Post(basePath+"/{issueID}/save-as-template", h.saveWorkItemAsTemplate)
+	r.Get(basePath+"/{issueID}/events", h.listWorkItemEvents)
+	r.Get(basePath+"/{issueID}/cron", h.getWorkItemCronStatus)
+	r.Post(basePath+"/{issueID}/cron", h.setupWorkItemCron)
+	r.Delete(basePath+"/{issueID}/cron", h.disableWorkItemCron)
 }
 
 // urlParamInt64 extracts an int64 from a chi URL path parameter.

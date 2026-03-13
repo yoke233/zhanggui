@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateStepSignal(ctx context.Context, sig *core.StepSignal) (int64, error) {
+func (s *Store) CreateActionSignal(ctx context.Context, sig *core.ActionSignal) (int64, error) {
 	now := time.Now().UTC()
-	model := stepSignalModelFromCore(sig)
+	model := actionSignalModelFromCore(sig)
 	model.CreatedAt = now
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, fmt.Errorf("insert step signal: %w", err)
@@ -21,8 +21,8 @@ func (s *Store) CreateStepSignal(ctx context.Context, sig *core.StepSignal) (int
 	return model.ID, nil
 }
 
-func (s *Store) GetLatestStepSignal(ctx context.Context, stepID int64, types ...core.SignalType) (*core.StepSignal, error) {
-	var model StepSignalModel
+func (s *Store) GetLatestActionSignal(ctx context.Context, stepID int64, types ...core.SignalType) (*core.ActionSignal, error) {
+	var model ActionSignalModel
 	q := s.orm.WithContext(ctx).Where("step_id = ?", stepID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
@@ -41,8 +41,8 @@ func (s *Store) GetLatestStepSignal(ctx context.Context, stepID int64, types ...
 	return model.toCore(), nil
 }
 
-func (s *Store) ListStepSignals(ctx context.Context, stepID int64) ([]*core.StepSignal, error) {
-	var models []StepSignalModel
+func (s *Store) ListActionSignals(ctx context.Context, stepID int64) ([]*core.ActionSignal, error) {
+	var models []ActionSignalModel
 	err := s.orm.WithContext(ctx).
 		Where("step_id = ?", stepID).
 		Order("id ASC").
@@ -50,15 +50,15 @@ func (s *Store) ListStepSignals(ctx context.Context, stepID int64) ([]*core.Step
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*core.StepSignal, 0, len(models))
+	out := make([]*core.ActionSignal, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) ListStepSignalsByType(ctx context.Context, stepID int64, types ...core.SignalType) ([]*core.StepSignal, error) {
-	var models []StepSignalModel
+func (s *Store) ListActionSignalsByType(ctx context.Context, stepID int64, types ...core.SignalType) ([]*core.ActionSignal, error) {
+	var models []ActionSignalModel
 	q := s.orm.WithContext(ctx).Where("step_id = ?", stepID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
@@ -71,16 +71,16 @@ func (s *Store) ListStepSignalsByType(ctx context.Context, stepID int64, types .
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*core.StepSignal, 0, len(models))
+	out := make([]*core.ActionSignal, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) CountStepSignals(ctx context.Context, stepID int64, types ...core.SignalType) (int, error) {
+func (s *Store) CountActionSignals(ctx context.Context, stepID int64, types ...core.SignalType) (int, error) {
 	var count int64
-	q := s.orm.WithContext(ctx).Model(&StepSignalModel{}).Where("step_id = ?", stepID)
+	q := s.orm.WithContext(ctx).Model(&ActionSignalModel{}).Where("step_id = ?", stepID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
 		for i, t := range types {
@@ -94,38 +94,38 @@ func (s *Store) CountStepSignals(ctx context.Context, stepID int64, types ...cor
 	return int(count), nil
 }
 
-func (s *Store) ListPendingHumanSteps(ctx context.Context, issueID int64) ([]*core.Step, error) {
-	var models []StepModel
+func (s *Store) ListPendingHumanActions(ctx context.Context, issueID int64) ([]*core.Action, error) {
+	var models []ActionModel
 	err := s.orm.WithContext(ctx).
 		Where("issue_id = ? AND status IN ?", issueID, []string{
-			string(core.StepBlocked),
-			string(core.StepWaitingGate),
+			string(core.ActionBlocked),
+			string(core.ActionWaitingGate),
 		}).
 		Order("position ASC").
 		Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*core.Step, 0, len(models))
+	out := make([]*core.Action, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) ListAllPendingHumanSteps(ctx context.Context) ([]*core.Step, error) {
-	var models []StepModel
+func (s *Store) ListAllPendingHumanActions(ctx context.Context) ([]*core.Action, error) {
+	var models []ActionModel
 	err := s.orm.WithContext(ctx).
 		Where("status IN ?", []string{
-			string(core.StepBlocked),
-			string(core.StepWaitingGate),
+			string(core.ActionBlocked),
+			string(core.ActionWaitingGate),
 		}).
 		Order("issue_id ASC, position ASC").
 		Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*core.Step, 0, len(models))
+	out := make([]*core.Action, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}

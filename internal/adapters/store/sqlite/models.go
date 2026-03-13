@@ -68,7 +68,7 @@ type ResourceBindingModel struct {
 
 func (ResourceBindingModel) TableName() string { return "resource_bindings" }
 
-type IssueModel struct {
+type WorkItemModel struct {
 	ID                int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	ProjectID         *int64                    `gorm:"column:project_id"`
 	ResourceBindingID *int64                    `gorm:"column:resource_binding_id"`
@@ -84,9 +84,9 @@ type IssueModel struct {
 	UpdatedAt         time.Time                 `gorm:"column:updated_at"`
 }
 
-func (IssueModel) TableName() string { return "issues" }
+func (WorkItemModel) TableName() string { return "issues" }
 
-type IssueAttachmentModel struct {
+type WorkItemAttachmentModel struct {
 	ID        int64     `gorm:"column:id;primaryKey;autoIncrement"`
 	IssueID   int64     `gorm:"column:issue_id;not null"`
 	FileName  string    `gorm:"column:file_name;not null"`
@@ -96,24 +96,24 @@ type IssueAttachmentModel struct {
 	CreatedAt time.Time `gorm:"column:created_at"`
 }
 
-func (IssueAttachmentModel) TableName() string { return "issue_attachments" }
+func (WorkItemAttachmentModel) TableName() string { return "work_item_attachments" }
 
-func (m *IssueAttachmentModel) toCore() *core.IssueAttachment {
-	return &core.IssueAttachment{
-		ID:        m.ID,
-		IssueID:   m.IssueID,
-		FileName:  m.FileName,
-		FilePath:  m.FilePath,
-		MimeType:  m.MimeType,
-		Size:      m.Size,
-		CreatedAt: m.CreatedAt,
+func (m *WorkItemAttachmentModel) toCore() *core.WorkItemAttachment {
+	return &core.WorkItemAttachment{
+		ID:         m.ID,
+		WorkItemID: m.IssueID,
+		FileName:   m.FileName,
+		FilePath:   m.FilePath,
+		MimeType:   m.MimeType,
+		Size:       m.Size,
+		CreatedAt:  m.CreatedAt,
 	}
 }
 
-func issueAttachmentModelFromCore(a *core.IssueAttachment) *IssueAttachmentModel {
-	return &IssueAttachmentModel{
+func workItemAttachmentModelFromCore(a *core.WorkItemAttachment) *WorkItemAttachmentModel {
+	return &WorkItemAttachmentModel{
 		ID:        a.ID,
-		IssueID:   a.IssueID,
+		IssueID:   a.WorkItemID,
 		FileName:  a.FileName,
 		FilePath:  a.FilePath,
 		MimeType:  a.MimeType,
@@ -122,7 +122,7 @@ func issueAttachmentModelFromCore(a *core.IssueAttachment) *IssueAttachmentModel
 	}
 }
 
-type StepModel struct {
+type ActionModel struct {
 	ID                   int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	IssueID              int64                     `gorm:"column:issue_id;not null"`
 	Name                 string                    `gorm:"column:name;not null"`
@@ -130,6 +130,8 @@ type StepModel struct {
 	Type                 string                    `gorm:"column:type;not null"`
 	Status               string                    `gorm:"column:status;not null"`
 	Position             int                       `gorm:"column:position;not null"`
+	DependsOn            JSONField[[]int64]        `gorm:"column:depends_on;type:text"`
+	Input                string                    `gorm:"column:input"`
 	AgentRole            string                    `gorm:"column:agent_role"`
 	RequiredCapabilities JSONField[[]string]       `gorm:"column:required_capabilities;type:text"`
 	AcceptanceCriteria   JSONField[[]string]       `gorm:"column:acceptance_criteria;type:text"`
@@ -141,9 +143,9 @@ type StepModel struct {
 	UpdatedAt            time.Time                 `gorm:"column:updated_at"`
 }
 
-func (StepModel) TableName() string { return "steps" }
+func (ActionModel) TableName() string { return "steps" }
 
-type ExecutionModel struct {
+type RunModel struct {
 	ID               int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	StepID           int64                     `gorm:"column:step_id;not null"`
 	IssueID          int64                     `gorm:"column:issue_id;not null"`
@@ -162,9 +164,9 @@ type ExecutionModel struct {
 	CreatedAt        time.Time                 `gorm:"column:created_at"`
 }
 
-func (ExecutionModel) TableName() string { return "executions" }
+func (RunModel) TableName() string { return "executions" }
 
-type ArtifactModel struct {
+type DeliverableModel struct {
 	ID             int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	ExecutionID    int64                     `gorm:"column:execution_id;not null"`
 	StepID         int64                     `gorm:"column:step_id;not null"`
@@ -175,18 +177,8 @@ type ArtifactModel struct {
 	CreatedAt      time.Time                 `gorm:"column:created_at"`
 }
 
-func (ArtifactModel) TableName() string { return "artifacts" }
+func (DeliverableModel) TableName() string { return "artifacts" }
 
-type BriefingModel struct {
-	ID          int64                        `gorm:"column:id;primaryKey;autoIncrement"`
-	StepID      int64                        `gorm:"column:step_id;not null"`
-	Objective   string                       `gorm:"column:objective;not null"`
-	ContextRefs JSONField[[]core.ContextRef] `gorm:"column:context_refs;type:text"`
-	Constraints JSONField[[]string]          `gorm:"column:constraints;type:text"`
-	CreatedAt   time.Time                    `gorm:"column:created_at"`
-}
-
-func (BriefingModel) TableName() string { return "briefings" }
 
 type AgentContextModel struct {
 	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
@@ -216,7 +208,7 @@ type EventModel struct {
 
 func (EventModel) TableName() string { return "events" }
 
-type ExecutionProbeModel struct {
+type RunProbeModel struct {
 	ID             int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	ExecutionID    int64      `gorm:"column:execution_id;not null"`
 	IssueID        int64      `gorm:"column:issue_id;not null"`
@@ -235,7 +227,7 @@ type ExecutionProbeModel struct {
 	CreatedAt      time.Time  `gorm:"column:created_at"`
 }
 
-func (ExecutionProbeModel) TableName() string { return "execution_probes" }
+func (RunProbeModel) TableName() string { return "execution_probes" }
 
 type AgentDriverModel struct {
 	ID            string                       `gorm:"column:id;primaryKey"`
@@ -257,7 +249,7 @@ type AgentProfileModel struct {
 	DriverID         string                   `gorm:"column:driver_id;not null"`
 	Role             string                   `gorm:"column:role;not null"`
 	Capabilities     JSONField[[]string]      `gorm:"column:capabilities;type:text"`
-	ActionsAllowed   JSONField[[]core.Action] `gorm:"column:actions_allowed;type:text"`
+	ActionsAllowed   JSONField[[]core.AgentAction] `gorm:"column:actions_allowed;type:text"`
 	PromptTemplate   string                   `gorm:"column:prompt_template;not null"`
 	Skills           JSONField[[]string]      `gorm:"column:skills;type:text"`
 	SessionReuse     bool                     `gorm:"column:session_reuse;not null"`
@@ -278,7 +270,7 @@ type DAGTemplateModel struct {
 	ProjectID   *int64                            `gorm:"column:project_id"`
 	Tags        JSONField[[]string]               `gorm:"column:tags;type:text"`
 	Metadata    JSONField[map[string]string]      `gorm:"column:metadata;type:text"`
-	Steps       JSONField[[]core.DAGTemplateStep] `gorm:"column:steps;type:text"`
+	Steps       JSONField[[]core.DAGTemplateAction] `gorm:"column:steps;type:text"`
 	CreatedAt   time.Time                         `gorm:"column:created_at"`
 	UpdatedAt   time.Time                         `gorm:"column:updated_at"`
 }
@@ -537,8 +529,8 @@ func (m *FeatureEntryModel) toCore() *core.FeatureEntry {
 		Key:         m.Key,
 		Description: m.Description,
 		Status:      core.FeatureStatus(m.Status),
-		IssueID:     m.IssueID,
-		StepID:      m.StepID,
+		WorkItemID:  m.IssueID,
+		ActionID:    m.StepID,
 		Tags:        m.Tags.Data,
 		Metadata:    m.Metadata.Data,
 		CreatedAt:   m.CreatedAt,
@@ -556,8 +548,8 @@ func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
 		Key:         e.Key,
 		Description: e.Description,
 		Status:      string(e.Status),
-		IssueID:     e.IssueID,
-		StepID:      e.StepID,
+		IssueID:     e.WorkItemID,
+		StepID:      e.ActionID,
 		Tags:        JSONField[[]string]{Data: e.Tags},
 		Metadata:    JSONField[map[string]any]{Data: e.Metadata},
 		CreatedAt:   e.CreatedAt,
@@ -565,9 +557,9 @@ func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
 	}
 }
 
-// ── StepSignal ──
+// ── ActionSignal ──
 
-type StepSignalModel struct {
+type ActionSignalModel struct {
 	ID           int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	StepID       int64                     `gorm:"column:step_id;not null"`
 	IssueID      int64                     `gorm:"column:issue_id;not null"`
@@ -582,49 +574,49 @@ type StepSignalModel struct {
 	CreatedAt    time.Time                 `gorm:"column:created_at"`
 }
 
-func (StepSignalModel) TableName() string { return "step_signals" }
+func (ActionSignalModel) TableName() string { return "action_signals" }
 
-func stepSignalModelFromCore(s *core.StepSignal) *StepSignalModel {
+func actionSignalModelFromCore(s *core.ActionSignal) *ActionSignalModel {
 	if s == nil {
 		return nil
 	}
-	return &StepSignalModel{
+	return &ActionSignalModel{
 		ID:           s.ID,
-		StepID:       s.StepID,
-		IssueID:      s.IssueID,
-		ExecID:       int64PtrIfNonZero(s.ExecID),
+		StepID:       s.ActionID,
+		IssueID:      s.WorkItemID,
+		ExecID:       int64PtrIfNonZero(s.RunID),
 		Type:         string(s.Type),
 		Source:       string(s.Source),
 		Summary:      s.Summary,
 		Content:      s.Content,
-		SourceStepID: int64PtrIfNonZero(s.SourceStepID),
+		SourceStepID: int64PtrIfNonZero(s.SourceActionID),
 		Payload:      JSONField[map[string]any]{Data: s.Payload},
 		Actor:        s.Actor,
 		CreatedAt:    s.CreatedAt,
 	}
 }
 
-func (m *StepSignalModel) toCore() *core.StepSignal {
+func (m *ActionSignalModel) toCore() *core.ActionSignal {
 	if m == nil {
 		return nil
 	}
-	sig := &core.StepSignal{
-		ID:        m.ID,
-		StepID:    m.StepID,
-		IssueID:   m.IssueID,
-		Type:      core.SignalType(m.Type),
-		Source:    core.SignalSource(m.Source),
-		Summary:   m.Summary,
-		Content:   m.Content,
-		Payload:   m.Payload.Data,
-		Actor:     m.Actor,
-		CreatedAt: m.CreatedAt,
+	sig := &core.ActionSignal{
+		ID:         m.ID,
+		ActionID:   m.StepID,
+		WorkItemID: m.IssueID,
+		Type:       core.SignalType(m.Type),
+		Source:     core.SignalSource(m.Source),
+		Summary:    m.Summary,
+		Content:    m.Content,
+		Payload:    m.Payload.Data,
+		Actor:      m.Actor,
+		CreatedAt:  m.CreatedAt,
 	}
 	if m.ExecID != nil {
-		sig.ExecID = *m.ExecID
+		sig.RunID = *m.ExecID
 	}
 	if m.SourceStepID != nil {
-		sig.SourceStepID = *m.SourceStepID
+		sig.SourceActionID = *m.SourceStepID
 	}
 	return sig
 }
@@ -689,41 +681,39 @@ func (m *ResourceBindingModel) toCore() *core.ResourceBinding {
 	}
 }
 
-func issueModelFromCore(issue *core.Issue) *IssueModel {
-	if issue == nil {
+func workItemModelFromCore(w *core.WorkItem) *WorkItemModel {
+	if w == nil {
 		return nil
 	}
-	return &IssueModel{
-		ID:                issue.ID,
-		ProjectID:         issue.ProjectID,
-		ResourceBindingID: issue.ResourceBindingID,
-		Title:             issue.Title,
-		Body:              issue.Body,
-		Status:            string(issue.Status),
-		Priority:          string(issue.Priority),
-		Labels:            JSONField[[]string]{Data: issue.Labels},
-		DependsOn:         JSONField[[]int64]{Data: issue.DependsOn},
-		Metadata:          JSONField[map[string]any]{Data: issue.Metadata},
-		ArchivedAt:        issue.ArchivedAt,
-		CreatedAt:         issue.CreatedAt,
-		UpdatedAt:         issue.UpdatedAt,
+	return &WorkItemModel{
+		ID:                w.ID,
+		ProjectID:         w.ProjectID,
+		ResourceBindingID: w.ResourceBindingID,
+		Title:             w.Title,
+		Body:              w.Body,
+		Status:            string(w.Status),
+		Priority:          string(w.Priority),
+		Labels:            JSONField[[]string]{Data: w.Labels},
+		Metadata:          JSONField[map[string]any]{Data: w.Metadata},
+		ArchivedAt:        w.ArchivedAt,
+		CreatedAt:         w.CreatedAt,
+		UpdatedAt:         w.UpdatedAt,
 	}
 }
 
-func (m *IssueModel) toCore() *core.Issue {
+func (m *WorkItemModel) toCore() *core.WorkItem {
 	if m == nil {
 		return nil
 	}
-	return &core.Issue{
+	return &core.WorkItem{
 		ID:                m.ID,
 		ProjectID:         m.ProjectID,
 		ResourceBindingID: m.ResourceBindingID,
 		Title:             m.Title,
 		Body:              m.Body,
-		Status:            core.IssueStatus(m.Status),
-		Priority:          core.IssuePriority(m.Priority),
+		Status:            core.WorkItemStatus(m.Status),
+		Priority:          core.WorkItemPriority(m.Priority),
 		Labels:            m.Labels.Data,
-		DependsOn:         m.DependsOn.Data,
 		Metadata:          m.Metadata.Data,
 		ArchivedAt:        m.ArchivedAt,
 		CreatedAt:         m.CreatedAt,
@@ -731,18 +721,20 @@ func (m *IssueModel) toCore() *core.Issue {
 	}
 }
 
-func stepModelFromCore(step *core.Step) *StepModel {
+func actionModelFromCore(step *core.Action) *ActionModel {
 	if step == nil {
 		return nil
 	}
-	return &StepModel{
+	return &ActionModel{
 		ID:                   step.ID,
-		IssueID:              step.IssueID,
+		IssueID:              step.WorkItemID,
 		Name:                 step.Name,
 		Description:          step.Description,
 		Type:                 string(step.Type),
 		Status:               string(step.Status),
 		Position:             step.Position,
+		DependsOn:            JSONField[[]int64]{Data: step.DependsOn},
+		Input:                step.Input,
 		AgentRole:            step.AgentRole,
 		RequiredCapabilities: JSONField[[]string]{Data: step.RequiredCapabilities},
 		AcceptanceCriteria:   JSONField[[]string]{Data: step.AcceptanceCriteria},
@@ -755,18 +747,20 @@ func stepModelFromCore(step *core.Step) *StepModel {
 	}
 }
 
-func (m *StepModel) toCore() *core.Step {
+func (m *ActionModel) toCore() *core.Action {
 	if m == nil {
 		return nil
 	}
-	return &core.Step{
+	return &core.Action{
 		ID:                   m.ID,
-		IssueID:              m.IssueID,
+		WorkItemID:           m.IssueID,
 		Name:                 m.Name,
 		Description:          m.Description,
-		Type:                 core.StepType(m.Type),
-		Status:               core.StepStatus(m.Status),
+		Type:                 core.ActionType(m.Type),
+		Status:               core.ActionStatus(m.Status),
 		Position:             m.Position,
+		DependsOn:            m.DependsOn.Data,
+		Input:                m.Input,
 		AgentRole:            m.AgentRole,
 		RequiredCapabilities: m.RequiredCapabilities.Data,
 		AcceptanceCriteria:   m.AcceptanceCriteria.Data,
@@ -779,19 +773,19 @@ func (m *StepModel) toCore() *core.Step {
 	}
 }
 
-func executionModelFromCore(exec *core.Execution) *ExecutionModel {
+func runModelFromCore(exec *core.Run) *RunModel {
 	if exec == nil {
 		return nil
 	}
-	return &ExecutionModel{
+	return &RunModel{
 		ID:               exec.ID,
-		StepID:           exec.StepID,
-		IssueID:          exec.IssueID,
+		StepID:           exec.ActionID,
+		IssueID:          exec.WorkItemID,
 		Status:           string(exec.Status),
 		AgentID:          exec.AgentID,
 		AgentContextID:   exec.AgentContextID,
 		BriefingSnapshot: exec.BriefingSnapshot,
-		ArtifactID:       exec.ArtifactID,
+		ArtifactID:       exec.DeliverableID,
 		Input:            JSONField[map[string]any]{Data: exec.Input},
 		Output:           JSONField[map[string]any]{Data: exec.Output},
 		ErrorMessage:     exec.ErrorMessage,
@@ -803,19 +797,19 @@ func executionModelFromCore(exec *core.Execution) *ExecutionModel {
 	}
 }
 
-func (m *ExecutionModel) toCore() *core.Execution {
+func (m *RunModel) toCore() *core.Run {
 	if m == nil {
 		return nil
 	}
-	return &core.Execution{
+	return &core.Run{
 		ID:               m.ID,
-		StepID:           m.StepID,
-		IssueID:          m.IssueID,
-		Status:           core.ExecutionStatus(m.Status),
+		ActionID:         m.StepID,
+		WorkItemID:       m.IssueID,
+		Status:           core.RunStatus(m.Status),
 		AgentID:          m.AgentID,
 		AgentContextID:   m.AgentContextID,
 		BriefingSnapshot: m.BriefingSnapshot,
-		ArtifactID:       m.ArtifactID,
+		DeliverableID:    m.ArtifactID,
 		Input:            m.Input.Data,
 		Output:           m.Output.Data,
 		ErrorMessage:     m.ErrorMessage,
@@ -827,15 +821,15 @@ func (m *ExecutionModel) toCore() *core.Execution {
 	}
 }
 
-func artifactModelFromCore(artifact *core.Artifact) *ArtifactModel {
+func deliverableModelFromCore(artifact *core.Deliverable) *DeliverableModel {
 	if artifact == nil {
 		return nil
 	}
-	return &ArtifactModel{
+	return &DeliverableModel{
 		ID:             artifact.ID,
-		ExecutionID:    artifact.ExecutionID,
-		StepID:         artifact.StepID,
-		IssueID:        artifact.IssueID,
+		ExecutionID:    artifact.RunID,
+		StepID:         artifact.ActionID,
+		IssueID:        artifact.WorkItemID,
 		ResultMarkdown: artifact.ResultMarkdown,
 		Metadata:       JSONField[map[string]any]{Data: artifact.Metadata},
 		Assets:         JSONField[[]core.Asset]{Data: artifact.Assets},
@@ -843,15 +837,15 @@ func artifactModelFromCore(artifact *core.Artifact) *ArtifactModel {
 	}
 }
 
-func (m *ArtifactModel) toCore() *core.Artifact {
+func (m *DeliverableModel) toCore() *core.Deliverable {
 	if m == nil {
 		return nil
 	}
-	return &core.Artifact{
+	return &core.Deliverable{
 		ID:             m.ID,
-		ExecutionID:    m.ExecutionID,
-		StepID:         m.StepID,
-		IssueID:        m.IssueID,
+		RunID:          m.ExecutionID,
+		ActionID:       m.StepID,
+		WorkItemID:     m.IssueID,
 		ResultMarkdown: m.ResultMarkdown,
 		Metadata:       m.Metadata.Data,
 		Assets:         m.Assets.Data,
@@ -859,33 +853,6 @@ func (m *ArtifactModel) toCore() *core.Artifact {
 	}
 }
 
-func briefingModelFromCore(briefing *core.Briefing) *BriefingModel {
-	if briefing == nil {
-		return nil
-	}
-	return &BriefingModel{
-		ID:          briefing.ID,
-		StepID:      briefing.StepID,
-		Objective:   briefing.Objective,
-		ContextRefs: JSONField[[]core.ContextRef]{Data: briefing.ContextRefs},
-		Constraints: JSONField[[]string]{Data: briefing.Constraints},
-		CreatedAt:   briefing.CreatedAt,
-	}
-}
-
-func (m *BriefingModel) toCore() *core.Briefing {
-	if m == nil {
-		return nil
-	}
-	return &core.Briefing{
-		ID:          m.ID,
-		StepID:      m.StepID,
-		Objective:   m.Objective,
-		ContextRefs: m.ContextRefs.Data,
-		Constraints: m.Constraints.Data,
-		CreatedAt:   m.CreatedAt,
-	}
-}
 
 func agentContextModelFromCore(ac *core.AgentContext) *AgentContextModel {
 	if ac == nil {
@@ -894,7 +861,7 @@ func agentContextModelFromCore(ac *core.AgentContext) *AgentContextModel {
 	return &AgentContextModel{
 		ID:               ac.ID,
 		AgentID:          ac.AgentID,
-		IssueID:          ac.IssueID,
+		IssueID:          ac.WorkItemID,
 		SystemPrompt:     ac.SystemPrompt,
 		SessionID:        ac.SessionID,
 		Summary:          ac.Summary,
@@ -913,7 +880,7 @@ func (m *AgentContextModel) toCore() *core.AgentContext {
 	return &core.AgentContext{
 		ID:               m.ID,
 		AgentID:          m.AgentID,
-		IssueID:          m.IssueID,
+		WorkItemID:       m.IssueID,
 		SystemPrompt:     m.SystemPrompt,
 		SessionID:        m.SessionID,
 		Summary:          m.Summary,
@@ -932,9 +899,9 @@ func eventModelFromCore(event *core.Event) *EventModel {
 	return &EventModel{
 		ID:        event.ID,
 		Type:      string(event.Type),
-		IssueID:   int64PtrIfNonZero(event.IssueID),
-		StepID:    int64PtrIfNonZero(event.StepID),
-		ExecID:    int64PtrIfNonZero(event.ExecID),
+		IssueID:   int64PtrIfNonZero(event.WorkItemID),
+		StepID:    int64PtrIfNonZero(event.ActionID),
+		ExecID:    int64PtrIfNonZero(event.RunID),
 		Data:      JSONField[map[string]any]{Data: event.Data},
 		Timestamp: event.Timestamp,
 	}
@@ -951,13 +918,13 @@ func (m *EventModel) toCore() *core.Event {
 		Timestamp: m.Timestamp,
 	}
 	if m.IssueID != nil {
-		event.IssueID = *m.IssueID
+		event.WorkItemID = *m.IssueID
 	}
 	if m.StepID != nil {
-		event.StepID = *m.StepID
+		event.ActionID = *m.StepID
 	}
 	if m.ExecID != nil {
-		event.ExecID = *m.ExecID
+		event.RunID = *m.ExecID
 	}
 	return event
 }
@@ -969,15 +936,15 @@ func int64PtrIfNonZero(v int64) *int64 {
 	return &v
 }
 
-func executionProbeModelFromCore(probe *core.ExecutionProbe) *ExecutionProbeModel {
+func runProbeModelFromCore(probe *core.RunProbe) *RunProbeModel {
 	if probe == nil {
 		return nil
 	}
-	return &ExecutionProbeModel{
+	return &RunProbeModel{
 		ID:             probe.ID,
-		ExecutionID:    probe.ExecutionID,
-		IssueID:        probe.IssueID,
-		StepID:         probe.StepID,
+		ExecutionID:    probe.RunID,
+		IssueID:        probe.WorkItemID,
+		StepID:         probe.ActionID,
 		AgentContextID: probe.AgentContextID,
 		SessionID:      probe.SessionID,
 		OwnerID:        probe.OwnerID,
@@ -993,22 +960,22 @@ func executionProbeModelFromCore(probe *core.ExecutionProbe) *ExecutionProbeMode
 	}
 }
 
-func (m *ExecutionProbeModel) toCore() *core.ExecutionProbe {
+func (m *RunProbeModel) toCore() *core.RunProbe {
 	if m == nil {
 		return nil
 	}
-	return &core.ExecutionProbe{
+	return &core.RunProbe{
 		ID:             m.ID,
-		ExecutionID:    m.ExecutionID,
-		IssueID:        m.IssueID,
-		StepID:         m.StepID,
+		RunID:          m.ExecutionID,
+		WorkItemID:     m.IssueID,
+		ActionID:       m.StepID,
 		AgentContextID: m.AgentContextID,
 		SessionID:      m.SessionID,
 		OwnerID:        m.OwnerID,
-		TriggerSource:  core.ExecutionProbeTriggerSource(m.TriggerSource),
+		TriggerSource:  core.RunProbeTriggerSource(m.TriggerSource),
 		Question:       m.Question,
-		Status:         core.ExecutionProbeStatus(m.Status),
-		Verdict:        core.ExecutionProbeVerdict(m.Verdict),
+		Status:         core.RunProbeStatus(m.Status),
+		Verdict:        core.RunProbeVerdict(m.Verdict),
 		ReplyText:      m.ReplyText,
 		Error:          m.Error,
 		SentAt:         m.SentAt,
@@ -1059,7 +1026,7 @@ func agentProfileModelFromCore(p *core.AgentProfile) *AgentProfileModel {
 		DriverID:         p.DriverID,
 		Role:             string(p.Role),
 		Capabilities:     JSONField[[]string]{Data: p.Capabilities},
-		ActionsAllowed:   JSONField[[]core.Action]{Data: p.ActionsAllowed},
+		ActionsAllowed:   JSONField[[]core.AgentAction]{Data: p.ActionsAllowed},
 		PromptTemplate:   p.PromptTemplate,
 		Skills:           JSONField[[]string]{Data: p.Skills},
 		SessionReuse:     p.Session.Reuse,
@@ -1106,7 +1073,7 @@ func dagTemplateModelFromCore(t *core.DAGTemplate) *DAGTemplateModel {
 		ProjectID:   t.ProjectID,
 		Tags:        JSONField[[]string]{Data: t.Tags},
 		Metadata:    JSONField[map[string]string]{Data: t.Metadata},
-		Steps:       JSONField[[]core.DAGTemplateStep]{Data: t.Steps},
+		Steps:       JSONField[[]core.DAGTemplateAction]{Data: t.Actions},
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
@@ -1123,7 +1090,7 @@ func (m *DAGTemplateModel) toCore() *core.DAGTemplate {
 		ProjectID:   m.ProjectID,
 		Tags:        m.Tags.Data,
 		Metadata:    m.Metadata.Data,
-		Steps:       m.Steps.Data,
+		Actions:     m.Steps.Data,
 		CreatedAt:   m.CreatedAt,
 		UpdatedAt:   m.UpdatedAt,
 	}
@@ -1135,9 +1102,9 @@ func usageRecordModelFromCore(r *core.UsageRecord) *UsageRecordModel {
 	}
 	return &UsageRecordModel{
 		ID:               r.ID,
-		ExecutionID:      r.ExecutionID,
-		IssueID:          r.IssueID,
-		StepID:           r.StepID,
+		ExecutionID:      r.RunID,
+		IssueID:          r.WorkItemID,
+		StepID:           r.ActionID,
 		ProjectID:        r.ProjectID,
 		AgentID:          r.AgentID,
 		ProfileID:        r.ProfileID,
@@ -1159,9 +1126,9 @@ func (m *UsageRecordModel) toCore() *core.UsageRecord {
 	}
 	return &core.UsageRecord{
 		ID:               m.ID,
-		ExecutionID:      m.ExecutionID,
-		IssueID:          m.IssueID,
-		StepID:           m.StepID,
+		RunID:            m.ExecutionID,
+		WorkItemID:       m.IssueID,
+		ActionID:         m.StepID,
 		ProjectID:        m.ProjectID,
 		AgentID:          m.AgentID,
 		ProfileID:        m.ProfileID,

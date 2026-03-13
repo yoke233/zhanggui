@@ -95,15 +95,15 @@ func (h *Handler) getUsageByProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, data)
 }
 
-// getUsageByExecution returns usage for a specific execution.
-func (h *Handler) getUsageByExecution(w http.ResponseWriter, r *http.Request) {
+// getUsageByRun returns usage for a specific execution.
+func (h *Handler) getUsageByRun(w http.ResponseWriter, r *http.Request) {
 	execID, ok := urlParamInt64(r, "execID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid execution ID", "BAD_REQUEST")
 		return
 	}
 
-	data, err := h.store.GetUsageByExecution(r.Context(), execID)
+	data, err := h.store.GetUsageByRun(r.Context(), execID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "USAGE_ERROR")
 		return

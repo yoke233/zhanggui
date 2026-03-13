@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateIssue(ctx context.Context, issue *core.Issue) (int64, error) {
+func (s *Store) CreateWorkItem(ctx context.Context, issue *core.WorkItem) (int64, error) {
 	if s == nil || s.orm == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
@@ -24,14 +24,14 @@ func (s *Store) CreateIssue(ctx context.Context, issue *core.Issue) (int64, erro
 	}
 
 	if issue.Status == "" {
-		issue.Status = core.IssueOpen
+		issue.Status = core.WorkItemOpen
 	}
 	if issue.Priority == "" {
 		issue.Priority = core.PriorityMedium
 	}
 
 	now := time.Now().UTC()
-	model := issueModelFromCore(issue)
+	model := workItemModelFromCore(issue)
 	model.Title = title
 	model.CreatedAt = now
 	model.UpdatedAt = now
@@ -46,12 +46,12 @@ func (s *Store) CreateIssue(ctx context.Context, issue *core.Issue) (int64, erro
 	return model.ID, nil
 }
 
-func (s *Store) GetIssue(ctx context.Context, id int64) (*core.Issue, error) {
+func (s *Store) GetWorkItem(ctx context.Context, id int64) (*core.WorkItem, error) {
 	if s == nil || s.orm == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
 
-	var model IssueModel
+	var model WorkItemModel
 	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -62,12 +62,12 @@ func (s *Store) GetIssue(ctx context.Context, id int64) (*core.Issue, error) {
 	return model.toCore(), nil
 }
 
-func (s *Store) ListIssues(ctx context.Context, filter core.IssueFilter) ([]*core.Issue, error) {
+func (s *Store) ListWorkItems(ctx context.Context, filter core.WorkItemFilter) ([]*core.WorkItem, error) {
 	if s == nil || s.orm == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
 
-	query := s.orm.WithContext(ctx).Model(&IssueModel{})
+	query := s.orm.WithContext(ctx).Model(&WorkItemModel{})
 	if filter.ProjectID != nil {
 		query = query.Where("project_id = ?", *filter.ProjectID)
 	}
@@ -94,19 +94,19 @@ func (s *Store) ListIssues(ctx context.Context, filter core.IssueFilter) ([]*cor
 		offset = 0
 	}
 
-	var models []IssueModel
+	var models []WorkItemModel
 	if err := query.Order("id DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, err
 	}
 
-	out := make([]*core.Issue, 0, len(models))
+	out := make([]*core.WorkItem, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) UpdateIssue(ctx context.Context, issue *core.Issue) error {
+func (s *Store) UpdateWorkItem(ctx context.Context, issue *core.WorkItem) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
 	}
@@ -115,10 +115,10 @@ func (s *Store) UpdateIssue(ctx context.Context, issue *core.Issue) error {
 	}
 
 	now := time.Now().UTC()
-	model := issueModelFromCore(issue)
+	model := workItemModelFromCore(issue)
 	model.UpdatedAt = now
 
-	result := s.orm.WithContext(ctx).Model(&IssueModel{}).
+	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
 		Where("id = ?", issue.ID).
 		Updates(map[string]any{
 			"project_id":          model.ProjectID,
@@ -142,12 +142,12 @@ func (s *Store) UpdateIssue(ctx context.Context, issue *core.Issue) error {
 	return nil
 }
 
-func (s *Store) UpdateIssueStatus(ctx context.Context, id int64, status core.IssueStatus) error {
+func (s *Store) UpdateWorkItemStatus(ctx context.Context, id int64, status core.WorkItemStatus) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
 	}
 
-	result := s.orm.WithContext(ctx).Model(&IssueModel{}).
+	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"status":     string(status),
@@ -162,12 +162,12 @@ func (s *Store) UpdateIssueStatus(ctx context.Context, id int64, status core.Iss
 	return nil
 }
 
-func (s *Store) UpdateIssueMetadata(ctx context.Context, id int64, metadata map[string]any) error {
+func (s *Store) UpdateWorkItemMetadata(ctx context.Context, id int64, metadata map[string]any) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
 	}
 
-	result := s.orm.WithContext(ctx).Model(&IssueModel{}).
+	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"metadata":   JSONField[map[string]any]{Data: metadata},
@@ -182,13 +182,13 @@ func (s *Store) UpdateIssueMetadata(ctx context.Context, id int64, metadata map[
 	return nil
 }
 
-func (s *Store) PrepareIssueRun(ctx context.Context, id int64, queuedStatus core.IssueStatus) error {
-	if queuedStatus != core.IssueQueued && queuedStatus != core.IssueRunning {
+func (s *Store) PrepareWorkItemRun(ctx context.Context, id int64, queuedStatus core.WorkItemStatus) error {
+	if queuedStatus != core.WorkItemQueued && queuedStatus != core.WorkItemRunning {
 		return core.ErrInvalidTransition
 	}
 
-	result := s.orm.WithContext(ctx).Model(&IssueModel{}).
-		Where("id = ? AND status IN ? AND archived_at IS NULL", id, []string{string(core.IssueOpen), string(core.IssueAccepted)}).
+	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
+		Where("id = ? AND status IN ? AND archived_at IS NULL", id, []string{string(core.WorkItemOpen), string(core.WorkItemAccepted)}).
 		Updates(map[string]any{
 			"status":     string(queuedStatus),
 			"updated_at": time.Now().UTC(),
@@ -200,20 +200,20 @@ func (s *Store) PrepareIssueRun(ctx context.Context, id int64, queuedStatus core
 		return nil
 	}
 
-	if _, err := s.GetIssue(ctx, id); err != nil {
+	if _, err := s.GetWorkItem(ctx, id); err != nil {
 		return err
 	}
 	return core.ErrInvalidTransition
 }
 
-func (s *Store) SetIssueArchived(ctx context.Context, id int64, archived bool) error {
+func (s *Store) SetWorkItemArchived(ctx context.Context, id int64, archived bool) error {
 	now := time.Now().UTC()
-	query := s.orm.WithContext(ctx).Model(&IssueModel{}).Where("id = ?", id)
+	query := s.orm.WithContext(ctx).Model(&WorkItemModel{}).Where("id = ?", id)
 	if archived {
 		query = query.Where("archived_at IS NULL").Where("status NOT IN ?", []string{
-			string(core.IssueQueued),
-			string(core.IssueRunning),
-			string(core.IssueBlocked),
+			string(core.WorkItemQueued),
+			string(core.WorkItemRunning),
+			string(core.WorkItemBlocked),
 		})
 	} else {
 		query = query.Where("archived_at IS NOT NULL")
@@ -234,18 +234,18 @@ func (s *Store) SetIssueArchived(ctx context.Context, id int64, archived bool) e
 		return nil
 	}
 
-	if _, err := s.GetIssue(ctx, id); err != nil {
+	if _, err := s.GetWorkItem(ctx, id); err != nil {
 		return err
 	}
 	return core.ErrInvalidTransition
 }
 
-func (s *Store) DeleteIssue(ctx context.Context, id int64) error {
+func (s *Store) DeleteWorkItem(ctx context.Context, id int64) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
 	}
 
-	result := s.orm.WithContext(ctx).Delete(&IssueModel{}, id)
+	result := s.orm.WithContext(ctx).Delete(&WorkItemModel{}, id)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -21,15 +21,15 @@ func TestHandleMergeConflictBlock_DirtyReturnsTrue(t *testing.T) {
 	})
 	defer sub.Cancel()
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "conflict-test", Status: core.IssueRunning})
-	stepID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "gate",
-		Type:     core.StepGate,
-		Status:   core.StepRunning,
-		Position: 0,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "conflict-test", Status: core.WorkItemRunning})
+	actionID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "gate",
+		Type:       core.ActionGate,
+		Status:     core.ActionRunning,
+		Position:   0,
 	})
-	step, _ := store.GetStep(ctx, stepID)
+	action, _ := store.GetAction(ctx, actionID)
 
 	mergeErr := &MergeError{
 		Provider:       "github",
@@ -39,17 +39,17 @@ func TestHandleMergeConflictBlock_DirtyReturnsTrue(t *testing.T) {
 		MergeableState: "dirty",
 	}
 
-	handled := eng.handleMergeConflictBlock(ctx, step, mergeErr)
+	handled := eng.handleMergeConflictBlock(ctx, action, mergeErr)
 	if !handled {
 		t.Fatal("expected handleMergeConflictBlock to return true for dirty merge error")
 	}
 
-	// Verify step was blocked and has a context signal for merge conflict.
-	updated, _ := store.GetStep(ctx, stepID)
-	if updated.Status != core.StepBlocked {
-		t.Fatalf("expected step status=blocked, got %s", updated.Status)
+	// Verify action was blocked and has a context signal for merge conflict.
+	updated, _ := store.GetAction(ctx, actionID)
+	if updated.Status != core.ActionBlocked {
+		t.Fatalf("expected action status=blocked, got %s", updated.Status)
 	}
-	ctxSignals, _ := store.ListStepSignalsByType(ctx, stepID, core.SignalContext)
+	ctxSignals, _ := store.ListActionSignalsByType(ctx, actionID, core.SignalContext)
 	if len(ctxSignals) == 0 {
 		t.Fatal("expected at least one context signal for merge conflict")
 	}
@@ -81,15 +81,15 @@ func TestHandleMergeConflictBlock_BehindReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	eng := New(store, bus, nil, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "behind-test", Status: core.IssueRunning})
-	stepID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "gate",
-		Type:     core.StepGate,
-		Status:   core.StepRunning,
-		Position: 0,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "behind-test", Status: core.WorkItemRunning})
+	actionID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "gate",
+		Type:       core.ActionGate,
+		Status:     core.ActionRunning,
+		Position:   0,
 	})
-	step, _ := store.GetStep(ctx, stepID)
+	action, _ := store.GetAction(ctx, actionID)
 
 	mergeErr := &MergeError{
 		Provider:       "github",
@@ -98,15 +98,15 @@ func TestHandleMergeConflictBlock_BehindReturnsFalse(t *testing.T) {
 		MergeableState: "behind",
 	}
 
-	handled := eng.handleMergeConflictBlock(ctx, step, mergeErr)
+	handled := eng.handleMergeConflictBlock(ctx, action, mergeErr)
 	if handled {
 		t.Fatal("expected handleMergeConflictBlock to return false for 'behind' merge error")
 	}
 
-	// Step status should remain running (not blocked).
-	updated, _ := store.GetStep(ctx, stepID)
-	if updated.Status != core.StepRunning {
-		t.Fatalf("expected step status=running (unchanged), got %s", updated.Status)
+	// Action status should remain running (not blocked).
+	updated, _ := store.GetAction(ctx, actionID)
+	if updated.Status != core.ActionRunning {
+		t.Fatalf("expected action status=running (unchanged), got %s", updated.Status)
 	}
 }
 
@@ -116,19 +116,19 @@ func TestHandleMergeConflictBlock_NonMergeErrorReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	eng := New(store, bus, nil, WithConcurrency(1))
 
-	issueID, _ := store.CreateIssue(ctx, &core.Issue{Title: "generic-err", Status: core.IssueRunning})
-	stepID, _ := store.CreateStep(ctx, &core.Step{
-		IssueID:  issueID,
-		Name:     "gate",
-		Type:     core.StepGate,
-		Status:   core.StepRunning,
-		Position: 0,
+	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "generic-err", Status: core.WorkItemRunning})
+	actionID, _ := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "gate",
+		Type:       core.ActionGate,
+		Status:     core.ActionRunning,
+		Position:   0,
 	})
-	step, _ := store.GetStep(ctx, stepID)
+	action, _ := store.GetAction(ctx, actionID)
 
 	genericErr := fmt.Errorf("workspace is required for merge")
 
-	handled := eng.handleMergeConflictBlock(ctx, step, genericErr)
+	handled := eng.handleMergeConflictBlock(ctx, action, genericErr)
 	if handled {
 		t.Fatal("expected handleMergeConflictBlock to return false for generic error")
 	}

@@ -16,18 +16,17 @@ func NewProfileRegistry(profiles []*core.AgentProfile) *ProfileRegistry {
 	return &ProfileRegistry{profiles: profiles}
 }
 
-// Resolve picks the first profile that matches the step's AgentRole and RequiredCapabilities.
-func (r *ProfileRegistry) Resolve(_ context.Context, step *core.Step) (string, error) {
-	role := core.AgentRole(step.AgentRole)
+// Resolve picks the first profile that matches the action's AgentRole and RequiredCapabilities.
+func (r *ProfileRegistry) Resolve(_ context.Context, action *core.Action) (string, error) {
+	role := core.AgentRole(action.AgentRole)
 	for _, p := range r.profiles {
 		if role != "" && p.Role != role {
 			continue
 		}
-		if !p.MatchesRequirements(step.RequiredCapabilities) {
+		if !p.MatchesRequirements(action.RequiredCapabilities) {
 			continue
 		}
 		return p.ID, nil
 	}
 	return "", core.ErrNoMatchingAgent
 }
-

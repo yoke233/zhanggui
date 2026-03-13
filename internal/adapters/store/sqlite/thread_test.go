@@ -181,8 +181,8 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 		t.Fatalf("create thread: %v", err)
 	}
 
-	issue := &core.Issue{Title: "work-item-1", Status: core.IssueOpen}
-	issueID, err := s.CreateIssue(ctx, issue)
+	issue := &core.WorkItem{Title: "work-item-1", Status: core.WorkItemOpen}
+	issueID, err := s.CreateWorkItem(ctx, issue)
 	if err != nil {
 		t.Fatalf("create issue: %v", err)
 	}
@@ -248,8 +248,8 @@ func TestThreadWorkItemLinkPrimarySwitchDemotesPrevious(t *testing.T) {
 	ctx := context.Background()
 
 	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "primary-switch"})
-	issueID1, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-1", Status: core.IssueOpen})
-	issueID2, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-2", Status: core.IssueOpen})
+	issueID1, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "wi-1", Status: core.WorkItemOpen})
+	issueID2, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "wi-2", Status: core.WorkItemOpen})
 
 	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
 		ThreadID: threadID, WorkItemID: issueID1, RelationType: "related", IsPrimary: true,
@@ -282,7 +282,7 @@ func TestThreadWorkItemLinkDuplicatePrimaryRollsBackDemotion(t *testing.T) {
 	ctx := context.Background()
 
 	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "primary-rollback"})
-	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-1", Status: core.IssueOpen})
+	issueID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "wi-1", Status: core.WorkItemOpen})
 
 	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
 		ThreadID: threadID, WorkItemID: issueID, RelationType: "related", IsPrimary: true,
@@ -316,10 +316,10 @@ func TestThreadWorkItemLinkCleanup(t *testing.T) {
 	thread := &core.Thread{Title: "cleanup-test"}
 	threadID, _ := s.CreateThread(ctx, thread)
 
-	issue1 := &core.Issue{Title: "wi-1", Status: core.IssueOpen}
-	issueID1, _ := s.CreateIssue(ctx, issue1)
-	issue2 := &core.Issue{Title: "wi-2", Status: core.IssueOpen}
-	issueID2, _ := s.CreateIssue(ctx, issue2)
+	issue1 := &core.WorkItem{Title: "wi-1", Status: core.WorkItemOpen}
+	issueID1, _ := s.CreateWorkItem(ctx, issue1)
+	issue2 := &core.WorkItem{Title: "wi-2", Status: core.WorkItemOpen}
+	issueID2, _ := s.CreateWorkItem(ctx, issue2)
 
 	s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{ThreadID: threadID, WorkItemID: issueID1, RelationType: "related"})
 	s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{ThreadID: threadID, WorkItemID: issueID2, RelationType: "drives"})

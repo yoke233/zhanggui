@@ -169,8 +169,8 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 		ManifestID:  m.ID,
 		Key:         body.Key,
 		Description: body.Description,
-		IssueID:     body.IssueID,
-		StepID:      body.StepID,
+		WorkItemID:  body.IssueID,
+		ActionID:    body.StepID,
 		Tags:        body.Tags,
 		Metadata:    body.Metadata,
 	}
@@ -223,7 +223,7 @@ func (h *Handler) listManifestEntries(w http.ResponseWriter, r *http.Request) {
 		filter.Status = &st
 	}
 	if issueID, ok := queryInt64(r, "issue_id"); ok {
-		filter.IssueID = &issueID
+		filter.WorkItemID = &issueID
 	}
 
 	entries, err := h.store.ListFeatureEntries(r.Context(), filter)
@@ -292,10 +292,10 @@ func (h *Handler) updateManifestEntry(w http.ResponseWriter, r *http.Request) {
 		entry.Status = core.FeatureStatus(*body.Status)
 	}
 	if body.IssueID != nil {
-		entry.IssueID = body.IssueID
+		entry.WorkItemID = body.IssueID
 	}
 	if body.StepID != nil {
-		entry.StepID = body.StepID
+		entry.ActionID = body.StepID
 	}
 	if body.Tags != nil {
 		entry.Tags = body.Tags

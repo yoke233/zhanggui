@@ -31,19 +31,19 @@ func (s *failingCreateThreadMessageStore) CreateThreadMessage(context.Context, *
 	return 0, s.err
 }
 
-type failNthCreateStepStore struct {
+type failNthCreateActionStore struct {
 	Store
 	failAt int
 	calls  int
 	err    error
 }
 
-func (s *failNthCreateStepStore) CreateStep(ctx context.Context, step *core.Step) (int64, error) {
+func (s *failNthCreateActionStore) CreateAction(ctx context.Context, step *core.Action) (int64, error) {
 	s.calls++
 	if s.calls == s.failAt {
 		return 0, s.err
 	}
-	return s.Store.CreateStep(ctx, step)
+	return s.Store.CreateAction(ctx, step)
 }
 
 func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
@@ -57,7 +57,7 @@ func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
 
 	bus := membus.NewBus()
 
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		return nil // noop executor for API tests
 	}
 	eng := flowapp.New(store, bus, executor, flowapp.WithConcurrency(2))
@@ -133,10 +133,10 @@ func (s *stubSandboxController) Update(_ context.Context, req v2sandbox.UpdateRe
 // Issue CRUD Tests
 // ---------------------------------------------------------------------------
 
-func TestAPI_CreateIssue(t *testing.T) {
+func TestAPI_CreateWorkItem(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, err := post(ts, "/issues", map[string]any{
+	resp, err := post(ts, "/work-items", map[string]any{
 		"title":    "test-issue",
 		"priority": "medium",
 		"metadata": map[string]any{"env": "test"},
@@ -148,7 +148,7 @@ func TestAPI_CreateIssue(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
 
-	var issue core.Issue
+	var issue core.WorkItem
 	if err := decodeJSON(resp, &issue); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -158,8 +158,157 @@ func TestAPI_CreateIssue(t *testing.T) {
 	if issue.ID == 0 {
 		t.Fatal("expected non-zero ID")
 	}
-	if issue.Status != core.IssueOpen {
+	if issue.Status != core.WorkItemOpen {
 		t.Fatalf("expected open, got %s", issue.Status)
+	}
+}
+
+func TestAPI_WorkItemRoutesCRUDAndLifecycle(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, err := post(ts, "/work-items", map[string]any{
+		"title":    "alias-create",
+		"priority": "medium",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var issue core.WorkItem
+	if err := decodeJSON(resp, &issue); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 reading created work item, got %d", resp.StatusCode)
+	}
+	var fetched core.WorkItem
+	decodeJSON(resp, &fetched)
+	if fetched.Title != "alias-create" {
+		t.Fatalf("expected created work item to be readable, got %q", fetched.Title)
+	}
+
+	resp, _ = put(ts, fmt.Sprintf("/work-items/%d", issue.ID), map[string]any{
+		"title": "alias-updated",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating via /work-items, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 reading via /work-items, got %d", resp.StatusCode)
+	}
+	var updated core.WorkItem
+	decodeJSON(resp, &updated)
+	if updated.Title != "alias-updated" {
+		t.Fatalf("expected alias-updated, got %q", updated.Title)
+	}
+
+	resp, _ = get(ts, "/work-items")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing work-items, got %d", resp.StatusCode)
+	}
+	var listed []*core.WorkItem
+	decodeJSON(resp, &listed)
+	if len(listed) != 1 || listed[0].ID != issue.ID {
+		t.Fatalf("unexpected work-item list response: %+v", listed)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+		"name": "A",
+		"type": "exec",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating step via alias, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing steps via legacy route, got %d", resp.StatusCode)
+	}
+	var steps []core.Action
+	decodeJSON(resp, &steps)
+	if len(steps) != 1 || steps[0].WorkItemID != issue.ID {
+		t.Fatalf("unexpected steps from legacy route: %+v", steps)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/attachments", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing attachments via alias, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/cron", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 getting cron status via alias, got %d", resp.StatusCode)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/generate-steps", issue.ID), map[string]any{
+		"description": "build a REST API",
+	})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 from generate-steps alias without generator, got %d", resp.StatusCode)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 running via alias, got %d", resp.StatusCode)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing events via alias, got %d", resp.StatusCode)
+	}
+	var events []core.Event
+	if err := decodeJSON(resp, &events); err != nil {
+		t.Fatalf("decode events: %v", err)
+	}
+
+	resp, _ = post(ts, "/work-items", map[string]any{"title": "archive-alias", "priority": "medium"})
+	var archiveWorkItem core.WorkItem
+	decodeJSON(resp, &archiveWorkItem)
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", archiveWorkItem.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 archiving via alias, got %d", resp.StatusCode)
+	}
+	var archived core.WorkItem
+	decodeJSON(resp, &archived)
+	if archived.ArchivedAt == nil {
+		t.Fatal("expected archived_at to be set via work-item route")
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/unarchive", archiveWorkItem.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 unarchiving via alias, got %d", resp.StatusCode)
+	}
+	var unarchived core.WorkItem
+	decodeJSON(resp, &unarchived)
+	if unarchived.ArchivedAt != nil {
+		t.Fatal("expected archived_at to be cleared via work-item route")
+	}
+
+	resp, _ = post(ts, "/work-items", map[string]any{"title": "cancel-alias", "priority": "medium"})
+	var cancelWorkItem core.WorkItem
+	decodeJSON(resp, &cancelWorkItem)
+	if err := h.store.UpdateWorkItemStatus(context.Background(), cancelWorkItem.ID, core.WorkItemRunning); err != nil {
+		t.Fatalf("set issue running: %v", err)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/cancel", cancelWorkItem.ID), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 cancelling via alias, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", cancelWorkItem.ID))
+	var cancelled core.WorkItem
+	decodeJSON(resp, &cancelled)
+	if cancelled.Status != core.WorkItemCancelled {
+		t.Fatalf("expected cancelled status via work-item read, got %s", cancelled.Status)
 	}
 }
 
@@ -204,7 +353,7 @@ func TestAPI_CreateIssue_AutoBootstrapsSCMFlow(t *testing.T) {
 	}
 	resourceResp.Body.Close()
 
-	issueResp, err := post(ts, "/issues", map[string]any{
+	issueResp, err := post(ts, "/work-items", map[string]any{
 		"title":      "auto-issue",
 		"priority":   "medium",
 		"project_id": project.ID,
@@ -215,19 +364,19 @@ func TestAPI_CreateIssue_AutoBootstrapsSCMFlow(t *testing.T) {
 	if issueResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var issue core.Issue
+	var issue core.WorkItem
 	if err := decodeJSON(issueResp, &issue); err != nil {
 		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
 	if stepsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
 	}
-	var steps []*core.Step
+	var steps []*core.Action
 	if err := decodeJSON(stepsResp, &steps); err != nil {
 		t.Fatalf("decode steps: %v", err)
 	}
@@ -297,7 +446,7 @@ func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(
 	_ = createResource("repo-a", repoA)
 	selected := createResource("repo-b", repoB)
 
-	issueResp, err := post(ts, "/issues", map[string]any{
+	issueResp, err := post(ts, "/work-items", map[string]any{
 		"title":               "auto-issue-selected-binding",
 		"priority":            "medium",
 		"project_id":          project.ID,
@@ -309,19 +458,19 @@ func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(
 	if issueResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var issue core.Issue
+	var issue core.WorkItem
 	if err := decodeJSON(issueResp, &issue); err != nil {
 		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
 	if stepsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
 	}
-	var steps []*core.Step
+	var steps []*core.Action
 	if err := decodeJSON(stepsResp, &steps); err != nil {
 		t.Fatalf("decode steps: %v", err)
 	}
@@ -378,7 +527,7 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapAmbiguousSCMBindings(t *testing.T) 
 		resp.Body.Close()
 	}
 
-	issueResp, err := post(ts, "/issues", map[string]any{
+	issueResp, err := post(ts, "/work-items", map[string]any{
 		"title":      "manual-issue-ambiguous-binding",
 		"priority":   "medium",
 		"project_id": project.ID,
@@ -389,19 +538,19 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapAmbiguousSCMBindings(t *testing.T) 
 	if issueResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var issue core.Issue
+	var issue core.WorkItem
 	if err := decodeJSON(issueResp, &issue); err != nil {
 		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
 	if stepsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
 	}
-	var steps []*core.Step
+	var steps []*core.Action
 	if err := decodeJSON(stepsResp, &steps); err != nil {
 		t.Fatalf("decode steps: %v", err)
 	}
@@ -450,7 +599,7 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T)
 	}
 	resourceResp.Body.Close()
 
-	issueResp, err := post(ts, "/issues", map[string]any{
+	issueResp, err := post(ts, "/work-items", map[string]any{
 		"title":      "manual-issue",
 		"priority":   "medium",
 		"project_id": project.ID,
@@ -461,19 +610,19 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T)
 	if issueResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating issue, got %d", issueResp.StatusCode)
 	}
-	var issue core.Issue
+	var issue core.WorkItem
 	if err := decodeJSON(issueResp, &issue); err != nil {
 		t.Fatalf("decode issue: %v", err)
 	}
 
-	stepsResp, err := get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	stepsResp, err := get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
 	if err != nil {
 		t.Fatalf("list steps: %v", err)
 	}
 	if stepsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing steps, got %d", stepsResp.StatusCode)
 	}
-	var steps []*core.Step
+	var steps []*core.Action
 	if err := decodeJSON(stepsResp, &steps); err != nil {
 		t.Fatalf("decode steps: %v", err)
 	}
@@ -486,26 +635,26 @@ func TestAPI_CreateIssue_Validation(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Missing title.
-	resp, _ := post(ts, "/issues", map[string]any{})
+	resp, _ := post(ts, "/work-items", map[string]any{})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_GetIssue(t *testing.T) {
+func TestAPI_GetWorkItem(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create issue.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "get-test", "priority": "medium"})
-	var created core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "get-test", "priority": "medium"})
+	var created core.WorkItem
 	decodeJSON(resp, &created)
 
 	// Get issue.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d", created.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", created.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var got core.Issue
+	var got core.WorkItem
 	decodeJSON(resp, &got)
 	if got.Title != "get-test" {
 		t.Fatalf("expected title get-test, got %s", got.Title)
@@ -515,35 +664,35 @@ func TestAPI_GetIssue(t *testing.T) {
 func TestAPI_GetIssue_NotFound(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := get(ts, "/issues/999")
+	resp, _ := get(ts, "/work-items/999")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
-func TestAPI_ListIssues(t *testing.T) {
+func TestAPI_ListWorkItems(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	post(ts, "/issues", map[string]any{"title": "issue-1", "priority": "medium"})
-	resp, _ := post(ts, "/issues", map[string]any{"title": "issue-2", "priority": "medium"})
-	var archivedIssue core.Issue
+	post(ts, "/work-items", map[string]any{"title": "issue-1", "priority": "medium"})
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue-2", "priority": "medium"})
+	var archivedIssue core.WorkItem
 	decodeJSON(resp, &archivedIssue)
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", archivedIssue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", archivedIssue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
 
-	resp, _ = get(ts, "/issues")
+	resp, _ = get(ts, "/work-items")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var issues []*core.Issue
+	var issues []*core.WorkItem
 	decodeJSON(resp, &issues)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 unarchived issue, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/issues?archived=true")
+	resp, _ = get(ts, "/work-items?archived=true")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 archived list, got %d", resp.StatusCode)
 	}
@@ -552,7 +701,7 @@ func TestAPI_ListIssues(t *testing.T) {
 		t.Fatalf("expected 1 archived issue, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/issues?archived=all")
+	resp, _ = get(ts, "/work-items?archived=all")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 all list, got %d", resp.StatusCode)
 	}
@@ -565,17 +714,17 @@ func TestAPI_ListIssues(t *testing.T) {
 func TestAPI_ListIssues_FilterStatus(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	post(ts, "/issues", map[string]any{"title": "i1", "priority": "medium"})
-	post(ts, "/issues", map[string]any{"title": "i2", "priority": "medium"})
+	post(ts, "/work-items", map[string]any{"title": "i1", "priority": "medium"})
+	post(ts, "/work-items", map[string]any{"title": "i2", "priority": "medium"})
 
-	resp, _ := get(ts, "/issues?status=open")
-	var issues []*core.Issue
+	resp, _ := get(ts, "/work-items?status=open")
+	var issues []*core.WorkItem
 	decodeJSON(resp, &issues)
 	if len(issues) != 2 {
 		t.Fatalf("expected 2 open, got %d", len(issues))
 	}
 
-	resp, _ = get(ts, "/issues?status=running")
+	resp, _ = get(ts, "/work-items?status=running")
 	decodeJSON(resp, &issues)
 	if len(issues) != 0 {
 		t.Fatalf("expected 0 running, got %d", len(issues))
@@ -585,25 +734,25 @@ func TestAPI_ListIssues_FilterStatus(t *testing.T) {
 func TestAPI_ArchiveIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "archive-test", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "archive-test", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var archivedIssue core.Issue
+	var archivedIssue core.WorkItem
 	decodeJSON(resp, &archivedIssue)
 	if archivedIssue.ArchivedAt == nil {
 		t.Fatal("expected archived_at to be set")
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/unarchive", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/unarchive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 on unarchive, got %d", resp.StatusCode)
 	}
-	var unarchivedIssue core.Issue
+	var unarchivedIssue core.WorkItem
 	decodeJSON(resp, &unarchivedIssue)
 	if unarchivedIssue.ArchivedAt != nil {
 		t.Fatal("expected archived_at to be cleared")
@@ -613,15 +762,15 @@ func TestAPI_ArchiveIssue(t *testing.T) {
 func TestAPI_ArchiveIssue_RejectsActiveIssue(t *testing.T) {
 	h, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "running-issue", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "running-issue", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	if err := h.store.UpdateIssueStatus(context.Background(), issue.ID, core.IssueRunning); err != nil {
+	if err := h.store.UpdateWorkItemStatus(context.Background(), issue.ID, core.WorkItemRunning); err != nil {
 		t.Fatalf("set issue running: %v", err)
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", resp.StatusCode)
 	}
@@ -630,18 +779,18 @@ func TestAPI_ArchiveIssue_RejectsActiveIssue(t *testing.T) {
 func TestAPI_RunIssue_Archived(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "archived-run", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "archived-run", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409 running archived issue, got %d", resp.StatusCode)
 	}
@@ -650,11 +799,11 @@ func TestAPI_RunIssue_Archived(t *testing.T) {
 func TestAPI_GetStats_IncludesArchivedIssues(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "done-issue", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "done-issue", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/archive", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 when archiving, got %d", resp.StatusCode)
 	}
@@ -677,16 +826,16 @@ func TestAPI_GetStats_IncludesArchivedIssues(t *testing.T) {
 // Step CRUD Tests
 // ---------------------------------------------------------------------------
 
-func TestAPI_CreateStep(t *testing.T) {
+func TestAPI_CreateAction(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create issue first.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
 	// Create step.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name":                  "build",
 		"type":                  "exec",
 		"agent_role":            "worker",
@@ -698,12 +847,12 @@ func TestAPI_CreateStep(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
 
-	var step core.Step
+	var step core.Action
 	decodeJSON(resp, &step)
 	if step.Name != "build" {
 		t.Fatalf("expected name build, got %s", step.Name)
 	}
-	if step.Type != core.StepExec {
+	if step.Type != core.ActionExec {
 		t.Fatalf("expected type exec, got %s", step.Type)
 	}
 	if step.MaxRetries != 2 {
@@ -714,37 +863,37 @@ func TestAPI_CreateStep(t *testing.T) {
 func TestAPI_ListSteps(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "B", "type": "gate"})
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "B", "type": "gate"})
 
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
-	var steps []*core.Step
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	var steps []*core.Action
 	decodeJSON(resp, &steps)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 steps, got %d", len(steps))
 	}
 }
 
-func TestAPI_GetStep(t *testing.T) {
+func TestAPI_GetAction(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "issue", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
-	var created core.Step
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	var created core.Action
 	decodeJSON(resp, &created)
 
 	resp, _ = get(ts, fmt.Sprintf("/steps/%d", created.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var step core.Step
+	var step core.Action
 	decodeJSON(resp, &step)
 	if step.Name != "A" {
 		t.Fatalf("expected A, got %s", step.Name)
@@ -759,12 +908,12 @@ func TestAPI_RunIssue_NoSteps(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create issue without any steps.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "no-steps", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "no-steps", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
 	// Try to run — should fail with 400.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
@@ -779,14 +928,14 @@ func TestAPI_RunIssue(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create issue + step.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "run-test", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "run-test", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
 
 	// Run issue.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
@@ -795,10 +944,10 @@ func TestAPI_RunIssue(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify issue is done.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
-	var done core.Issue
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
+	var done core.WorkItem
 	decodeJSON(resp, &done)
-	if done.Status != core.IssueDone {
+	if done.Status != core.WorkItemDone {
 		t.Fatalf("expected done, got %s", done.Status)
 	}
 }
@@ -807,24 +956,24 @@ func TestAPI_RunIssue_NotOpen(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create and run issue.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "run-twice", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "run-twice", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 
 	// Wait for issue to complete.
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify issue is done.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
 	decodeJSON(resp, &issue)
-	if issue.Status != core.IssueDone {
+	if issue.Status != core.WorkItemDone {
 		t.Fatalf("expected done after first run, got %s", issue.Status)
 	}
 
 	// Try to run again — should fail since it's not open.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", resp.StatusCode)
 	}
@@ -833,22 +982,22 @@ func TestAPI_RunIssue_NotOpen(t *testing.T) {
 func TestAPI_CancelIssue(t *testing.T) {
 	h, ts := setupAPI(t)
 
-	resp, _ := post(ts, "/issues", map[string]any{"title": "cancel-test", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "cancel-test", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
 	// Manually set issue to running for cancel test.
-	h.store.UpdateIssueStatus(context.Background(), issue.ID, core.IssueRunning)
+	h.store.UpdateWorkItemStatus(context.Background(), issue.ID, core.WorkItemRunning)
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/cancel", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/cancel", issue.ID), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
-	var cancelled core.Issue
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
+	var cancelled core.WorkItem
 	decodeJSON(resp, &cancelled)
-	if cancelled.Status != core.IssueCancelled {
+	if cancelled.Status != core.WorkItemCancelled {
 		t.Fatalf("expected cancelled, got %s", cancelled.Status)
 	}
 }
@@ -861,11 +1010,11 @@ func TestAPI_ListEvents(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create issue + step + run to generate events.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "events-test", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "events-test", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
-	post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
-	post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{"name": "A", "type": "exec"})
+	post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	time.Sleep(500 * time.Millisecond)
 
 	// List all events.
@@ -875,7 +1024,7 @@ func TestAPI_ListEvents(t *testing.T) {
 	}
 
 	// List events filtered by issue.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for issue events, got %d", resp.StatusCode)
 	}
@@ -940,8 +1089,8 @@ func TestAPI_WebSocket(t *testing.T) {
 
 	// Publish an event.
 	h.bus.Publish(context.Background(), core.Event{
-		Type:      core.EventIssueStarted,
-		IssueID:   42,
+		Type:      core.EventWorkItemStarted,
+		WorkItemID: 42,
 		Timestamp: time.Now().UTC(),
 	})
 
@@ -951,11 +1100,11 @@ func TestAPI_WebSocket(t *testing.T) {
 	if err := conn.ReadJSON(&ev); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if ev.Type != core.EventIssueStarted {
+	if ev.Type != core.EventWorkItemStarted {
 		t.Fatalf("expected issue.started, got %s", ev.Type)
 	}
-	if ev.IssueID != 42 {
-		t.Fatalf("expected issue_id=42, got %d", ev.IssueID)
+	if ev.WorkItemID != 42 {
+		t.Fatalf("expected issue_id=42, got %d", ev.WorkItemID)
 	}
 }
 
@@ -1203,71 +1352,71 @@ func TestAPI_E2E_IssueLifecycle(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// 1. Create issue.
-	resp, _ := post(ts, "/issues", map[string]any{"title": "e2e-api", "priority": "medium"})
-	var issue core.Issue
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "e2e-api", "priority": "medium"})
+	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
 	// 2. Create steps: A, B.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "A", "type": "exec",
 	})
-	var stepA core.Step
+	var stepA core.Action
 	decodeJSON(resp, &stepA)
 
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "B", "type": "exec",
 	})
-	var stepB core.Step
+	var stepB core.Action
 	decodeJSON(resp, &stepB)
 
 	// 3. List steps.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
-	var steps []*core.Step
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	var steps []*core.Action
 	decodeJSON(resp, &steps)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 steps, got %d", len(steps))
 	}
 
 	// 4. Run issue.
-	resp, _ = post(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
 	time.Sleep(500 * time.Millisecond)
 
 	// 5. Verify issue done.
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
 	decodeJSON(resp, &issue)
-	if issue.Status != core.IssueDone {
+	if issue.Status != core.WorkItemDone {
 		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
 	// 6. Verify steps done.
 	resp, _ = get(ts, fmt.Sprintf("/steps/%d", stepA.ID))
 	decodeJSON(resp, &stepA)
-	if stepA.Status != core.StepDone {
+	if stepA.Status != core.ActionDone {
 		t.Fatalf("expected A done, got %s", stepA.Status)
 	}
 
 	resp, _ = get(ts, fmt.Sprintf("/steps/%d", stepB.ID))
 	decodeJSON(resp, &stepB)
-	if stepB.Status != core.StepDone {
+	if stepB.Status != core.ActionDone {
 		t.Fatalf("expected B done, got %s", stepB.Status)
 	}
 
 	// 7. Verify executions exist.
 	resp, _ = get(ts, fmt.Sprintf("/steps/%d/executions", stepA.ID))
-	var execs []*core.Execution
+	var execs []*core.Run
 	decodeJSON(resp, &execs)
 	if len(execs) == 0 {
 		t.Fatal("expected at least 1 execution for step A")
 	}
-	if execs[0].Status != core.ExecSucceeded {
+	if execs[0].Status != core.RunSucceeded {
 		t.Fatalf("expected succeeded, got %s", execs[0].Status)
 	}
 
 	// 8. Verify events endpoint works (events are in-memory bus, not persisted yet).
-	resp, _ = get(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for events, got %d", resp.StatusCode)
 	}

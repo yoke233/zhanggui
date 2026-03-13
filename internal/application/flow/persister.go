@@ -43,7 +43,7 @@ func (p *EventPersister) loop(ctx context.Context) {
 			}
 			if _, err := p.store.CreateEvent(ctx, &ev); err != nil {
 				slog.Warn("runtime event persister: store event failed",
-					"type", ev.Type, "issue_id", ev.IssueID, "error", err)
+					"type", ev.Type, "work_item_id", ev.WorkItemID, "error", err)
 			}
 		}
 	}

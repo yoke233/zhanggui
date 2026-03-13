@@ -30,14 +30,14 @@ type integrationEnv struct {
 	bus       core.EventBus
 	persister *flowapp.EventPersister
 	registry  *agentapp.ConfigRegistry
-	eng       *flowapp.IssueEngine
-	scheduler *flowapp.IssueScheduler
+	eng       *flowapp.WorkItemEngine
+	scheduler *flowapp.WorkItemScheduler
 	handler   *Handler
 	server    *httptest.Server
 	cancel    context.CancelFunc
 }
 
-func setupIntegration(t *testing.T, executor flowapp.StepExecutor) *integrationEnv {
+func setupIntegration(t *testing.T, executor flowapp.ActionExecutor) *integrationEnv {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "e2e.db")
@@ -159,18 +159,18 @@ func requireStatus(t *testing.T, resp *http.Response, expected int) {
 	}
 }
 
-// pollIssueStatus polls until the issue reaches the target status or timeout.
-func pollIssueStatus(t *testing.T, ts *httptest.Server, issueID int64, target core.IssueStatus, timeout time.Duration) core.Issue {
+// pollWorkItemStatus polls until the issue reaches the target status or timeout.
+func pollWorkItemStatus(t *testing.T, ts *httptest.Server, issueID int64, target core.WorkItemStatus, timeout time.Duration) core.WorkItem {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, _ := getJSON(ts, fmt.Sprintf("/issues/%d", issueID))
-		f := decode[core.Issue](t, resp)
+		resp, _ := getJSON(ts, fmt.Sprintf("/work-items/%d", issueID))
+		f := decode[core.WorkItem](t, resp)
 		if f.Status == target {
 			return f
 		}
 		// Also stop polling if issue reached a terminal state that isn't target.
-		if f.Status == core.IssueDone || f.Status == core.IssueFailed || f.Status == core.IssueCancelled {
+		if f.Status == core.WorkItemDone || f.Status == core.WorkItemFailed || f.Status == core.WorkItemCancelled {
 			if f.Status != target {
 				t.Fatalf("issue %d reached terminal %s, wanted %s", issueID, f.Status, target)
 			}
@@ -179,7 +179,7 @@ func pollIssueStatus(t *testing.T, ts *httptest.Server, issueID int64, target co
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("issue %d did not reach %s within %v", issueID, target, timeout)
-	return core.Issue{}
+	return core.WorkItem{}
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ func pollIssueStatus(t *testing.T, ts *httptest.Server, issueID int64, target co
 
 func TestIntegration_FullLifecycle(t *testing.T) {
 	var execCount int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		atomic.AddInt32(&execCount, 1)
 		exec.Output = map[string]any{
 			"result": fmt.Sprintf("completed %s", step.Name),
@@ -209,59 +209,59 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	}
 
 	// 2. Create issue linked to project.
-	resp, _ = postJSON(ts, "/issues", map[string]any{
+	resp, _ = postJSON(ts, "/work-items", map[string]any{
 		"title":      "e2e-issue",
 		"priority":   "medium",
 		"project_id": project.ID,
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	issue := decode[core.Issue](t, resp)
+	issue := decode[core.WorkItem](t, resp)
 	if issue.ProjectID == nil || *issue.ProjectID != project.ID {
 		t.Fatalf("expected project_id=%d, got %v", project.ID, issue.ProjectID)
 	}
 
 	// 3. Create steps: A, B, C (sequential by position).
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-A", "type": "exec", "agent_role": "worker",
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepA := decode[core.Step](t, resp)
+	stepA := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-B", "type": "exec", "agent_role": "worker",
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepB := decode[core.Step](t, resp)
+	stepB := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-C", "type": "exec", "agent_role": "worker",
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepC := decode[core.Step](t, resp)
+	stepC := decode[core.Action](t, resp)
 
 	// 4. Verify step listing.
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
 	requireStatus(t, resp, http.StatusOK)
-	steps := decode[[]*core.Step](t, resp)
+	steps := decode[[]*core.Action](t, resp)
 	if len(steps) != 3 {
 		t.Fatalf("expected 3 steps, got %d", len(steps))
 	}
 
 	// 5. Run issue (goes through scheduler → queued → running → done).
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	requireStatus(t, resp, http.StatusAccepted)
 
 	// 6. Poll until done.
-	doneIssue := pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
-	if doneIssue.Status != core.IssueDone {
+	doneIssue := pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 5*time.Second)
+	if doneIssue.Status != core.WorkItemDone {
 		t.Fatalf("expected done, got %s", doneIssue.Status)
 	}
 
 	// 7. Verify all steps done.
 	for _, id := range []int64{stepA.ID, stepB.ID, stepC.ID} {
 		resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", id))
-		s := decode[core.Step](t, resp)
-		if s.Status != core.StepDone {
+		s := decode[core.Action](t, resp)
+		if s.Status != core.ActionDone {
 			t.Fatalf("step %d: expected done, got %s", id, s.Status)
 		}
 	}
@@ -269,11 +269,11 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	// 8. Verify executions exist for each step.
 	for _, id := range []int64{stepA.ID, stepB.ID, stepC.ID} {
 		resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/executions", id))
-		execs := decode[[]*core.Execution](t, resp)
+		execs := decode[[]*core.Run](t, resp)
 		if len(execs) == 0 {
 			t.Fatalf("step %d: expected at least 1 execution", id)
 		}
-		if execs[0].Status != core.ExecSucceeded {
+		if execs[0].Status != core.RunSucceeded {
 			t.Fatalf("step %d exec: expected succeeded, got %s", id, execs[0].Status)
 		}
 	}
@@ -285,7 +285,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 
 	// 10. Verify persisted events exist.
 	time.Sleep(100 * time.Millisecond) // allow persister to flush
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	requireStatus(t, resp, http.StatusOK)
 	events := decode[[]*core.Event](t, resp)
 	if len(events) == 0 {
@@ -298,7 +298,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		eventTypes[ev.Type] = true
 	}
 	for _, expected := range []core.EventType{
-		core.EventIssueQueued, core.EventIssueStarted, core.EventIssueCompleted,
+		core.EventWorkItemQueued, core.EventWorkItemStarted, core.EventWorkItemCompleted,
 	} {
 		if !eventTypes[expected] {
 			t.Errorf("missing event type %s in persisted events", expected)
@@ -321,7 +321,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 
 func TestIntegration_FanOutFanIn(t *testing.T) {
 	var execCount int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		atomic.AddInt32(&execCount, 1)
 		// Simulate work.
 		time.Sleep(50 * time.Millisecond)
@@ -332,32 +332,32 @@ func TestIntegration_FanOutFanIn(t *testing.T) {
 	ts := env.server
 
 	// Create issue.
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "fan-out", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "fan-out", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
 	// Steps: A, B, C, D, E (sequential by position).
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "A", "type": "exec",
 	})
-	_ = decode[core.Step](t, resp)
+	_ = decode[core.Action](t, resp)
 
 	for _, name := range []string{"B", "C", "D"} {
-		resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 			"name": name, "type": "exec",
 		})
-		_ = decode[core.Step](t, resp)
+		_ = decode[core.Action](t, resp)
 	}
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "E", "type": "exec",
 	})
-	sE := decode[core.Step](t, resp)
+	sE := decode[core.Action](t, resp)
 
 	// Run.
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	requireStatus(t, resp, http.StatusAccepted)
 
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 5*time.Second)
 
 	// All 5 steps executed.
 	if c := atomic.LoadInt32(&execCount); c != 5 {
@@ -366,8 +366,8 @@ func TestIntegration_FanOutFanIn(t *testing.T) {
 
 	// E is done.
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", sE.ID))
-	stepE := decode[core.Step](t, resp)
-	if stepE.Status != core.StepDone {
+	stepE := decode[core.Action](t, resp)
+	if stepE.Status != core.ActionDone {
 		t.Fatalf("step E expected done, got %s", stepE.Status)
 	}
 }
@@ -377,8 +377,8 @@ func TestIntegration_FanOutFanIn(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_GatePass(t *testing.T) {
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
+		if step.Type == core.ActionGate {
 			// Gate always passes.
 			exec.Output = map[string]any{"verdict": "pass", "reason": "all good"}
 		} else {
@@ -389,33 +389,33 @@ func TestIntegration_GatePass(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "gate-pass", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "gate-pass", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
 	// Steps: build → review(gate) → deploy (sequential by position).
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "build", "type": "exec",
 	})
-	_ = decode[core.Step](t, resp)
+	_ = decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
 		"acceptance_criteria": []string{"code compiles", "tests pass"},
 	})
-	_ = decode[core.Step](t, resp)
+	_ = decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "deploy", "type": "exec",
 	})
-	_ = decode[core.Step](t, resp)
+	_ = decode[core.Action](t, resp)
 
 	// Run.
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 5*time.Second)
 
 	// Gate passed — verify event.
 	time.Sleep(100 * time.Millisecond)
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	events := decode[[]*core.Event](t, resp)
 	hasGatePass := false
 	for _, ev := range events {
@@ -435,7 +435,7 @@ func TestIntegration_GatePass(t *testing.T) {
 
 func TestIntegration_RetryThenSucceed(t *testing.T) {
 	var attempts int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		n := atomic.AddInt32(&attempts, 1)
 		if n <= 1 {
 			// First attempt fails (transient).
@@ -448,20 +448,20 @@ func TestIntegration_RetryThenSucceed(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "retry-issue", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "retry-issue", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "flaky-step", "type": "exec", "max_retries": 3,
 	})
-	step := decode[core.Step](t, resp)
+	step := decode[core.Action](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 5*time.Second)
 
 	// Step should have 2 executions (1 failed + 1 succeeded).
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/executions", step.ID))
-	execs := decode[[]*core.Execution](t, resp)
+	execs := decode[[]*core.Run](t, resp)
 	if len(execs) < 2 {
 		t.Fatalf("expected at least 2 executions (retry), got %d", len(execs))
 	}
@@ -469,7 +469,7 @@ func TestIntegration_RetryThenSucceed(t *testing.T) {
 	// At least one should be succeeded.
 	hasSuccess := false
 	for _, e := range execs {
-		if e.Status == core.ExecSucceeded {
+		if e.Status == core.RunSucceeded {
 			hasSuccess = true
 		}
 	}
@@ -483,28 +483,28 @@ func TestIntegration_RetryThenSucceed(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_PermanentFailure(t *testing.T) {
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		exec.ErrorKind = core.ErrKindPermanent
 		return fmt.Errorf("fatal: syntax error in source")
 	}
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "perm-fail", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "perm-fail", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "broken", "type": "exec", "max_retries": 5,
 	})
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueFailed, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemFailed, 5*time.Second)
 
 	// Only 1 execution (no retries for permanent errors).
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
-	steps := decode[[]*core.Step](t, resp)
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	steps := decode[[]*core.Action](t, resp)
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/executions", steps[0].ID))
-	execs := decode[[]*core.Execution](t, resp)
+	execs := decode[[]*core.Run](t, resp)
 	if len(execs) != 1 {
 		t.Fatalf("expected exactly 1 execution for permanent failure, got %d", len(execs))
 	}
@@ -516,7 +516,7 @@ func TestIntegration_PermanentFailure(t *testing.T) {
 
 func TestIntegration_CancelRunningIssue(t *testing.T) {
 	started := make(chan struct{})
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		close(started)
 		// Block until cancelled.
 		<-ctx.Done()
@@ -525,14 +525,14 @@ func TestIntegration_CancelRunningIssue(t *testing.T) {
 	env := setupIntegration(t, executor)
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "cancel-me", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "cancel-me", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "long-running", "type": "exec",
 	})
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 
 	// Wait for executor to start.
 	select {
@@ -542,15 +542,15 @@ func TestIntegration_CancelRunningIssue(t *testing.T) {
 	}
 
 	// Cancel.
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/cancel", issue.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/cancel", issue.ID), nil)
 	requireStatus(t, resp, http.StatusOK)
 
 	// Issue should reach cancelled or failed within a reasonable time.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d", issue.ID))
-		f := decode[core.Issue](t, resp)
-		if f.Status == core.IssueCancelled || f.Status == core.IssueFailed {
+		resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d", issue.ID))
+		f := decode[core.WorkItem](t, resp)
+		if f.Status == core.WorkItemCancelled || f.Status == core.WorkItemFailed {
 			return // success
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -563,7 +563,7 @@ func TestIntegration_CancelRunningIssue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_ProjectCRUD(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
@@ -619,7 +619,7 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_ResourceBindingCRUD(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
@@ -668,7 +668,7 @@ func TestIntegration_ResourceBindingCRUD(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_AgentDriverProfileCRUD(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
@@ -742,7 +742,7 @@ func TestIntegration_AgentDriverProfileCRUD(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_WebSocketEvents(t *testing.T) {
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		exec.Output = map[string]any{"done": true}
 		return nil
 	}
@@ -759,13 +759,13 @@ func TestIntegration_WebSocketEvents(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // ensure subscription is registered
 
 	// Create and run an issue.
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "ws-test", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "ws-test", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "ws-step", "type": "exec",
 	})
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 
 	// Collect events from WebSocket.
 	receivedTypes := make(map[core.EventType]bool)
@@ -777,14 +777,14 @@ func TestIntegration_WebSocketEvents(t *testing.T) {
 		}
 		receivedTypes[ev.Type] = true
 		// Stop once we see issue.completed.
-		if ev.Type == core.EventIssueCompleted {
+		if ev.Type == core.EventWorkItemCompleted {
 			break
 		}
 	}
 
 	// Verify we received key lifecycle events via WebSocket.
 	for _, expected := range []core.EventType{
-		core.EventIssueQueued, core.EventIssueStarted, core.EventIssueCompleted,
+		core.EventWorkItemQueued, core.EventWorkItemStarted, core.EventWorkItemCompleted,
 	} {
 		if !receivedTypes[expected] {
 			t.Errorf("did not receive %s via WebSocket", expected)
@@ -797,7 +797,7 @@ func TestIntegration_WebSocketEvents(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_SchedulerStats(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
@@ -817,13 +817,13 @@ func TestIntegration_SchedulerStats(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_IssueWithInvalidProject(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
 
 	badID := int64(9999)
-	resp, _ := postJSON(ts, "/issues", map[string]any{
+	resp, _ := postJSON(ts, "/work-items", map[string]any{
 		"title":      "orphan-issue",
 		"priority":   "medium",
 		"project_id": badID,
@@ -837,7 +837,7 @@ func TestIntegration_IssueWithInvalidProject(t *testing.T) {
 
 func TestIntegration_ConcurrentIssues(t *testing.T) {
 	var execCount int32
-	executor := func(_ context.Context, step *core.Step, exec *core.Execution) error {
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error {
 		atomic.AddInt32(&execCount, 1)
 		time.Sleep(50 * time.Millisecond) // simulate work
 		exec.Output = map[string]any{"ok": true}
@@ -849,12 +849,12 @@ func TestIntegration_ConcurrentIssues(t *testing.T) {
 	// Submit 3 issues, scheduler maxConcurrent=2, so one must queue.
 	var issueIDs []int64
 	for i := 0; i < 3; i++ {
-		resp, _ := postJSON(ts, "/issues", map[string]any{
+		resp, _ := postJSON(ts, "/work-items", map[string]any{
 			"title":    fmt.Sprintf("concurrent-%d", i),
 			"priority": "medium",
 		})
-		f := decode[core.Issue](t, resp)
-		postJSON(ts, fmt.Sprintf("/issues/%d/steps", f.ID), map[string]any{
+		f := decode[core.WorkItem](t, resp)
+		postJSON(ts, fmt.Sprintf("/work-items/%d/steps", f.ID), map[string]any{
 			"name": "work", "type": "exec",
 		})
 		issueIDs = append(issueIDs, f.ID)
@@ -862,13 +862,13 @@ func TestIntegration_ConcurrentIssues(t *testing.T) {
 
 	// Run all 3.
 	for _, id := range issueIDs {
-		resp, _ := postJSON(ts, fmt.Sprintf("/issues/%d/run", id), nil)
+		resp, _ := postJSON(ts, fmt.Sprintf("/work-items/%d/run", id), nil)
 		requireStatus(t, resp, http.StatusAccepted)
 	}
 
 	// Wait for all to complete.
 	for _, id := range issueIDs {
-		pollIssueStatus(t, ts, id, core.IssueDone, 10*time.Second)
+		pollWorkItemStatus(t, ts, id, core.WorkItemDone, 10*time.Second)
 	}
 
 	// All 3 issues × 1 step = 3 executions.
@@ -882,29 +882,29 @@ func TestIntegration_ConcurrentIssues(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIntegration_StepUpdateAndDelete(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
 
 	// Create issue + steps.
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "edit-dag", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "edit-dag", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-A", "type": "exec", "agent_role": "worker",
 	})
-	sA := decode[core.Step](t, resp)
+	sA := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-B", "type": "exec",
 	})
-	sB := decode[core.Step](t, resp)
+	sB := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "step-C", "type": "exec",
 	})
-	sC := decode[core.Step](t, resp)
+	sC := decode[core.Action](t, resp)
 
 	// --- Update step B: rename + change role ---
 	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sB.ID), map[string]any{
@@ -913,7 +913,7 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 		"acceptance_criteria": []string{"all tests pass"},
 	})
 	requireStatus(t, resp, http.StatusOK)
-	updated := decode[core.Step](t, resp)
+	updated := decode[core.Action](t, resp)
 	if updated.Name != "step-B-renamed" {
 		t.Fatalf("expected step-B-renamed, got %s", updated.Name)
 	}
@@ -933,16 +933,16 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 	requireStatus(t, resp, http.StatusNotFound)
 
 	// Verify remaining steps.
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID))
-	steps := decode[[]*core.Step](t, resp)
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	steps := decode[[]*core.Action](t, resp)
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 remaining steps, got %d", len(steps))
 	}
 
 	// --- Cannot edit/delete non-pending step ---
 	// Run issue to make steps non-pending.
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 5*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 5*time.Second)
 
 	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sA.ID), map[string]any{
 		"name": "should-fail",
@@ -959,15 +959,15 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 
 func TestIntegration_GenerateSteps_Unavailable(t *testing.T) {
 	// Without DAGGenerator configured, should return 503.
-	env := setupIntegration(t, func(_ context.Context, _ *core.Step, _ *core.Execution) error {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{"title": "gen-test", "priority": "medium"})
-	issue := decode[core.Issue](t, resp)
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "gen-test", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/generate-steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/generate-steps", issue.ID), map[string]any{
 		"description": "build a REST API",
 	})
 	requireStatus(t, resp, http.StatusServiceUnavailable)
@@ -983,8 +983,8 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 	var execRuns int32
 	var store core.Store // captured by executor closure
 
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
+		if step.Type == core.ActionGate {
 			n := atomic.AddInt32(&gateRuns, 1)
 			verdict := "reject"
 			reason := "missing test coverage"
@@ -993,14 +993,14 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 				reason = "all tests present, LGTM"
 			}
 			// Store gate verdict in artifact metadata (same path as real agents).
-			art := &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+			art := &core.Deliverable{
+				RunID:          exec.ID,
+				ActionID:       step.ID,
+				WorkItemID:     step.WorkItemID,
 				ResultMarkdown: fmt.Sprintf("Review round %d: %s", n, reason),
 				Metadata:       map[string]any{"verdict": verdict, "reason": reason},
 			}
-			if _, err := store.CreateArtifact(ctx, art); err != nil {
+			if _, err := store.CreateDeliverable(ctx, art); err != nil {
 				return err
 			}
 			exec.Output = map[string]any{"verdict": verdict, "reason": reason}
@@ -1024,34 +1024,34 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 	project := decode[core.Project](t, resp)
 
 	// 2. Create issue.
-	resp, _ = postJSON(ts, "/issues", map[string]any{
+	resp, _ = postJSON(ts, "/work-items", map[string]any{
 		"title":      "gate reject→rework→approve",
 		"priority":   "medium",
 		"project_id": project.ID,
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	issue := decode[core.Issue](t, resp)
+	issue := decode[core.WorkItem](t, resp)
 
 	// 3. Create steps: implement(exec) → review(gate).
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "implement", "type": "exec", "max_retries": 3,
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepImpl := decode[core.Step](t, resp)
+	stepImpl := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepGate := decode[core.Step](t, resp)
+	stepGate := decode[core.Action](t, resp)
 
 	// 4. Run issue.
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
 	requireStatus(t, resp, http.StatusAccepted)
 
 	// 5. Poll until done.
-	doneIssue := pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
-	if doneIssue.Status != core.IssueDone {
+	doneIssue := pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 10*time.Second)
+	if doneIssue.Status != core.WorkItemDone {
 		t.Fatalf("expected done, got %s", doneIssue.Status)
 	}
 
@@ -1065,8 +1065,8 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 
 	// 7. Verify step statuses.
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepImpl.ID))
-	finalImpl := decode[core.Step](t, resp)
-	if finalImpl.Status != core.StepDone {
+	finalImpl := decode[core.Action](t, resp)
+	if finalImpl.Status != core.ActionDone {
 		t.Fatalf("expected impl done, got %s", finalImpl.Status)
 	}
 	if finalImpl.RetryCount != 1 {
@@ -1074,14 +1074,14 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 	}
 
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepGate.ID))
-	finalGate := decode[core.Step](t, resp)
-	if finalGate.Status != core.StepDone {
+	finalGate := decode[core.Action](t, resp)
+	if finalGate.Status != core.ActionDone {
 		t.Fatalf("expected gate done, got %s", finalGate.Status)
 	}
 
 	// 8. Verify gate events (rejected + passed).
 	time.Sleep(100 * time.Millisecond) // allow persister to flush
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	events := decode[[]*core.Event](t, resp)
 	hasReject := false
 	hasPass := false
@@ -1110,17 +1110,17 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 	var gateRuns int32
 	var store core.Store // captured by executor closure
 
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
+		if step.Type == core.ActionGate {
 			atomic.AddInt32(&gateRuns, 1)
-			art := &core.Artifact{
-				ExecutionID:    exec.ID,
-				StepID:         step.ID,
-				IssueID:        step.IssueID,
+			art := &core.Deliverable{
+				RunID:          exec.ID,
+				ActionID:       step.ID,
+				WorkItemID:     step.WorkItemID,
 				ResultMarkdown: "Review: always reject",
 				Metadata:       map[string]any{"verdict": "reject", "reason": "merge conflict unresolvable"},
 			}
-			if _, err := store.CreateArtifact(ctx, art); err != nil {
+			if _, err := store.CreateDeliverable(ctx, art); err != nil {
 				return err
 			}
 			exec.Output = map[string]any{"verdict": "reject"}
@@ -1135,29 +1135,29 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 	ts := env.server
 
 	// Create issue with exec → gate (max_rework_rounds=2).
-	resp, _ := postJSON(ts, "/issues", map[string]any{
+	resp, _ := postJSON(ts, "/work-items", map[string]any{
 		"title": "rework-limit-blocked", "priority": "medium",
 	})
-	issue := decode[core.Issue](t, resp)
+	issue := decode[core.WorkItem](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "implement", "type": "exec", "max_retries": 10,
 	})
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
 		"config": map[string]any{"max_rework_rounds": 2},
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	stepGate := decode[core.Step](t, resp)
+	stepGate := decode[core.Action](t, resp)
 
 	// Run — should end in failed (engine returns "stuck" when gate is blocked).
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueFailed, 10*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemFailed, 10*time.Second)
 
 	// Gate step should be blocked.
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepGate.ID))
-	finalGate := decode[core.Step](t, resp)
-	if finalGate.Status != core.StepBlocked {
+	finalGate := decode[core.Action](t, resp)
+	if finalGate.Status != core.ActionBlocked {
 		t.Fatalf("expected gate blocked, got %s", finalGate.Status)
 	}
 
@@ -1169,7 +1169,7 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 
 	// Verify rework limit event was persisted.
 	time.Sleep(100 * time.Millisecond)
-	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
 	events := decode[[]*core.Event](t, resp)
 	hasLimitEvent := false
 	for _, ev := range events {
@@ -1183,7 +1183,7 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 18: Gate via StepSignal (reject → rework → approve)
+// Test 18: Gate via ActionSignal (reject → rework → approve)
 // Mirrors real agent behavior: gate agent calls gate_approve/gate_reject via MCP tool
 // ---------------------------------------------------------------------------
 
@@ -1191,16 +1191,16 @@ func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
 	var gateRuns int32
 	var store core.Store
 
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
+		if step.Type == core.ActionGate {
 			n := atomic.AddInt32(&gateRuns, 1)
 			if n == 1 {
-				// First run: agent rejects via StepSignal.
-				_, err := store.CreateStepSignal(ctx, &core.StepSignal{
-					StepID:    step.ID,
-					IssueID:   step.IssueID,
-					ExecID:    exec.ID,
-					Type:      core.SignalReject,
+				// First run: agent rejects via ActionSignal.
+				_, err := store.CreateActionSignal(ctx, &core.ActionSignal{
+					ActionID:   step.ID,
+					WorkItemID: step.WorkItemID,
+					RunID:      exec.ID,
+					Type:       core.SignalReject,
 					Source:    core.SignalSourceAgent,
 					Payload:   map[string]any{"reason": "no error handling in auth module"},
 					Actor:     "agent",
@@ -1208,13 +1208,13 @@ func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
 				})
 				return err
 			}
-			// Second run: agent approves via StepSignal.
-			_, err := store.CreateStepSignal(ctx, &core.StepSignal{
-				StepID:    step.ID,
-				IssueID:   step.IssueID,
-				ExecID:    exec.ID,
-				Type:      core.SignalApprove,
-				Source:    core.SignalSourceAgent,
+			// Second run: agent approves via ActionSignal.
+			_, err := store.CreateActionSignal(ctx, &core.ActionSignal{
+				ActionID:   step.ID,
+				WorkItemID: step.WorkItemID,
+				RunID:      exec.ID,
+				Type:       core.SignalApprove,
+				Source:     core.SignalSourceAgent,
 				Payload:   map[string]any{"reason": "error handling added, LGTM"},
 				Actor:     "agent",
 				CreatedAt: time.Now().UTC(),
@@ -1230,23 +1230,23 @@ func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
 	store = env.store
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{
+	resp, _ := postJSON(ts, "/work-items", map[string]any{
 		"title": "signal-gate-e2e", "priority": "medium",
 	})
-	issue := decode[core.Issue](t, resp)
+	issue := decode[core.WorkItem](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "implement", "type": "exec", "max_retries": 3,
 	})
-	stepImpl := decode[core.Step](t, resp)
+	stepImpl := decode[core.Action](t, resp)
 
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
 	})
-	stepGate := decode[core.Step](t, resp)
+	stepGate := decode[core.Action](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 10*time.Second)
 
 	// Verify counts.
 	if n := atomic.LoadInt32(&gateRuns); n != 2 {
@@ -1256,7 +1256,7 @@ func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
 	// Verify step signals persisted.
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepGate.ID))
 	requireStatus(t, resp, http.StatusOK)
-	var signals []*core.StepSignal
+	var signals []*core.ActionSignal
 	decodeJSON(resp, &signals)
 	// Should have at least: 1 agent reject + 1 system reject (from ProcessGate) + 1 agent approve + feedback signals
 	hasAgentReject := false
@@ -1279,7 +1279,7 @@ func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
 	// Verify feedback signal on impl step (gate rejection propagated).
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepImpl.ID))
 	requireStatus(t, resp, http.StatusOK)
-	var implSignals []*core.StepSignal
+	var implSignals []*core.ActionSignal
 	decodeJSON(resp, &implSignals)
 	hasFeedback := false
 	for _, sig := range implSignals {
@@ -1303,16 +1303,16 @@ func TestIntegration_StepDecisionAPI(t *testing.T) {
 	// written before the engine's finalizeGate checks it.
 	var store core.Store
 
-	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
-		if step.Type == core.StepGate {
+	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
+		if step.Type == core.ActionGate {
 			// Simulate: before finalizeGate runs, the human already submitted a decision.
 			// We pre-create an approve signal that finalizeGate will find.
-			_, err := store.CreateStepSignal(ctx, &core.StepSignal{
-				StepID:    step.ID,
-				IssueID:   step.IssueID,
-				ExecID:    exec.ID,
-				Type:      core.SignalApprove,
-				Source:    core.SignalSourceHuman,
+			_, err := store.CreateActionSignal(ctx, &core.ActionSignal{
+				ActionID:   step.ID,
+				WorkItemID: step.WorkItemID,
+				RunID:      exec.ID,
+				Type:       core.SignalApprove,
+				Source:     core.SignalSourceHuman,
 				Payload:   map[string]any{"reason": "looks good to me"},
 				Actor:     "human",
 				CreatedAt: time.Now().UTC(),
@@ -1327,27 +1327,27 @@ func TestIntegration_StepDecisionAPI(t *testing.T) {
 	store = env.store
 	ts := env.server
 
-	resp, _ := postJSON(ts, "/issues", map[string]any{
+	resp, _ := postJSON(ts, "/work-items", map[string]any{
 		"title": "decision-api-test", "priority": "medium",
 	})
-	issue := decode[core.Issue](t, resp)
+	issue := decode[core.WorkItem](t, resp)
 
-	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "build", "type": "exec",
 	})
-	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
 		"name": "review", "type": "gate",
 	})
-	stepGate := decode[core.Step](t, resp)
+	stepGate := decode[core.Action](t, resp)
 
 	// Run and wait for completion.
-	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
-	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
+	postJSON(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
+	pollWorkItemStatus(t, ts, issue.ID, core.WorkItemDone, 10*time.Second)
 
 	// Verify signals via API.
 	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepGate.ID))
 	requireStatus(t, resp, http.StatusOK)
-	var signals []*core.StepSignal
+	var signals []*core.ActionSignal
 	decodeJSON(resp, &signals)
 	if len(signals) == 0 {
 		t.Fatal("expected at least 1 signal on gate step")

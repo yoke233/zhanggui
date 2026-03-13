@@ -13,7 +13,7 @@ type ThreadBootInput struct {
 	Thread         *core.Thread
 	RecentMessages []*core.ThreadMessage
 	Participants   []*core.ThreadParticipant
-	WorkItems      []*core.Issue
+	WorkItems      []*core.WorkItem
 	AgentProfile   *core.AgentProfile
 	PriorSummary   string // progress_summary from a previous session (if resuming)
 }

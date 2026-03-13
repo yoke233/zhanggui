@@ -1,5 +1,11 @@
 # Thread-WorkItem 关联模型规格
 
+> 状态：部分实现
+>
+> 最后按代码核对：2026-03-13
+>
+> 当前实现状态：`thread_work_item_links` 表、Thread 侧关联 API 和按 WorkItem 反查 Thread 能力已存在；当前反查入口仍是 `/issues/{id}/threads`，还没有 `/api/work-items/*` alias；删除父对象时也还没有统一的应用层显式清理协议。
+
 ## 概述
 
 Thread（多人讨论容器）与 WorkItem（Issue，执行主线）之间通过显式链接表 `thread_work_item_links` 建立双向关联。
@@ -38,13 +44,19 @@ CREATE INDEX idx_twil_work_item ON thread_work_item_links(work_item_id);
 - 设置新的 primary link 时，旧 primary 自动降级为 `is_primary = false`
 - 主关联用于 UI 默认展示：Thread 页面优先显示 primary WorkItem
 
-## 删除清理策略
+## 删除与一致性策略
 
-采用**显式清理**（非 CASCADE）：
+当前实现不是“应用层显式清理”，也不是 `ON DELETE CASCADE`：
 
-1. **删除 Thread 时**：应用层在删除 thread 前，先删除该 thread 的所有 `thread_work_item_links` 记录
-2. **删除 WorkItem/Issue 时**：应用层在删除 issue 前，先删除该 issue 的所有 `thread_work_item_links` 记录
-3. **理由**：显式清理允许在删除前做审计日志或通知，避免静默 CASCADE 丢失关联信息
+1. SQLite 连接当前开启 `PRAGMA foreign_keys=ON`
+2. `thread_work_item_links` 的外键声明没有配置 `ON DELETE CASCADE`
+3. 截至 2026-03-13，仓库内没有统一的“先删 link 再删 Thread/Issue”的应用层协议
+
+因此当前真实语义是：
+
+- 若父对象删除路径没有先移除关联，数据库会通过外键约束阻止删除，而不是静默级联删除
+- 本文不应把“应用层显式清理”写成现状
+- 如果未来要改成显式清理或 CASCADE，需要另开变更并同步更新测试与迁移说明
 
 ## API 端点
 

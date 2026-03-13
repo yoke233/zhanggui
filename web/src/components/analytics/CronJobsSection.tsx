@@ -60,10 +60,10 @@ export function CronJobsSection({ cronIssues, onToggle, onAdd }: Props) {
               </TableRow>
             ) : (
               cronIssues.map((c) => (
-                <TableRow key={c.issue_id}>
+                <TableRow key={c.work_item_id}>
                   <TableCell>
-                    <Link to={`/issues/${c.issue_id}`} className="text-blue-600 hover:underline">
-                      #{c.issue_id}
+                    <Link to={`/work-items/${c.work_item_id}`} className="text-blue-600 hover:underline">
+                      #{c.work_item_id}
                     </Link>
                   </TableCell>
                   <TableCell>

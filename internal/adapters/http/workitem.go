@@ -35,7 +35,7 @@ type updateIssueRequest struct {
 	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
-func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createWorkItem(w http.ResponseWriter, r *http.Request) {
 	var req createIssueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
@@ -61,7 +61,7 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	priority := core.IssuePriority(strings.TrimSpace(req.Priority))
+	priority := core.WorkItemPriority(strings.TrimSpace(req.Priority))
 	if priority == "" {
 		priority = core.PriorityMedium
 	}
@@ -85,20 +85,19 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	issue := &core.Issue{
+	issue := &core.WorkItem{
 		ProjectID:         req.ProjectID,
 		ResourceBindingID: req.ResourceBindingID,
 		Title:             title,
 		Body:              strings.TrimSpace(req.Body),
-		Status:            core.IssueOpen,
+		Status:            core.WorkItemOpen,
 		Priority:          priority,
 		Labels:            req.Labels,
-		DependsOn:         req.DependsOn,
 		Metadata:          req.Metadata,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	id, err := h.store.CreateIssue(r.Context(), issue)
+	id, err := h.store.CreateWorkItem(r.Context(), issue)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -117,7 +116,7 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := resolveEnabledSCMRepoFromBindings(r.Context(), bootstrapBindings); ok {
-			if _, err := h.bootstrapPRIssueForIssue(r.Context(), id, bootstrapPRIssueRequest{}); err != nil {
+			if _, err := h.bootstrapPRWorkItemForIssue(r.Context(), id, bootstrapPRWorkItemRequest{}); err != nil {
 				switch {
 				case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding), errors.Is(err, errBootstrapPRIssueAmbiguousBinding):
 					// Ignore when the project does not have an enabled SCM binding.
@@ -136,13 +135,13 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, issue)
 }
 
-func (h *Handler) getIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
-	issue, err := h.store.GetIssue(r.Context(), id)
+	issue, err := h.store.GetWorkItem(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -154,8 +153,8 @@ func (h *Handler) getIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, issue)
 }
 
-func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
-	filter := core.IssueFilter{
+func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
+	filter := core.WorkItemFilter{
 		Limit:  queryInt(r, "limit", 50),
 		Offset: queryInt(r, "offset", 0),
 	}
@@ -163,11 +162,11 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 		filter.ProjectID = &projectID
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
-		status := core.IssueStatus(s)
+		status := core.WorkItemStatus(s)
 		filter.Status = &status
 	}
 	if s := r.URL.Query().Get("priority"); s != "" {
-		priority := core.IssuePriority(s)
+		priority := core.WorkItemPriority(s)
 		filter.Priority = &priority
 	}
 	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("archived"))) {
@@ -187,25 +186,25 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issues, err := h.store.ListIssues(r.Context(), filter)
+	issues, err := h.store.ListWorkItems(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if issues == nil {
-		issues = []*core.Issue{}
+		issues = []*core.WorkItem{}
 	}
 	writeJSON(w, http.StatusOK, issues)
 }
 
-func (h *Handler) updateIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	existing, err := h.store.GetIssue(r.Context(), id)
+	existing, err := h.store.GetWorkItem(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -255,10 +254,10 @@ func (h *Handler) updateIssue(w http.ResponseWriter, r *http.Request) {
 		existing.Body = strings.TrimSpace(*req.Body)
 	}
 	if req.Status != nil {
-		existing.Status = core.IssueStatus(strings.TrimSpace(*req.Status))
+		existing.Status = core.WorkItemStatus(strings.TrimSpace(*req.Status))
 	}
 	if req.Priority != nil {
-		existing.Priority = core.IssuePriority(strings.TrimSpace(*req.Priority))
+		existing.Priority = core.WorkItemPriority(strings.TrimSpace(*req.Priority))
 	}
 	if req.Labels != nil {
 		existing.Labels = *req.Labels
@@ -273,27 +272,26 @@ func (h *Handler) updateIssue(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		existing.DependsOn = *req.DependsOn
 	}
 	if req.Metadata != nil {
 		existing.Metadata = req.Metadata
 	}
 
-	if err := h.store.UpdateIssue(r.Context(), existing); err != nil {
+	if err := h.store.UpdateWorkItem(r.Context(), existing); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
 }
 
-func (h *Handler) deleteIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	if err := h.store.DeleteIssue(r.Context(), id); err != nil {
+	if err := h.store.DeleteWorkItem(r.Context(), id); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
@@ -304,11 +302,11 @@ func (h *Handler) deleteIssue(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) archiveIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) archiveWorkItem(w http.ResponseWriter, r *http.Request) {
 	h.setIssueArchived(w, r, true)
 }
 
-func (h *Handler) unarchiveIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) unarchiveWorkItem(w http.ResponseWriter, r *http.Request) {
 	h.setIssueArchived(w, r, false)
 }
 
@@ -319,7 +317,7 @@ func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archi
 		return
 	}
 
-	issue, err := h.store.GetIssue(r.Context(), id)
+	issue, err := h.store.GetWorkItem(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -330,13 +328,13 @@ func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archi
 	}
 	if archived {
 		switch issue.Status {
-		case core.IssueQueued, core.IssueRunning, core.IssueBlocked:
+		case core.WorkItemQueued, core.WorkItemRunning, core.WorkItemBlocked:
 			writeError(w, http.StatusConflict, "active issue cannot be archived", "INVALID_STATE")
 			return
 		}
 	}
 
-	if err := h.store.SetIssueArchived(r.Context(), id, archived); err != nil {
+	if err := h.store.SetWorkItemArchived(r.Context(), id, archived); err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
@@ -349,7 +347,7 @@ func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archi
 		return
 	}
 
-	issue, err = h.store.GetIssue(r.Context(), id)
+	issue, err = h.store.GetWorkItem(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -361,9 +359,9 @@ func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archi
 	writeJSON(w, http.StatusOK, issue)
 }
 
-// runIssue triggers async execution of an issue. Returns immediately.
+// runWorkItem triggers async execution of an issue. Returns immediately.
 // If a scheduler is configured, the issue is queued; otherwise it runs directly.
-func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) runWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
@@ -371,7 +369,7 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the issue has at least one step before allowing execution.
-	steps, err := h.store.ListStepsByIssue(r.Context(), id)
+	steps, err := h.store.ListActionsByWorkItem(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
@@ -393,7 +391,7 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 				return
 			case errors.Is(err, core.ErrInvalidTransition):
-				issue, getErr := h.store.GetIssue(r.Context(), id)
+				issue, getErr := h.store.GetWorkItem(r.Context(), id)
 				if getErr == nil && issue.ArchivedAt != nil {
 					writeError(w, http.StatusConflict, "archived issue cannot be executed", "ISSUE_ARCHIVED")
 					return
@@ -412,13 +410,13 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.PrepareIssueRun(r.Context(), id, core.IssueQueued); err != nil {
+	if err := h.store.PrepareWorkItemRun(r.Context(), id, core.WorkItemQueued); err != nil {
 		switch {
 		case errors.Is(err, core.ErrNotFound):
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
 		case errors.Is(err, core.ErrInvalidTransition):
-			issue, getErr := h.store.GetIssue(r.Context(), id)
+			issue, getErr := h.store.GetWorkItem(r.Context(), id)
 			if getErr == nil && issue.ArchivedAt != nil {
 				writeError(w, http.StatusConflict, "archived issue cannot be executed", "ISSUE_ARCHIVED")
 				return
@@ -436,8 +434,8 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
 		if err := h.engine.Run(ctx, id); err != nil {
 			h.bus.Publish(ctx, core.Event{
-				Type:      core.EventIssueFailed,
-				IssueID:   id,
+				Type:      core.EventWorkItemFailed,
+				WorkItemID: id,
 				Timestamp: time.Now().UTC(),
 				Data:      map[string]any{"error": err.Error()},
 			})
@@ -451,7 +449,7 @@ func (h *Handler) runIssue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) cancelIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) cancelWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
@@ -516,7 +514,7 @@ func validateIssueDependencies(ctx context.Context, store Store, issueID int64, 
 		}
 		seen[depID] = struct{}{}
 
-		depIssue, err := store.GetIssue(ctx, depID)
+		depIssue, err := store.GetWorkItem(ctx, depID)
 		if err != nil {
 			return err
 		}
@@ -528,7 +526,7 @@ func validateIssueDependencies(ctx context.Context, store Store, issueID int64, 
 }
 
 func rollbackIssueCreation(ctx context.Context, store Store, issueID int64) error {
-	steps, err := store.ListStepsByIssue(ctx, issueID)
+	steps, err := store.ListActionsByWorkItem(ctx, issueID)
 	if err != nil {
 		return err
 	}
@@ -536,11 +534,11 @@ func rollbackIssueCreation(ctx context.Context, store Store, issueID int64) erro
 		if step == nil {
 			continue
 		}
-		if err := store.DeleteStep(ctx, step.ID); err != nil && !errors.Is(err, core.ErrNotFound) {
+		if err := store.DeleteAction(ctx, step.ID); err != nil && !errors.Is(err, core.ErrNotFound) {
 			return err
 		}
 	}
-	if err := store.DeleteIssue(ctx, issueID); err != nil && !errors.Is(err, core.ErrNotFound) {
+	if err := store.DeleteWorkItem(ctx, issueID); err != nil && !errors.Is(err, core.ErrNotFound) {
 		return err
 	}
 	return nil

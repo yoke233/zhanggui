@@ -34,9 +34,9 @@ func convertDrivers(cfgs []config.RuntimeDriverConfig) []*core.AgentDriver {
 func convertProfiles(cfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
 	out := make([]*core.AgentProfile, len(cfgs))
 	for i, c := range cfgs {
-		actions := make([]core.Action, len(c.ActionsAllowed))
+		actions := make([]core.AgentAction, len(c.ActionsAllowed))
 		for j, a := range c.ActionsAllowed {
-			actions[j] = core.Action(a)
+			actions[j] = core.AgentAction(a)
 		}
 		out[i] = &core.AgentProfile{
 			ID:             c.ID,

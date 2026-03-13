@@ -69,7 +69,7 @@ func TestRunACPExecutionProbe_LoadsExistingSession(t *testing.T) {
 		Timeout:    10 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("runACPExecutionProbe: %v", err)
+		t.Fatalf("runACPRunProbe: %v", err)
 	}
 	if !result.Reachable || !result.Answered {
 		t.Fatalf("expected reachable+answered probe result, got %+v", result)

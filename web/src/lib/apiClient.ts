@@ -4,9 +4,9 @@ import type {
   FeatureManifestSummary,
   FeatureManifestSnapshot,
   FeatureStatus,
-  BootstrapPRIssueRequest,
-  BootstrapPRIssueResponse,
-  CancelIssueResponse,
+  BootstrapPRWorkItemRequest,
+  BootstrapPRWorkItemResponse,
+  CancelWorkItemResponse,
   AgentDriver,
   AgentProfile,
   AnalyticsFilter,
@@ -14,8 +14,7 @@ import type {
   CronStatus,
   SetupCronRequest,
   CreateSkillRequest,
-  Artifact,
-  Briefing,
+  Deliverable,
   StatsResponse,
   AdminSystemEventRequest,
   AdminSystemEventResponse,
@@ -26,30 +25,30 @@ import type {
   ChatStatusResponse,
   CreateResourceBindingRequest,
   CreateProjectRequest,
-  CreateIssueRequest,
-  UpdateIssueRequest,
-  Issue,
-  IssueAttachment,
-  CreateStepRequest,
-  GenerateStepsRequest,
+  CreateWorkItemRequest,
+  UpdateWorkItemRequest,
+  WorkItem,
+  WorkItemAttachment,
+  CreateActionRequest,
+  GenerateActionsRequest,
   Event,
-  Execution,
+  Run,
   ImportGitHubSkillRequest,
   Project,
   ResourceBinding,
-  RunIssueResponse,
+  RunWorkItemResponse,
   SchedulerStats,
   SkillDetail,
   SkillInfo,
-  Step,
-  UpdateStepRequest,
+  Action,
+  UpdateActionRequest,
   UpdateProjectRequest,
   DAGTemplate,
   CreateDAGTemplateRequest,
   UpdateDAGTemplateRequest,
-  SaveIssueAsTemplateRequest,
-  CreateIssueFromTemplateRequest,
-  CreateIssueFromTemplateResponse,
+  SaveWorkItemAsTemplateRequest,
+  CreateWorkItemFromTemplateRequest,
+  CreateWorkItemFromTemplateResponse,
   GitCommitEntry,
   GitTagEntry,
   CreateGitTagRequest,
@@ -195,12 +194,14 @@ export interface ApiClient {
   getResource(resourceId: number): Promise<ResourceBinding>;
   deleteResource(resourceId: number): Promise<void>;
 
-  getArtifact(artifactId: number): Promise<Artifact>;
-  getLatestArtifact(stepId: number): Promise<Artifact>;
-  listArtifactsByExecution(execId: number): Promise<Artifact[]>;
+  getDeliverable(deliverableId: number): Promise<Deliverable>;
+  getLatestDeliverable(actionId: number): Promise<Deliverable>;
+  listDeliverablesByRun(runId: number): Promise<Deliverable[]>;
 
-  getBriefing(briefingId: number): Promise<Briefing>;
-  getBriefingByStep(stepId: number): Promise<Briefing>;
+  // Backward compat aliases
+  getArtifact(artifactId: number): Promise<Deliverable>;
+  getLatestArtifact(stepId: number): Promise<Deliverable>;
+  listArtifactsByExecution(execId: number): Promise<Deliverable[]>;
 
   chat(body: ChatRequest): Promise<ChatResponse>;
   listChatSessions(): Promise<ChatSessionSummary[]>;
@@ -209,31 +210,59 @@ export interface ApiClient {
   closeChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
 
+  listWorkItems(params?: {
+    project_id?: number;
+    status?: string;
+    archived?: boolean | "all";
+    limit?: number;
+    offset?: number;
+  }): Promise<WorkItem[]>;
+  createWorkItem(body: CreateWorkItemRequest): Promise<WorkItem>;
+  getWorkItem(workItemId: number): Promise<WorkItem>;
+  runWorkItem(workItemId: number): Promise<RunWorkItemResponse>;
+  cancelWorkItem(workItemId: number): Promise<CancelWorkItemResponse>;
+  updateWorkItem(workItemId: number, body: UpdateWorkItemRequest): Promise<WorkItem>;
+  archiveWorkItem(workItemId: number): Promise<void>;
+  bootstrapPRWorkItem(workItemId: number, body?: BootstrapPRWorkItemRequest): Promise<BootstrapPRWorkItemResponse>;
+
+  // Backward compat aliases
   listIssues(params?: {
     project_id?: number;
     status?: string;
     archived?: boolean | "all";
     limit?: number;
     offset?: number;
-  }): Promise<Issue[]>;
-  createIssue(body: CreateIssueRequest): Promise<Issue>;
-  getIssue(issueId: number): Promise<Issue>;
-  runIssue(issueId: number): Promise<RunIssueResponse>;
-  cancelIssue(issueId: number): Promise<CancelIssueResponse>;
-  updateIssue(issueId: number, body: UpdateIssueRequest): Promise<Issue>;
+  }): Promise<WorkItem[]>;
+  createIssue(body: CreateWorkItemRequest): Promise<WorkItem>;
+  getIssue(issueId: number): Promise<WorkItem>;
+  runIssue(issueId: number): Promise<RunWorkItemResponse>;
+  cancelIssue(issueId: number): Promise<CancelWorkItemResponse>;
+  updateIssue(issueId: number, body: UpdateWorkItemRequest): Promise<WorkItem>;
   archiveIssue(issueId: number): Promise<void>;
-  bootstrapPRIssue(issueId: number, body?: BootstrapPRIssueRequest): Promise<BootstrapPRIssueResponse>;
+  bootstrapPRIssue(issueId: number, body?: BootstrapPRWorkItemRequest): Promise<BootstrapPRWorkItemResponse>;
 
-  listSteps(issueId: number): Promise<Step[]>;
-  createStep(issueId: number, body: CreateStepRequest): Promise<Step>;
-  generateSteps(issueId: number, body: GenerateStepsRequest): Promise<Step[]>;
+  listActions(workItemId: number): Promise<Action[]>;
+  createAction(workItemId: number, body: CreateActionRequest): Promise<Action>;
+  generateActions(workItemId: number, body: GenerateActionsRequest): Promise<Action[]>;
   generateTitle(body: { description: string }): Promise<{ title: string }>;
-  getStep(stepId: number): Promise<Step>;
-  updateStep(stepId: number, body: UpdateStepRequest): Promise<Step>;
+  getAction(actionId: number): Promise<Action>;
+  updateAction(actionId: number, body: UpdateActionRequest): Promise<Action>;
+  deleteAction(actionId: number): Promise<void>;
+
+  // Backward compat aliases
+  listSteps(issueId: number): Promise<Action[]>;
+  createStep(issueId: number, body: CreateActionRequest): Promise<Action>;
+  generateSteps(issueId: number, body: GenerateActionsRequest): Promise<Action[]>;
+  getStep(stepId: number): Promise<Action>;
+  updateStep(stepId: number, body: UpdateActionRequest): Promise<Action>;
   deleteStep(stepId: number): Promise<void>;
 
-  listExecutions(stepId: number): Promise<Execution[]>;
-  getExecution(execId: number): Promise<Execution>;
+  listRuns(actionId: number): Promise<Run[]>;
+  getRun(runId: number): Promise<Run>;
+
+  // Backward compat aliases
+  listExecutions(stepId: number): Promise<Run[]>;
+  getExecution(execId: number): Promise<Run>;
 
   listEvents(params?: {
     issue_id?: number;
@@ -243,6 +272,12 @@ export interface ApiClient {
     limit?: number;
     offset?: number;
   }): Promise<Event[]>;
+  listWorkItemEvents(
+    workItemId: number,
+    params?: { types?: string[]; limit?: number; offset?: number },
+  ): Promise<Event[]>;
+
+  // Backward compat alias
   listIssueEvents(
     issueId: number,
     params?: { types?: string[]; limit?: number; offset?: number },
@@ -261,8 +296,16 @@ export interface ApiClient {
 
   getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
   getUsageSummary(params?: AnalyticsFilter): Promise<UsageAnalyticsSummary>;
+  getUsageByRun(runId: number): Promise<UsageRecord>;
+  // Backward compat alias
   getUsageByExecution(execId: number): Promise<UsageRecord>;
 
+  listCronWorkItems(): Promise<CronStatus[]>;
+  getWorkItemCronStatus(workItemId: number): Promise<CronStatus>;
+  setupWorkItemCron(workItemId: number, body: SetupCronRequest): Promise<CronStatus>;
+  disableWorkItemCron(workItemId: number): Promise<CronStatus>;
+
+  // Backward compat aliases
   listCronIssues(): Promise<CronStatus[]>;
   getIssueCronStatus(issueId: number): Promise<CronStatus>;
   setupIssueCron(issueId: number, body: SetupCronRequest): Promise<CronStatus>;
@@ -280,8 +323,12 @@ export interface ApiClient {
   getDAGTemplate(templateId: number): Promise<DAGTemplate>;
   updateDAGTemplate(templateId: number, body: UpdateDAGTemplateRequest): Promise<DAGTemplate>;
   deleteDAGTemplate(templateId: number): Promise<void>;
-  saveIssueAsTemplate(issueId: number, body: SaveIssueAsTemplateRequest): Promise<DAGTemplate>;
-  createIssueFromTemplate(templateId: number, body: CreateIssueFromTemplateRequest): Promise<CreateIssueFromTemplateResponse>;
+  saveWorkItemAsTemplate(workItemId: number, body: SaveWorkItemAsTemplateRequest): Promise<DAGTemplate>;
+  createWorkItemFromTemplate(templateId: number, body: CreateWorkItemFromTemplateRequest): Promise<CreateWorkItemFromTemplateResponse>;
+
+  // Backward compat aliases
+  saveIssueAsTemplate(issueId: number, body: SaveWorkItemAsTemplateRequest): Promise<DAGTemplate>;
+  createIssueFromTemplate(templateId: number, body: CreateWorkItemFromTemplateRequest): Promise<CreateWorkItemFromTemplateResponse>;
 
   // Git Tags
   listGitCommits(projectId: number, params?: { limit?: number }): Promise<GitCommitEntry[]>;
@@ -305,20 +352,26 @@ export interface ApiClient {
   createThreadWorkItemLink(threadId: number, body: CreateThreadWorkItemLinkRequest): Promise<ThreadWorkItemLink>;
   listWorkItemsByThread(threadId: number): Promise<ThreadWorkItemLink[]>;
   deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
-  listThreadsByWorkItem(issueId: number): Promise<ThreadWorkItemLink[]>;
-  createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<Issue>;
+  listThreadsByWorkItem(workItemId: number): Promise<ThreadWorkItemLink[]>;
+  createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<WorkItem>;
 
   // Thread Agent Sessions
   inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadAgentSession>;
   listThreadAgents(threadId: number): Promise<ThreadAgentSession[]>;
   removeThreadAgent(threadId: number, agentSessionId: number): Promise<void>;
 
-  // Issue Attachments
-  uploadIssueAttachment(issueId: number, file: File): Promise<IssueAttachment>;
-  listIssueAttachments(issueId: number): Promise<IssueAttachment[]>;
-  getIssueAttachment(attachmentId: number): Promise<IssueAttachment>;
-  deleteIssueAttachment(attachmentId: number): Promise<void>;
+  // Work Item Attachments
+  uploadWorkItemAttachment(workItemId: number, file: File): Promise<WorkItemAttachment>;
+  listWorkItemAttachments(workItemId: number): Promise<WorkItemAttachment[]>;
+  getWorkItemAttachment(attachmentId: number): Promise<WorkItemAttachment>;
+  deleteWorkItemAttachment(attachmentId: number): Promise<void>;
   getAttachmentDownloadUrl(attachmentId: number): string;
+
+  // Backward compat aliases
+  uploadIssueAttachment(issueId: number, file: File): Promise<WorkItemAttachment>;
+  listIssueAttachments(issueId: number): Promise<WorkItemAttachment[]>;
+  getIssueAttachment(attachmentId: number): Promise<WorkItemAttachment>;
+  deleteIssueAttachment(attachmentId: number): Promise<void>;
 
   // Notifications
   listNotifications(params?: {
@@ -407,6 +460,235 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     return data as TResponse;
   };
 
+  // -- Work Items (primary) --
+  const listWorkItems: ApiClient["listWorkItems"] = (params) =>
+    request<WorkItem[]>({
+      path: "/work-items",
+      query: {
+        project_id: params?.project_id,
+        status: params?.status,
+        archived: params?.archived === undefined ? undefined : String(params.archived),
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const createWorkItem: ApiClient["createWorkItem"] = (body) =>
+    request<WorkItem, CreateWorkItemRequest>({
+      path: "/work-items",
+      method: "POST",
+      body,
+    });
+
+  const getWorkItem: ApiClient["getWorkItem"] = (workItemId) =>
+    request<WorkItem>({
+      path: `/work-items/${workItemId}`,
+    });
+
+  const runWorkItem: ApiClient["runWorkItem"] = (workItemId) =>
+    request<RunWorkItemResponse>({
+      path: `/work-items/${workItemId}/run`,
+      method: "POST",
+    });
+
+  const cancelWorkItem: ApiClient["cancelWorkItem"] = (workItemId) =>
+    request<CancelWorkItemResponse>({
+      path: `/work-items/${workItemId}/cancel`,
+      method: "POST",
+    });
+
+  const updateWorkItem: ApiClient["updateWorkItem"] = (workItemId, body) =>
+    request<WorkItem, UpdateWorkItemRequest>({
+      path: `/work-items/${workItemId}`,
+      method: "PUT",
+      body,
+    });
+
+  const archiveWorkItem: ApiClient["archiveWorkItem"] = (workItemId) =>
+    request<void>({
+      path: `/work-items/${workItemId}/archive`,
+      method: "POST",
+    });
+
+  const bootstrapPRWorkItem: ApiClient["bootstrapPRWorkItem"] = (workItemId, body) =>
+    request<BootstrapPRWorkItemResponse, BootstrapPRWorkItemRequest>({
+      path: `/work-items/${workItemId}/bootstrap-pr`,
+      method: "POST",
+      body,
+    });
+
+  // -- Actions (primary) --
+  const listActions: ApiClient["listActions"] = (workItemId) =>
+    request<Action[]>({
+      path: `/work-items/${workItemId}/steps`,
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const createAction: ApiClient["createAction"] = (workItemId, body) =>
+    request<Action, CreateActionRequest>({
+      path: `/work-items/${workItemId}/steps`,
+      method: "POST",
+      body,
+    });
+
+  const generateActions: ApiClient["generateActions"] = (workItemId, body) =>
+    request<Action[], GenerateActionsRequest>({
+      path: `/work-items/${workItemId}/generate-steps`,
+      method: "POST",
+      body,
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const getAction: ApiClient["getAction"] = (actionId) =>
+    request<Action>({
+      path: `/steps/${actionId}`,
+    });
+
+  const updateAction: ApiClient["updateAction"] = (actionId, body) =>
+    request<Action, UpdateActionRequest>({
+      path: `/steps/${actionId}`,
+      method: "PUT",
+      body,
+    });
+
+  const deleteAction: ApiClient["deleteAction"] = (actionId) =>
+    request<void>({
+      path: `/steps/${actionId}`,
+      method: "DELETE",
+    });
+
+  // -- Runs (primary) --
+  const listRuns: ApiClient["listRuns"] = (actionId) =>
+    request<Run[]>({
+      path: `/steps/${actionId}/executions`,
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const getRun: ApiClient["getRun"] = (runId) =>
+    request<Run>({
+      path: `/executions/${runId}`,
+    });
+
+  // -- Deliverables (primary) --
+  const getDeliverable: ApiClient["getDeliverable"] = (deliverableId) =>
+    request<Deliverable>({
+      path: `/artifacts/${deliverableId}`,
+    });
+
+  const getLatestDeliverable: ApiClient["getLatestDeliverable"] = (actionId) =>
+    request<Deliverable>({
+      path: `/steps/${actionId}/artifact`,
+    });
+
+  const listDeliverablesByRun: ApiClient["listDeliverablesByRun"] = (runId) =>
+    request<Deliverable[]>({
+      path: `/executions/${runId}/artifacts`,
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  // -- Events --
+  const listEvents: ApiClient["listEvents"] = (params) =>
+    request<Event[]>({
+      path: "/events",
+      query: {
+        issue_id: params?.issue_id,
+        step_id: params?.step_id,
+        session_id: params?.session_id,
+        types: params?.types?.join(","),
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const listWorkItemEvents: ApiClient["listWorkItemEvents"] = (workItemId, params) =>
+    request<Event[]>({
+      path: `/work-items/${workItemId}/events`,
+      query: {
+        types: params?.types?.join(","),
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  // -- Cron (primary) --
+  const listCronWorkItems: ApiClient["listCronWorkItems"] = () =>
+    request<CronStatus[]>({
+      path: "/work-items/cron",
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const getWorkItemCronStatus: ApiClient["getWorkItemCronStatus"] = (workItemId) =>
+    request<CronStatus>({
+      path: `/work-items/${workItemId}/cron`,
+    });
+
+  const setupWorkItemCron: ApiClient["setupWorkItemCron"] = (workItemId, body) =>
+    request<CronStatus, SetupCronRequest>({
+      path: `/work-items/${workItemId}/cron`,
+      method: "POST",
+      body,
+    });
+
+  const disableWorkItemCron: ApiClient["disableWorkItemCron"] = (workItemId) =>
+    request<CronStatus>({
+      path: `/work-items/${workItemId}/cron`,
+      method: "DELETE",
+    });
+
+  // -- Templates (primary) --
+  const saveWorkItemAsTemplate: ApiClient["saveWorkItemAsTemplate"] = (workItemId, body) =>
+    request<DAGTemplate, SaveWorkItemAsTemplateRequest>({
+      path: `/work-items/${workItemId}/save-as-template`,
+      method: "POST",
+      body,
+    });
+
+  const createWorkItemFromTemplate: ApiClient["createWorkItemFromTemplate"] = (templateId, body) =>
+    request<CreateWorkItemFromTemplateResponse, CreateWorkItemFromTemplateRequest>({
+      path: `/templates/${templateId}/create-work-item`,
+      method: "POST",
+      body,
+    });
+
+  // -- Work Item Attachments (primary) --
+  const uploadWorkItemAttachment: ApiClient["uploadWorkItemAttachment"] = async (workItemId, file) => {
+    const url = buildUrl(baseUrl, `/work-items/${workItemId}/attachments`);
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    const token = getToken?.();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) {
+      throw new ApiError(response.status, extractErrorMessage(response.status, data), data);
+    }
+    return data as WorkItemAttachment;
+  };
+
+  const listWorkItemAttachments: ApiClient["listWorkItemAttachments"] = (workItemId) =>
+    request<WorkItemAttachment[]>({
+      path: `/work-items/${workItemId}/attachments`,
+    }).then((items) => (Array.isArray(items) ? items : []));
+
+  const getWorkItemAttachment: ApiClient["getWorkItemAttachment"] = (attachmentId) =>
+    request<WorkItemAttachment>({
+      path: `/attachments/${attachmentId}`,
+    });
+
+  const deleteWorkItemAttachment: ApiClient["deleteWorkItemAttachment"] = (attachmentId) =>
+    request<void>({
+      path: `/attachments/${attachmentId}`,
+      method: "DELETE",
+    });
+
+  // -- Usage --
+  const getUsageByRun: ApiClient["getUsageByRun"] = (runId) =>
+    request<UsageRecord>({
+      path: `/executions/${runId}/usage`,
+    });
+
   return {
     request,
     getStats: () =>
@@ -482,27 +764,15 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/resources/${resourceId}`,
         method: "DELETE",
       }),
-    getArtifact: (artifactId) =>
-      request<Artifact>({
-        path: `/artifacts/${artifactId}`,
-      }),
-    getLatestArtifact: (stepId) =>
-      request<Artifact>({
-        path: `/steps/${stepId}/artifact`,
-      }),
-    listArtifactsByExecution: (execId) =>
-      request<Artifact[]>({
-        path: `/executions/${execId}/artifacts`,
-      }).then((items) => (Array.isArray(items) ? items : [])),
 
-    getBriefing: (briefingId) =>
-      request<Briefing>({
-        path: `/briefings/${briefingId}`,
-      }),
-    getBriefingByStep: (stepId) =>
-      request<Briefing>({
-        path: `/steps/${stepId}/briefing`,
-      }),
+    // Deliverables (primary + compat)
+    getDeliverable,
+    getLatestDeliverable,
+    listDeliverablesByRun,
+    getArtifact: getDeliverable,
+    getLatestArtifact: getLatestDeliverable,
+    listArtifactsByExecution: listDeliverablesByRun,
+
     chat: (body) =>
       request<ChatResponse, ChatRequest>({
         path: "/chat",
@@ -531,123 +801,56 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<ChatStatusResponse>({
         path: `/chat/${encodeURIComponent(sessionId)}/status`,
       }),
-    listIssues: (params) =>
-      request<Issue[]>({
-        path: "/issues",
-        query: {
-          project_id: params?.project_id,
-          status: params?.status,
-          archived: params?.archived === undefined ? undefined : String(params.archived),
-          limit: params?.limit,
-          offset: params?.offset,
-        },
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    createIssue: (body) =>
-      request<Issue, CreateIssueRequest>({
-        path: "/issues",
-        method: "POST",
-        body,
-      }),
-    getIssue: (issueId) =>
-      request<Issue>({
-        path: `/issues/${issueId}`,
-      }),
-    runIssue: (issueId) =>
-      request<RunIssueResponse>({
-        path: `/issues/${issueId}/run`,
-        method: "POST",
-      }),
-    cancelIssue: (issueId) =>
-      request<CancelIssueResponse>({
-        path: `/issues/${issueId}/cancel`,
-        method: "POST",
-      }),
-    updateIssue: (issueId, body) =>
-      request<Issue, UpdateIssueRequest>({
-        path: `/issues/${issueId}`,
-        method: "PUT",
-        body,
-      }),
-    archiveIssue: (issueId) =>
-      request<void>({
-        path: `/issues/${issueId}/archive`,
-        method: "POST",
-      }),
-    bootstrapPRIssue: (issueId, body) =>
-      request<BootstrapPRIssueResponse, BootstrapPRIssueRequest>({
-        path: `/issues/${issueId}/bootstrap-pr`,
-        method: "POST",
-        body,
-      }),
 
-    listSteps: (issueId) =>
-      request<Step[]>({
-        path: `/issues/${issueId}/steps`,
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    createStep: (issueId, body) =>
-      request<Step, CreateStepRequest>({
-        path: `/issues/${issueId}/steps`,
-        method: "POST",
-        body,
-      }),
-    generateSteps: (issueId, body) =>
-      request<Step[], GenerateStepsRequest>({
-        path: `/issues/${issueId}/generate-steps`,
-        method: "POST",
-        body,
-      }).then((items) => (Array.isArray(items) ? items : [])),
+    // Work Items (primary + compat)
+    listWorkItems,
+    createWorkItem,
+    getWorkItem,
+    runWorkItem,
+    cancelWorkItem,
+    updateWorkItem,
+    archiveWorkItem,
+    bootstrapPRWorkItem,
+    listIssues: listWorkItems,
+    createIssue: createWorkItem,
+    getIssue: getWorkItem,
+    runIssue: runWorkItem,
+    cancelIssue: cancelWorkItem,
+    updateIssue: updateWorkItem,
+    archiveIssue: archiveWorkItem,
+    bootstrapPRIssue: bootstrapPRWorkItem,
+
+    // Actions (primary + compat)
+    listActions,
+    createAction,
+    generateActions,
     generateTitle: (body) =>
       request<{ title: string }, { description: string }>({
-        path: `/issues/generate-title`,
+        path: `/work-items/generate-title`,
         method: "POST",
         body,
       }),
-    getStep: (stepId) =>
-      request<Step>({
-        path: `/steps/${stepId}`,
-      }),
-    updateStep: (stepId, body) =>
-      request<Step, UpdateStepRequest>({
-        path: `/steps/${stepId}`,
-        method: "PUT",
-        body,
-      }),
-    deleteStep: (stepId) =>
-      request<void>({
-        path: `/steps/${stepId}`,
-        method: "DELETE",
-      }),
+    getAction,
+    updateAction,
+    deleteAction,
+    listSteps: listActions,
+    createStep: createAction,
+    generateSteps: generateActions,
+    getStep: getAction,
+    updateStep: updateAction,
+    deleteStep: deleteAction,
 
-    listExecutions: (stepId) =>
-      request<Execution[]>({
-        path: `/steps/${stepId}/executions`,
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    getExecution: (execId) =>
-      request<Execution>({
-        path: `/executions/${execId}`,
-      }),
+    // Runs (primary + compat)
+    listRuns,
+    getRun,
+    listExecutions: listRuns,
+    getExecution: getRun,
 
-    listEvents: (params) =>
-      request<Event[]>({
-        path: "/events",
-        query: {
-          issue_id: params?.issue_id,
-          step_id: params?.step_id,
-          session_id: params?.session_id,
-          types: params?.types?.join(","),
-          limit: params?.limit,
-          offset: params?.offset,
-        },
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    listIssueEvents: (issueId, params) =>
-      request<Event[]>({
-        path: `/issues/${issueId}/events`,
-        query: {
-          types: params?.types?.join(","),
-          limit: params?.limit,
-          offset: params?.offset,
-        },
-      }).then((items) => (Array.isArray(items) ? items : [])),
+    // Events
+    listEvents,
+    listWorkItemEvents,
+    listIssueEvents: listWorkItemEvents,
+
     listDrivers: () =>
       request<AgentDriver[]>({
         path: "/agents/drivers",
@@ -720,30 +923,18 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           limit: params?.limit,
         },
       }),
-    getUsageByExecution: (execId) =>
-      request<UsageRecord>({
-        path: `/executions/${execId}/usage`,
-      }),
+    getUsageByRun,
+    getUsageByExecution: getUsageByRun,
 
-    listCronIssues: () =>
-      request<CronStatus[]>({
-        path: "/cron/issues",
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    getIssueCronStatus: (issueId) =>
-      request<CronStatus>({
-        path: `/issues/${issueId}/cron`,
-      }),
-    setupIssueCron: (issueId, body) =>
-      request<CronStatus, SetupCronRequest>({
-        path: `/issues/${issueId}/cron`,
-        method: "POST",
-        body,
-      }),
-    disableIssueCron: (issueId) =>
-      request<CronStatus>({
-        path: `/issues/${issueId}/cron`,
-        method: "DELETE",
-      }),
+    // Cron (primary + compat)
+    listCronWorkItems,
+    getWorkItemCronStatus,
+    setupWorkItemCron,
+    disableWorkItemCron,
+    listCronIssues: listCronWorkItems,
+    getIssueCronStatus: getWorkItemCronStatus,
+    setupIssueCron: setupWorkItemCron,
+    disableIssueCron: disableWorkItemCron,
 
     // DAG Templates
     listDAGTemplates: (params) =>
@@ -778,18 +969,10 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/templates/${templateId}`,
         method: "DELETE",
       }),
-    saveIssueAsTemplate: (issueId, body) =>
-      request<DAGTemplate, SaveIssueAsTemplateRequest>({
-        path: `/issues/${issueId}/save-as-template`,
-        method: "POST",
-        body,
-      }),
-    createIssueFromTemplate: (templateId, body) =>
-      request<CreateIssueFromTemplateResponse, CreateIssueFromTemplateRequest>({
-        path: `/templates/${templateId}/create-issue`,
-        method: "POST",
-        body,
-      }),
+    saveWorkItemAsTemplate,
+    createWorkItemFromTemplate,
+    saveIssueAsTemplate: saveWorkItemAsTemplate,
+    createIssueFromTemplate: createWorkItemFromTemplate,
 
     // Git Tags
     listGitCommits: (projectId, params) =>
@@ -873,12 +1056,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/threads/${threadId}/links/work-items/${workItemId}`,
         method: "DELETE",
       }),
-    listThreadsByWorkItem: (issueId) =>
+    listThreadsByWorkItem: (workItemId) =>
       request<ThreadWorkItemLink[]>({
-        path: `/issues/${issueId}/threads`,
+        path: `/work-items/${workItemId}/threads`,
       }).then((items) => (Array.isArray(items) ? items : [])),
     createWorkItemFromThread: (threadId, body) =>
-      request<Issue, { title: string; body?: string; project_id?: number }>({
+      request<WorkItem, { title: string; body?: string; project_id?: number }>({
         path: `/threads/${threadId}/create-work-item`,
         method: "POST",
         body,
@@ -953,40 +1136,15 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     deleteManifestEntry: (entryId: number) =>
       request<void>({ path: `/manifest/entries/${entryId}`, method: "DELETE" }),
 
-    // Issue Attachments
-    uploadIssueAttachment: async (issueId, file) => {
-      const url = buildUrl(baseUrl, `/issues/${issueId}/attachments`);
-      const formData = new FormData();
-      formData.append("file", file);
-      const headers: Record<string, string> = {};
-      const token = getToken?.();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers,
-        body: formData,
-      });
-      const data = await readResponseData(response);
-      if (!response.ok) {
-        throw new ApiError(response.status, extractErrorMessage(response.status, data), data);
-      }
-      return data as IssueAttachment;
-    },
-    listIssueAttachments: (issueId) =>
-      request<IssueAttachment[]>({
-        path: `/issues/${issueId}/attachments`,
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    getIssueAttachment: (attachmentId) =>
-      request<IssueAttachment>({
-        path: `/attachments/${attachmentId}`,
-      }),
-    deleteIssueAttachment: (attachmentId) =>
-      request<void>({
-        path: `/attachments/${attachmentId}`,
-        method: "DELETE",
-      }),
+    // Work Item Attachments (primary + compat)
+    uploadWorkItemAttachment,
+    listWorkItemAttachments,
+    getWorkItemAttachment,
+    deleteWorkItemAttachment,
+    uploadIssueAttachment: uploadWorkItemAttachment,
+    listIssueAttachments: listWorkItemAttachments,
+    getIssueAttachment: getWorkItemAttachment,
+    deleteIssueAttachment: deleteWorkItemAttachment,
     getAttachmentDownloadUrl: (attachmentId) =>
       buildUrl(baseUrl, `/attachments/${attachmentId}/download`),
 

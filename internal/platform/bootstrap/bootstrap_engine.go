@@ -25,8 +25,8 @@ type flowStack struct {
 	sessionMode   string
 	sessionMgr    runtimeapp.SessionManager
 	llmClient     *llm.Client
-	engine        *flowapp.FlowEngine
-	scheduler     *flowapp.FlowScheduler
+	engine        *flowapp.WorkItemEngine
+	scheduler     *flowapp.WorkItemScheduler
 	schedulerStop context.CancelFunc
 }
 
@@ -36,11 +36,11 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
-	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, scmTokens, upgradeFn, base.signalCfg)
-	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
+	executor := buildActionExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, scmTokens, upgradeFn, base.signalCfg)
+	engine := buildWorkItemEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
-	schedulerCfg := resolveFlowSchedulerConfig(bootstrapCfg)
-	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, schedulerCfg)
+	schedulerCfg := resolveWorkItemSchedulerConfig(bootstrapCfg)
+	scheduler := flowapp.NewWorkItemScheduler(engine, base.store, base.bus, schedulerCfg)
 	go scheduler.Start(schedulerCtx)
 
 	return &flowStack{
@@ -75,7 +75,7 @@ func buildCollectorClient(bootstrapCfg *config.Config) *llm.Client {
 	return client
 }
 
-func buildStepExecutor(
+func buildActionExecutor(
 	store core.Store,
 	bus core.EventBus,
 	registry core.AgentRegistry,
@@ -85,7 +85,7 @@ func buildStepExecutor(
 	scmTokens SCMTokens,
 	upgradeFn executoradapter.UpgradeFunc,
 	signalCfg *AgentSignalConfig,
-) flowapp.StepExecutor {
+) flowapp.ActionExecutor {
 	mockEnabled := bootstrapCfg != nil && bootstrapCfg.Runtime.MockExecutor
 	if !mockEnabled {
 		mockEnabled = envMockExecutorEnabled()
@@ -96,10 +96,10 @@ func buildStepExecutor(
 		mcpResolver = runtimeManager.ResolveMCPServers
 	}
 
-	var executor flowapp.StepExecutor
+	var executor flowapp.ActionExecutor
 	if mockEnabled {
-		slog.Warn("bootstrap: using mock step executor (no ACP processes will be spawned)")
-		executor = executoradapter.NewMockStepExecutor(store, bus)
+		slog.Warn("bootstrap: using mock action executor (no ACP processes will be spawned)")
+		executor = executoradapter.NewMockActionExecutor(store, bus)
 	} else {
 		acpCfg := executoradapter.ACPExecutorConfig{
 			Registry:                 registry,
@@ -109,16 +109,16 @@ func buildStepExecutor(
 			MCPResolver:              mcpResolver,
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
-			StepContextBuilder:       skills.NewStepContextBuilder(store),
+			StepContextBuilder:       skills.NewActionContextBuilder(store),
 		}
 		if signalCfg != nil {
 			acpCfg.TokenRegistry = signalCfg.TokenRegistry
 			acpCfg.ServerAddr = signalCfg.ServerAddr
 		}
-		executor = executoradapter.NewACPStepExecutor(acpCfg)
+		executor = executoradapter.NewACPActionExecutor(acpCfg)
 	}
 
-	return executoradapter.NewCompositeStepExecutor(executoradapter.CompositeStepExecutorConfig{
+	return executoradapter.NewCompositeActionExecutor(executoradapter.CompositeStepExecutorConfig{
 		Store: store,
 		Bus:   bus,
 		SCMTokens: flowapp.SCMTokens{
@@ -130,15 +130,15 @@ func buildStepExecutor(
 	})
 }
 
-func buildFlowEngine(
+func buildWorkItemEngine(
 	store core.Store,
 	bus core.EventBus,
-	executor flowapp.StepExecutor,
+	executor flowapp.ActionExecutor,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
 	scmTokens SCMTokens,
 	llmClient *llm.Client,
-) *flowapp.FlowEngine {
+) *flowapp.WorkItemEngine {
 	opts := []flowapp.Option{
 		flowapp.WithWorkspaceProvider(workspaceprovider.NewCompositeProvider()),
 		flowapp.WithSCMTokens(flowapp.SCMTokens{
@@ -149,7 +149,7 @@ func buildFlowEngine(
 			return currentPRFlowPrompts(runtimeManager, bootstrapCfg)
 		}),
 		flowapp.WithChangeRequestProviders(scmadapter.NewChangeRequestProviders),
-		flowapp.WithBriefingBuilder(flowapp.NewBriefingBuilder(store)),
+		flowapp.WithInputBuilder(flowapp.NewInputBuilder(store)),
 	}
 	if llmClient != nil {
 		opts = append(opts, flowapp.WithCollector(llmcollector.NewLLMCollector(llmClient.Complete)))
@@ -160,14 +160,12 @@ func buildFlowEngine(
 	return flowapp.New(store, bus, executor, opts...)
 }
 
-func resolveFlowSchedulerConfig(bootstrapCfg *config.Config) flowapp.FlowSchedulerConfig {
-	schedulerCfg := flowapp.FlowSchedulerConfig{
-		MaxConcurrentIssues: 2,
-		MaxConcurrentFlows:  2,
+func resolveWorkItemSchedulerConfig(bootstrapCfg *config.Config) flowapp.WorkItemSchedulerConfig {
+	schedulerCfg := flowapp.WorkItemSchedulerConfig{
+		MaxConcurrentWorkItems: 2,
 	}
 	if bootstrapCfg != nil && bootstrapCfg.Scheduler.MaxProjectRuns > 0 {
-		schedulerCfg.MaxConcurrentIssues = bootstrapCfg.Scheduler.MaxProjectRuns
-		schedulerCfg.MaxConcurrentFlows = bootstrapCfg.Scheduler.MaxProjectRuns
+		schedulerCfg.MaxConcurrentWorkItems = bootstrapCfg.Scheduler.MaxProjectRuns
 	}
 	return schedulerCfg
 }
@@ -196,7 +194,7 @@ func envMockExecutorEnabled() bool {
 	}
 }
 
-func recoverFlowRuntime(store core.Store, sessionMode string, scheduler *flowapp.FlowScheduler) {
+func recoverFlowRuntime(store core.Store, sessionMode string, scheduler *flowapp.WorkItemScheduler) {
 	recoverFlows := flowapp.RecoverInterruptedFlows
 	recoveryLogLabel := "interrupted flows"
 	if sessionMode == "nats" {

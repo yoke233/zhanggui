@@ -30,7 +30,7 @@ import {
   getErrorMessage,
   isActiveIssueStatus,
 } from "@/lib/v2Workbench";
-import type { Issue, SchedulerStats, StatsResponse } from "@/types/apiV2";
+import type { WorkItem, SchedulerStats, StatsResponse } from "@/types/apiV2";
 
 interface StatCard {
   title: string;
@@ -45,7 +45,7 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const { apiClient, selectedProject, selectedProjectId, projects } = useWorkbench();
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,9 +57,9 @@ export function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const [statsResp, issuesResp, schedulerResp] = await Promise.all([
+        const [statsResp, workItemsResp, schedulerResp] = await Promise.all([
           apiClient.getStats(),
-          apiClient.listIssues({
+          apiClient.listWorkItems({
             project_id: selectedProjectId ?? undefined,
             archived: false,
             limit: 50,
@@ -71,7 +71,7 @@ export function DashboardPage() {
           return;
         }
         setStats(statsResp);
-        setIssues(issuesResp);
+        setWorkItems(workItemsResp);
         setSchedulerStats(schedulerResp);
       } catch (loadError) {
         if (!cancelled) {
@@ -90,11 +90,11 @@ export function DashboardPage() {
     };
   }, [apiClient, selectedProjectId]);
 
-  const activeIssues = useMemo(() => issues.filter((issue) => isActiveIssueStatus(issue.status)), [issues]);
-  const doneIssues = useMemo(() => issues.filter((issue) => issue.status === "done"), [issues]);
-  const queueIssues = useMemo(
-    () => issues.filter((issue) => issue.status === "queued" || issue.status === "running").slice(0, 4),
-    [issues],
+  const activeWorkItems = useMemo(() => workItems.filter((workItem) => isActiveIssueStatus(workItem.status)), [workItems]);
+  const doneWorkItems = useMemo(() => workItems.filter((workItem) => workItem.status === "done"), [workItems]);
+  const queuedWorkItems = useMemo(
+    () => workItems.filter((workItem) => workItem.status === "queued" || workItem.status === "running").slice(0, 4),
+    [workItems],
   );
 
   const statsCards: StatCard[] = useMemo(() => {
@@ -102,15 +102,15 @@ export function DashboardPage() {
     return [
       {
         title: t("dashboard.activeFlows"),
-        value: activeIssues.length,
+        value: activeWorkItems.length,
         change: selectedProject ? t("dashboard.projectScope", { name: selectedProject.name }) : t("dashboard.projectCount", { count: projects.length }),
         changeType: "neutral",
         icon: <Activity className="h-4 w-4 text-muted-foreground" />,
       },
       {
         title: t("dashboard.doneFlows"),
-        value: doneIssues.length,
-        change: stats ? t("dashboard.totalFlows", { count: stats.total_issues }) : t("dashboard.waitingStats"),
+        value: doneWorkItems.length,
+        change: stats ? t("dashboard.totalFlows", { count: stats.total_work_items }) : t("dashboard.waitingStats"),
         changeType: "neutral",
         icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
       },
@@ -123,13 +123,13 @@ export function DashboardPage() {
       },
       {
         title: t("dashboard.queuedTasks"),
-        value: issues.filter((issue) => issue.status === "queued").length,
+        value: workItems.filter((workItem) => workItem.status === "queued").length,
         change: schedulerStats?.enabled ? t("dashboard.schedulerEnabled") : schedulerStats?.message ?? t("dashboard.schedulerDisabled"),
         changeType: "neutral",
         icon: <Clock className="h-4 w-4 text-muted-foreground" />,
       },
     ];
-  }, [activeIssues.length, doneIssues.length, issues, projects.length, schedulerStats, selectedProject, stats]);
+  }, [activeWorkItems.length, doneWorkItems.length, workItems, projects.length, schedulerStats, selectedProject, stats]);
 
   if (!selectedProjectId && projects.length === 0) {
     return (
@@ -166,10 +166,10 @@ export function DashboardPage() {
           </div>
           <p className="text-sm text-muted-foreground">
             {selectedProject ? t("dashboard.currentProject", { name: selectedProject.name }) : t("dashboard.crossProjectOverview")}
-            {stats ? t("dashboard.totalFlowsSuffix", { count: stats.total_issues }) : ""}
+            {stats ? t("dashboard.totalFlowsSuffix", { count: stats.total_work_items }) : ""}
           </p>
         </div>
-        <Link to="/issues/new">
+        <Link to="/work-items/new">
           <Button>
             <Play className="mr-2 h-4 w-4" />
             {t("dashboard.newFlow")}
@@ -207,7 +207,7 @@ export function DashboardPage() {
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>{t("dashboard.runningFlows")}</CardTitle>
-            <Link to="/issues" className="text-sm text-muted-foreground hover:text-foreground">
+            <Link to="/work-items" className="text-sm text-muted-foreground hover:text-foreground">
               {t("dashboard.viewAll")} <ArrowUpRight className="ml-1 inline h-3 w-3" />
             </Link>
           </CardHeader>
@@ -222,25 +222,25 @@ export function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {activeIssues.length === 0 ? (
+                {activeWorkItems.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-muted-foreground">
                       {t("dashboard.noRunningFlows")}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  activeIssues.slice(0, 6).map((issue) => (
-                    <TableRow key={issue.id}>
+                  activeWorkItems.slice(0, 6).map((workItem) => (
+                    <TableRow key={workItem.id}>
                       <TableCell className="font-medium">
-                        <Link to={`/issues/${issue.id}`} className="hover:underline">
-                          {issue.title}
+                        <Link to={`/work-items/${workItem.id}`} className="hover:underline">
+                          {workItem.title}
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={issue.status} />
+                        <StatusBadge status={workItem.status} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{formatRelativeTime(issue.created_at)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatIssueDuration(issue)}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatRelativeTime(workItem.created_at)}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatIssueDuration(workItem)}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -265,12 +265,12 @@ export function DashboardPage() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t("dashboard.runningCount")}</span>
-                <span className="font-semibold text-blue-500">{activeIssues.length}</span>
+                <span className="font-semibold text-blue-500">{activeWorkItems.length}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t("dashboard.queuedCount")}</span>
                 <span className="font-semibold text-amber-500">
-                  {issues.filter((issue) => issue.status === "queued").length}
+                  {workItems.filter((workItem) => workItem.status === "queued").length}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
@@ -286,27 +286,27 @@ export function DashboardPage() {
             </div>
 
             <div>
-              {queueIssues.length === 0 ? (
+              {queuedWorkItems.length === 0 ? (
                 <div className="px-5 py-4 text-sm text-muted-foreground">{t("dashboard.queueEmpty")}</div>
               ) : (
-                queueIssues.map((issue, index) => (
+                queuedWorkItems.map((workItem, index) => (
                   <div
-                    key={issue.id}
+                    key={workItem.id}
                     className={cn(
                       "flex items-center gap-2.5 px-5 py-2.5",
-                      index < queueIssues.length - 1 && "border-b",
+                      index < queuedWorkItems.length - 1 && "border-b",
                     )}
                   >
                     <div
                       className={cn(
                         "h-2 w-2 shrink-0 rounded-full",
-                        issue.status === "running" ? "bg-blue-500" : "bg-amber-500",
+                        workItem.status === "running" ? "bg-blue-500" : "bg-amber-500",
                       )}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{issue.title}</div>
+                      <div className="truncate text-sm font-medium">{workItem.title}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {issue.status === "running" ? t("dashboard.executing") : t("dashboard.waitingSchedule")} · {formatRelativeTime(issue.updated_at)}
+                        {workItem.status === "running" ? t("dashboard.executing") : t("dashboard.waitingSchedule")} · {formatRelativeTime(workItem.updated_at)}
                       </div>
                     </div>
                   </div>

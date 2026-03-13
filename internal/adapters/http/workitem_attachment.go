@@ -37,7 +37,7 @@ var allowedAttachmentExt = map[string]string{
 
 const maxAttachmentSize = 10 << 20 // 10 MB
 
-func (h *Handler) uploadIssueAttachment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) uploadWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
@@ -45,7 +45,7 @@ func (h *Handler) uploadIssueAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Verify issue exists.
-	if _, err := h.store.GetIssue(r.Context(), issueID); err != nil {
+	if _, err := h.store.GetWorkItem(r.Context(), issueID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 			return
@@ -119,15 +119,15 @@ func (h *Handler) uploadIssueAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	att := &core.IssueAttachment{
-		IssueID:  issueID,
+	att := &core.WorkItemAttachment{
+		WorkItemID: issueID,
 		FileName: header.Filename,
 		FilePath: diskPath,
 		MimeType: mimeType,
 		Size:     written,
 	}
 
-	id, err := h.store.CreateIssueAttachment(r.Context(), att)
+	id, err := h.store.CreateWorkItemAttachment(r.Context(), att)
 	if err != nil {
 		os.Remove(diskPath)
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
@@ -138,32 +138,32 @@ func (h *Handler) uploadIssueAttachment(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, att)
 }
 
-func (h *Handler) listIssueAttachments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listWorkItemAttachments(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	attachments, err := h.store.ListIssueAttachments(r.Context(), issueID)
+	attachments, err := h.store.ListWorkItemAttachments(r.Context(), issueID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 	if attachments == nil {
-		attachments = []*core.IssueAttachment{}
+		attachments = []*core.WorkItemAttachment{}
 	}
 	writeJSON(w, http.StatusOK, attachments)
 }
 
-func (h *Handler) getIssueAttachment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
 	attID, ok := urlParamInt64(r, "attachmentID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid attachment ID", "BAD_ID")
 		return
 	}
 
-	att, err := h.store.GetIssueAttachment(r.Context(), attID)
+	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -175,14 +175,14 @@ func (h *Handler) getIssueAttachment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, att)
 }
 
-func (h *Handler) downloadIssueAttachment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) downloadWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
 	attID, ok := urlParamInt64(r, "attachmentID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid attachment ID", "BAD_ID")
 		return
 	}
 
-	att, err := h.store.GetIssueAttachment(r.Context(), attID)
+	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -204,14 +204,14 @@ func (h *Handler) downloadIssueAttachment(w http.ResponseWriter, r *http.Request
 	io.Copy(w, f)
 }
 
-func (h *Handler) deleteIssueAttachment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
 	attID, ok := urlParamInt64(r, "attachmentID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid attachment ID", "BAD_ID")
 		return
 	}
 
-	att, err := h.store.GetIssueAttachment(r.Context(), attID)
+	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -221,7 +221,7 @@ func (h *Handler) deleteIssueAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.store.DeleteIssueAttachment(r.Context(), attID); err != nil {
+	if err := h.store.DeleteWorkItemAttachment(r.Context(), attID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}

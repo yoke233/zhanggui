@@ -9,70 +9,75 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// StepExecutor is the callback that actually runs a step (e.g. calls an ACP agent).
-// The engine does not know how steps are executed — this is injected.
-type StepExecutor func(ctx context.Context, step *core.Step, exec *core.Execution) error
+// ActionExecutor is the callback that actually runs an action (e.g. calls an ACP agent).
+// The engine does not know how actions are executed — this is injected.
+type ActionExecutor func(ctx context.Context, action *core.Action, run *core.Run) error
 
-// IssueEngine orchestrates Issue execution: sequential step scheduling, state transitions, events.
-type IssueEngine struct {
+// WorkItemEngine orchestrates WorkItem execution: sequential action scheduling, state transitions, events.
+type WorkItemEngine struct {
 	store          Store
 	bus            EventPublisher
 	sem            *Semaphore
-	executor       StepExecutor
+	executor       ActionExecutor
 	resolver       Resolver              // optional: agent selection
-	briefer        BriefingBuilder       // optional: briefing assembly
+	inputBuilder   InputBuilder          // optional: input assembly
 	collector      Collector             // optional: metadata extraction
 	expander       CompositeExpander     // optional: composite decomposition
 	wsProvider     WorkspaceProvider     // optional: workspace isolation
 	scmTokens      SCMTokens             // optional: SCM automation tokens (push/PR/merge)
 	prPrompts      PRFlowPromptsProvider // optional: configurable PR flow prompts
 	crFactory      ChangeRequestProviderFactory
-	gateEvaluators []GateEvaluator // optional: custom gate evaluation chain (defaults to signal→manifest→artifact)
+	gateEvaluators []GateEvaluator // optional: custom gate evaluation chain (defaults to signal→manifest→deliverable)
 }
 
-// Option configures the IssueEngine.
-type Option func(*IssueEngine)
+// Option configures the WorkItemEngine.
+type Option func(*WorkItemEngine)
 
-// WithConcurrency sets the max concurrent step executions.
+// WithConcurrency sets the max concurrent action executions.
 func WithConcurrency(n int) Option {
-	return func(e *IssueEngine) {
+	return func(e *WorkItemEngine) {
 		e.sem = NewSemaphore(n)
 	}
 }
 
 // WithResolver sets the agent resolver for the prepare phase.
 func WithResolver(r Resolver) Option {
-	return func(e *IssueEngine) { e.resolver = r }
+	return func(e *WorkItemEngine) { e.resolver = r }
 }
 
-// WithBriefingBuilder sets the briefing builder for the prepare phase.
-func WithBriefingBuilder(b BriefingBuilder) Option {
-	return func(e *IssueEngine) { e.briefer = b }
+// WithInputBuilder sets the input builder for the prepare phase.
+func WithInputBuilder(b InputBuilder) Option {
+	return func(e *WorkItemEngine) { e.inputBuilder = b }
+}
+
+// WithBriefingBuilder is an alias for WithInputBuilder for backward compatibility.
+func WithBriefingBuilder(b InputBuilder) Option {
+	return WithInputBuilder(b)
 }
 
 // WithCollector sets the metadata collector for the finalize phase.
 func WithCollector(c Collector) Option {
-	return func(e *IssueEngine) { e.collector = c }
+	return func(e *WorkItemEngine) { e.collector = c }
 }
 
-// WithExpander sets the composite step expander.
+// WithExpander sets the composite action expander.
 func WithExpander(x CompositeExpander) Option {
-	return func(e *IssueEngine) { e.expander = x }
+	return func(e *WorkItemEngine) { e.expander = x }
 }
 
-// WithWorkspaceProvider sets the workspace provider for issue execution.
+// WithWorkspaceProvider sets the workspace provider for work item execution.
 func WithWorkspaceProvider(p WorkspaceProvider) Option {
-	return func(e *IssueEngine) { e.wsProvider = p }
+	return func(e *WorkItemEngine) { e.wsProvider = p }
 }
 
 // WithSCMTokens sets optional GitHub tokens used by builtin PR automation (push/open PR/merge).
 func WithSCMTokens(t SCMTokens) Option {
-	return func(e *IssueEngine) { e.scmTokens = t }
+	return func(e *WorkItemEngine) { e.scmTokens = t }
 }
 
 // WithPRFlowPromptsProvider sets a provider for configurable PR flow prompts.
 func WithPRFlowPromptsProvider(provider PRFlowPromptsProvider) Option {
-	return func(e *IssueEngine) { e.prPrompts = provider }
+	return func(e *WorkItemEngine) { e.prPrompts = provider }
 }
 
 // ChangeRequestProviderFactory resolves provider implementations for PR/MR automation.
@@ -80,18 +85,18 @@ type ChangeRequestProviderFactory func(token string) []ChangeRequestProvider
 
 // WithChangeRequestProviders sets the provider factory used by gate auto-merge flow.
 func WithChangeRequestProviders(factory ChangeRequestProviderFactory) Option {
-	return func(e *IssueEngine) { e.crFactory = factory }
+	return func(e *WorkItemEngine) { e.crFactory = factory }
 }
 
-// WithGateEvaluators overrides the default gate evaluation chain (signal→manifest→artifact).
+// WithGateEvaluators overrides the default gate evaluation chain (signal→manifest→deliverable).
 // Evaluators are tried in order; the first one that returns Decided=true wins.
 func WithGateEvaluators(evaluators ...GateEvaluator) Option {
-	return func(e *IssueEngine) { e.gateEvaluators = evaluators }
+	return func(e *WorkItemEngine) { e.gateEvaluators = evaluators }
 }
 
-// New creates an IssueEngine.
-func New(store Store, bus EventPublisher, executor StepExecutor, opts ...Option) *IssueEngine {
-	e := &IssueEngine{
+// New creates a WorkItemEngine.
+func New(store Store, bus EventPublisher, executor ActionExecutor, opts ...Option) *WorkItemEngine {
+	e := &WorkItemEngine{
 		store:    store,
 		bus:      bus,
 		sem:      NewSemaphore(4),
@@ -103,159 +108,159 @@ func New(store Store, bus EventPublisher, executor StepExecutor, opts ...Option)
 	return e
 }
 
-func (e *IssueEngine) getPRFlowPrompts() PRFlowPrompts {
+func (e *WorkItemEngine) getPRFlowPrompts() PRFlowPrompts {
 	if e != nil && e.prPrompts != nil {
 		return MergePRFlowPrompts(e.prPrompts())
 	}
 	return DefaultPRFlowPrompts()
 }
 
-// MaxConcurrency returns the engine's configured step execution concurrency.
-func (e *IssueEngine) MaxConcurrency() int {
+// MaxConcurrency returns the engine's configured action execution concurrency.
+func (e *WorkItemEngine) MaxConcurrency() int {
 	if e == nil || e.sem == nil {
 		return 0
 	}
 	return e.sem.Capacity()
 }
 
-// Run starts executing an Issue. It blocks until the Issue completes, fails, or the context is cancelled.
-func (e *IssueEngine) Run(ctx context.Context, issueID int64) error {
-	issue, err := e.store.GetIssue(ctx, issueID)
+// Run starts executing a WorkItem. It blocks until the WorkItem completes, fails, or the context is cancelled.
+func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
+	workItem, err := e.store.GetWorkItem(ctx, workItemID)
 	if err != nil {
-		return fmt.Errorf("get issue: %w", err)
+		return fmt.Errorf("get work item: %w", err)
 	}
-	if issue.Status != core.IssueOpen && issue.Status != core.IssueAccepted && issue.Status != core.IssueQueued {
-		return fmt.Errorf("issue %d is %s, expected open, accepted, or queued", issueID, issue.Status)
+	if workItem.Status != core.WorkItemOpen && workItem.Status != core.WorkItemAccepted && workItem.Status != core.WorkItemQueued {
+		return fmt.Errorf("work item %d is %s, expected open, accepted, or queued", workItemID, workItem.Status)
 	}
 
-	steps, err := e.store.ListStepsByIssue(ctx, issueID)
+	actions, err := e.store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
-		return fmt.Errorf("list steps: %w", err)
+		return fmt.Errorf("list actions: %w", err)
 	}
-	if len(steps) == 0 {
-		return core.ErrFlowNotRunnable
+	if len(actions) == 0 {
+		return core.ErrWorkItemNotRunnable
 	}
 
-	// Validate step ordering (sequential by Position).
-	if err := ValidateSteps(steps); err != nil {
+	// Validate action ordering (sequential by Position).
+	if err := ValidateActions(actions); err != nil {
 		return err
 	}
 
 	// Prepare workspace if project has resource bindings.
-	if issue.ProjectID != nil && e.wsProvider != nil {
-		project, err := e.store.GetProject(ctx, *issue.ProjectID)
+	if workItem.ProjectID != nil && e.wsProvider != nil {
+		project, err := e.store.GetProject(ctx, *workItem.ProjectID)
 		if err != nil {
-			return fmt.Errorf("get project %d for workspace: %w", *issue.ProjectID, err)
+			return fmt.Errorf("get project %d for workspace: %w", *workItem.ProjectID, err)
 		}
-		bindings, err := e.store.ListResourceBindings(ctx, *issue.ProjectID)
+		bindings, err := e.store.ListResourceBindings(ctx, *workItem.ProjectID)
 		if err != nil {
-			return fmt.Errorf("list resource bindings for project %d: %w", *issue.ProjectID, err)
+			return fmt.Errorf("list resource bindings for project %d: %w", *workItem.ProjectID, err)
 		}
-		if issue.ResourceBindingID != nil {
+		if workItem.ResourceBindingID != nil {
 			filtered := make([]*core.ResourceBinding, 0, 1)
 			for _, binding := range bindings {
-				if binding != nil && binding.ID == *issue.ResourceBindingID {
+				if binding != nil && binding.ID == *workItem.ResourceBindingID {
 					filtered = append(filtered, binding)
 					break
 				}
 			}
 			if len(filtered) == 0 {
-				return fmt.Errorf("resource binding %d not found in project %d", *issue.ResourceBindingID, *issue.ProjectID)
+				return fmt.Errorf("resource binding %d not found in project %d", *workItem.ResourceBindingID, *workItem.ProjectID)
 			}
 			bindings = filtered
 		}
 		if len(bindings) > 0 {
-			ws, err := e.wsProvider.Prepare(ctx, project, bindings, issueID)
+			ws, err := e.wsProvider.Prepare(ctx, project, bindings, workItemID)
 			if err != nil {
-				return fmt.Errorf("prepare workspace for issue %d: %w", issueID, err)
+				return fmt.Errorf("prepare workspace for work item %d: %w", workItemID, err)
 			}
 			defer e.wsProvider.Release(ctx, ws)
 			ctx = ContextWithWorkspace(ctx, ws)
 		}
 	}
 
-	// Transition issue to running.
-	if err := e.store.UpdateIssueStatus(ctx, issueID, core.IssueRunning); err != nil {
-		return fmt.Errorf("start issue: %w", err)
+	// Transition work item to running.
+	if err := e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemRunning); err != nil {
+		return fmt.Errorf("start work item: %w", err)
 	}
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventIssueStarted,
-		IssueID:   issueID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventWorkItemStarted,
+		WorkItemID: workItemID,
+		Timestamp:  time.Now().UTC(),
 	})
 
-	// Mark the first step (by Position) as ready.
-	firstSteps := EntrySteps(steps)
-	for _, s := range firstSteps {
-		if s.Status != core.StepPending {
+	// Mark the first action (by Position) as ready.
+	firstActions := EntryActions(actions)
+	for _, a := range firstActions {
+		if a.Status != core.ActionPending {
 			continue
 		}
-		if err := e.transitionStep(ctx, s, core.StepReady); err != nil {
+		if err := e.transitionAction(ctx, a, core.ActionReady); err != nil {
 			return err
 		}
 	}
 
 	// Scheduling loop.
-	if err := e.scheduleLoop(ctx, issueID); err != nil {
-		_ = e.store.UpdateIssueStatus(ctx, issueID, core.IssueFailed)
+	if err := e.scheduleLoop(ctx, workItemID); err != nil {
+		_ = e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemFailed)
 		e.bus.Publish(ctx, core.Event{
-			Type:      core.EventIssueFailed,
-			IssueID:   issueID,
-			Timestamp: time.Now().UTC(),
-			Data:      map[string]any{"error": err.Error()},
+			Type:       core.EventWorkItemFailed,
+			WorkItemID: workItemID,
+			Timestamp:  time.Now().UTC(),
+			Data:       map[string]any{"error": err.Error()},
 		})
 		return err
 	}
 
-	_ = e.store.UpdateIssueStatus(ctx, issueID, core.IssueDone)
+	_ = e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemDone)
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventIssueCompleted,
-		IssueID:   issueID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventWorkItemCompleted,
+		WorkItemID: workItemID,
+		Timestamp:  time.Now().UTC(),
 	})
 	return nil
 }
 
-// Cancel cancels a running Issue.
-func (e *IssueEngine) Cancel(ctx context.Context, issueID int64) error {
-	issue, err := e.store.GetIssue(ctx, issueID)
+// Cancel cancels a running WorkItem.
+func (e *WorkItemEngine) Cancel(ctx context.Context, workItemID int64) error {
+	workItem, err := e.store.GetWorkItem(ctx, workItemID)
 	if err != nil {
 		return err
 	}
-	if !ValidIssueTransition(issue.Status, core.IssueCancelled) {
+	if !ValidWorkItemTransition(workItem.Status, core.WorkItemCancelled) {
 		return core.ErrInvalidTransition
 	}
-	if err := e.store.UpdateIssueStatus(ctx, issueID, core.IssueCancelled); err != nil {
+	if err := e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemCancelled); err != nil {
 		return err
 	}
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventIssueCancelled,
-		IssueID:   issueID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventWorkItemCancelled,
+		WorkItemID: workItemID,
+		Timestamp:  time.Now().UTC(),
 	})
 	return nil
 }
 
-// scheduleLoop executes steps sequentially by Position until all are done or an error occurs.
-func (e *IssueEngine) scheduleLoop(ctx context.Context, issueID int64) error {
+// scheduleLoop executes actions sequentially by Position until all are done or an error occurs.
+func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		steps, err := e.store.ListStepsByIssue(ctx, issueID)
+		actions, err := e.store.ListActionsByWorkItem(ctx, workItemID)
 		if err != nil {
-			return fmt.Errorf("list steps in loop: %w", err)
+			return fmt.Errorf("list actions in loop: %w", err)
 		}
 
 		// Check termination conditions.
 		allDone := true
 		anyFailed := false
-		for _, s := range steps {
-			switch s.Status {
-			case core.StepDone, core.StepCancelled:
+		for _, a := range actions {
+			switch a.Status {
+			case core.ActionDone, core.ActionCancelled:
 				continue
-			case core.StepFailed:
+			case core.ActionFailed:
 				anyFailed = true
 				allDone = false
 			default:
@@ -266,60 +271,60 @@ func (e *IssueEngine) scheduleLoop(ctx context.Context, issueID int64) error {
 			return nil
 		}
 		if anyFailed {
-			return fmt.Errorf("step(s) failed in issue %d", issueID)
+			return fmt.Errorf("action(s) failed in work item %d", workItemID)
 		}
 
-		// Phase 1: promote pending steps whose predecessors (by Position) are all done → ready.
-		for _, s := range PromotableSteps(steps) {
-			if err := e.transitionStep(ctx, s, core.StepReady); err != nil {
+		// Phase 1: promote pending actions whose predecessors (by Position) are all done → ready.
+		for _, a := range PromotableActions(actions) {
+			if err := e.transitionAction(ctx, a, core.ActionReady); err != nil {
 				return err
 			}
 		}
 
 		// Re-fetch after promotions to get updated statuses.
-		steps, err = e.store.ListStepsByIssue(ctx, issueID)
+		actions, err = e.store.ListActionsByWorkItem(ctx, workItemID)
 		if err != nil {
-			return fmt.Errorf("list steps after promote: %w", err)
+			return fmt.Errorf("list actions after promote: %w", err)
 		}
 
-		// Phase 2: dispatch all ready steps for execution.
-		runnable := RunnableSteps(steps)
+		// Phase 2: dispatch all ready actions for execution.
+		runnable := RunnableActions(actions)
 		if len(runnable) == 0 {
 			hasActive := false
-			for _, s := range steps {
-				if s.Status == core.StepRunning || s.Status == core.StepWaitingGate {
+			for _, a := range actions {
+				if a.Status == core.ActionRunning || a.Status == core.ActionWaitingGate {
 					hasActive = true
 					break
 				}
 			}
 			if !hasActive {
-				return fmt.Errorf("issue %d is stuck: no runnable, running, or waiting steps", issueID)
+				return fmt.Errorf("work item %d is stuck: no runnable, running, or waiting actions", workItemID)
 			}
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 
 		var mu sync.Mutex
-		var execErr error
+		var runErr error
 		var wg sync.WaitGroup
 
-		for _, step := range runnable {
-			step := step
-			if err := e.transitionStep(ctx, step, core.StepRunning); err != nil {
+		for _, action := range runnable {
+			action := action
+			if err := e.transitionAction(ctx, action, core.ActionRunning); err != nil {
 				return err
 			}
 
 			wg.Add(1)
-			if step.Type == core.StepComposite {
-				// Composite steps don't hold a semaphore slot to avoid deadlock:
-				// the child issue's steps need semaphore slots from the same pool.
+			if action.Type == core.ActionPlan {
+				// Composite actions don't hold a semaphore slot to avoid deadlock:
+				// the child work item's actions need semaphore slots from the same pool.
 				go func() {
 					defer wg.Done()
-					err := e.executeStep(ctx, step)
+					err := e.executeAction(ctx, action)
 					if err != nil {
 						mu.Lock()
-						if execErr == nil {
-							execErr = err
+						if runErr == nil {
+							runErr = err
 						}
 						mu.Unlock()
 					}
@@ -330,11 +335,11 @@ func (e *IssueEngine) scheduleLoop(ctx context.Context, issueID int64) error {
 					defer wg.Done()
 					defer e.sem.Release()
 
-					err := e.executeStep(ctx, step)
+					err := e.executeAction(ctx, action)
 					if err != nil {
 						mu.Lock()
-						if execErr == nil {
-							execErr = err
+						if runErr == nil {
+							runErr = err
 						}
 						mu.Unlock()
 					}
@@ -343,105 +348,105 @@ func (e *IssueEngine) scheduleLoop(ctx context.Context, issueID int64) error {
 		}
 		wg.Wait()
 
-		if execErr != nil {
-			return execErr
+		if runErr != nil {
+			return runErr
 		}
 	}
 }
 
-// executeStep runs the three-phase engine pipeline: prepare → execute → finalize.
-// Composite steps take a separate path: expand → run child issue → done/fail.
-func (e *IssueEngine) executeStep(ctx context.Context, step *core.Step) error {
-	if step.Type == core.StepComposite {
-		return e.executeComposite(ctx, step)
+// executeAction runs the three-phase engine pipeline: prepare → execute → finalize.
+// Composite actions take a separate path: expand → run child work item → done/fail.
+func (e *WorkItemEngine) executeAction(ctx context.Context, action *core.Action) error {
+	if action.Type == core.ActionPlan {
+		return e.executeComposite(ctx, action)
 	}
 
-	// --- prepare: resolve agent + build briefing ---
-	agentID, snapshot, err := e.prepare(ctx, step)
+	// --- prepare: resolve agent + build input ---
+	agentID, inputSnapshot, err := e.prepare(ctx, action)
 	if err != nil {
 		return err
 	}
 
-	exec := &core.Execution{
-		StepID:           step.ID,
-		IssueID:          step.IssueID,
-		Status:           core.ExecCreated,
+	run := &core.Run{
+		ActionID:         action.ID,
+		WorkItemID:       action.WorkItemID,
+		Status:           core.RunCreated,
 		AgentID:          agentID,
-		BriefingSnapshot: snapshot,
-		Attempt:          step.RetryCount + 1,
+		BriefingSnapshot: inputSnapshot,
+		Attempt:          action.RetryCount + 1,
 	}
-	execID, err := e.store.CreateExecution(ctx, exec)
+	runID, err := e.store.CreateRun(ctx, run)
 	if err != nil {
-		return fmt.Errorf("create execution for step %d: %w", step.ID, err)
+		return fmt.Errorf("create run for action %d: %w", action.ID, err)
 	}
-	exec.ID = execID
+	run.ID = runID
 
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventExecCreated,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		ExecID:    execID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventRunCreated,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		RunID:      runID,
+		Timestamp:  time.Now().UTC(),
 	})
 
 	// --- execute: run via callback, with optional timeout ---
 	now := time.Now().UTC()
-	exec.Status = core.ExecRunning
-	exec.StartedAt = &now
-	_ = e.store.UpdateExecution(ctx, exec)
+	run.Status = core.RunRunning
+	run.StartedAt = &now
+	_ = e.store.UpdateRun(ctx, run)
 
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventExecStarted,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		ExecID:    execID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventRunStarted,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		RunID:      runID,
+		Timestamp:  time.Now().UTC(),
 	})
 
-	execCtx := ctx
-	if step.Timeout > 0 {
+	runCtx := ctx
+	if action.Timeout > 0 {
 		var cancel context.CancelFunc
-		execCtx, cancel = context.WithTimeout(ctx, step.Timeout)
+		runCtx, cancel = context.WithTimeout(ctx, action.Timeout)
 		defer cancel()
 	}
 
-	execErr := e.executor(execCtx, step, exec)
+	runErr := e.executor(runCtx, action, run)
 
 	// --- finalize: classify result → retry/block/fail/gate/done ---
-	return e.finalize(ctx, step, exec, execErr)
+	return e.finalize(ctx, action, run, runErr)
 }
 
-// transitionStep validates and applies a step status transition.
-func (e *IssueEngine) transitionStep(ctx context.Context, step *core.Step, to core.StepStatus) error {
-	if !ValidStepTransition(step.Status, to) {
-		return fmt.Errorf("%w: step %d %s → %s", core.ErrInvalidTransition, step.ID, step.Status, to)
+// transitionAction validates and applies an action status transition.
+func (e *WorkItemEngine) transitionAction(ctx context.Context, action *core.Action, to core.ActionStatus) error {
+	if !ValidActionTransition(action.Status, to) {
+		return fmt.Errorf("%w: action %d %s → %s", core.ErrInvalidTransition, action.ID, action.Status, to)
 	}
-	if err := e.store.UpdateStepStatus(ctx, step.ID, to); err != nil {
-		return fmt.Errorf("update step %d to %s: %w", step.ID, to, err)
+	if err := e.store.UpdateActionStatus(ctx, action.ID, to); err != nil {
+		return fmt.Errorf("update action %d to %s: %w", action.ID, to, err)
 	}
-	step.Status = to
+	action.Status = to
 
 	// Emit appropriate event.
 	var evType core.EventType
 	switch to {
-	case core.StepReady:
-		evType = core.EventStepReady
-	case core.StepRunning:
-		evType = core.EventStepStarted
-	case core.StepDone:
-		evType = core.EventStepCompleted
-	case core.StepFailed:
-		evType = core.EventStepFailed
-	case core.StepBlocked:
-		evType = core.EventStepBlocked
+	case core.ActionReady:
+		evType = core.EventActionReady
+	case core.ActionRunning:
+		evType = core.EventActionStarted
+	case core.ActionDone:
+		evType = core.EventActionCompleted
+	case core.ActionFailed:
+		evType = core.EventActionFailed
+	case core.ActionBlocked:
+		evType = core.EventActionBlocked
 	default:
 		return nil
 	}
 	e.bus.Publish(ctx, core.Event{
-		Type:      evType,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
+		Type:       evType,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		Timestamp:  time.Now().UTC(),
 	})
 	return nil
 }

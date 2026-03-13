@@ -11,41 +11,41 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// mockStore implements the subset of core.Store used by StepContextBuilder.
+// mockStore implements the subset of core.Store used by ActionContextBuilder.
 type mockStore struct {
 	core.Store // embed to satisfy interface; panics on unused methods
 
-	issues    map[int64]*core.Issue
-	steps     map[int64][]*core.Step
-	artifacts map[int64]*core.Artifact // stepID → latest artifact
-	manifests map[int64]*core.FeatureManifest
-	entries   map[int64][]*core.FeatureEntry // manifestID → entries
+	workItems    map[int64]*core.WorkItem
+	actions      map[int64][]*core.Action
+	deliverables map[int64]*core.Deliverable // actionID → latest deliverable
+	manifests    map[int64]*core.FeatureManifest
+	entries      map[int64][]*core.FeatureEntry // manifestID → entries
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		issues:    make(map[int64]*core.Issue),
-		steps:     make(map[int64][]*core.Step),
-		artifacts: make(map[int64]*core.Artifact),
-		manifests: make(map[int64]*core.FeatureManifest),
-		entries:   make(map[int64][]*core.FeatureEntry),
+		workItems:    make(map[int64]*core.WorkItem),
+		actions:      make(map[int64][]*core.Action),
+		deliverables: make(map[int64]*core.Deliverable),
+		manifests:    make(map[int64]*core.FeatureManifest),
+		entries:      make(map[int64][]*core.FeatureEntry),
 	}
 }
 
-func (m *mockStore) GetIssue(_ context.Context, id int64) (*core.Issue, error) {
-	if issue, ok := m.issues[id]; ok {
-		return issue, nil
+func (m *mockStore) GetWorkItem(_ context.Context, id int64) (*core.WorkItem, error) {
+	if wi, ok := m.workItems[id]; ok {
+		return wi, nil
 	}
 	return nil, core.ErrNotFound
 }
 
-func (m *mockStore) ListStepsByIssue(_ context.Context, issueID int64) ([]*core.Step, error) {
-	return m.steps[issueID], nil
+func (m *mockStore) ListActionsByWorkItem(_ context.Context, workItemID int64) ([]*core.Action, error) {
+	return m.actions[workItemID], nil
 }
 
-func (m *mockStore) GetLatestArtifactByStep(_ context.Context, stepID int64) (*core.Artifact, error) {
-	if art, ok := m.artifacts[stepID]; ok {
-		return art, nil
+func (m *mockStore) GetLatestDeliverableByAction(_ context.Context, actionID int64) (*core.Deliverable, error) {
+	if del, ok := m.deliverables[actionID]; ok {
+		return del, nil
 	}
 	return nil, core.ErrNotFound
 }
@@ -66,7 +66,7 @@ func (m *mockStore) Close() error { return nil }
 func TestBuild_FullMaterials(t *testing.T) {
 	store := newMockStore()
 	projectID := int64(1)
-	store.issues[10] = &core.Issue{
+	store.workItems[10] = &core.WorkItem{
 		ID:        10,
 		ProjectID: &projectID,
 		Title:     "Implement login page",
@@ -74,13 +74,13 @@ func TestBuild_FullMaterials(t *testing.T) {
 		Priority:  core.PriorityHigh,
 		Labels:    []string{"frontend", "auth"},
 	}
-	store.steps[10] = []*core.Step{
-		{ID: 1, IssueID: 10, Name: "requirements", Position: 0, Type: core.StepExec},
-		{ID: 2, IssueID: 10, Name: "implement", Position: 1, Type: core.StepExec},
+	store.actions[10] = []*core.Action{
+		{ID: 1, WorkItemID: 10, Name: "requirements", Position: 0, Type: core.ActionExec},
+		{ID: 2, WorkItemID: 10, Name: "implement", Position: 1, Type: core.ActionExec},
 	}
-	store.artifacts[1] = &core.Artifact{
+	store.deliverables[1] = &core.Deliverable{
 		ID:             1,
-		StepID:         1,
+		ActionID:       1,
 		ResultMarkdown: "## Requirements\n\n- Login form with email/password\n- OAuth support",
 	}
 	store.manifests[projectID] = &core.FeatureManifest{
@@ -93,12 +93,12 @@ func TestBuild_FullMaterials(t *testing.T) {
 		{ID: 1, ManifestID: 100, Key: "login", Description: "Login page", Status: core.FeaturePending},
 	}
 
-	step := &core.Step{
-		ID:       2,
-		IssueID:  10,
-		Name:     "implement",
-		Position: 1,
-		Type:     core.StepExec,
+	action := &core.Action{
+		ID:         2,
+		WorkItemID: 10,
+		Name:       "implement",
+		Position:   1,
+		Type:       core.ActionExec,
 		AcceptanceCriteria: []string{
 			"Login form renders correctly",
 			"OAuth redirects work",
@@ -108,11 +108,11 @@ func TestBuild_FullMaterials(t *testing.T) {
 			"rework_history":     "Round 1: Initial implementation rejected",
 		},
 	}
-	exec := &core.Execution{ID: 42}
+	run := &core.Run{ID: 42}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestBuild_FullMaterials(t *testing.T) {
 	// Verify issue.md content.
 	issueContent, _ := os.ReadFile(filepath.Join(dir, "issue.md"))
 	if !strings.Contains(string(issueContent), "Implement login page") {
-		t.Error("issue.md should contain the issue title")
+		t.Error("issue.md should contain the work item title")
 	}
 	if !strings.Contains(string(issueContent), "Full description") {
 		t.Error("issue.md should contain the full body")
@@ -148,10 +148,10 @@ func TestBuild_FullMaterials(t *testing.T) {
 		t.Error("issue.md should contain priority")
 	}
 
-	// Verify upstream artifact is not truncated.
+	// Verify upstream deliverable is not truncated.
 	upstreamContent, _ := os.ReadFile(filepath.Join(dir, "upstream/requirements.md"))
 	if !strings.Contains(string(upstreamContent), "OAuth support") {
-		t.Error("upstream/requirements.md should contain full artifact content")
+		t.Error("upstream/requirements.md should contain full deliverable content")
 	}
 
 	// Verify acceptance.md.
@@ -180,18 +180,18 @@ func TestBuild_FullMaterials(t *testing.T) {
 	}
 }
 
-func TestBuild_NoIssue(t *testing.T) {
+func TestBuild_NoWorkItem(t *testing.T) {
 	store := newMockStore()
-	// No issue in store
+	// No work item in store
 
-	step := &core.Step{ID: 1, IssueID: 999, Position: 0, Type: core.StepExec}
-	exec := &core.Execution{ID: 1}
+	action := &core.Action{ID: 1, WorkItemID: 999, Position: 0, Type: core.ActionExec}
+	run := &core.Run{ID: 1}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
-		t.Fatalf("Build should succeed even without issue: %v", err)
+		t.Fatalf("Build should succeed even without work item: %v", err)
 	}
 	// No materials → empty dir returned
 	if dir != "" {
@@ -201,21 +201,21 @@ func TestBuild_NoIssue(t *testing.T) {
 
 func TestBuild_NoUpstream(t *testing.T) {
 	store := newMockStore()
-	store.issues[10] = &core.Issue{
+	store.workItems[10] = &core.WorkItem{
 		ID:    10,
-		Title: "Solo step",
-		Body:  "Just one step",
+		Title: "Solo action",
+		Body:  "Just one action",
 	}
-	store.steps[10] = []*core.Step{
-		{ID: 1, IssueID: 10, Name: "only-step", Position: 0, Type: core.StepExec},
+	store.actions[10] = []*core.Action{
+		{ID: 1, WorkItemID: 10, Name: "only-action", Position: 0, Type: core.ActionExec},
 	}
 
-	step := &core.Step{ID: 1, IssueID: 10, Name: "only-step", Position: 0, Type: core.StepExec}
-	exec := &core.Execution{ID: 1}
+	action := &core.Action{ID: 1, WorkItemID: 10, Name: "only-action", Position: 0, Type: core.ActionExec}
+	run := &core.Run{ID: 1}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -226,27 +226,27 @@ func TestBuild_NoUpstream(t *testing.T) {
 
 	// upstream/ directory should not exist.
 	if _, err := os.Stat(filepath.Join(dir, "upstream")); !os.IsNotExist(err) {
-		t.Error("upstream/ directory should not exist when there are no upstream steps")
+		t.Error("upstream/ directory should not exist when there are no upstream actions")
 	}
 }
 
 func TestBuild_GateFeedback(t *testing.T) {
 	store := newMockStore()
-	store.issues[10] = &core.Issue{ID: 10, Title: "Test"}
+	store.workItems[10] = &core.WorkItem{ID: 10, Title: "Test"}
 
-	step := &core.Step{
-		ID:      1,
-		IssueID: 10,
-		Type:    core.StepExec,
+	action := &core.Action{
+		ID:         1,
+		WorkItemID: 10,
+		Type:       core.ActionExec,
 		Config: map[string]any{
 			"last_gate_feedback": "Please fix the tests",
 		},
 	}
-	exec := &core.Execution{ID: 1}
+	run := &core.Run{ID: 1}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -260,32 +260,32 @@ func TestBuild_GateFeedback(t *testing.T) {
 
 func TestBuild_SkillMD_Index(t *testing.T) {
 	store := newMockStore()
-	store.issues[10] = &core.Issue{
+	store.workItems[10] = &core.WorkItem{
 		ID:    10,
-		Title: "Test issue",
+		Title: "Test work item",
 		Body:  "Some body",
 	}
-	store.steps[10] = []*core.Step{
-		{ID: 1, IssueID: 10, Name: "design", Position: 0},
-		{ID: 2, IssueID: 10, Name: "code", Position: 1},
+	store.actions[10] = []*core.Action{
+		{ID: 1, WorkItemID: 10, Name: "design", Position: 0},
+		{ID: 2, WorkItemID: 10, Name: "code", Position: 1},
 	}
-	store.artifacts[1] = &core.Artifact{
-		StepID:         1,
+	store.deliverables[1] = &core.Deliverable{
+		ActionID:       1,
 		ResultMarkdown: "Design output",
 	}
 
-	step := &core.Step{
-		ID:       2,
-		IssueID:  10,
-		Name:     "code",
-		Position: 1,
+	action := &core.Action{
+		ID:                 2,
+		WorkItemID:         10,
+		Name:               "code",
+		Position:           1,
 		AcceptanceCriteria: []string{"Tests pass"},
 	}
-	exec := &core.Execution{ID: 5}
+	run := &core.Run{ID: 5}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
@@ -306,33 +306,33 @@ func TestBuild_SkillMD_Index(t *testing.T) {
 	}
 }
 
-func TestBuild_LargeArtifact(t *testing.T) {
+func TestBuild_LargeDeliverable(t *testing.T) {
 	store := newMockStore()
-	store.issues[10] = &core.Issue{ID: 10, Title: "Large artifact test"}
+	store.workItems[10] = &core.WorkItem{ID: 10, Title: "Large deliverable test"}
 	largeContent := strings.Repeat("x", 100000) // 100KB — well above the old 4000 char limit
-	store.steps[10] = []*core.Step{
-		{ID: 1, IssueID: 10, Name: "big-step", Position: 0},
-		{ID: 2, IssueID: 10, Name: "next", Position: 1},
+	store.actions[10] = []*core.Action{
+		{ID: 1, WorkItemID: 10, Name: "big-action", Position: 0},
+		{ID: 2, WorkItemID: 10, Name: "next", Position: 1},
 	}
-	store.artifacts[1] = &core.Artifact{
-		StepID:         1,
+	store.deliverables[1] = &core.Deliverable{
+		ActionID:       1,
 		ResultMarkdown: largeContent,
 	}
 
-	step := &core.Step{ID: 2, IssueID: 10, Name: "next", Position: 1}
-	exec := &core.Execution{ID: 1}
+	action := &core.Action{ID: 2, WorkItemID: 10, Name: "next", Position: 1}
+	run := &core.Run{ID: 1}
 
-	builder := NewStepContextBuilder(store)
+	builder := NewActionContextBuilder(store)
 	parentDir := t.TempDir()
-	dir, err := builder.Build(context.Background(), parentDir, step, exec)
+	dir, err := builder.Build(context.Background(), parentDir, action, run)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
 	}
 	defer Cleanup(dir)
 
-	content, _ := os.ReadFile(filepath.Join(dir, "upstream/big-step.md"))
+	content, _ := os.ReadFile(filepath.Join(dir, "upstream/big-action.md"))
 	if len(content) != 100000 {
-		t.Errorf("Large artifact should not be truncated: got %d bytes, want 100000", len(content))
+		t.Errorf("Large deliverable should not be truncated: got %d bytes, want 100000", len(content))
 	}
 }
 
@@ -383,10 +383,9 @@ func TestSanitizeFileName(t *testing.T) {
 
 // Ensure the mockStore satisfies compile-time checks for the methods we use.
 var _ interface {
-	GetIssue(context.Context, int64) (*core.Issue, error)
-	ListStepsByIssue(context.Context, int64) ([]*core.Step, error)
-	GetLatestArtifactByStep(context.Context, int64) (*core.Artifact, error)
+	GetWorkItem(context.Context, int64) (*core.WorkItem, error)
+	ListActionsByWorkItem(context.Context, int64) ([]*core.Action, error)
+	GetLatestDeliverableByAction(context.Context, int64) (*core.Deliverable, error)
 	GetFeatureManifestByProject(context.Context, int64) (*core.FeatureManifest, error)
 	ListFeatureEntries(context.Context, core.FeatureEntryFilter) ([]*core.FeatureEntry, error)
 } = (*mockStore)(nil)
-

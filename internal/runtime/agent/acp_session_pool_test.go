@@ -33,7 +33,7 @@ func TestACPSessionPoolAcquireCoalescesConcurrentCreates(t *testing.T) {
 	input := acpSessionAcquireInput{
 		Profile: &core.AgentProfile{ID: "worker"},
 		Driver:  &core.AgentDriver{ID: "codex"},
-		IssueID: 101,
+		WorkItemID: 101,
 	}
 
 	var wg sync.WaitGroup

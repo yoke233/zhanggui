@@ -19,7 +19,7 @@ import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { getScmFlowProviderFromBindings } from "@/lib/scm";
 import { getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
-import type { Step, DAGTemplate, ResourceBinding, IssueAttachment } from "@/types/apiV2";
+import type { Action, DAGTemplate, ResourceBinding, WorkItemAttachment } from "@/types/apiV2";
 
 const stepColors: Record<string, { bg: string; text: string }> = {
   exec: { bg: "bg-blue-50", text: "text-blue-600" },
@@ -27,7 +27,7 @@ const stepColors: Record<string, { bg: string; text: string }> = {
   composite: { bg: "bg-indigo-50", text: "text-indigo-600" },
 };
 
-export function CreateIssuePage() {
+export function CreateWorkItemPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
@@ -39,16 +39,13 @@ export function CreateIssuePage() {
   const [description, setDescription] = useState(searchParams.get("body") ?? "");
   const [generatingTitle, setGeneratingTitle] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [previewSteps, setPreviewSteps] = useState<Step[]>([]);
-  const [draftIssueId, setDraftIssueId] = useState<number | null>(null);
+  const [previewSteps, setPreviewSteps] = useState<Action[]>([]);
+  const [draftWorkItemId, setDraftWorkItemId] = useState<number | null>(null);
   const [busy, setBusy] = useState<"idle" | "generating" | "saving" | "running" | "from_template">("idle");
   const [error, setError] = useState<string | null>(null);
-
-  // Attachment state
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [uploadedAttachments, setUploadedAttachments] = useState<IssueAttachment[]>([]);
+  const [uploadedAttachments, setUploadedAttachments] = useState<WorkItemAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-
   const [templates, setTemplates] = useState<DAGTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
@@ -58,13 +55,12 @@ export function CreateIssuePage() {
     () => projects.find((project) => project.id === projectId) ?? null,
     [projectId, projects],
   );
-  const scmFlowProvider = useMemo(
+  const scmProvider = useMemo(
     () => getScmFlowProviderFromBindings(projectResources),
     [projectResources],
   );
-
   const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
     [templates, selectedTemplateId],
   );
 
@@ -74,7 +70,7 @@ export function CreateIssuePage() {
       const listed = await apiClient.listDAGTemplates({ limit: 100 });
       setTemplates(listed);
     } catch {
-      // Silently ignore template loading errors; user can still create manually
+      // 模板读取失败不阻断手工创建流程。
     } finally {
       setTemplatesLoading(false);
     }
@@ -85,11 +81,11 @@ export function CreateIssuePage() {
   }, [loadTemplates]);
 
   useEffect(() => {
-    if (scmFlowProvider) {
+    if (scmProvider) {
       setSelectedTemplateId(null);
       setPreviewSteps([]);
     }
-  }, [scmFlowProvider]);
+  }, [scmProvider]);
 
   useEffect(() => {
     if (projectId == null) {
@@ -115,46 +111,48 @@ export function CreateIssuePage() {
     };
   }, [apiClient, projectId]);
 
-  const ensureDraftIssue = async (): Promise<number> => {
-    if (draftIssueId != null) {
-      return draftIssueId;
+  const ensureDraftWorkItem = async (): Promise<number> => {
+    if (draftWorkItemId != null) {
+      return draftWorkItemId;
     }
-    const created = await apiClient.createIssue({
+    const created = await apiClient.createWorkItem({
       title: title.trim(),
       project_id: projectId ?? undefined,
       metadata: description.trim() ? { description: description.trim() } : undefined,
     });
-    setDraftIssueId(created.id);
+    setDraftWorkItemId(created.id);
     return created.id;
   };
 
   const handleFilesSelected = (files: File[]) => {
-    setPendingFiles((prev) => [...prev, ...files]);
+    setPendingFiles((previous) => [...previous, ...files]);
   };
 
   const removePendingFile = (index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    setPendingFiles((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
   };
 
-  const removeUploadedAttachment = async (att: { id: number }) => {
+  const removeUploadedAttachment = async (attachment: { id: number }) => {
     try {
-      await apiClient.deleteIssueAttachment(att.id);
-      setUploadedAttachments((prev) => prev.filter((a) => a.id !== att.id));
-    } catch (delError) {
-      setError(getErrorMessage(delError));
+      await apiClient.deleteWorkItemAttachment(attachment.id);
+      setUploadedAttachments((previous) => previous.filter((currentAttachment) => currentAttachment.id !== attachment.id));
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
     }
   };
 
-  const uploadPendingFiles = async (issueId: number) => {
-    if (pendingFiles.length === 0) return;
+  const uploadPendingFiles = async (workItemId: number) => {
+    if (pendingFiles.length === 0) {
+      return;
+    }
     setUploading(true);
     try {
-      const results: IssueAttachment[] = [];
+      const results: WorkItemAttachment[] = [];
       for (const file of pendingFiles) {
-        const att = await apiClient.uploadIssueAttachment(issueId, file);
-        results.push(att);
+        const attachment = await apiClient.uploadWorkItemAttachment(workItemId, file);
+        results.push(attachment);
       }
-      setUploadedAttachments((prev) => [...prev, ...results]);
+      setUploadedAttachments((previous) => [...previous, ...results]);
       setPendingFiles([]);
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
@@ -164,22 +162,22 @@ export function CreateIssuePage() {
   };
 
   const generateSteps = async () => {
-    if (scmFlowProvider) {
-      setError(t("createFlow.scmFlowError"));
+    if (scmProvider) {
+      setError(t("createWorkItem.scmFlowError"));
       return;
     }
     if (!title.trim()) {
-      setError(t("createFlow.nameRequired"));
+      setError(t("createWorkItem.nameRequired"));
       return;
     }
     setBusy("generating");
     setError(null);
     try {
-      const issueId = await ensureDraftIssue();
-      const steps = await apiClient.generateSteps(issueId, {
+      const workItemId = await ensureDraftWorkItem();
+      const generatedSteps = await apiClient.generateActions(workItemId, {
         description: aiPrompt.trim() || description.trim() || title.trim(),
       });
-      setPreviewSteps(steps);
+      setPreviewSteps(generatedSteps);
     } catch (generateError) {
       setError(getErrorMessage(generateError));
     } finally {
@@ -188,19 +186,21 @@ export function CreateIssuePage() {
   };
 
   const createFromTemplate = async (runImmediately: boolean) => {
-    if (!selectedTemplate) return;
-    const issueTitle = title.trim() || selectedTemplate.name;
+    if (!selectedTemplate) {
+      return;
+    }
+    const workItemTitle = title.trim() || selectedTemplate.name;
     setBusy(runImmediately ? "running" : "from_template");
     setError(null);
     try {
-      const result = await apiClient.createIssueFromTemplate(selectedTemplate.id, {
-        title: issueTitle,
+      const result = await apiClient.createWorkItemFromTemplate(selectedTemplate.id, {
+        title: workItemTitle,
         project_id: projectId ?? undefined,
       });
       if (runImmediately) {
-        await apiClient.runIssue(result.issue.id);
+        await apiClient.runWorkItem(result.issue.id);
       }
-      navigate(`/issues/${result.issue.id}`);
+      navigate(`/work-items/${result.issue.id}`);
     } catch (templateError) {
       setError(getErrorMessage(templateError));
     } finally {
@@ -208,31 +208,29 @@ export function CreateIssuePage() {
     }
   };
 
-  const finalizeIssue = async (runImmediately: boolean) => {
+  const finalizeWorkItem = async (runImmediately: boolean) => {
     if (selectedTemplate) {
       return createFromTemplate(runImmediately);
     }
-
     if (!title.trim()) {
-      setError(t("createFlow.nameEmpty"));
+      setError(t("createWorkItem.nameEmpty"));
       return;
     }
     setBusy(runImmediately ? "running" : "saving");
     setError(null);
     try {
-      const issueId = await ensureDraftIssue();
-      // Upload any pending files.
-      await uploadPendingFiles(issueId);
-      if (!scmFlowProvider && previewSteps.length === 0 && (aiPrompt.trim() || description.trim())) {
-        const steps = await apiClient.generateSteps(issueId, {
+      const workItemId = await ensureDraftWorkItem();
+      await uploadPendingFiles(workItemId);
+      if (!scmProvider && previewSteps.length === 0 && (aiPrompt.trim() || description.trim())) {
+        const generatedSteps = await apiClient.generateActions(workItemId, {
           description: aiPrompt.trim() || description.trim(),
         });
-        setPreviewSteps(steps);
+        setPreviewSteps(generatedSteps);
       }
       if (runImmediately) {
-        await apiClient.runIssue(issueId);
+        await apiClient.runWorkItem(workItemId);
       }
-      navigate(`/issues/${issueId}`);
+      navigate(`/work-items/${workItemId}`);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -241,15 +239,19 @@ export function CreateIssuePage() {
   };
 
   const handleGenerateTitle = async () => {
-    const text = description.trim() || aiPrompt.trim();
-    if (!text) return;
+    const sourceText = description.trim() || aiPrompt.trim();
+    if (!sourceText) {
+      return;
+    }
     setGeneratingTitle(true);
     setError(null);
     try {
-      const result = await apiClient.generateTitle({ description: text });
-      if (result.title) setTitle(result.title);
-    } catch (genError) {
-      setError(getErrorMessage(genError));
+      const result = await apiClient.generateTitle({ description: sourceText });
+      if (result.title) {
+        setTitle(result.title);
+      }
+    } catch (generateError) {
+      setError(getErrorMessage(generateError));
     } finally {
       setGeneratingTitle(false);
     }
@@ -257,14 +259,15 @@ export function CreateIssuePage() {
 
   const handleTemplateSelect = (templateId: number | null) => {
     setSelectedTemplateId(templateId);
-    if (templateId) {
-      const tmpl = templates.find((t) => t.id === templateId);
-      if (tmpl && !title.trim()) {
-        setTitle(tmpl.name);
-      }
-      if (tmpl && !description.trim() && tmpl.description) {
-        setDescription(tmpl.description);
-      }
+    if (!templateId) {
+      return;
+    }
+    const template = templates.find((candidate) => candidate.id === templateId);
+    if (template && !title.trim()) {
+      setTitle(template.name);
+    }
+    if (template && !description.trim() && template.description) {
+      setDescription(template.description);
     }
   };
 
@@ -272,17 +275,17 @@ export function CreateIssuePage() {
     <div className="flex-1 space-y-6 p-8">
       <div>
         <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/issues" className="hover:text-foreground">{t("createFlow.breadcrumbFlows")}</Link>
+          <Link to="/work-items" className="hover:text-foreground">{t("createWorkItem.breadcrumbWorkItems")}</Link>
           <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-foreground">{t("createFlow.breadcrumbNew")}</span>
+          <span className="font-medium text-foreground">{t("createWorkItem.breadcrumbNew")}</span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">{t("createFlow.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("createFlow.subtitle")}</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("createWorkItem.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("createWorkItem.subtitle")}</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
-      {templates.length > 0 && !scmFlowProvider ? (
+      {templates.length > 0 && !scmProvider ? (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -290,34 +293,34 @@ export function CreateIssuePage() {
                 <FileStack className="h-[18px] w-[18px] text-emerald-500" />
               </div>
               <div>
-                <CardTitle className="text-base">{t("createFlow.fromTemplate")}</CardTitle>
-                <CardDescription>{t("createFlow.fromTemplateDesc")}</CardDescription>
+                <CardTitle className="text-base">{t("createWorkItem.fromTemplate")}</CardTitle>
+                <CardDescription>{t("createWorkItem.fromTemplateDesc")}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {templates.map((tmpl) => (
+              {templates.map((template) => (
                 <button
-                  key={tmpl.id}
-                  onClick={() => handleTemplateSelect(selectedTemplateId === tmpl.id ? null : tmpl.id)}
+                  key={template.id}
+                  onClick={() => handleTemplateSelect(selectedTemplateId === template.id ? null : template.id)}
                   className={cn(
                     "relative rounded-lg border p-3 text-left transition-colors hover:bg-accent",
-                    selectedTemplateId === tmpl.id && "border-emerald-500 bg-emerald-50/50 ring-1 ring-emerald-500",
+                    selectedTemplateId === template.id && "border-emerald-500 bg-emerald-50/50 ring-1 ring-emerald-500",
                   )}
                 >
-                  {selectedTemplateId === tmpl.id ? (
+                  {selectedTemplateId === template.id ? (
                     <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500">
                       <Check className="h-3 w-3 text-white" />
                     </div>
                   ) : null}
-                  <div className="text-sm font-medium">{tmpl.name}</div>
-                  {tmpl.description ? (
-                    <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{tmpl.description}</div>
+                  <div className="text-sm font-medium">{template.name}</div>
+                  {template.description ? (
+                    <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{template.description}</div>
                   ) : null}
                   <div className="mt-2 flex items-center gap-2">
-                    <Badge variant="secondary" className="text-[10px]">{t("createFlow.nSteps", { count: tmpl.steps.length })}</Badge>
-                    {(tmpl.tags ?? []).slice(0, 2).map((tag) => (
+                    <Badge variant="secondary" className="text-[10px]">{t("createWorkItem.nSteps", { count: template.actions.length })}</Badge>
+                    {(template.tags ?? []).slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
                     ))}
                   </div>
@@ -326,29 +329,29 @@ export function CreateIssuePage() {
             </div>
             {selectedTemplate ? (
               <div className="mt-3 text-xs text-muted-foreground">
-                {t("createFlow.templateSelected", { name: selectedTemplate.name, count: selectedTemplate.steps.length })} {t("createFlow.templateHint")}
+                {t("createWorkItem.templateSelected", { name: selectedTemplate.name, count: selectedTemplate.actions.length })} {t("createWorkItem.templateHint")}
               </div>
             ) : null}
           </CardContent>
         </Card>
-      ) : templatesLoading && !scmFlowProvider ? (
-        <div className="text-sm text-muted-foreground">{t("createFlow.loadingTemplates")}</div>
+      ) : templatesLoading && !scmProvider ? (
+        <div className="text-sm text-muted-foreground">{t("createWorkItem.loadingTemplates")}</div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t("createFlow.basicInfo")}</CardTitle>
-              <CardDescription>{t("createFlow.basicInfoDesc")}</CardDescription>
+              <CardTitle className="text-base">{t("createWorkItem.basicInfo")}</CardTitle>
+              <CardDescription>{t("createWorkItem.basicInfoDesc")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">{t("createFlow.flowName")}</label>
+                <label className="text-sm font-medium">{t("createWorkItem.titleLabel")}</label>
                 <div className="flex gap-2">
                   <Input
                     className="flex-1"
-                    placeholder={t("createFlow.flowNamePlaceholder")}
+                    placeholder={t("createWorkItem.titlePlaceholder")}
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
                   />
@@ -361,20 +364,20 @@ export function CreateIssuePage() {
                     onClick={() => void handleGenerateTitle()}
                   >
                     {generatingTitle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-                    {t("createFlow.autoTitle")}
+                    {t("createWorkItem.autoTitle")}
                   </Button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">{t("createFlow.project")}</label>
+                  <label className="text-sm font-medium">{t("createWorkItem.project")}</label>
                   <select
                     className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
                     value={projectId ?? ""}
                     onChange={(event) => setProjectId(event.target.value ? Number.parseInt(event.target.value, 10) : null)}
                   >
-                    <option value="">{t("createFlow.allProjects")}</option>
+                    <option value="">{t("createWorkItem.allProjects")}</option>
                     {projects.map((project) => (
                       <option key={project.id} value={project.id}>
                         {project.name}
@@ -383,22 +386,22 @@ export function CreateIssuePage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">{t("createFlow.draftStatus")}</label>
+                  <label className="text-sm font-medium">{t("createWorkItem.draftStatus")}</label>
                   <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm">
                     {selectedTemplate
-                      ? t("createFlow.templateDraft", { id: selectedTemplate.id })
-                      : draftIssueId == null
-                        ? t("createFlow.noDraft")
-                        : `Issue #${draftIssueId}`}
+                      ? t("createWorkItem.templateDraft", { id: selectedTemplate.id })
+                      : draftWorkItemId == null
+                        ? t("createWorkItem.noDraft")
+                        : t("createWorkItem.draftId", { id: draftWorkItemId })}
                   </div>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">{t("createFlow.flowDesc")}</label>
+                <label className="text-sm font-medium">{t("createWorkItem.descriptionLabel")}</label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder={t("createFlow.flowDescPlaceholder")}
+                  placeholder={t("createWorkItem.descriptionPlaceholder")}
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                 />
@@ -410,17 +413,17 @@ export function CreateIssuePage() {
                 uploading={uploading}
                 onFilesSelected={handleFilesSelected}
                 onRemovePending={removePendingFile}
-                onRemoveUploaded={(att) => void removeUploadedAttachment(att)}
+                onRemoveUploaded={(attachment) => void removeUploadedAttachment(attachment)}
               />
             </CardContent>
           </Card>
 
-          {scmFlowProvider ? (
+          {scmProvider ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{t("createFlow.scmFlowTitle")}</CardTitle>
+                <CardTitle className="text-base">{t("createWorkItem.scmFlowTitle")}</CardTitle>
                 <CardDescription>
-                  {t("createFlow.scmFlowDesc", { provider: scmFlowProvider === "codeup" ? "Codeup CR" : "GitHub PR" })}
+                  {t("createWorkItem.scmFlowDesc", { provider: scmProvider === "codeup" ? "Codeup CR" : "GitHub PR" })}
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -432,8 +435,8 @@ export function CreateIssuePage() {
                     <Sparkles className="h-[18px] w-[18px] text-indigo-500" />
                   </div>
                   <div>
-                    <CardTitle className="text-base">{t("createFlow.aiGenerate")}</CardTitle>
-                    <CardDescription>{t("createFlow.aiGenerateDesc")}</CardDescription>
+                    <CardTitle className="text-base">{t("createWorkItem.aiGenerate")}</CardTitle>
+                    <CardDescription>{t("createWorkItem.aiGenerateDesc")}</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -442,11 +445,11 @@ export function CreateIssuePage() {
                   className="flex min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
-                  placeholder={t("createFlow.aiPromptPlaceholder")}
+                  placeholder={t("createWorkItem.aiPromptPlaceholder")}
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
-                    {t("createFlow.aiPromptHint")}
+                    {t("createWorkItem.aiPromptHint")}
                   </span>
                   <Button
                     className="bg-indigo-500 hover:bg-indigo-600"
@@ -454,7 +457,7 @@ export function CreateIssuePage() {
                     onClick={() => void generateSteps()}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
-                    {busy === "generating" ? t("createFlow.generating") : t("createFlow.generateSteps")}
+                    {busy === "generating" ? t("createWorkItem.generating") : t("createWorkItem.generateSteps")}
                   </Button>
                 </div>
               </CardContent>
@@ -465,23 +468,23 @@ export function CreateIssuePage() {
         <div className="space-y-6">
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <span className="text-sm font-semibold">{t("createFlow.stepPreview")}</span>
+              <span className="text-sm font-semibold">{t("createWorkItem.stepPreview")}</span>
               <Badge variant="secondary">
                 {selectedTemplate
-                  ? t("createFlow.nSteps", { count: selectedTemplate.steps.length })
-                  : t("createFlow.nSteps", { count: previewSteps.length })}
+                  ? t("createWorkItem.nSteps", { count: selectedTemplate.actions.length })
+                  : t("createWorkItem.nSteps", { count: previewSteps.length })}
               </Badge>
             </div>
             <div>
               {selectedTemplate ? (
-                selectedTemplate.steps.map((step, index) => {
+                selectedTemplate.actions.map((step, index) => {
                   const color = stepColors[step.type] ?? stepColors.exec;
                   return (
                     <div
                       key={step.name}
                       className={cn(
                         "flex items-center gap-3 px-5 py-3",
-                        index < selectedTemplate.steps.length - 1 && "border-b",
+                        index < selectedTemplate.actions.length - 1 && "border-b",
                       )}
                     >
                       <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold", color.bg, color.text)}>
@@ -492,19 +495,19 @@ export function CreateIssuePage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
-                          {step.depends_on?.length ? ` · ${t("createFlow.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
+                          {step.depends_on?.length ? ` · ${t("createWorkItem.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
                         </div>
                       </div>
                     </div>
                   );
                 })
-              ) : scmFlowProvider ? (
+              ) : scmProvider ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  {t("createFlow.scmAutoSteps")}
+                  {t("createWorkItem.scmAutoSteps")}
                 </div>
               ) : previewSteps.length === 0 ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  {t("createFlow.noSteps")}
+                  {t("createWorkItem.noSteps")}
                 </div>
               ) : (
                 previewSteps.map((step, index) => {
@@ -525,7 +528,7 @@ export function CreateIssuePage() {
                         <div className="text-[11px] text-muted-foreground">
                           {normalizeStepTypeLabel(step.type)}
                           {step.agent_role ? ` · ${step.agent_role}` : ""}
-                          {step.depends_on?.length ? ` · ${t("createFlow.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
+                          {step.depends_on?.length ? ` · ${t("createWorkItem.dependsOn", { deps: step.depends_on.join(", ") })}` : ""}
                         </div>
                       </div>
                     </div>
@@ -537,31 +540,31 @@ export function CreateIssuePage() {
 
           <Card className="p-4">
             <div className="space-y-2 text-sm text-muted-foreground">
-              <div>{t("createFlow.projectLabel", { name: selectedProject?.name ?? t("createFlow.notSpecified") })}</div>
-              {scmFlowProvider ? (
-                <div>{t("createFlow.scmFlow", { provider: scmFlowProvider === "codeup" ? t("createFlow.codeupAuto") : t("createFlow.githubAuto") })}</div>
+              <div>{t("createWorkItem.projectLabel", { name: selectedProject?.name ?? t("createWorkItem.notSpecified") })}</div>
+              {scmProvider ? (
+                <div>{t("createWorkItem.scmFlow", { provider: scmProvider === "codeup" ? t("createWorkItem.codeupAuto") : t("createWorkItem.githubAuto") })}</div>
               ) : null}
               <div>
                 {selectedTemplate
-                  ? t("createFlow.sourceTemplate", { name: selectedTemplate.name })
+                  ? t("createWorkItem.sourceTemplate", { name: selectedTemplate.name })
                   : aiPrompt.trim()
-                    ? t("createFlow.sourceAiPrompt")
+                    ? t("createWorkItem.sourceAiPrompt")
                     : description.trim()
-                      ? t("createFlow.sourceDesc")
-                      : t("createFlow.sourceFlowName")}
+                      ? t("createWorkItem.sourceDescription")
+                      : t("createWorkItem.sourceTitle")}
               </div>
             </div>
           </Card>
 
           <div className="space-y-2.5">
-            <Button className="w-full gap-2" disabled={busy !== "idle"} onClick={() => void finalizeIssue(true)}>
+            <Button className="w-full gap-2" disabled={busy !== "idle"} onClick={() => void finalizeWorkItem(true)}>
               <Play className="h-4 w-4" />
-              {busy === "running" ? t("createFlow.running") : t("createFlow.createAndRun")}
+              {busy === "running" ? t("createWorkItem.running") : t("createWorkItem.createAndRun")}
             </Button>
-            <Button variant="outline" className="w-full" disabled={busy !== "idle"} onClick={() => void finalizeIssue(false)}>
-              {busy === "saving" || busy === "from_template" ? t("createFlow.saving") : t("createFlow.saveAsDraft")}
+            <Button variant="outline" className="w-full" disabled={busy !== "idle"} onClick={() => void finalizeWorkItem(false)}>
+              {busy === "saving" || busy === "from_template" ? t("createWorkItem.saving") : t("createWorkItem.saveAsDraft")}
             </Button>
-            <Link to="/issues" className="block">
+            <Link to="/work-items" className="block">
               <Button variant="ghost" className="w-full text-muted-foreground">
                 {t("common.cancel")}
               </Button>
@@ -572,6 +575,3 @@ export function CreateIssuePage() {
     </div>
   );
 }
-
-// Keep backward-compatible export
-export { CreateIssuePage as CreateFlowPage };

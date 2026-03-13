@@ -228,7 +228,7 @@ func (s *Store) DeleteProfile(ctx context.Context, id string) error {
 
 // ---------- Resolution ----------
 
-func (s *Store) ResolveForStep(ctx context.Context, step *core.Step) (*core.AgentProfile, *core.AgentDriver, error) {
+func (s *Store) ResolveForAction(ctx context.Context, step *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
 	profiles, err := s.ListProfiles(ctx)
 	if err != nil {
 		return nil, nil, err

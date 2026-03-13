@@ -12,7 +12,7 @@ import (
 
 type apiStack struct {
 	leadAgent *chatacp.LeadAgent
-	probeSvc  *probeapp.ExecutionProbeService
+	probeSvc  *probeapp.RunProbeService
 	registrar func(chi.Router)
 }
 
@@ -40,7 +40,7 @@ func buildAPIStack(
 		dagGen = llmplanning.NewDAGGenerator(flow.llmClient, base.registry)
 	}
 
-	probeSvc := probeapp.NewExecutionProbeService(probeapp.ExecutionProbeServiceConfig{
+	probeSvc := probeapp.NewRunProbeService(probeapp.RunProbeServiceConfig{
 		Store:          base.store,
 		Bus:            base.bus,
 		SessionManager: flow.sessionMgr,
@@ -50,7 +50,7 @@ func buildAPIStack(
 	threadPool := agentruntime.NewThreadSessionPool(base.store, base.bus, base.registry)
 
 	apiOpts := buildAPIOptions(bootstrapCfg, base.runtimeManager, leadAgent, flow.scheduler, base.registry, dagGen)
-	apiOpts = append(apiOpts, api.WithExecutionProbeService(probeSvc))
+	apiOpts = append(apiOpts, api.WithRunProbeService(probeSvc))
 	apiOpts = append(apiOpts, api.WithThreadAgentRuntime(threadPool))
 	if base.dataDir != "" {
 		apiOpts = append(apiOpts, api.WithDataDir(base.dataDir))

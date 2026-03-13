@@ -22,16 +22,16 @@ type Target struct {
 	Timeout    time.Duration
 }
 
-func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeResult, error) {
+func Run(ctx context.Context, target Target) (*probeapp.RunProbeRuntimeResult, error) {
 	if strings.TrimSpace(string(target.SessionID)) == "" {
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "missing session route",
 			ObservedAt: time.Now().UTC(),
 		}, nil
 	}
 	if strings.TrimSpace(target.Question) == "" {
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "probe question is required",
 			ObservedAt: time.Now().UTC(),
@@ -49,7 +49,7 @@ func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeRes
 	handler.SetSuppressEvents(true)
 	client, err := acpclient.New(target.Launch, handler)
 	if err != nil {
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("launch probe client: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -58,7 +58,7 @@ func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeRes
 	defer client.Close(context.Background())
 
 	if err := client.Initialize(probeCtx, target.Caps); err != nil {
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("initialize probe client: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -71,7 +71,7 @@ func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeRes
 		McpServers: target.MCPServers,
 	})
 	if err != nil {
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("load probe session: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -88,14 +88,14 @@ func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeRes
 	observedAt := time.Now().UTC()
 	if err != nil {
 		if probeCtx.Err() == context.DeadlineExceeded || ctx.Err() == context.DeadlineExceeded {
-			return &probeapp.ExecutionProbeRuntimeResult{
+			return &probeapp.RunProbeRuntimeResult{
 				Reachable:  true,
 				Answered:   false,
 				Error:      "probe timeout",
 				ObservedAt: observedAt,
 			}, nil
 		}
-		return &probeapp.ExecutionProbeRuntimeResult{
+		return &probeapp.RunProbeRuntimeResult{
 			Reachable:  true,
 			Answered:   false,
 			Error:      fmt.Sprintf("probe prompt failed: %v", err),
@@ -103,7 +103,7 @@ func Run(ctx context.Context, target Target) (*probeapp.ExecutionProbeRuntimeRes
 		}, nil
 	}
 
-	return &probeapp.ExecutionProbeRuntimeResult{
+	return &probeapp.RunProbeRuntimeResult{
 		Reachable:  true,
 		Answered:   true,
 		ReplyText:  strings.TrimSpace(result.Text),

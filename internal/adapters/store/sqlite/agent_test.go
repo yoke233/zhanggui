@@ -58,7 +58,7 @@ func testProfile(id, driverID string, role core.AgentRole, caps ...string) *core
 		DriverID:       driverID,
 		Role:           role,
 		Capabilities:   caps,
-		ActionsAllowed: []core.Action{core.ActionReadContext, core.ActionFSWrite},
+		ActionsAllowed: []core.AgentAction{core.AgentActionReadContext, core.AgentActionFSWrite},
 		PromptTemplate: "test-tmpl",
 		Skills:         []string{"strict-review"},
 		Session: core.ProfileSession{
@@ -261,7 +261,7 @@ func TestProfileCRUD(t *testing.T) {
 	}
 }
 
-func TestResolveForStep(t *testing.T) {
+func TestResolveForAction(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
@@ -274,35 +274,35 @@ func TestResolveForStep(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		step    *core.Step
+		step    *core.Action
 		wantID  string
 		wantErr bool
 	}{
 		{
 			name:   "match role + capability",
-			step:   &core.Step{AgentRole: "worker", RequiredCapabilities: []string{"go"}},
+			step:   &core.Action{AgentRole: "worker", RequiredCapabilities: []string{"go"}},
 			wantID: "be-worker",
 		},
 		{
 			name:   "match capability only (no role filter)",
-			step:   &core.Step{RequiredCapabilities: []string{"react"}},
+			step:   &core.Action{RequiredCapabilities: []string{"react"}},
 			wantID: "fe-worker",
 		},
 		{
 			name:   "match role only",
-			step:   &core.Step{AgentRole: "gate"},
+			step:   &core.Action{AgentRole: "gate"},
 			wantID: "reviewer",
 		},
 		{
 			name:    "no match",
-			step:    &core.Step{AgentRole: "worker", RequiredCapabilities: []string{"k8s"}},
+			step:    &core.Action{AgentRole: "worker", RequiredCapabilities: []string{"k8s"}},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, d, err := s.ResolveForStep(ctx, tt.step)
+			p, d, err := s.ResolveForAction(ctx, tt.step)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -310,7 +310,7 @@ func TestResolveForStep(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("ResolveForStep: %v", err)
+				t.Fatalf("ResolveForAction: %v", err)
 			}
 			if p.ID != tt.wantID {
 				t.Fatalf("expected profile %q, got %q", tt.wantID, p.ID)
@@ -425,7 +425,7 @@ func TestCapabilityOverflow(t *testing.T) {
 		ID:             "writer",
 		DriverID:       "readonly",
 		Role:           core.RoleWorker,
-		ActionsAllowed: []core.Action{core.ActionFSWrite}, // requires FSWrite
+		ActionsAllowed: []core.AgentAction{core.AgentActionFSWrite}, // requires FSWrite
 	}
 	if err := s.CreateProfile(ctx, p); !errors.Is(err, core.ErrCapabilityOverflow) {
 		t.Fatalf("expected ErrCapabilityOverflow, got %v", err)

@@ -5,19 +5,12 @@ import (
 	"time"
 )
 
-// UsageRecord captures token consumption for a single execution.
-// Fields are designed as a superset of OpenAI and Anthropic usage formats:
-//
-//	OpenAI:    prompt_tokens → InputTokens, completion_tokens → OutputTokens,
-//	           reasoning_tokens → ReasoningTokens, cached_tokens → CacheReadTokens
-//	Anthropic: input_tokens → InputTokens, output_tokens → OutputTokens,
-//	           cache_read_input_tokens → CacheReadTokens,
-//	           cache_creation_input_tokens → CacheWriteTokens
+// UsageRecord captures token consumption for a single run.
 type UsageRecord struct {
 	ID               int64     `json:"id"`
-	ExecutionID      int64     `json:"execution_id"`
-	IssueID          int64     `json:"issue_id"`
-	StepID           int64     `json:"step_id"`
+	RunID            int64     `json:"run_id"`
+	WorkItemID       int64     `json:"work_item_id"`
+	ActionID         int64     `json:"action_id"`
 	ProjectID        *int64    `json:"project_id,omitempty"`
 	AgentID          string    `json:"agent_id"`
 	ProfileID        string    `json:"profile_id,omitempty"`
@@ -36,7 +29,7 @@ type UsageRecord struct {
 type UsageStore interface {
 	CreateUsageRecord(ctx context.Context, r *UsageRecord) (int64, error)
 	GetUsageRecord(ctx context.Context, id int64) (*UsageRecord, error)
-	GetUsageByExecution(ctx context.Context, executionID int64) (*UsageRecord, error)
+	GetUsageByRun(ctx context.Context, runID int64) (*UsageRecord, error)
 
 	// Aggregation queries
 	UsageByProject(ctx context.Context, filter AnalyticsFilter) ([]ProjectUsageSummary, error)
@@ -49,7 +42,7 @@ type UsageStore interface {
 type ProjectUsageSummary struct {
 	ProjectID        int64  `json:"project_id"`
 	ProjectName      string `json:"project_name"`
-	ExecutionCount   int    `json:"execution_count"`
+	RunCount         int    `json:"run_count"`
 	InputTokens      int64  `json:"input_tokens"`
 	OutputTokens     int64  `json:"output_tokens"`
 	CacheReadTokens  int64  `json:"cache_read_tokens"`
@@ -63,7 +56,7 @@ type AgentUsageSummary struct {
 	AgentID          string `json:"agent_id"`
 	ProjectID        *int64 `json:"project_id,omitempty"`
 	ProjectName      string `json:"project_name,omitempty"`
-	ExecutionCount   int    `json:"execution_count"`
+	RunCount         int    `json:"run_count"`
 	InputTokens      int64  `json:"input_tokens"`
 	OutputTokens     int64  `json:"output_tokens"`
 	CacheReadTokens  int64  `json:"cache_read_tokens"`
@@ -78,7 +71,7 @@ type ProfileUsageSummary struct {
 	AgentID          string `json:"agent_id"`
 	ProjectID        *int64 `json:"project_id,omitempty"`
 	ProjectName      string `json:"project_name,omitempty"`
-	ExecutionCount   int    `json:"execution_count"`
+	RunCount         int    `json:"run_count"`
 	InputTokens      int64  `json:"input_tokens"`
 	OutputTokens     int64  `json:"output_tokens"`
 	CacheReadTokens  int64  `json:"cache_read_tokens"`
@@ -89,7 +82,7 @@ type ProfileUsageSummary struct {
 
 // UsageTotalSummary provides overall token usage totals.
 type UsageTotalSummary struct {
-	ExecutionCount   int   `json:"execution_count"`
+	RunCount         int   `json:"run_count"`
 	InputTokens      int64 `json:"input_tokens"`
 	OutputTokens     int64 `json:"output_tokens"`
 	CacheReadTokens  int64 `json:"cache_read_tokens"`

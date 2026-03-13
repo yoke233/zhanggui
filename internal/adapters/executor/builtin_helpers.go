@@ -12,7 +12,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventBus, step *core.Step, execRec *core.Execution, markdown string, metadata map[string]any) error {
+func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, execRec *core.Run, markdown string, metadata map[string]any) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -23,27 +23,27 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 		return fmt.Errorf("storeBuiltinArtifact: step/exec is nil")
 	}
 
-	art := &core.Artifact{
-		ExecutionID:    execRec.ID,
-		StepID:         step.ID,
-		IssueID:        step.IssueID,
+	art := &core.Deliverable{
+		RunID:          execRec.ID,
+		ActionID:       step.ID,
+		WorkItemID:     step.WorkItemID,
 		ResultMarkdown: strings.TrimSpace(markdown),
 		Metadata:       metadata,
 	}
-	artID, err := store.CreateArtifact(ctx, art)
+	artID, err := store.CreateDeliverable(ctx, art)
 	if err != nil {
 		return fmt.Errorf("storeBuiltinArtifact: create artifact: %w", err)
 	}
-	execRec.ArtifactID = &artID
+	execRec.DeliverableID = &artID
 	execRec.Output = map[string]any{"text": art.ResultMarkdown, "stop_reason": "builtin"}
 
 	now := time.Now().UTC()
 	if bus != nil {
 		bus.Publish(ctx, core.Event{
-			Type:      core.EventExecAgentOutput,
-			IssueID:   step.IssueID,
-			StepID:    step.ID,
-			ExecID:    execRec.ID,
+			Type:       core.EventRunAgentOutput,
+			WorkItemID: step.WorkItemID,
+			ActionID:   step.ID,
+			RunID:      execRec.ID,
 			Timestamp: now,
 			Data: map[string]any{
 				"type":    "done",

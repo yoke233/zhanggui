@@ -35,14 +35,14 @@ type ACPExecutorConfig struct {
 
 	// StepContextBuilder generates per-execution reference materials.
 	// When nil, step-context is not injected (graceful degradation).
-	StepContextBuilder *skills.StepContextBuilder
+	StepContextBuilder *skills.ActionContextBuilder
 }
 
-// NewACPStepExecutor creates a StepExecutor that uses a SessionManager for ACP agent execution.
+// NewACPActionExecutor creates a ActionExecutor that uses a SessionManager for ACP agent execution.
 // It resolves step → AgentProfile + AgentDriver via the AgentRegistry, acquires a session,
 // starts the execution, watches for completion, then stores the result.
-func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
-	return func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
+	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		if cfg.SessionManager == nil {
 			return fmt.Errorf("session manager is not configured")
 		}
@@ -72,7 +72,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		var hasSignalSkill bool
 		var scopedToken string
 		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" &&
-			(step.Type == core.StepExec || step.Type == core.StepGate) {
+			(step.Type == core.ActionExec || step.Type == core.ActionGate) {
 			scope := fmt.Sprintf("step:%d", step.ID)
 			tok, err := cfg.TokenRegistry.GenerateScopedToken(
 				fmt.Sprintf("agent-step-%d", step.ID),
@@ -88,7 +88,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 				launchCfg.Env["AI_WORKFLOW_API_TOKEN"] = tok
 				launchCfg.Env["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
 				launchCfg.Env["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
-				launchCfg.Env["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.IssueID)
+				launchCfg.Env["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.WorkItemID)
 				launchCfg.Env["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
 				launchCfg.Env["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
 				slog.Info("step-signal: env vars injected",
@@ -105,7 +105,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		var stepContextDir string
 		var ephemeralSkills map[string]string
 		if cfg.StepContextBuilder != nil &&
-			(step.Type == core.StepExec || step.Type == core.StepGate) {
+			(step.Type == core.ActionExec || step.Type == core.ActionGate) {
 
 			ctxParentDir := filepath.Join(workDir, ".ai-workflow", "step-contexts")
 			dir, buildErr := cfg.StepContextBuilder.Build(ctx, ctxParentDir, step, exec)
@@ -127,10 +127,10 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			}
 		}()
 
-		bridge := eventbridge.New(cfg.Bus, core.EventExecAgentOutput, eventbridge.Scope{
-			IssueID: step.IssueID,
-			StepID:  step.ID,
-			ExecID:  exec.ID,
+		bridge := eventbridge.New(cfg.Bus, core.EventRunAgentOutput, eventbridge.Scope{
+			WorkItemID: step.WorkItemID,
+			ActionID:   step.ID,
+			RunID:      exec.ID,
 		})
 
 		caps := profile.EffectiveCapabilities()
@@ -150,7 +150,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			Caps:           acpCaps,
 			WorkDir:        workDir,
 			MCPFactory:     mcpFactory,
-			IssueID:        step.IssueID,
+			IssueID:        step.WorkItemID,
 			StepID:         step.ID,
 			ExecID:         exec.ID,
 			Reuse:          reuse,
@@ -177,7 +177,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 
 		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, step)
 		hasStepContext := stepContextDir != ""
-		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasStepContext)
+		executionInput := flowapp.BuildRunInputForAction(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasStepContext)
 
 		// Persist the full execution input for auditability.
 		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, hasStepContext, step)
@@ -205,24 +205,24 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			"content": replyText,
 		})
 
-		// Store agent output as an Artifact.
-		art := &core.Artifact{
-			ExecutionID:    exec.ID,
-			StepID:         step.ID,
-			IssueID:        step.IssueID,
+		// Store agent output as a Deliverable.
+		art := &core.Deliverable{
+			RunID:          exec.ID,
+			ActionID:       step.ID,
+			WorkItemID:     step.WorkItemID,
 			ResultMarkdown: replyText,
 		}
-		if step.Type == core.StepGate {
+		if step.Type == core.ActionGate {
 			art.Metadata = extractGateMetadata(replyText)
 		}
-		artID, err := cfg.Store.CreateArtifact(ctx, art)
+		artID, err := cfg.Store.CreateDeliverable(ctx, art)
 		if err != nil {
-			return fmt.Errorf("store artifact: %w", err)
+			return fmt.Errorf("store deliverable: %w", err)
 		}
-		exec.ArtifactID = &artID
+		exec.DeliverableID = &artID
 
 		// Fallback: if agent couldn't curl (network-isolated sandbox),
-		// extract signal from output text and create StepSignal internally.
+		// extract signal from output text and create ActionSignal internally.
 		if hasSignalSkill {
 			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, step, exec, replyText, profile.ID)
 		}
@@ -246,13 +246,13 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 				durationMs = time.Since(*exec.StartedAt).Milliseconds()
 			}
 			var projectID *int64
-			if issue, fErr := cfg.Store.GetIssue(ctx, step.IssueID); fErr == nil && issue.ProjectID != nil {
+			if issue, fErr := cfg.Store.GetWorkItem(ctx, step.WorkItemID); fErr == nil && issue.ProjectID != nil {
 				projectID = issue.ProjectID
 			}
 			usageRec := &core.UsageRecord{
-				ExecutionID:      exec.ID,
-				IssueID:          step.IssueID,
-				StepID:           step.ID,
+				RunID:            exec.ID,
+				WorkItemID:       step.WorkItemID,
+				ActionID:         step.ID,
 				ProjectID:        projectID,
 				AgentID:          profile.ID,
 				ProfileID:        profile.ID,
@@ -284,8 +284,8 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 
 // resolveStepAgent resolves the agent profile and driver for a step.
 // It first checks step.Config["profile_id"] for an explicit profile assignment,
-// then falls back to ResolveForStep (role + capabilities matching).
-func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Step) (*core.AgentProfile, *core.AgentDriver, error) {
+// then falls back to ResolveForAction (role + capabilities matching).
+func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
 	if pid, ok := step.Config["profile_id"].(string); ok && pid != "" {
 		p, d, err := registry.ResolveByID(ctx, pid)
 		if err == nil {
@@ -294,15 +294,15 @@ func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *co
 		slog.Warn("resolve agent: explicit profile_id not found, falling back",
 			"profile_id", pid, "step_id", step.ID, "error", err)
 	}
-	return registry.ResolveForStep(ctx, step)
+	return registry.ResolveForAction(ctx, step)
 }
 
-func buildStepMCPFactory(step *core.Step, profileID string, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
+func buildStepMCPFactory(step *core.Action, profileID string, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
 	if resolver == nil || step == nil {
 		return nil
 	}
 	// MCP tools should only be exposed while executing concrete steps.
-	if step.Type != core.StepExec && step.Type != core.StepGate {
+	if step.Type != core.ActionExec && step.Type != core.ActionGate {
 		return nil
 	}
 	return func(agentSupportsSSE bool) []acpproto.McpServer {
@@ -314,7 +314,7 @@ func buildStepMCPFactory(step *core.Step, profileID string, execID int64, resolv
 		// Inject step context env vars into internal stdio MCP servers (mcp-serve).
 		stepEnv := []acpproto.EnvVariable{
 			{Name: "AI_WORKFLOW_STEP_ID", Value: fmt.Sprintf("%d", step.ID)},
-			{Name: "AI_WORKFLOW_ISSUE_ID", Value: fmt.Sprintf("%d", step.IssueID)},
+			{Name: "AI_WORKFLOW_ISSUE_ID", Value: fmt.Sprintf("%d", step.WorkItemID)},
 			{Name: "AI_WORKFLOW_STEP_TYPE", Value: string(step.Type)},
 			{Name: "AI_WORKFLOW_EXEC_ID", Value: fmt.Sprintf("%d", execID)},
 		}
@@ -431,11 +431,11 @@ func decisionToSignalType(decision string) (core.SignalType, bool) {
 
 // tryFallbackSignal checks whether a terminal signal was already received via HTTP.
 // If not, it parses the agent output for an AI_WORKFLOW_SIGNAL line and creates the
-// StepSignal internally. This covers network-isolated environments where the agent
+// ActionSignal internally. This covers network-isolated environments where the agent
 // cannot curl the decision endpoint.
-func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, step *core.Step, exec *core.Execution, replyText, profileID string) {
+func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, exec *core.Run, replyText, profileID string) {
 	// Check if a terminal signal was already received via HTTP curl.
-	existing, _ := store.GetLatestStepSignal(ctx, step.ID,
+	existing, _ := store.GetLatestActionSignal(ctx, step.ID,
 		core.SignalComplete, core.SignalNeedHelp, core.SignalApprove, core.SignalReject)
 	if existing != nil {
 		return // signal already received via HTTP
@@ -451,17 +451,17 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 		return
 	}
 
-	sig := &core.StepSignal{
-		StepID:  step.ID,
-		IssueID: step.IssueID,
-		ExecID:  exec.ID,
+	sig := &core.ActionSignal{
+		ActionID:   step.ID,
+		WorkItemID: step.WorkItemID,
+		RunID:      exec.ID,
 		Type:    sigType,
 		Source:  core.SignalSourceAgent,
 		Summary: parsed.Reason,
 		Payload: map[string]any{"reason": parsed.Reason, "source": "output_fallback"},
 		Actor:   fmt.Sprintf("agent/%s", profileID),
 	}
-	sigID, err := store.CreateStepSignal(ctx, sig)
+	sigID, err := store.CreateActionSignal(ctx, sig)
 	if err != nil {
 		slog.Warn("step-signal: failed to create fallback signal",
 			"step_id", step.ID, "decision", parsed.Decision, "error", err)
@@ -469,10 +469,10 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 	}
 
 	bus.Publish(ctx, core.Event{
-		Type:      core.EventStepSignal,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
+		Type:       core.EventActionSignal,
+		WorkItemID: step.WorkItemID,
+		ActionID:   step.ID,
+		Timestamp:  time.Now().UTC(),
 		Data: map[string]any{
 			"signal_id": sigID,
 			"type":      string(sigType),
@@ -486,7 +486,7 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.
-func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Step) map[string]any {
+func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Action) map[string]any {
 	rec := map[string]any{
 		"prompt":   prompt,
 		"work_dir": workDir,

@@ -29,8 +29,8 @@ type GeneratedStep = planningapp.GeneratedStep
 
 type GeneratedDAG = planningapp.GeneratedDAG
 
-func ValidateDAG(steps []*core.Step) error {
-	return flowapp.ValidateSteps(steps)
+func ValidateDAG(steps []*core.Action) error {
+	return flowapp.ValidateActions(steps)
 }
 
 // Generate calls the LLM to decompose a task description into a DAG of Steps.
@@ -83,7 +83,7 @@ func (g *DAGGenerator) Generate(ctx context.Context, taskDescription string) (*G
 
 // Materialize creates Steps in the store for a given issue from a GeneratedDAG.
 // Returns the created Step slice with IDs populated.
-func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Step, error) {
+func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Action, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("dag_gen: generated dag is nil")
 	}
@@ -91,27 +91,27 @@ func (g *DAGGenerator) Materialize(ctx context.Context, store core.Store, issueI
 		return nil, fmt.Errorf("dag_gen: %w", err)
 	}
 
-	var created []*core.Step
+	var created []*core.Action
 
 	for i, gs := range dag.Steps {
-		stepType := core.StepType(gs.Type)
+		stepType := core.ActionType(gs.Type)
 		if stepType == "" {
-			stepType = core.StepExec
+			stepType = core.ActionExec
 		}
 
-		step := &core.Step{
-			IssueID:              issueID,
+		step := &core.Action{
+			WorkItemID:           issueID,
 			Name:                 gs.Name,
 			Description:          gs.Description,
 			Type:                 stepType,
-			Status:               core.StepPending,
+			Status:               core.ActionPending,
 			Position:             i,
 			AgentRole:            gs.AgentRole,
 			RequiredCapabilities: gs.RequiredCapabilities,
 			AcceptanceCriteria:   gs.AcceptanceCriteria,
 		}
 
-		id, err := store.CreateStep(ctx, step)
+		id, err := store.CreateAction(ctx, step)
 		if err != nil {
 			return nil, fmt.Errorf("dag_gen: create step %q: %w", gs.Name, err)
 		}

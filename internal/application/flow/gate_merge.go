@@ -16,14 +16,14 @@ import (
 )
 
 // mergePRIfConfigured attempts to merge the associated PR/MR when merge_on_pass is enabled.
-func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) error {
+func (e *WorkItemEngine) mergePRIfConfigured(ctx context.Context, action *core.Action) error {
 	mergeOnPass := false
 	mergeMethod := "squash"
-	if step.Config != nil {
-		if v, ok := step.Config["merge_on_pass"].(bool); ok {
+	if action.Config != nil {
+		if v, ok := action.Config["merge_on_pass"].(bool); ok {
 			mergeOnPass = v
 		}
-		if v, ok := step.Config["merge_method"].(string); ok && strings.TrimSpace(v) != "" {
+		if v, ok := action.Config["merge_method"].(string); ok && strings.TrimSpace(v) != "" {
 			mergeMethod = strings.TrimSpace(v)
 		}
 	}
@@ -31,7 +31,7 @@ func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) 
 		return nil
 	}
 
-	prNumber, err := e.resolvePRNumber(ctx, step)
+	prNumber, err := e.resolvePRNumber(ctx, action)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) 
 			}
 		}
 	}
-	if step.Config != nil {
+	if action.Config != nil {
 		for _, key := range []string{
 			"organization_id",
 			"repository_id",
@@ -88,7 +88,7 @@ func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) 
 			"target_project_id",
 			"remove_source_branch",
 		} {
-			if value, exists := step.Config[key]; exists {
+			if value, exists := action.Config[key]; exists {
 				extra[key] = value
 			}
 		}
@@ -96,30 +96,30 @@ func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) 
 
 	return provider.Merge(ctx, repo, prNumber, MergeInput{
 		Method:        mergeMethod,
-		CommitTitle:   fmt.Sprintf("merge: issue %d", step.IssueID),
-		CommitMessage: fmt.Sprintf("merged by ai-workflow gate step %d", step.ID),
+		CommitTitle:   fmt.Sprintf("merge: work item %d", action.WorkItemID),
+		CommitMessage: fmt.Sprintf("merged by ai-workflow gate action %d", action.ID),
 		Extra:         extra,
 	})
 }
 
-// resolvePRNumber finds the PR number from gate artifact or predecessor artifacts.
-func (e *IssueEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int, error) {
-	// Prefer gate artifact metadata.
-	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
-	if err == nil && art != nil && art.Metadata != nil {
-		if n, ok := toInt64(art.Metadata["pr_number"]); ok && n > 0 {
+// resolvePRNumber finds the PR number from gate deliverable or predecessor deliverables.
+func (e *WorkItemEngine) resolvePRNumber(ctx context.Context, action *core.Action) (int, error) {
+	// Prefer gate deliverable metadata.
+	deliverable, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	if err == nil && deliverable != nil && deliverable.Metadata != nil {
+		if n, ok := toInt64(deliverable.Metadata["pr_number"]); ok && n > 0 {
 			return int(n), nil
 		}
 	}
 
-	// Fallback: scan predecessor artifacts.
-	predecessors := e.predecessorIDs(ctx, step)
+	// Fallback: scan predecessor deliverables.
+	predecessors := e.predecessorIDs(ctx, action)
 	for _, id := range predecessors {
-		a, err := e.store.GetLatestArtifactByStep(ctx, id)
-		if err != nil || a == nil || a.Metadata == nil {
+		d, err := e.store.GetLatestDeliverableByAction(ctx, id)
+		if err != nil || d == nil || d.Metadata == nil {
 			continue
 		}
-		if n, ok := toInt64(a.Metadata["pr_number"]); ok && n > 0 {
+		if n, ok := toInt64(d.Metadata["pr_number"]); ok && n > 0 {
 			return int(n), nil
 		}
 	}
@@ -129,8 +129,8 @@ func (e *IssueEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int
 // handleMergeConflictBlock detects merge conflicts (dirty) and immediately blocks
 // the gate for human resolution instead of entering a rework cycle.
 // Returns true if the error was a merge conflict that was handled.
-func (e *IssueEngine) handleMergeConflictBlock(ctx context.Context, step *core.Step, err error) bool {
-	reason, metadata := e.formatMergeFailureFeedback(step, err)
+func (e *WorkItemEngine) handleMergeConflictBlock(ctx context.Context, action *core.Action, err error) bool {
+	reason, metadata := e.formatMergeFailureFeedback(action, err)
 
 	var mergeErr *MergeError
 	if !errors.As(err, &mergeErr) || mergeErr == nil {
@@ -140,20 +140,20 @@ func (e *IssueEngine) handleMergeConflictBlock(ctx context.Context, step *core.S
 		return false
 	}
 
-	e.recordMergeConflict(ctx, step, reason, metadata)
+	e.recordMergeConflict(ctx, action, reason, metadata)
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventGateAwaitingHuman,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
-		Data:      metadata,
+		Type:       core.EventGateAwaitingHuman,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       metadata,
 	})
-	_ = e.transitionStep(ctx, step, core.StepBlocked)
+	_ = e.transitionAction(ctx, action, core.ActionBlocked)
 	return true
 }
 
 // formatMergeFailureFeedback builds a human-readable reason and metadata map from a merge error.
-func (e *IssueEngine) formatMergeFailureFeedback(step *core.Step, err error) (string, map[string]any) {
+func (e *WorkItemEngine) formatMergeFailureFeedback(action *core.Action, err error) (string, map[string]any) {
 	metadata := map[string]any{
 		"merge_error": err.Error(),
 	}
@@ -234,9 +234,9 @@ func renderMergeReworkFeedbackTemplate(tmplText string, vars mergeReworkTemplate
 	return out
 }
 
-// recordMergeConflict creates a SignalContext on the gate step,
+// recordMergeConflict creates a SignalContext on the gate action,
 // recording merge conflict details as a structured signal.
-func (e *IssueEngine) recordMergeConflict(ctx context.Context, gateStep *core.Step, reason string, metadata map[string]any) {
+func (e *WorkItemEngine) recordMergeConflict(ctx context.Context, gateAction *core.Action, reason string, metadata map[string]any) {
 	var content strings.Builder
 	content.WriteString(reason)
 	if metadata != nil {
@@ -250,19 +250,19 @@ func (e *IssueEngine) recordMergeConflict(ctx context.Context, gateStep *core.St
 		}
 	}
 
-	sig := &core.StepSignal{
-		StepID:    gateStep.ID,
-		IssueID:   gateStep.IssueID,
-		Type:      core.SignalContext,
-		Source:    core.SignalSourceSystem,
-		Summary:   "merge_conflict",
-		Content:   content.String(),
-		Payload:   metadata,
-		Actor:     "system",
-		CreatedAt: time.Now().UTC(),
+	sig := &core.ActionSignal{
+		ActionID:   gateAction.ID,
+		WorkItemID: gateAction.WorkItemID,
+		Type:       core.SignalContext,
+		Source:     core.SignalSourceSystem,
+		Summary:    "merge_conflict",
+		Content:    content.String(),
+		Payload:    metadata,
+		Actor:      "system",
+		CreatedAt:  time.Now().UTC(),
 	}
-	if _, err := e.store.CreateStepSignal(ctx, sig); err != nil {
-		slog.Error("failed to record merge conflict signal", "step_id", gateStep.ID, "error", err)
+	if _, err := e.store.CreateActionSignal(ctx, sig); err != nil {
+		slog.Error("failed to record merge conflict signal", "action_id", gateAction.ID, "error", err)
 	}
 }
 

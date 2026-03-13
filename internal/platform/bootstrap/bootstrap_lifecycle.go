@@ -70,14 +70,14 @@ func startRuntimeWatcher(lifecycle *bootstrapLifecycle, runtimeManager *configru
 func startProbeWatchdog(
 	lifecycle *bootstrapLifecycle,
 	store core.Store,
-	probeSvc *probeapp.ExecutionProbeService,
+	probeSvc *probeapp.RunProbeService,
 	bootstrapCfg *config.Config,
 ) {
 	if bootstrapCfg == nil || !bootstrapCfg.Runtime.ExecutionProbe.Enabled || probeSvc == nil {
 		return
 	}
 
-	probeWatchdog := probeapp.NewExecutionProbeWatchdog(store, probeSvc, probeapp.ExecutionProbeWatchdogConfig{
+	probeWatchdog := probeapp.NewRunProbeWatchdog(store, probeSvc, probeapp.RunProbeWatchdogConfig{
 		Enabled:      bootstrapCfg.Runtime.ExecutionProbe.Enabled,
 		Interval:     bootstrapCfg.Runtime.ExecutionProbe.Interval.Duration,
 		ProbeAfter:   bootstrapCfg.Runtime.ExecutionProbe.After.Duration,
@@ -94,7 +94,7 @@ func startCronTrigger(
 	lifecycle *bootstrapLifecycle,
 	store core.Store,
 	bus core.EventBus,
-	scheduler *flowapp.FlowScheduler,
+	scheduler *flowapp.WorkItemScheduler,
 	bootstrapCfg *config.Config,
 ) {
 	if bootstrapCfg == nil || !bootstrapCfg.Runtime.Cron.Enabled {

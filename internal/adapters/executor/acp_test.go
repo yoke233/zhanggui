@@ -13,10 +13,10 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestBuildExecutionInputFromBriefing(t *testing.T) {
+func TestBuildRunInputFromSnapshot(t *testing.T) {
 	t.Run("basic execution input", func(t *testing.T) {
-		step := &core.Step{Name: "implement auth"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step, false)
+		step := &core.Action{Name: "implement auth"}
+		executionInput := flowapp.BuildRunInputFromSnapshot("Implement JWT authentication", step, false)
 		if !strings.Contains(executionInput, "# Task") {
 			t.Error("execution input should start with # Task header")
 		}
@@ -26,14 +26,14 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 	})
 
 	t.Run("with acceptance criteria", func(t *testing.T) {
-		step := &core.Step{
+		step := &core.Action{
 			Name: "implement auth",
 			AcceptanceCriteria: []string{
 				"All tests pass",
 				"No security vulnerabilities",
 			},
 		}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step, false)
+		executionInput := flowapp.BuildRunInputFromSnapshot("Implement JWT authentication", step, false)
 		if !strings.Contains(executionInput, "# Acceptance Criteria") {
 			t.Error("execution input should contain acceptance criteria header")
 		}
@@ -46,16 +46,16 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 	})
 
 	t.Run("empty acceptance criteria", func(t *testing.T) {
-		step := &core.Step{Name: "simple task"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, false)
+		step := &core.Action{Name: "simple task"}
+		executionInput := flowapp.BuildRunInputFromSnapshot("Do something", step, false)
 		if strings.Contains(executionInput, "Acceptance Criteria") {
 			t.Error("execution input should not contain acceptance criteria when empty")
 		}
 	})
 
 	t.Run("with step context", func(t *testing.T) {
-		step := &core.Step{Name: "implement"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, true)
+		step := &core.Action{Name: "implement"}
+		executionInput := flowapp.BuildRunInputFromSnapshot("Do something", step, true)
 		if !strings.Contains(executionInput, "# Reference Materials") {
 			t.Error("execution input should contain Reference Materials header when hasStepContext=true")
 		}
@@ -65,8 +65,8 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 	})
 
 	t.Run("without step context", func(t *testing.T) {
-		step := &core.Step{Name: "implement"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, false)
+		step := &core.Action{Name: "implement"}
+		executionInput := flowapp.BuildRunInputFromSnapshot("Do something", step, false)
 		if strings.Contains(executionInput, "Reference Materials") {
 			t.Error("execution input should not contain Reference Materials when hasStepContext=false")
 		}
@@ -75,8 +75,8 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 
 func TestEventBridge_ChunkAggregation(t *testing.T) {
 	bus := NewMemBus()
-	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		IssueID: 1, StepID: 2, ExecID: 3,
+	bridge := eventbridge.New(bus, core.EventRunAgentOutput, eventbridge.Scope{
+		WorkItemID: 1, ActionID: 2, RunID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -126,8 +126,8 @@ check:
 
 func TestEventBridge_TypeSwitchFlushes(t *testing.T) {
 	bus := NewMemBus()
-	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		IssueID: 1, StepID: 2, ExecID: 3,
+	bridge := eventbridge.New(bus, core.EventRunAgentOutput, eventbridge.Scope{
+		WorkItemID: 1, ActionID: 2, RunID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -180,8 +180,8 @@ check:
 
 func TestEventBridge_ToolCall(t *testing.T) {
 	bus := NewMemBus()
-	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{
-		IssueID: 1, StepID: 2, ExecID: 3,
+	bridge := eventbridge.New(bus, core.EventRunAgentOutput, eventbridge.Scope{
+		WorkItemID: 1, ActionID: 2, RunID: 3,
 	})
 
 	sub := bus.Subscribe(core.SubscribeOpts{BufferSize: 64})
@@ -229,7 +229,7 @@ func TestEventBridge_SessionID(t *testing.T) {
 
 func TestEventBridge_LastActivity(t *testing.T) {
 	bus := NewMemBus()
-	bridge := eventbridge.New(bus, core.EventExecAgentOutput, eventbridge.Scope{})
+	bridge := eventbridge.New(bus, core.EventRunAgentOutput, eventbridge.Scope{})
 
 	before := bridge.LastActivity()
 	time.Sleep(5 * time.Millisecond)
@@ -250,16 +250,16 @@ func TestIsTransientAgentEvent(t *testing.T) {
 		subType   string
 		want      bool
 	}{
-		{core.EventExecAgentOutput, "agent_message_chunk", true},
-		{core.EventExecAgentOutput, "agent_thought_chunk", true},
-		{core.EventExecAgentOutput, "user_message_chunk", true},
-		{core.EventExecAgentOutput, "agent_message", false},
-		{core.EventExecAgentOutput, "agent_thought", false},
-		{core.EventExecAgentOutput, "tool_call", false},
-		{core.EventExecAgentOutput, "done", false},
+		{core.EventRunAgentOutput, "agent_message_chunk", true},
+		{core.EventRunAgentOutput, "agent_thought_chunk", true},
+		{core.EventRunAgentOutput, "user_message_chunk", true},
+		{core.EventRunAgentOutput, "agent_message", false},
+		{core.EventRunAgentOutput, "agent_thought", false},
+		{core.EventRunAgentOutput, "tool_call", false},
+		{core.EventRunAgentOutput, "done", false},
 		{core.EventChatOutput, "agent_message_chunk", true},
 		{core.EventChatOutput, "agent_message", false},
-		{core.EventIssueStarted, "agent_message_chunk", false}, // wrong event type
+		{core.EventWorkItemStarted, "agent_message_chunk", false}, // wrong event type
 	}
 	for _, tt := range tests {
 		ev := core.Event{
@@ -282,21 +282,21 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	}
 
 	t.Run("nil resolver returns nil", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", 0, nil)
+		factory := buildStepMCPFactory(&core.Action{Type: core.ActionExec}, "worker", 0, nil)
 		if factory != nil {
 			t.Fatal("expected nil factory")
 		}
 	})
 
 	t.Run("composite step does not inject", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepComposite}, "worker", 1, resolver)
+		factory := buildStepMCPFactory(&core.Action{Type: core.ActionPlan}, "worker", 1, resolver)
 		if factory != nil {
 			t.Fatal("expected nil factory for composite step")
 		}
 	})
 
 	t.Run("exec step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", 1, resolver)
+		factory := buildStepMCPFactory(&core.Action{Type: core.ActionExec}, "worker", 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for exec step")
 		}
@@ -307,7 +307,7 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	})
 
 	t.Run("gate step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepGate}, "worker", 1, resolver)
+		factory := buildStepMCPFactory(&core.Action{Type: core.ActionGate}, "worker", 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for gate step")
 		}

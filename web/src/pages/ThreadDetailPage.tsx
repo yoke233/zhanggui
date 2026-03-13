@@ -58,7 +58,7 @@ export function ThreadDetailPage() {
           // Fetch issue details for each link.
           const issueMap: Record<number, Issue> = {};
           const issueResults = await Promise.allSettled(
-            links.map((l) => apiClient.getIssue(l.work_item_id)),
+            links.map((l) => apiClient.getWorkItem(l.work_item_id)),
           );
           issueResults.forEach((r, i) => {
             if (r.status === "fulfilled") issueMap[links[i].work_item_id] = r.value;
@@ -114,7 +114,7 @@ export function ThreadDetailPage() {
       const links = await apiClient.listWorkItemsByThread(id);
       setWorkItemLinks(links);
       try {
-        const issue = await apiClient.getIssue(wiId);
+        const issue = await apiClient.getWorkItem(wiId);
         setLinkedIssues((prev) => ({ ...prev, [wiId]: issue }));
       } catch { /* ignore if issue fetch fails */ }
       setLinkWIId("");

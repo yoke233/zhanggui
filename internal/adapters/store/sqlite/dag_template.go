@@ -34,8 +34,8 @@ func (s *Store) GetDAGTemplate(ctx context.Context, id int64) (*core.DAGTemplate
 		return nil, fmt.Errorf("get dag_template %d: %w", id, err)
 	}
 	t := model.toCore()
-	if t.Steps == nil {
-		t.Steps = []core.DAGTemplateStep{}
+	if t.Actions == nil {
+		t.Actions = []core.DAGTemplateAction{}
 	}
 	return t, nil
 }
@@ -66,8 +66,8 @@ func (s *Store) ListDAGTemplates(ctx context.Context, filter core.DAGTemplateFil
 	out := make([]*core.DAGTemplate, 0, len(models))
 	for i := range models {
 		item := models[i].toCore()
-		if item.Steps == nil {
-			item.Steps = []core.DAGTemplateStep{}
+		if item.Actions == nil {
+			item.Actions = []core.DAGTemplateAction{}
 		}
 		out = append(out, item)
 	}

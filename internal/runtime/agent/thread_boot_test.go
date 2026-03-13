@@ -51,8 +51,8 @@ func newParticipant(userID, role string) *core.ThreadParticipant {
 	}
 }
 
-func newIssue(id int64, title string, status core.IssueStatus) *core.Issue {
-	return &core.Issue{
+func newWorkItem(id int64, title string, status core.WorkItemStatus) *core.WorkItem {
+	return &core.WorkItem{
 		ID:       id,
 		Title:    title,
 		Status:   status,
@@ -72,8 +72,8 @@ func TestBuildBootPrompt_FullContext(t *testing.T) {
 			newParticipant("alice", "owner"),
 			newParticipant("agent-worker-1", "agent"),
 		},
-		WorkItems: []*core.Issue{
-			newIssue(42, "Implement GET /users endpoint", core.IssueOpen),
+		WorkItems: []*core.WorkItem{
+			newWorkItem(42, "Implement GET /users endpoint", core.WorkItemOpen),
 		},
 		AgentProfile: profile,
 		PriorSummary: "Previous session reviewed auth middleware.",
@@ -147,7 +147,7 @@ func TestBuildBootPrompt_NoWorkItems(t *testing.T) {
 	out2 := BuildBootPrompt(ThreadBootInput{
 		Thread:       newThread("Quick chat", core.ThreadActive),
 		AgentProfile: newProfile("agent-1", core.RoleWorker),
-		WorkItems:    []*core.Issue{},
+		WorkItems:    []*core.WorkItem{},
 	})
 
 	if strings.Contains(out2, "Linked Work Items") {

@@ -91,7 +91,7 @@ export function AnalyticsPage() {
           project_id: selectedProjectId ?? undefined,
           since: rangeDays > 0 ? new Date(Date.now() - rangeDays * 86400000).toISOString() : undefined,
         }),
-        apiClient.listCronIssues(),
+        apiClient.listCronWorkItems(),
       ]);
       setData(resp);
       setCronIssues(cronResp);
@@ -118,9 +118,9 @@ export function AnalyticsPage() {
   const handleCronToggle = async (cron: CronStatus) => {
     try {
       if (cron.enabled) {
-        await apiClient.disableIssueCron(cron.issue_id);
+        await apiClient.disableWorkItemCron(cron.work_item_id);
       } else {
-        await apiClient.setupIssueCron(cron.issue_id, {
+        await apiClient.setupWorkItemCron(cron.work_item_id, {
           schedule: cron.schedule ?? "0 * * * *",
           max_instances: cron.max_instances,
         });
@@ -132,7 +132,7 @@ export function AnalyticsPage() {
   };
 
   const handleCronSave = async (issueId: number, schedule: string, maxInstances: number) => {
-    await apiClient.setupIssueCron(issueId, { schedule, max_instances: maxInstances });
+    await apiClient.setupWorkItemCron(issueId, { schedule, max_instances: maxInstances });
     void load();
   };
 
@@ -234,8 +234,8 @@ export function AnalyticsPage() {
                 <>
                   <div className="text-2xl font-bold">{formatDuration(data.duration_stats[0].avg_duration_s)}</div>
                   <p className="text-xs text-muted-foreground">
-                    <Link to={`/issues/${data.duration_stats[0].issue_id}`} className="hover:underline">
-                      {data.duration_stats[0].issue_title}
+                    <Link to={`/work-items/${data.duration_stats[0].work_item_id}`} className="hover:underline">
+                      {data.duration_stats[0].work_item_title}
                     </Link>
                     {" / "}{t("analytics.max")} {formatDuration(data.duration_stats[0].max_duration_s)}
                   </p>
@@ -256,7 +256,7 @@ export function AnalyticsPage() {
                 <>
                   <div className="text-2xl font-bold">{formatDuration(data.bottlenecks[0].avg_duration_s)}</div>
                   <p className="text-xs text-muted-foreground">
-                    {data.bottlenecks[0].step_name}
+                    {data.bottlenecks[0].action_name}
                     {" / "}{t("analytics.failRate")}{" "}
                     {Math.round(data.bottlenecks[0].fail_rate * 100)}%
                   </p>
@@ -298,10 +298,10 @@ export function AnalyticsPage() {
                   data.project_errors.map((p) => (
                     <TableRow key={p.project_id}>
                       <TableCell className="font-medium">{p.project_name}</TableCell>
-                      <TableCell>{p.total_issues}</TableCell>
-                      <TableCell className={p.failed_issues > 0 ? "text-red-600 font-medium" : ""}>{p.failed_issues}</TableCell>
+                      <TableCell>{p.total_work_items}</TableCell>
+                      <TableCell className={p.failed_work_items > 0 ? "text-red-600 font-medium" : ""}>{p.failed_work_items}</TableCell>
                       <TableCell><PctBar pct={p.failure_rate} color="bg-red-500" /></TableCell>
-                      <TableCell>{p.failed_execs}</TableCell>
+                      <TableCell>{p.failed_runs}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -337,10 +337,10 @@ export function AnalyticsPage() {
                   </TableRow>
                 ) : (
                   data.bottlenecks.slice(0, 10).map((b) => (
-                    <TableRow key={b.step_id}>
-                      <TableCell className="font-medium">{b.step_name}</TableCell>
+                    <TableRow key={b.action_id}>
+                      <TableCell className="font-medium">{b.action_name}</TableCell>
                       <TableCell>
-                        <Link to={`/issues/${b.issue_id}`} className="text-blue-600 hover:underline">{b.issue_title}</Link>
+                        <Link to={`/work-items/${b.work_item_id}`} className="text-blue-600 hover:underline">{b.work_item_title}</Link>
                       </TableCell>
                       <TableCell>{formatDuration(b.avg_duration_s)}</TableCell>
                       <TableCell className="text-muted-foreground">{formatDuration(b.max_duration_s)}</TableCell>
@@ -387,11 +387,11 @@ export function AnalyticsPage() {
                 </TableRow>
               ) : (
                 data.duration_stats.slice(0, 15).map((d) => (
-                  <TableRow key={d.issue_id}>
+                  <TableRow key={d.work_item_id}>
                     <TableCell className="font-medium">
-                      <Link to={`/issues/${d.issue_id}`} className="hover:underline">{d.issue_title}</Link>
+                      <Link to={`/work-items/${d.work_item_id}`} className="hover:underline">{d.work_item_title}</Link>
                     </TableCell>
-                    <TableCell>{d.exec_count}</TableCell>
+                    <TableCell>{d.run_count}</TableCell>
                     <TableCell className="font-medium">{formatDuration(d.avg_duration_s)}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDuration(d.min_duration_s)}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDuration(d.max_duration_s)}</TableCell>
@@ -432,13 +432,13 @@ export function AnalyticsPage() {
                 </TableRow>
               ) : (
                 data.recent_failures.slice(0, 20).map((f) => (
-                  <TableRow key={f.exec_id}>
+                  <TableRow key={f.run_id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{formatRelativeTime(f.failed_at)}</TableCell>
                     <TableCell>{f.project_name || "-"}</TableCell>
                     <TableCell>
-                      <Link to={`/issues/${f.issue_id}`} className="text-blue-600 hover:underline">{f.issue_title}</Link>
+                      <Link to={`/work-items/${f.work_item_id}`} className="text-blue-600 hover:underline">{f.work_item_title}</Link>
                     </TableCell>
-                    <TableCell className="font-medium">{f.step_name}</TableCell>
+                    <TableCell className="font-medium">{f.action_name}</TableCell>
                     <TableCell>
                       <Badge variant={f.error_kind === "permanent" ? "destructive" : "secondary"} className="text-xs">
                         {ERROR_KIND_LABELS[f.error_kind] ?? f.error_kind}

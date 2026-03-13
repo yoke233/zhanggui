@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateIssueAttachment(ctx context.Context, att *core.IssueAttachment) (int64, error) {
+func (s *Store) CreateWorkItemAttachment(ctx context.Context, att *core.WorkItemAttachment) (int64, error) {
 	now := time.Now().UTC()
-	model := issueAttachmentModelFromCore(att)
+	model := workItemAttachmentModelFromCore(att)
 	model.CreatedAt = now
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, fmt.Errorf("insert issue attachment: %w", err)
@@ -21,8 +21,8 @@ func (s *Store) CreateIssueAttachment(ctx context.Context, att *core.IssueAttach
 	return model.ID, nil
 }
 
-func (s *Store) GetIssueAttachment(ctx context.Context, id int64) (*core.IssueAttachment, error) {
-	var model IssueAttachmentModel
+func (s *Store) GetWorkItemAttachment(ctx context.Context, id int64) (*core.WorkItemAttachment, error) {
+	var model WorkItemAttachmentModel
 	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -33,21 +33,21 @@ func (s *Store) GetIssueAttachment(ctx context.Context, id int64) (*core.IssueAt
 	return model.toCore(), nil
 }
 
-func (s *Store) ListIssueAttachments(ctx context.Context, issueID int64) ([]*core.IssueAttachment, error) {
-	var models []IssueAttachmentModel
+func (s *Store) ListWorkItemAttachments(ctx context.Context, issueID int64) ([]*core.WorkItemAttachment, error) {
+	var models []WorkItemAttachmentModel
 	err := s.orm.WithContext(ctx).Where("issue_id = ?", issueID).Order("id ASC").Find(&models).Error
 	if err != nil {
 		return nil, fmt.Errorf("list issue attachments for issue %d: %w", issueID, err)
 	}
-	result := make([]*core.IssueAttachment, len(models))
+	result := make([]*core.WorkItemAttachment, len(models))
 	for i := range models {
 		result[i] = models[i].toCore()
 	}
 	return result, nil
 }
 
-func (s *Store) DeleteIssueAttachment(ctx context.Context, id int64) error {
-	tx := s.orm.WithContext(ctx).Delete(&IssueAttachmentModel{}, id)
+func (s *Store) DeleteWorkItemAttachment(ctx context.Context, id int64) error {
+	tx := s.orm.WithContext(ctx).Delete(&WorkItemAttachmentModel{}, id)
 	if tx.Error != nil {
 		return fmt.Errorf("delete issue attachment %d: %w", id, tx.Error)
 	}

@@ -70,7 +70,7 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Get("/threads/{threadID}/work-items", h.listWorkItemsByThread)
 	r.Delete("/threads/{threadID}/links/work-items/{workItemID}", h.deleteThreadWorkItemLink)
 
-	r.Get("/issues/{issueID}/threads", h.listThreadsByWorkItem)
+	r.Get("/work-items/{issueID}/threads", h.listThreadsByWorkItem)
 }
 
 func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +394,7 @@ func (h *Handler) createThreadWorkItemLink(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Verify work item (issue) exists.
-	if _, err := h.store.GetIssue(r.Context(), req.WorkItemID); err != nil {
+	if _, err := h.store.GetWorkItem(r.Context(), req.WorkItemID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "work item not found", "WORK_ITEM_NOT_FOUND")
 			return
@@ -518,14 +518,14 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Create issue.
-	issue := &core.Issue{
+	issue := &core.WorkItem{
 		Title:     title,
 		Body:      req.Body,
-		Status:    core.IssueOpen,
+		Status:    core.WorkItemOpen,
 		Priority:  core.PriorityMedium,
 		ProjectID: req.ProjectID,
 	}
-	issueID, err := h.store.CreateIssue(r.Context(), issue)
+	issueID, err := h.store.CreateWorkItem(r.Context(), issue)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_ISSUE_FAILED")
 		return

@@ -95,9 +95,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
 	}
-	scope := fmt.Sprintf("issue-%d", in.IssueID)
+	scope := fmt.Sprintf("workitem-%d", in.IssueID)
 	if !in.Reuse {
-		scope = fmt.Sprintf("issue-%d-exec-%d", in.IssueID, in.ExecID)
+		scope = fmt.Sprintf("workitem-%d-run-%d", in.IssueID, in.ExecID)
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile:         in.Profile,
@@ -134,9 +134,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 			Caps:       in.Caps,
 			WorkDir:    in.WorkDir,
 			MCPFactory: in.MCPFactory,
-			IssueID:    in.IssueID,
-			StepID:     in.StepID,
-			ExecID:     in.ExecID,
+			WorkItemID: in.IssueID,
+			ActionID:   in.StepID,
+			RunID:      in.ExecID,
 			IdleTTL:    in.IdleTTL,
 			MaxTurns:   in.MaxTurns,
 		})
@@ -232,7 +232,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 	m.drainWg.Add(1)
 
 	// Execute synchronously.
-	result, err := m.executeExecution(ctx, lh, text, inv)
+	result, err := m.executeRun(ctx, lh, text, inv)
 
 	m.mu.Lock()
 	if err != nil {
@@ -254,7 +254,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 	return invocationID, nil
 }
 
-func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*runtimeapp.ExecutionResult, error) {
+func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*runtimeapp.ExecutionResult, error) {
 	// Capture events for the invocation record.
 	collector := &eventCollector{inv: inv, mu: &m.mu}
 
@@ -284,7 +284,7 @@ func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHan
 			input, output := m.pool.SessionTokenUsage(lh.pooled)
 			slog.Warn("token budget warning: approaching limit",
 				"agent", lh.profile.ID,
-				"issue_id", lh.issueID,
+				"workitem_id", lh.issueID,
 				"input_tokens", input,
 				"output_tokens", output,
 				"limit", lh.profile.Session.MaxContextTokens)
@@ -400,12 +400,12 @@ func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Ti
 	return out, nil
 }
 
-// ProbeExecution sends a side-channel probe to a currently running local execution.
-func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
+// ProbeRun sends a side-channel probe to a currently running local run.
+func (m *LocalSessionManager) ProbeRun(ctx context.Context, req runtimeapp.RunProbeRuntimeRequest) (*runtimeapp.RunProbeRuntimeResult, error) {
 	m.mu.Lock()
 	var handle *localHandle
 	for _, candidate := range m.handles {
-		if candidate.execID == req.ExecutionID {
+		if candidate.execID == req.RunID {
 			handle = candidate
 			break
 		}
@@ -413,7 +413,7 @@ func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req runtimeapp
 	m.mu.Unlock()
 
 	if handle == nil {
-		return &runtimeapp.ExecutionProbeRuntimeResult{
+		return &runtimeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "execution route is not active",
 			ObservedAt: time.Now().UTC(),
@@ -449,10 +449,10 @@ func (m *LocalSessionManager) Release(ctx context.Context, handle *runtimeapp.Se
 	return nil
 }
 
-// CleanupIssue releases all sessions for an issue.
+// CleanupIssue releases all sessions for a work item.
 func (m *LocalSessionManager) CleanupIssue(issueID int64) {
 	if m.pool != nil {
-		m.pool.CleanupIssue(issueID)
+		m.pool.CleanupWorkItem(issueID)
 	}
 }
 

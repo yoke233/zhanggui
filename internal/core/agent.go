@@ -12,21 +12,21 @@ const (
 	RoleSupport AgentRole = "support"
 )
 
-// Action represents an operation an agent can perform.
-type Action string
+// AgentAction represents an operation an agent can perform.
+type AgentAction string
 
 const (
-	ActionReadContext Action = "read_context"
-	ActionSearchFiles Action = "search_files"
-	ActionFSWrite     Action = "fs_write"
-	ActionTerminal    Action = "terminal"
-	ActionSubmit      Action = "submit"
-	ActionMarkBlocked Action = "mark_blocked"
-	ActionRequestHelp Action = "request_help"
-	ActionApprove     Action = "approve"
-	ActionReject      Action = "reject"
-	ActionCreateStep  Action = "create_step"
-	ActionExpandFlow  Action = "expand_flow"
+	AgentActionReadContext AgentAction = "read_context"
+	AgentActionSearchFiles AgentAction = "search_files"
+	AgentActionFSWrite     AgentAction = "fs_write"
+	AgentActionTerminal    AgentAction = "terminal"
+	AgentActionSubmit      AgentAction = "submit"
+	AgentActionMarkBlocked AgentAction = "mark_blocked"
+	AgentActionRequestHelp AgentAction = "request_help"
+	AgentActionApprove     AgentAction = "approve"
+	AgentActionReject      AgentAction = "reject"
+	AgentActionCreateStep  AgentAction = "create_step"
+	AgentActionExpandFlow  AgentAction = "expand_flow"
 )
 
 // AgentProfile defines an agent's identity, role, capabilities, and constraints.
@@ -37,7 +37,7 @@ type AgentProfile struct {
 	DriverID       string    `json:"driver_id"`
 	Role           AgentRole `json:"role"`
 	Capabilities   []string  `json:"capabilities,omitempty"`    // capability tags (backend, qa, review, ...)
-	ActionsAllowed []Action  `json:"actions_allowed,omitempty"` // permitted actions
+	ActionsAllowed []AgentAction `json:"actions_allowed,omitempty"` // permitted actions
 	PromptTemplate string    `json:"prompt_template,omitempty"`
 	Skills         []string  `json:"skills,omitempty"` // skill folder names to enable for this profile
 
@@ -61,16 +61,16 @@ type ProfileMCP struct {
 	Tools   []string `json:"tools,omitempty"`
 }
 
-// DefaultActions returns the default action whitelist for a role.
-func DefaultActions(role AgentRole) []Action {
-	common := []Action{ActionReadContext, ActionSearchFiles, ActionSubmit, ActionMarkBlocked, ActionRequestHelp}
+// DefaultAgentActions returns the default action whitelist for a role.
+func DefaultAgentActions(role AgentRole) []AgentAction {
+	common := []AgentAction{AgentActionReadContext, AgentActionSearchFiles, AgentActionSubmit, AgentActionMarkBlocked, AgentActionRequestHelp}
 	switch role {
 	case RoleLead:
-		return append(common, ActionFSWrite, ActionTerminal, ActionCreateStep, ActionExpandFlow)
+		return append(common, AgentActionFSWrite, AgentActionTerminal, AgentActionCreateStep, AgentActionExpandFlow)
 	case RoleWorker:
-		return append(common, ActionFSWrite, ActionTerminal)
+		return append(common, AgentActionFSWrite, AgentActionTerminal)
 	case RoleGate:
-		return append(common, ActionApprove, ActionReject)
+		return append(common, AgentActionApprove, AgentActionReject)
 	case RoleSupport:
 		return common
 	default:
@@ -78,11 +78,11 @@ func DefaultActions(role AgentRole) []Action {
 	}
 }
 
-// HasAction checks if the profile permits the given action.
-func (p *AgentProfile) HasAction(action Action) bool {
+// HasAgentAction checks if the profile permits the given action.
+func (p *AgentProfile) HasAgentAction(action AgentAction) bool {
 	actions := p.ActionsAllowed
 	if len(actions) == 0 {
-		actions = DefaultActions(p.Role)
+		actions = DefaultAgentActions(p.Role)
 	}
 	for _, a := range actions {
 		if a == action {
@@ -115,23 +115,23 @@ func (p *AgentProfile) MatchesRequirements(required []string) bool {
 // EffectiveCapabilities returns the ACP capabilities derived from the profile's actions.
 func (p *AgentProfile) EffectiveCapabilities() DriverCapabilities {
 	var caps DriverCapabilities
-	for _, a := range p.EffectiveActions() {
+	for _, a := range p.EffectiveAgentActions() {
 		switch a {
-		case ActionReadContext, ActionSearchFiles:
+		case AgentActionReadContext, AgentActionSearchFiles:
 			caps.FSRead = true
-		case ActionFSWrite:
+		case AgentActionFSWrite:
 			caps.FSWrite = true
-		case ActionTerminal:
+		case AgentActionTerminal:
 			caps.Terminal = true
 		}
 	}
 	return caps
 }
 
-// EffectiveActions returns ActionsAllowed if set, otherwise DefaultActions for the role.
-func (p *AgentProfile) EffectiveActions() []Action {
+// EffectiveAgentActions returns ActionsAllowed if set, otherwise DefaultAgentActions for the role.
+func (p *AgentProfile) EffectiveAgentActions() []AgentAction {
 	if len(p.ActionsAllowed) > 0 {
 		return p.ActionsAllowed
 	}
-	return DefaultActions(p.Role)
+	return DefaultAgentActions(p.Role)
 }

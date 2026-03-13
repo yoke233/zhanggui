@@ -7,16 +7,16 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
+func TestBuildRunInputForAction_ReusedSessionUsesFollowupTemplates(t *testing.T) {
 	profile := &core.AgentProfile{
 		ID: "worker",
 		Session: core.ProfileSession{
 			Reuse: true,
 		},
 	}
-	step := &core.Step{
+	action := &core.Action{
 		Name: "implement",
-		Type: core.StepExec,
+		Type: core.ActionExec,
 	}
 
 	reworkTmpl := "REWORK {{.StepName}}: {{.Feedback}}"
@@ -24,7 +24,7 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 
 	// With feedback (pre-resolved), should use rework template.
 	feedback := "please add unit tests"
-	out := BuildExecutionInputForStep(profile, "ignored", step, true, feedback, reworkTmpl, continueTmpl, false)
+	out := BuildRunInputForAction(profile, "ignored", action, true, feedback, reworkTmpl, continueTmpl, false)
 	if !strings.Contains(out, "REWORK implement") {
 		t.Fatalf("expected rework followup template, got: %q", out)
 	}
@@ -33,7 +33,7 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 	}
 
 	// Without feedback, should use continue template (no base snapshot re-send).
-	out2 := BuildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, "", reworkTmpl, continueTmpl, false)
+	out2 := BuildRunInputForAction(profile, "BASE-SNAPSHOT", action, true, "", reworkTmpl, continueTmpl, false)
 	if strings.Contains(out2, "BASE-SNAPSHOT") {
 		t.Fatalf("expected not to include base snapshot when reusing session, got: %q", out2)
 	}
@@ -42,26 +42,26 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 	}
 }
 
-func TestBuildExecutionInputForStep_GateAlwaysFullPrompt(t *testing.T) {
-	step := &core.Step{
+func TestBuildRunInputForAction_GateAlwaysFullPrompt(t *testing.T) {
+	action := &core.Action{
 		Name: "review_merge_gate",
-		Type: core.StepGate,
+		Type: core.ActionGate,
 		AcceptanceCriteria: []string{
 			"must output AI_WORKFLOW_GATE_JSON",
 		},
 	}
 	profile := &core.AgentProfile{Session: core.ProfileSession{Reuse: true}}
-	out := BuildExecutionInputForStep(profile, "SNAP", step, true, "some-feedback", "REWORK", "CONTINUE", false)
+	out := BuildRunInputForAction(profile, "SNAP", action, true, "some-feedback", "REWORK", "CONTINUE", false)
 	if !strings.Contains(out, "SNAP") {
-		t.Fatalf("expected full execution input to include snapshot, got: %q", out)
+		t.Fatalf("expected full run input to include snapshot, got: %q", out)
 	}
 	if !strings.Contains(out, "Acceptance Criteria") {
-		t.Fatalf("expected full execution input to include acceptance criteria, got: %q", out)
+		t.Fatalf("expected full run input to include acceptance criteria, got: %q", out)
 	}
 }
 
 func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {
-	reason, metadata := (&IssueEngine{}).formatMergeFailureFeedback(&core.Step{ID: 1, Name: "review_merge_gate"}, &MergeError{
+	reason, metadata := (&WorkItemEngine{}).formatMergeFailureFeedback(&core.Action{ID: 1, Name: "review_merge_gate"}, &MergeError{
 		Provider:       "github",
 		Number:         12,
 		URL:            "https://github.com/acme/repo/pull/12",
@@ -84,7 +84,7 @@ func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {
 }
 
 func TestFormatMergeFailureFeedback_UsesConfiguredTemplate(t *testing.T) {
-	eng := &IssueEngine{
+	eng := &WorkItemEngine{
 		prPrompts: func() PRFlowPrompts {
 			return PRFlowPrompts{
 				Global: PRProviderPrompts{
@@ -93,7 +93,7 @@ func TestFormatMergeFailureFeedback_UsesConfiguredTemplate(t *testing.T) {
 			}
 		},
 	}
-	reason, _ := eng.formatMergeFailureFeedback(&core.Step{ID: 1}, &MergeError{
+	reason, _ := eng.formatMergeFailureFeedback(&core.Action{ID: 1}, &MergeError{
 		Provider:       "github",
 		Number:         7,
 		MergeableState: "dirty",

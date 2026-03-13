@@ -16,7 +16,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-type bootstrapPRIssueRequest struct {
+type bootstrapPRWorkItemRequest struct {
 	BaseBranch *string `json:"base_branch,omitempty"`
 	Title      *string `json:"title,omitempty"`
 	Body       *string `json:"body,omitempty"`
@@ -32,7 +32,7 @@ type scmBindingInfo struct {
 	RemoteRepo    string
 }
 
-type bootstrapPRIssueResponse struct {
+type bootstrapPRWorkItemResponse struct {
 	IssueID      int64 `json:"issue_id"`
 	ImplementID  int64 `json:"implement_step_id"`
 	CommitPushID int64 `json:"commit_push_step_id"`
@@ -47,20 +47,20 @@ var (
 	errBootstrapPRIssueHasSteps         = errors.New("issue already has steps")
 )
 
-// bootstrapPRIssue creates a standard PR automation pipeline for an issue:
+// bootstrapPRWorkItem creates a standard PR automation pipeline for an issue:
 // implement(exec) → commit_push(exec,builtin) → open_pr(exec,builtin) → review_merge_gate(gate).
 //
 // Requirements:
 // - Issue must belong to a project
 // - Project must have an enabled supported SCM git resource binding (GitHub / Codeup)
-func (h *Handler) bootstrapPRIssue(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) bootstrapPRWorkItem(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	var req bootstrapPRIssueRequest
+	var req bootstrapPRWorkItemRequest
 	var err error
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != context.Canceled {
 		// Allow empty body.
@@ -70,7 +70,7 @@ func (h *Handler) bootstrapPRIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := h.bootstrapPRIssueForIssue(r.Context(), issueID, req)
+	resp, err := h.bootstrapPRWorkItemForIssue(r.Context(), issueID, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding):
@@ -87,34 +87,34 @@ func (h *Handler) bootstrapPRIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, req bootstrapPRIssueRequest) (bootstrapPRIssueResponse, error) {
-	issue, err := h.store.GetIssue(ctx, issueID)
+func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64, req bootstrapPRWorkItemRequest) (bootstrapPRWorkItemResponse, error) {
+	issue, err := h.store.GetWorkItem(ctx, issueID)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRWorkItemResponse{}, err
 	}
 	if issue.ProjectID == nil {
-		return bootstrapPRIssueResponse{}, errBootstrapPRIssueMissingProject
+		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueMissingProject
 	}
 
 	bindings, err := h.store.ListResourceBindings(ctx, *issue.ProjectID)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRWorkItemResponse{}, err
 	}
 	bindings, err = bindingsForIssue(issue, bindings)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRWorkItemResponse{}, err
 	}
 	bindingInfo, ok := resolveEnabledSCMRepoFromBindings(ctx, bindings)
 	if !ok {
-		return bootstrapPRIssueResponse{}, errBootstrapPRIssueMissingBinding
+		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueMissingBinding
 	}
 
-	steps, err := h.store.ListStepsByIssue(ctx, issueID)
+	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRWorkItemResponse{}, err
 	}
 	if len(steps) > 0 {
-		return bootstrapPRIssueResponse{}, errBootstrapPRIssueHasSteps
+		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueHasSteps
 	}
 
 	baseBranch := bindingInfo.DefaultBranch
@@ -136,11 +136,11 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 	gateObjective := providerPrompts.GateObjective
 	commitMessage := defaultPRCommitMessage(issueID)
 
-	implement := &core.Step{
-		IssueID:    issueID,
+	implement := &core.Action{
+		WorkItemID:    issueID,
 		Name:       "implement",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   0,
 		AgentRole:  "worker",
 		Timeout:    15 * time.Minute,
@@ -152,24 +152,24 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 	createdStepIDs := make([]int64, 0, 4)
 	rollbackCreatedSteps := func(cause error) error {
 		for i := len(createdStepIDs) - 1; i >= 0; i-- {
-			if delErr := h.store.DeleteStep(ctx, createdStepIDs[i]); delErr != nil && !errors.Is(delErr, core.ErrNotFound) {
+			if delErr := h.store.DeleteAction(ctx, createdStepIDs[i]); delErr != nil && !errors.Is(delErr, core.ErrNotFound) {
 				return fmt.Errorf("%w; rollback delete step %d: %v", cause, createdStepIDs[i], delErr)
 			}
 		}
 		return cause
 	}
 
-	implementID, err := h.store.CreateStep(ctx, implement)
+	implementID, err := h.store.CreateAction(ctx, implement)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRWorkItemResponse{}, err
 	}
 	createdStepIDs = append(createdStepIDs, implementID)
 
-	commitPush := &core.Step{
-		IssueID:    issueID,
+	commitPush := &core.Action{
+		WorkItemID:    issueID,
 		Name:       "commit_push",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   1,
 		AgentRole:  "worker",
 		Timeout:    5 * time.Minute,
@@ -179,17 +179,17 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"commit_message": commitMessage,
 		},
 	}
-	commitPushID, err := h.store.CreateStep(ctx, commitPush)
+	commitPushID, err := h.store.CreateAction(ctx, commitPush)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
+		return bootstrapPRWorkItemResponse{}, rollbackCreatedSteps(err)
 	}
 	createdStepIDs = append(createdStepIDs, commitPushID)
 
-	openPR := &core.Step{
-		IssueID:    issueID,
+	openPR := &core.Action{
+		WorkItemID:    issueID,
 		Name:       "open_pr",
-		Type:       core.StepExec,
-		Status:     core.StepPending,
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
 		Position:   2,
 		AgentRole:  "worker",
 		Timeout:    5 * time.Minute,
@@ -201,17 +201,17 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"body":    body,
 		},
 	}
-	openPRID, err := h.store.CreateStep(ctx, openPR)
+	openPRID, err := h.store.CreateAction(ctx, openPR)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
+		return bootstrapPRWorkItemResponse{}, rollbackCreatedSteps(err)
 	}
 	createdStepIDs = append(createdStepIDs, openPRID)
 
-	gate := &core.Step{
-		IssueID:    issueID,
+	gate := &core.Action{
+		WorkItemID:    issueID,
 		Name:       "review_merge_gate",
-		Type:       core.StepGate,
-		Status:     core.StepPending,
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
 		Position:   3,
 		AgentRole:  "gate",
 		Timeout:    10 * time.Minute,
@@ -227,12 +227,12 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"objective":              gateObjective,
 		},
 	}
-	gateID, err := h.store.CreateStep(ctx, gate)
+	gateID, err := h.store.CreateAction(ctx, gate)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
+		return bootstrapPRWorkItemResponse{}, rollbackCreatedSteps(err)
 	}
 
-	return bootstrapPRIssueResponse{
+	return bootstrapPRWorkItemResponse{
 		IssueID:      issueID,
 		ImplementID:  implementID,
 		CommitPushID: commitPushID,
@@ -295,7 +295,7 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 	return candidates[0], true
 }
 
-func bindingsForIssue(issue *core.Issue, bindings []*core.ResourceBinding) ([]*core.ResourceBinding, error) {
+func bindingsForIssue(issue *core.WorkItem, bindings []*core.ResourceBinding) ([]*core.ResourceBinding, error) {
 	if issue == nil {
 		return nil, errBootstrapPRIssueMissingProject
 	}

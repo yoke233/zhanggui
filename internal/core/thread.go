@@ -55,7 +55,7 @@ type ThreadParticipant struct {
 	JoinedAt time.Time `json:"joined_at"`
 }
 
-// ThreadWorkItemLink represents an explicit link between a Thread and a WorkItem (Issue).
+// ThreadWorkItemLink represents an explicit link between a Thread and a WorkItem.
 type ThreadWorkItemLink struct {
 	ID           int64     `json:"id"`
 	ThreadID     int64     `json:"thread_id"`

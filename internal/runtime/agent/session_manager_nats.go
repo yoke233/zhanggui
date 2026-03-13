@@ -243,8 +243,8 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	m.activeCount.Add(1)
 	m.drainWg.Add(1)
 
-	slog.Info("nats session manager: execution dispatched",
-		"exec_id", msg.ExecID, "agent", agentType, "issue_id", msg.IssueID)
+	slog.Info("nats session manager: run dispatched",
+		"run_id", msg.ExecID, "agent", agentType, "workitem_id", msg.IssueID)
 
 	return invocationID, nil
 }
@@ -361,10 +361,10 @@ func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.T
 	return nil, nil
 }
 
-// ProbeExecution routes a probe request to the owning remote worker over NATS request-reply.
-func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.ExecutionProbeRuntimeRequest) (*runtimeapp.ExecutionProbeRuntimeResult, error) {
+// ProbeRun routes a probe request to the owning remote worker over NATS request-reply.
+func (m *NATSSessionManager) ProbeRun(ctx context.Context, req runtimeapp.RunProbeRuntimeRequest) (*runtimeapp.RunProbeRuntimeResult, error) {
 	if strings.TrimSpace(req.OwnerID) == "" {
-		return &runtimeapp.ExecutionProbeRuntimeResult{
+		return &runtimeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      "missing execution owner",
 			ObservedAt: time.Now().UTC(),
@@ -372,7 +372,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.
 	}
 
 	payload, err := json.Marshal(natsprobe.Request{
-		ExecutionID:  req.ExecutionID,
+		ExecutionID:  req.RunID,
 		SessionID:    req.SessionID,
 		InvocationID: req.InvocationID,
 		Question:     req.Question,
@@ -392,7 +392,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.
 
 	msg, err := m.nc.RequestWithContext(replyCtx, subject, payload)
 	if err != nil {
-		return &runtimeapp.ExecutionProbeRuntimeResult{
+		return &runtimeapp.RunProbeRuntimeResult{
 			Reachable:  false,
 			Error:      fmt.Sprintf("probe owner unreachable: %v", err),
 			ObservedAt: time.Now().UTC(),
@@ -404,7 +404,7 @@ func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req runtimeapp.
 		return nil, fmt.Errorf("unmarshal probe response: %w", err)
 	}
 
-	return &runtimeapp.ExecutionProbeRuntimeResult{
+	return &runtimeapp.RunProbeRuntimeResult{
 		Reachable:  res.Reachable,
 		Answered:   res.Answered,
 		ReplyText:  res.ReplyText,

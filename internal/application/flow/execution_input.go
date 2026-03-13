@@ -9,22 +9,22 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// BuildExecutionInputFromBriefing constructs the execution input sent to an agent.
-func BuildExecutionInputFromBriefing(snapshot string, step *core.Step, hasStepContext bool) string {
+// BuildRunInputFromSnapshot constructs the run input sent to an agent.
+func BuildRunInputFromSnapshot(snapshot string, action *core.Action, hasActionContext bool) string {
 	var sb strings.Builder
 	sb.WriteString("# Task\n\n")
 	sb.WriteString(snapshot)
 
-	if hasStepContext {
+	if hasActionContext {
 		sb.WriteString("\n\n# Reference Materials\n\n")
-		sb.WriteString("> Full details (issue body, upstream outputs, feature manifest) are pre-loaded\n")
+		sb.WriteString("> Full details (work item body, upstream outputs, feature manifest) are pre-loaded\n")
 		sb.WriteString("> in `skills/step-context/`. Read the `SKILL.md` there for an index of\n")
 		sb.WriteString("> available files. Read individual files on demand — do not load everything.\n")
 	}
 
-	if step != nil && len(step.AcceptanceCriteria) > 0 {
+	if action != nil && len(action.AcceptanceCriteria) > 0 {
 		sb.WriteString("\n\n# Acceptance Criteria\n\n")
-		for _, c := range step.AcceptanceCriteria {
+		for _, c := range action.AcceptanceCriteria {
 			sb.WriteString("- ")
 			sb.WriteString(c)
 			sb.WriteString("\n")
@@ -34,43 +34,43 @@ func BuildExecutionInputFromBriefing(snapshot string, step *core.Step, hasStepCo
 	return sb.String()
 }
 
-// BuildExecutionInputForStep chooses between a full prompt and a follow-up prompt
+// BuildRunInputForAction chooses between a full prompt and a follow-up prompt
 // depending on session reuse state and prior gate feedback.
 // The feedback parameter is pre-resolved by the caller (via ResolveLatestFeedback).
-// When hasStepContext is true, a "Reference Materials" section is appended directing
+// When hasActionContext is true, a "Reference Materials" section is appended directing
 // the agent to read pre-loaded files from skills/step-context/.
-func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string, hasStepContext bool) string {
-	// Gate steps must always receive the full prompt to keep output deterministic.
-	if step != nil && step.Type == core.StepGate {
-		return BuildExecutionInputFromBriefing(snapshot, step, hasStepContext)
+func BuildRunInputForAction(profile *core.AgentProfile, snapshot string, action *core.Action, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string, hasActionContext bool) string {
+	// Gate actions must always receive the full prompt to keep output deterministic.
+	if action != nil && action.Type == core.ActionGate {
+		return BuildRunInputFromSnapshot(snapshot, action, hasActionContext)
 	}
 
 	if profile != nil && profile.Session.Reuse && hasPriorTurns {
 		if feedback != "" {
-			return renderFollowupExecutionMessage(reworkTmpl, followupVars{
+			return renderFollowupRunMessage(reworkTmpl, followupVars{
 				Feedback: feedback,
-				StepName: stepName(step),
+				StepName: actionName(action),
 			})
 		}
-		return renderFollowupExecutionMessage(continueTmpl, followupVars{
-			StepName: stepName(step),
+		return renderFollowupRunMessage(continueTmpl, followupVars{
+			StepName: actionName(action),
 		})
 	}
 
-	base := BuildExecutionInputFromBriefing(snapshot, step, hasStepContext)
+	base := BuildRunInputFromSnapshot(snapshot, action, hasActionContext)
 	if feedback == "" {
 		return base
 	}
 	return base + "\n\n# Gate Feedback (Rework)\n\n" + feedback + "\n"
 }
 
-// ResolveLatestFeedback reads the latest feedback/instruction signal for a step.
-// Signals are the single source of truth for step interaction history.
-func ResolveLatestFeedback(ctx context.Context, store core.StepSignalStore, step *core.Step) string {
-	if store == nil || step == nil {
+// ResolveLatestFeedback reads the latest feedback/instruction signal for an action.
+// Signals are the single source of truth for action interaction history.
+func ResolveLatestFeedback(ctx context.Context, store core.ActionSignalStore, action *core.Action) string {
+	if store == nil || action == nil {
 		return ""
 	}
-	sig, _ := store.GetLatestStepSignal(ctx, step.ID, core.SignalFeedback, core.SignalInstruction)
+	sig, _ := store.GetLatestActionSignal(ctx, action.ID, core.SignalFeedback, core.SignalInstruction)
 	if sig == nil {
 		return ""
 	}
@@ -92,14 +92,14 @@ type followupVars struct {
 	StepName string
 }
 
-func stepName(step *core.Step) string {
-	if step == nil {
+func actionName(action *core.Action) string {
+	if action == nil {
 		return ""
 	}
-	return strings.TrimSpace(step.Name)
+	return strings.TrimSpace(action.Name)
 }
 
-func renderFollowupExecutionMessage(tmplText string, vars followupVars) string {
+func renderFollowupRunMessage(tmplText string, vars followupVars) string {
 	if strings.TrimSpace(tmplText) == "" {
 		if strings.TrimSpace(vars.Feedback) == "" {
 			if vars.StepName == "" {
@@ -115,13 +115,13 @@ func renderFollowupExecutionMessage(tmplText string, vars followupVars) string {
 
 	tmpl, err := template.New("runtime-followup").Parse(tmplText)
 	if err != nil {
-		slog.Warn("runtime followup execution message: invalid template", "error", err)
+		slog.Warn("runtime followup run message: invalid template", "error", err)
 		return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 
 	var b strings.Builder
 	if err := tmpl.Execute(&b, vars); err != nil {
-		slog.Warn("runtime followup execution message: render failed", "error", err)
+		slog.Warn("runtime followup run message: render failed", "error", err)
 		return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 

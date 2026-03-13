@@ -1,7 +1,8 @@
 # Issue-Centric Execution Model
 
-> Status: target architecture with partial implementation
+> 状态：部分实现
 > Updated: 2026-03-13
+> Current implementation status: the frontend primary route is `/work-items`; backend public REST still uses `/issues`; `/flows` only survives as a frontend compatibility redirect; the internal core model remains `Issue`.
 
 > Design rationale for the unified Issue model that replaces the former Flow + Issue pair.
 

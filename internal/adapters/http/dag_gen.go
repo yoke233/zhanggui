@@ -11,10 +11,10 @@ type generateStepsRequest struct {
 	Description string `json:"description"`
 }
 
-// generateSteps uses AI to decompose a task description into a DAG of Steps
+// generateActions uses AI to decompose a task description into a DAG of Steps
 // and creates them in the given issue.
-// POST /issues/{issueID}/generate-steps
-func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
+// POST /work-items/{issueID}/generate-steps
+func (h *Handler) generateActions(w http.ResponseWriter, r *http.Request) {
 	if h.dagGen == nil {
 		writeError(w, http.StatusServiceUnavailable, "DAG generator is not configured (requires LLM)", "DAG_GEN_UNAVAILABLE")
 		return
@@ -27,7 +27,7 @@ func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify issue exists and is open.
-	iss, err := h.store.GetIssue(r.Context(), issueID)
+	iss, err := h.store.GetWorkItem(r.Context(), issueID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -36,7 +36,7 @@ func (h *Handler) generateSteps(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if iss.Status != core.IssueOpen {
+	if iss.Status != core.WorkItemOpen {
 		writeError(w, http.StatusConflict, "issue is not open, cannot generate steps", "INVALID_STATE")
 		return
 	}

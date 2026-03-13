@@ -2,20 +2,66 @@
 
 > 本文档定义系统对外术语升级的映射矩阵、兼容策略与淘汰周期。
 >
-> 状态：部分实现
+> 状态：现行
 >
 > 最后按代码核对：2026-03-13
 >
-> 重要说明：当前迁移主要发生在前端 UI 路由与命名层；后端 REST API 仍以 `/issues` 为主，`/work-items` 尚未成为后端 alias。
+> 当前实现状态：本文中的命名治理规则已生效，但代码迁移仅部分完成。前端主入口是 `/work-items`；后端 REST 仍以 `/issues` 为主；`/api/work-items/*` 尚未落地；`/flows` 仅保留前端 redirect。
+>
+> 重要说明：当前迁移主要发生在前端 UI 路由与命名层；后端 REST API 仍以 `/issues` 为主，`/work-items` 尚未成为后端 alias。本文从现在开始补充“应该收口到哪里”的正式决策。
+
+## 决策摘要
+
+本文建议并约束后续演进方向如下：
+
+1. 对外产品语义统一使用 `Work Item`。
+2. 对外 Public REST API 目标统一为 `/api/work-items/*`。
+3. 内部核心实现短期继续保留 `Issue` 作为当前 Work Item 的实现名。
+4. `Flow` 降级为历史兼容/技术执行术语，不再作为主业务对象名称继续扩散。
+5. `ChatSession` 与 `Thread` 明确分离，不做合并命名。
+
+换句话说：
+
+- 用户看到的是 `Work Item`
+- 新 API 目标是 `work-items`
+- 内部稳定实现暂时还是 `Issue`
+- `Flow` 只能留在兼容层，不能再进入新设计、新接口、新文档主叙述
+
+## 当前现状与目标状态
+
+### 当前现状（按代码）
+
+- 前端主页面路由：`/work-items`
+- 前端兼容路由：`/issues/*`、`/flows/*` 重定向到 `/work-items`
+- 后端主 REST 路由：`/issues/*`
+- 内部核心领域对象：`Issue`
+- Thread 已独立建模并拥有自己的 REST / WebSocket 协议
+
+### 目标状态（本规范要求）
+
+- 产品/UI：统一称 `Work Item`
+- Public REST：统一以 `/api/work-items/*` 为主
+- 内部领域实现：短期保留 `Issue`，中长期再决定是否重命名
+- `Flow`：只允许作为历史兼容名或纯技术执行流程语义存在
+
+## 分层命名规则
+
+| 层级 | 统一名称 | 当前实现 | 规则 |
+|------|----------|----------|------|
+| 产品/UI | `Work Item` | 已基本落地 | 新页面、新文案、新交互统一使用 `Work Item` |
+| Public REST API | `work-items` | 未落地 | 新增主接口应优先落在 `/api/work-items/*` |
+| 内部领域模型 | `Issue` | 已落地 | 短期不强制改 struct / 表 / store |
+| 执行流程语义 | `workflow` / `execution pipeline` | 部分混用 `flow` | 用于描述“步骤推进过程”，不是业务对象名 |
+| 历史兼容词 | `Flow` | 仍大量存在 | 不得在新功能和新 spec 中继续作为主对象名扩散 |
 
 ## 命名映射矩阵
 
 | 内部 Go struct / 表名 | API 外部名 | UI 显示名 | 说明 |
 |----------------------|-----------|----------|------|
-| `Issue` | `WorkItem` | Work Item | Issue 表/struct 暂不重命名；当前主要是 UI 术语升级，后端 REST 仍使用 `/issues` |
-| `Step` | `Action` | Action | Step 表/struct 暂不重命名；API payload 新增 alias 字段 |
-| `Execution` | `Run` | Run | Execution 表/struct 暂不重命名；API payload 新增 alias 字段 |
-| `Artifact` | `Deliverable` | Deliverable | Artifact 表/struct 暂不重命名；API payload 新增 alias 字段 |
+| `Issue` | `WorkItem` | Work Item | 核心决策：对外统一用 WorkItem；内部 Issue 暂不重命名 |
+| `Step` | `Step` | Step | 当前不建议再引入 `Action` 作为第二套公开主名，避免继续扩散术语 |
+| `Execution` | `Execution` | Execution / Run | 可在 UI 文案中按场景显示 “Run”，但 API/模型短期不强制改名 |
+| `Artifact` | `Artifact` | Deliverable / Artifact | UI 文案可逐步转 Deliverable；API/模型短期不强制改名 |
 | `ChatSession` | `ChatSession` | Chat | **不映射为 Thread**；保持 1:1 direct chat 概念 |
 | `Thread`（新增） | `Thread` | Thread | 独立领域实体，多 AI + 多 human 共享讨论 |
 
@@ -35,6 +81,19 @@
 - 前端页面主入口：`/work-items`
 - 后端 REST 主入口：`/issues`
 
+目标分层：
+
+- 对外主契约：`/api/work-items/*`
+- 兼容契约：`/api/issues/*`
+- 历史路由：`/flows/*` 仅前端 redirect 保留，不得再新增后端 `/flows` 契约
+
+### 主规则
+
+1. 新增 API 能力应优先设计为 `/api/work-items/*`
+2. `/api/issues/*` 在兼容期内保留，但不再承载新的命名方向
+3. 禁止新增 `/api/flows/*` 路由
+4. 任何新文档都不得把 `/flows` 写成现行工作对象入口
+
 ### 新增路由
 
 | 路由 | 说明 |
@@ -45,7 +104,22 @@
 | `PUT /threads/{id}` | 更新 Thread |
 | `DELETE /threads/{id}` | 删除 Thread |
 
-说明：截至 2026-03-13，后端并未提供 `/work-items` REST alias；如果未来补齐，应在此文档重新登记。
+说明：截至 2026-03-13，后端并未提供 `/work-items` REST alias；Thread 路由本身已经稳定，不在本次命名收口中变更。
+
+### 目标主路由（待落地）
+
+| 路由 | 说明 |
+|------|------|
+| `GET /work-items` | Work Item 列表 |
+| `POST /work-items` | 创建 Work Item |
+| `GET /work-items/{id}` | Work Item 详情 |
+| `PATCH /work-items/{id}` | 更新 Work Item |
+| `DELETE /work-items/{id}` | 删除 Work Item |
+
+说明：
+
+- 这组路由是目标 Public REST 形态，不代表当前已经实现
+- 推荐做法是先把它们实现成 `/issues` 的同语义 alias，而不是先重构内部模型
 
 ### 保留路由（兼容期内继续可用）
 
@@ -58,9 +132,10 @@
 
 ### 兼容周期
 
-- **Phase 1（当前）**：前端新旧页面路由并存，后端 REST 仍以 `/issues` 为准
-- **Phase 2（未来）**：旧路由返回 `Deprecation` header
-- **Phase 3（未来）**：旧路由移除
+- **Phase 1（当前）**：前端以 `/work-items` 为主，后端 REST 仍以 `/issues` 为准
+- **Phase 2（推荐下一步）**：增加 `/work-items` REST alias，API client 默认切主路由，`/issues` 保留兼容
+- **Phase 3（未来）**：`/issues` 返回 `Deprecation` header / 日志告警
+- **Phase 4（未来）**：视生态使用情况决定是否移除 `/issues`
 
 ## WebSocket 协议兼容策略
 
@@ -85,22 +160,68 @@
 - `chat.send` 的 payload 继续使用 `session_id`
 - 两者不互为 alias，各走独立的处理链路
 
-## JSON Payload 字段策略
+## JSON Payload 与对象字段策略
 
-### 新增 alias 字段（响应中同时返回新旧名）
+### 主键字段
 
-暂不在 API 响应中同时返回新旧字段名。当前策略：
+- 主对象主键统一继续使用 `id`
+- 不建议引入 `issue_id` / `work_item_id` 双主键并存
+- Thread 主对象继续使用 `id`
+
+### 关联字段
+
+当前策略：
 
 - `/issues` 继续返回现有字段结构，不额外增加 `work_item_id` alias
-- `/work-items` 目前仅是前端页面术语，不是已落地的后端 REST 路由
+- `/work-items` 未来如果落地，应尽量复用现有 JSON 结构，避免响应体再做一轮大迁移
 - `/threads` 主对象继续返回通用主键字段 `id`
 - Thread 子资源（如 message、participant、agent session、work item link）按现有模型返回 `id` 与 `thread_id`
+
+目标策略：
+
+- 当 `/work-items` REST alias 落地后，路径语义切到 `work-items`
+- 但响应体不强制把所有 `issue_*` 字段立即改成 `work_item_*`
+- 是否改字段名，应另开一次专门迁移；不要把“路由命名收口”和“payload 字段全面重命名”绑定在同一波进行
 
 ### 错误码策略
 
 - Thread 相关错误使用 `THREAD_*` 前缀（`THREAD_NOT_FOUND`, `CREATE_THREAD_FAILED`）
 - Issue/WorkItem 相关错误继续使用 `ISSUE_*` 前缀
 - ChatSession 相关错误继续使用 `CHAT_*` / `SESSION_*` 前缀
+
+补充决策：
+
+- 短期不要求把 `ISSUE_*` 全量改成 `WORK_ITEM_*`
+- 新增错误码若属于 `/work-items` Public API，可优先采用中性命名，例如 `WORK_ITEM_NOT_FOUND`
+- 旧错误码兼容保留
+
+## Flow 兼容层边界
+
+### 禁止继续新增
+
+- 新页面名、组件名、路由名使用 `Flow`
+- 新 Public API 使用 `/flows`
+- 新 spec 把 `Flow` 写成当前主业务对象
+- 新领域字段把 `flow_id` 作为主工作对象引用
+
+### 应逐步替换
+
+- `FlowScheduler`
+- `PRFlowPrompts`
+- `flow_pr_bootstrap.go`
+- `CreateFlowPage` / `FlowsPage` / `FlowDetailPage`
+- i18n 中仍引用 `/flows/:id/...` 的文案
+
+### 可暂时保留
+
+- `internal/application/flow` 这类包名
+- 历史测试文件名中的 `flow_*`
+- 少量内部错误名和 helper 名称
+
+原则：
+
+- 可以暂时保留旧包名
+- 但不能再让旧包名继续污染新的 public surface
 
 ## 内部 Go struct 重命名策略
 
@@ -113,6 +234,12 @@
 
 新增的 `Thread` 直接以新名称建模，不存在旧名遗留。
 
+补充决策：
+
+- `Issue == 当前 Work Item 的内部实现` 是显式接受的过渡状态
+- 不建议为了对齐术语而立刻重命名数据库表、store 接口和核心执行引擎
+- 内部重命名应在 `/api/work-items` 主契约稳定后再评估
+
 ## 前端类型 alias 策略
 
 在 `web/src/types/apiV2.ts` 中新增类型 alias：
@@ -123,14 +250,58 @@ export interface Thread { ... }
 export interface ThreadMessage { ... }
 export interface ThreadParticipant { ... }
 
-// 术语 alias（指向现有类型）
+// 术语 alias（推荐）
 export type WorkItem = Issue;
-export type Action = Step;
-export type Run = Execution;
-export type Deliverable = Artifact;
 ```
 
 补充说明：
 
 - 前端路由当前已切到 `/work-items`，对应实现见 `web/src/App.tsx`
 - 但 API Client 仍调用 `/issues`，因此本文不应再把 `/work-items` 写成已落地的后端等价路由
+- 不建议继续引入 `Action = Step`、`Run = Execution`、`Deliverable = Artifact` 这类第二层 alias，除非确有明确产品收益
+
+## spec 文档状态规范
+
+今后所有相关 spec 顶部都应标记以下字段：
+
+- `状态：现行 / 部分实现 / 草案 / 历史`
+- `最后按代码核对：YYYY-MM-DD`
+
+状态解释：
+
+- `现行`：代码和接口基本已落地，可当真实契约阅读
+- `部分实现`：部分已落地、部分仍为目标设计，必须显式区分
+- `草案`：目标架构/未来方向，不代表当前行为
+- `历史`：迁移记录或废弃方案，不作为现行依据
+
+硬规则：
+
+- 未来设计不能直接写成现在时
+- 当前实现说明必须能落到代码或测试
+- 迁移文档不能再冒充当前架构文档
+
+## 迁移阶段建议
+
+### Phase A：先定规则，不大改代码
+
+- 统一对外术语为 `Work Item`
+- 新文档和新页面禁止继续扩散 `Flow`
+- spec 全部补状态头
+
+### Phase B：补 `/api/work-items` alias
+
+- 后端增加 `/api/work-items/*`
+- 复用现有 `/issues/*` 处理逻辑
+- 前端 API client 切主路由
+
+### Phase C：前端与文案收口
+
+- 页面/组件/i18n 去 `Flow`
+- `/flows` 仅保留 redirect
+- 变量名和导航统一到 `workItem`
+
+### Phase D：内部命名渐进清理
+
+- 优先替换最误导的 exported symbol
+- 例如 `FlowScheduler`、`PRFlowPrompts`
+- 包名是否要改，最后再评估

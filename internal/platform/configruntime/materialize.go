@@ -38,9 +38,9 @@ func convertDrivers(cfgs []config.RuntimeDriverConfig) []*core.AgentDriver {
 func convertProfiles(cfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
 	out := make([]*core.AgentProfile, len(cfgs))
 	for i, c := range cfgs {
-		actions := make([]core.Action, len(c.ActionsAllowed))
+		actions := make([]core.AgentAction, len(c.ActionsAllowed))
 		for j, action := range c.ActionsAllowed {
-			actions[j] = core.Action(action)
+			actions[j] = core.AgentAction(action)
 		}
 		out[i] = &core.AgentProfile{
 			ID:             c.ID,
@@ -102,13 +102,13 @@ func ensurePRReviewer(drivers []*core.AgentDriver, profiles []*core.AgentProfile
 		DriverID:     "codex",
 		Role:         core.RoleGate,
 		Capabilities: []string{"prreview"},
-		ActionsAllowed: []core.Action{
-			core.ActionReadContext,
-			core.ActionSearchFiles,
-			core.ActionTerminal,
-			core.ActionApprove,
-			core.ActionReject,
-			core.ActionSubmit,
+		ActionsAllowed: []core.AgentAction{
+			core.AgentActionReadContext,
+			core.AgentActionSearchFiles,
+			core.AgentActionTerminal,
+			core.AgentActionApprove,
+			core.AgentActionReject,
+			core.AgentActionSubmit,
 		},
 		PromptTemplate: "review",
 		Session: core.ProfileSession{

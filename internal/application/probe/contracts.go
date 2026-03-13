@@ -9,7 +9,7 @@ import (
 
 // Service is the minimal application contract required by transport adapters.
 type Service interface {
-	ListExecutionProbes(ctx context.Context, executionID int64) ([]*core.ExecutionProbe, error)
-	GetLatestExecutionProbe(ctx context.Context, executionID int64) (*core.ExecutionProbe, error)
-	RequestExecutionProbe(ctx context.Context, executionID int64, source core.ExecutionProbeTriggerSource, question string, timeout time.Duration) (*core.ExecutionProbe, error)
+	ListRunProbes(ctx context.Context, runID int64) ([]*core.RunProbe, error)
+	GetLatestRunProbe(ctx context.Context, runID int64) (*core.RunProbe, error)
+	RequestRunProbe(ctx context.Context, runID int64, source core.RunProbeTriggerSource, question string, timeout time.Duration) (*core.RunProbe, error)
 }

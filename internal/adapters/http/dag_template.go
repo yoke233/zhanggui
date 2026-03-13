@@ -10,34 +10,34 @@ import (
 // --- Request / Response types ---
 
 type createDAGTemplateRequest struct {
-	Name        string              `json:"name"`
-	Description string              `json:"description,omitempty"`
-	ProjectID   *int64              `json:"project_id,omitempty"`
-	Tags        []string            `json:"tags,omitempty"`
-	Metadata    map[string]string   `json:"metadata,omitempty"`
-	Steps       []core.DAGTemplateStep `json:"steps"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	ProjectID   *int64                 `json:"project_id,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
+	Metadata    map[string]string      `json:"metadata,omitempty"`
+	Steps       []core.DAGTemplateAction `json:"steps"`
 }
 
 type updateDAGTemplateRequest struct {
-	Name        *string              `json:"name,omitempty"`
-	Description *string              `json:"description,omitempty"`
-	ProjectID   *int64               `json:"project_id,omitempty"`
-	Tags        *[]string            `json:"tags,omitempty"`
-	Metadata    map[string]string    `json:"metadata,omitempty"`
-	Steps       *[]core.DAGTemplateStep `json:"steps,omitempty"`
+	Name        *string                 `json:"name,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	ProjectID   *int64                  `json:"project_id,omitempty"`
+	Tags        *[]string               `json:"tags,omitempty"`
+	Metadata    map[string]string       `json:"metadata,omitempty"`
+	Steps       *[]core.DAGTemplateAction `json:"steps,omitempty"`
 }
 
-type saveIssueAsTemplateRequest struct {
+type saveWorkItemAsTemplateRequest struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
-type createIssueFromTemplateRequest struct {
-	Title     string            `json:"title"`
-	ProjectID *int64            `json:"project_id,omitempty"`
-	Metadata  map[string]any    `json:"metadata,omitempty"`
+type createWorkItemFromTemplateRequest struct {
+	Title     string         `json:"title"`
+	ProjectID *int64         `json:"project_id,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // --- Handlers ---
@@ -64,7 +64,7 @@ func (h *Handler) createDAGTemplate(w http.ResponseWriter, r *http.Request) {
 		ProjectID:   req.ProjectID,
 		Tags:        req.Tags,
 		Metadata:    req.Metadata,
-		Steps:       req.Steps,
+		Actions:     req.Steps,
 	}
 	id, err := h.store.CreateDAGTemplate(r.Context(), t)
 	if err != nil {
@@ -156,7 +156,7 @@ func (h *Handler) updateDAGTemplate(w http.ResponseWriter, r *http.Request) {
 		existing.Metadata = req.Metadata
 	}
 	if req.Steps != nil {
-		existing.Steps = *req.Steps
+		existing.Actions = *req.Steps
 	}
 
 	if err := h.store.UpdateDAGTemplate(r.Context(), existing); err != nil {
@@ -184,16 +184,16 @@ func (h *Handler) deleteDAGTemplate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// POST /issues/{issueID}/save-as-template
+// POST /work-items/{issueID}/save-as-template
 // Snapshots the current issue's steps into a new DAGTemplate.
-func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
 		return
 	}
 
-	issue, err := h.store.GetIssue(r.Context(), issueID)
+	issue, err := h.store.GetWorkItem(r.Context(), issueID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "issue not found", "NOT_FOUND")
 		return
@@ -203,7 +203,7 @@ func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	steps, err := h.store.ListStepsByIssue(r.Context(), issueID)
+	steps, err := h.store.ListActionsByWorkItem(r.Context(), issueID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -213,7 +213,7 @@ func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req saveIssueAsTemplateRequest
+	var req saveWorkItemAsTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
@@ -223,9 +223,9 @@ func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert runtime steps to template steps (position-ordered).
-	templateSteps := make([]core.DAGTemplateStep, 0, len(steps))
+	templateSteps := make([]core.DAGTemplateAction, 0, len(steps))
 	for _, s := range steps {
-		templateSteps = append(templateSteps, core.DAGTemplateStep{
+		templateSteps = append(templateSteps, core.DAGTemplateAction{
 			Name:                 s.Name,
 			Description:          s.Description,
 			Type:                 string(s.Type),
@@ -241,7 +241,7 @@ func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
 		ProjectID:   issue.ProjectID,
 		Tags:        req.Tags,
 		Metadata:    req.Metadata,
-		Steps:       templateSteps,
+		Actions:     templateSteps,
 	}
 	id, err := h.store.CreateDAGTemplate(r.Context(), t)
 	if err != nil {
@@ -254,7 +254,7 @@ func (h *Handler) saveIssueAsTemplate(w http.ResponseWriter, r *http.Request) {
 
 // POST /templates/{templateID}/create-issue
 // Creates a new Issue and materializes template steps into it.
-func (h *Handler) createIssueFromTemplate(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createWorkItemFromTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, ok := urlParamInt64(r, "templateID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid template ID", "BAD_ID")
@@ -271,7 +271,7 @@ func (h *Handler) createIssueFromTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req createIssueFromTemplateRequest
+	var req createWorkItemFromTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
@@ -285,14 +285,14 @@ func (h *Handler) createIssueFromTemplate(w http.ResponseWriter, r *http.Request
 		projectID = tmpl.ProjectID
 	}
 
-	// Create the issue.
-	issue := &core.Issue{
+	// Create the work item.
+	issue := &core.WorkItem{
 		Title:     req.Title,
 		ProjectID: projectID,
-		Status:    core.IssueOpen,
+		Status:    core.WorkItemOpen,
 		Metadata:  req.Metadata,
 	}
-	issueID, err := h.store.CreateIssue(r.Context(), issue)
+	issueID, err := h.store.CreateWorkItem(r.Context(), issue)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
@@ -300,21 +300,21 @@ func (h *Handler) createIssueFromTemplate(w http.ResponseWriter, r *http.Request
 	issue.ID = issueID
 
 	// Materialize template steps into the issue with position-based ordering.
-	createdSteps := make([]*core.Step, 0, len(tmpl.Steps))
+	createdSteps := make([]*core.Action, 0, len(tmpl.Actions))
 
-	for i, ts := range tmpl.Steps {
-		step := &core.Step{
-			IssueID:              issueID,
+	for i, ts := range tmpl.Actions {
+		step := &core.Action{
+			WorkItemID:           issueID,
 			Name:                 ts.Name,
 			Description:          ts.Description,
-			Type:                 core.StepType(ts.Type),
-			Status:               core.StepPending,
+			Type:                 core.ActionType(ts.Type),
+			Status:               core.ActionPending,
 			Position:             i,
 			AgentRole:            ts.AgentRole,
 			RequiredCapabilities: ts.RequiredCapabilities,
 			AcceptanceCriteria:   ts.AcceptanceCriteria,
 		}
-		id, err := h.store.CreateStep(r.Context(), step)
+		id, err := h.store.CreateAction(r.Context(), step)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return

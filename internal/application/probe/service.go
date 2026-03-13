@@ -10,32 +10,32 @@ import (
 )
 
 var (
-	ErrExecutionProbeConflict = errors.New("execution already has an active probe")
-	ErrExecutionNotRunning    = errors.New("execution is not running")
+	ErrRunProbeConflict = errors.New("run already has an active probe")
+	ErrRunNotRunning    = errors.New("run is not running")
 )
 
-const defaultExecutionProbeQuestion = "Execution Probe: report current status in one short reply. State whether you are actively progressing, blocked waiting for input/authorization, or hung. If blocked, say exactly what input or approval is needed."
+const defaultRunProbeQuestion = "Execution Probe: report current status in one short reply. State whether you are actively progressing, blocked waiting for input/authorization, or hung. If blocked, say exactly what input or approval is needed."
 
-type ExecutionProbeService struct {
+type RunProbeService struct {
 	store           Store
 	bus             EventPublisher
 	sessionManager  Runtime
 	defaultQuestion string
 }
 
-type ExecutionProbeServiceConfig struct {
+type RunProbeServiceConfig struct {
 	Store           Store
 	Bus             EventPublisher
 	SessionManager  Runtime
 	DefaultQuestion string
 }
 
-func NewExecutionProbeService(cfg ExecutionProbeServiceConfig) *ExecutionProbeService {
+func NewRunProbeService(cfg RunProbeServiceConfig) *RunProbeService {
 	defaultQuestion := strings.TrimSpace(cfg.DefaultQuestion)
 	if defaultQuestion == "" {
-		defaultQuestion = defaultExecutionProbeQuestion
+		defaultQuestion = defaultRunProbeQuestion
 	}
-	return &ExecutionProbeService{
+	return &RunProbeService{
 		store:           cfg.Store,
 		bus:             cfg.Bus,
 		sessionManager:  cfg.SessionManager,
@@ -43,30 +43,30 @@ func NewExecutionProbeService(cfg ExecutionProbeServiceConfig) *ExecutionProbeSe
 	}
 }
 
-func (s *ExecutionProbeService) ListExecutionProbes(ctx context.Context, executionID int64) ([]*core.ExecutionProbe, error) {
-	return s.store.ListExecutionProbesByExecution(ctx, executionID)
+func (s *RunProbeService) ListRunProbes(ctx context.Context, runID int64) ([]*core.RunProbe, error) {
+	return s.store.ListRunProbesByRun(ctx, runID)
 }
 
-func (s *ExecutionProbeService) GetLatestExecutionProbe(ctx context.Context, executionID int64) (*core.ExecutionProbe, error) {
-	return s.store.GetLatestExecutionProbe(ctx, executionID)
+func (s *RunProbeService) GetLatestRunProbe(ctx context.Context, runID int64) (*core.RunProbe, error) {
+	return s.store.GetLatestRunProbe(ctx, runID)
 }
 
-func (s *ExecutionProbeService) RequestExecutionProbe(ctx context.Context, executionID int64, source core.ExecutionProbeTriggerSource, question string, timeout time.Duration) (*core.ExecutionProbe, error) {
-	execRec, err := s.store.GetExecution(ctx, executionID)
+func (s *RunProbeService) RequestRunProbe(ctx context.Context, runID int64, source core.RunProbeTriggerSource, question string, timeout time.Duration) (*core.RunProbe, error) {
+	runRec, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
-	if execRec.Status != core.ExecRunning {
-		return nil, ErrExecutionNotRunning
+	if runRec.Status != core.RunRunning {
+		return nil, ErrRunNotRunning
 	}
 
-	if active, err := s.store.GetActiveExecutionProbe(ctx, executionID); err == nil && active != nil {
-		return nil, ErrExecutionProbeConflict
+	if active, err := s.store.GetActiveRunProbe(ctx, runID); err == nil && active != nil {
+		return nil, ErrRunProbeConflict
 	} else if err != nil && !errors.Is(err, core.ErrNotFound) {
 		return nil, err
 	}
 
-	route, err := s.store.GetExecutionProbeRoute(ctx, executionID)
+	route, err := s.store.GetRunProbeRoute(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,57 +76,57 @@ func (s *ExecutionProbeService) RequestExecutionProbe(ctx context.Context, execu
 		trimmedQuestion = s.defaultQuestion
 	}
 
-	probe := &core.ExecutionProbe{
-		ExecutionID:    execRec.ID,
-		IssueID:        execRec.IssueID,
-		StepID:         execRec.StepID,
+	probe := &core.RunProbe{
+		RunID:          runRec.ID,
+		WorkItemID:     runRec.WorkItemID,
+		ActionID:       runRec.ActionID,
 		AgentContextID: route.AgentContextID,
 		SessionID:      route.SessionID,
 		OwnerID:        route.OwnerID,
 		TriggerSource:  source,
 		Question:       trimmedQuestion,
-		Status:         core.ExecutionProbePending,
-		Verdict:        core.ExecutionProbeUnknown,
+		Status:         core.RunProbePending,
+		Verdict:        core.RunProbeUnknown,
 	}
-	if _, err := s.store.CreateExecutionProbe(ctx, probe); err != nil {
+	if _, err := s.store.CreateRunProbe(ctx, probe); err != nil {
 		return nil, err
 	}
-	s.publishProbeEvent(ctx, core.EventExecProbeRequested, probe)
+	s.publishProbeEvent(ctx, core.EventRunProbeRequested, probe)
 
 	now := time.Now().UTC()
-	probe.Status = core.ExecutionProbeSent
+	probe.Status = core.RunProbeSent
 	probe.SentAt = &now
-	if err := s.store.UpdateExecutionProbe(ctx, probe); err != nil {
+	if err := s.store.UpdateRunProbe(ctx, probe); err != nil {
 		return nil, err
 	}
-	s.publishProbeEvent(ctx, core.EventExecProbeSent, probe)
+	s.publishProbeEvent(ctx, core.EventRunProbeSent, probe)
 
-	runtimeResult, err := s.sessionManager.ProbeExecution(ctx, ExecutionProbeRuntimeRequest{
-		ExecutionID: executionID,
-		SessionID:   route.SessionID,
-		OwnerID:     route.OwnerID,
-		Question:    trimmedQuestion,
-		Timeout:     timeout,
+	runtimeResult, err := s.sessionManager.ProbeRun(ctx, RunProbeRuntimeRequest{
+		RunID:   runID,
+		SessionID: route.SessionID,
+		OwnerID:   route.OwnerID,
+		Question:  trimmedQuestion,
+		Timeout:   timeout,
 	})
 	if err != nil {
-		probe.Status = core.ExecutionProbeFailed
+		probe.Status = core.RunProbeFailed
 		probe.Error = err.Error()
-		probe.Verdict = core.ExecutionProbeUnknown
-		if updateErr := s.store.UpdateExecutionProbe(ctx, probe); updateErr != nil {
+		probe.Verdict = core.RunProbeUnknown
+		if updateErr := s.store.UpdateRunProbe(ctx, probe); updateErr != nil {
 			return nil, updateErr
 		}
 		return probe, nil
 	}
 
 	s.applyRuntimeResult(probe, runtimeResult)
-	if err := s.store.UpdateExecutionProbe(ctx, probe); err != nil {
+	if err := s.store.UpdateRunProbe(ctx, probe); err != nil {
 		return nil, err
 	}
 	s.publishTerminalProbeEvent(ctx, probe)
 	return probe, nil
 }
 
-func (s *ExecutionProbeService) applyRuntimeResult(probe *core.ExecutionProbe, runtimeResult *ExecutionProbeRuntimeResult) {
+func (s *RunProbeService) applyRuntimeResult(probe *core.RunProbe, runtimeResult *RunProbeRuntimeResult) {
 	probe.ReplyText = strings.TrimSpace(runtimeResult.ReplyText)
 	probe.Error = strings.TrimSpace(runtimeResult.Error)
 
@@ -137,25 +137,25 @@ func (s *ExecutionProbeService) applyRuntimeResult(probe *core.ExecutionProbe, r
 
 	switch {
 	case !runtimeResult.Reachable:
-		probe.Status = core.ExecutionProbeUnreachable
-		probe.Verdict = core.ExecutionProbeUnknown
+		probe.Status = core.RunProbeUnreachable
+		probe.Verdict = core.RunProbeUnknown
 	case runtimeResult.Answered:
-		probe.Status = core.ExecutionProbeAnswered
+		probe.Status = core.RunProbeAnswered
 		probe.AnsweredAt = &observedAt
-		probe.Verdict = inferExecutionProbeVerdict(probe.ReplyText)
+		probe.Verdict = inferRunProbeVerdict(probe.ReplyText)
 	case strings.Contains(strings.ToLower(runtimeResult.Error), "timeout"):
-		probe.Status = core.ExecutionProbeTimeout
-		probe.Verdict = core.ExecutionProbeHung
+		probe.Status = core.RunProbeTimeout
+		probe.Verdict = core.RunProbeHung
 	default:
-		probe.Status = core.ExecutionProbeFailed
-		probe.Verdict = core.ExecutionProbeUnknown
+		probe.Status = core.RunProbeFailed
+		probe.Verdict = core.RunProbeUnknown
 	}
 }
 
-func inferExecutionProbeVerdict(reply string) core.ExecutionProbeVerdict {
+func inferRunProbeVerdict(reply string) core.RunProbeVerdict {
 	lower := strings.ToLower(strings.TrimSpace(reply))
 	if lower == "" {
-		return core.ExecutionProbeUnknown
+		return core.RunProbeUnknown
 	}
 	blockedHints := []string{
 		"need input", "need your input", "waiting for input", "waiting for approval",
@@ -164,36 +164,36 @@ func inferExecutionProbeVerdict(reply string) core.ExecutionProbeVerdict {
 	}
 	for _, hint := range blockedHints {
 		if strings.Contains(lower, hint) {
-			return core.ExecutionProbeBlocked
+			return core.RunProbeBlocked
 		}
 	}
-	return core.ExecutionProbeAlive
+	return core.RunProbeAlive
 }
 
-func (s *ExecutionProbeService) publishTerminalProbeEvent(ctx context.Context, probe *core.ExecutionProbe) {
+func (s *RunProbeService) publishTerminalProbeEvent(ctx context.Context, probe *core.RunProbe) {
 	switch probe.Status {
-	case core.ExecutionProbeAnswered:
-		s.publishProbeEvent(ctx, core.EventExecProbeAnswered, probe)
-	case core.ExecutionProbeTimeout:
-		s.publishProbeEvent(ctx, core.EventExecProbeTimeout, probe)
-	case core.ExecutionProbeUnreachable:
-		s.publishProbeEvent(ctx, core.EventExecProbeUnreachable, probe)
+	case core.RunProbeAnswered:
+		s.publishProbeEvent(ctx, core.EventRunProbeAnswered, probe)
+	case core.RunProbeTimeout:
+		s.publishProbeEvent(ctx, core.EventRunProbeTimeout, probe)
+	case core.RunProbeUnreachable:
+		s.publishProbeEvent(ctx, core.EventRunProbeUnreachable, probe)
 	}
 }
 
-func (s *ExecutionProbeService) publishProbeEvent(ctx context.Context, eventType core.EventType, probe *core.ExecutionProbe) {
+func (s *RunProbeService) publishProbeEvent(ctx context.Context, eventType core.EventType, probe *core.RunProbe) {
 	if s.bus == nil || probe == nil {
 		return
 	}
 	s.bus.Publish(ctx, core.Event{
-		Type:      eventType,
-		IssueID:   probe.IssueID,
-		StepID:    probe.StepID,
-		ExecID:    probe.ExecutionID,
-		Timestamp: time.Now().UTC(),
+		Type:       eventType,
+		WorkItemID: probe.WorkItemID,
+		ActionID:   probe.ActionID,
+		RunID:      probe.RunID,
+		Timestamp:  time.Now().UTC(),
 		Data: map[string]any{
 			"probe_id":       probe.ID,
-			"execution_id":   probe.ExecutionID,
+			"run_id":         probe.RunID,
 			"trigger_source": probe.TriggerSource,
 			"status":         probe.Status,
 			"verdict":        probe.Verdict,

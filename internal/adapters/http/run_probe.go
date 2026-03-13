@@ -15,7 +15,7 @@ type createExecutionProbeRequest struct {
 	Question string `json:"question"`
 }
 
-func (h *Handler) createExecutionProbe(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createRunProbe(w http.ResponseWriter, r *http.Request) {
 	if h.probeSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "execution probe service is not configured", "PROBE_UNAVAILABLE")
 		return
@@ -35,16 +35,16 @@ func (h *Handler) createExecutionProbe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	probe, err := h.probeSvc.RequestExecutionProbe(r.Context(), execID, core.ExecutionProbeTriggerManual, strings.TrimSpace(req.Question), 0)
+	probe, err := h.probeSvc.RequestRunProbe(r.Context(), execID, core.RunProbeTriggerManual, strings.TrimSpace(req.Question), 0)
 	if errors.Is(err, core.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "execution not found", "NOT_FOUND")
 		return
 	}
-	if errors.Is(err, probeapp.ErrExecutionProbeConflict) {
+	if errors.Is(err, probeapp.ErrRunProbeConflict) {
 		writeError(w, http.StatusConflict, "execution already has an active probe", "PROBE_CONFLICT")
 		return
 	}
-	if errors.Is(err, probeapp.ErrExecutionNotRunning) {
+	if errors.Is(err, probeapp.ErrRunNotRunning) {
 		writeError(w, http.StatusConflict, "execution is not running", "EXECUTION_NOT_RUNNING")
 		return
 	}
@@ -65,18 +65,18 @@ func (h *Handler) listExecutionProbes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid execution ID", "BAD_ID")
 		return
 	}
-	probes, err := h.probeSvc.ListExecutionProbes(r.Context(), execID)
+	probes, err := h.probeSvc.ListRunProbes(r.Context(), execID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "PROBE_LIST_ERROR")
 		return
 	}
 	if probes == nil {
-		probes = []*core.ExecutionProbe{}
+		probes = []*core.RunProbe{}
 	}
 	writeJSON(w, http.StatusOK, probes)
 }
 
-func (h *Handler) getLatestExecutionProbe(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getLatestRunProbe(w http.ResponseWriter, r *http.Request) {
 	if h.probeSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "execution probe service is not configured", "PROBE_UNAVAILABLE")
 		return
@@ -86,7 +86,7 @@ func (h *Handler) getLatestExecutionProbe(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid execution ID", "BAD_ID")
 		return
 	}
-	probe, err := h.probeSvc.GetLatestExecutionProbe(r.Context(), execID)
+	probe, err := h.probeSvc.GetLatestRunProbe(r.Context(), execID)
 	if errors.Is(err, core.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "probe not found", "NOT_FOUND")
 		return

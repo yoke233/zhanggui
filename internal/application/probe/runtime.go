@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-// Runtime sends a diagnostic probe to a running execution through the active runtime.
+// Runtime sends a diagnostic probe to a running run through the active runtime.
 type Runtime interface {
-	ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error)
+	ProbeRun(ctx context.Context, req RunProbeRuntimeRequest) (*RunProbeRuntimeResult, error)
 }
 
-// ExecutionProbeRuntimeRequest contains the routing data needed to send a probe.
-type ExecutionProbeRuntimeRequest struct {
-	ExecutionID  int64
+// RunProbeRuntimeRequest contains the routing data needed to send a probe.
+type RunProbeRuntimeRequest struct {
+	RunID        int64
 	InvocationID string
 	SessionID    string
 	OwnerID      string
@@ -20,8 +20,8 @@ type ExecutionProbeRuntimeRequest struct {
 	Timeout      time.Duration
 }
 
-// ExecutionProbeRuntimeResult is the low-level runtime response for a probe request.
-type ExecutionProbeRuntimeResult struct {
+// RunProbeRuntimeResult is the low-level runtime response for a probe request.
+type RunProbeRuntimeResult struct {
 	Reachable  bool
 	Answered   bool
 	ReplyText  string

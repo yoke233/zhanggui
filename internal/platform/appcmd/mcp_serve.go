@@ -106,21 +106,21 @@ type stepContextOutput struct {
 }
 
 func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToolRequest, _ stepContextInput) (*mcp.CallToolResult, stepContextOutput, error) {
-	step, err := h.store.GetStep(ctx, h.stepID)
+	step, err := h.store.GetAction(ctx, h.stepID)
 	if err != nil {
-		return nil, stepContextOutput{}, fmt.Errorf("get step: %w", err)
+		return nil, stepContextOutput{}, fmt.Errorf("get action: %w", err)
 	}
-	issue, err := h.store.GetIssue(ctx, h.issueID)
+	issue, err := h.store.GetWorkItem(ctx, h.issueID)
 	if err != nil {
-		return nil, stepContextOutput{}, fmt.Errorf("get issue: %w", err)
+		return nil, stepContextOutput{}, fmt.Errorf("get work item: %w", err)
 	}
 
 	// Collect upstream artifacts.
-	allSteps, _ := h.store.ListStepsByIssue(ctx, h.issueID)
+	allSteps, _ := h.store.ListActionsByWorkItem(ctx, h.issueID)
 	var upstreamArtifacts []map[string]any
 	for _, s := range allSteps {
 		if s.Position < step.Position {
-			art, err := h.store.GetLatestArtifactByStep(ctx, s.ID)
+			art, err := h.store.GetLatestDeliverableByAction(ctx, s.ID)
 			if err != nil || art == nil {
 				continue
 			}
@@ -136,7 +136,7 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	// Read rework history from signals (preferred) with Config fallback.
 	var reworkHistory []any
 	var signalTimeline []map[string]any
-	if signals, sErr := h.store.ListStepSignals(ctx, h.stepID); sErr == nil && len(signals) > 0 {
+	if signals, sErr := h.store.ListActionSignals(ctx, h.stepID); sErr == nil && len(signals) > 0 {
 		for _, sig := range signals {
 			entry := map[string]any{
 				"id":        sig.ID,
@@ -147,8 +147,8 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 				"actor":     sig.Actor,
 				"created_at": sig.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			}
-			if sig.SourceStepID != 0 {
-				entry["source_step_id"] = sig.SourceStepID
+			if sig.SourceActionID != 0 {
+				entry["source_step_id"] = sig.SourceActionID
 			}
 			if len(sig.Payload) > 0 {
 				entry["payload"] = sig.Payload
@@ -271,12 +271,12 @@ func (h *mcpStepHandler) handleGateReject(ctx context.Context, req *mcp.CallTool
 // checkIdempotent returns (true, "") if no terminal signal exists yet for this exec,
 // or (false, existingType) if one does.
 func (h *mcpStepHandler) checkIdempotent(ctx context.Context) (bool, core.SignalType) {
-	signals, err := h.store.ListStepSignals(ctx, h.stepID)
+	signals, err := h.store.ListActionSignals(ctx, h.stepID)
 	if err != nil {
 		return true, "" // error → allow (best-effort)
 	}
 	for _, sig := range signals {
-		if sig.ExecID == h.execID && sig.Type.IsTerminal() {
+		if sig.RunID == h.execID && sig.Type.IsTerminal() {
 			return false, sig.Type
 		}
 	}
@@ -284,17 +284,17 @@ func (h *mcpStepHandler) checkIdempotent(ctx context.Context) (bool, core.Signal
 }
 
 func (h *mcpStepHandler) createSignal(ctx context.Context, sigType core.SignalType, payload map[string]any) {
-	sig := &core.StepSignal{
-		StepID:    h.stepID,
-		IssueID:   h.issueID,
-		ExecID:    h.execID,
+	sig := &core.ActionSignal{
+		ActionID:   h.stepID,
+		WorkItemID: h.issueID,
+		RunID:      h.execID,
 		Type:      sigType,
 		Source:    core.SignalSourceAgent,
 		Payload:   payload,
 		Actor:     "agent",
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := h.store.CreateStepSignal(ctx, sig); err != nil {
+	if _, err := h.store.CreateActionSignal(ctx, sig); err != nil {
 		slog.Error("mcp-serve: failed to create signal", "type", sigType, "error", err)
 	}
 }

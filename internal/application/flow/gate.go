@@ -14,53 +14,53 @@ import (
 type GateResult struct {
 	Passed  bool
 	Reason  string
-	ResetTo []int64 // Step IDs to reset on reject (upstream rework)
-	// Metadata is copied from the gate step's Artifact metadata when available.
+	ResetTo []int64 // Action IDs to reset on reject (upstream rework)
+	// Metadata is copied from the gate action's Deliverable metadata when available.
 	// It may include fields like pr_number, pr_url, reject_targets, etc.
 	Metadata map[string]any
 }
 
-// ProcessGate handles a gate Step: pass → downstream continue, reject → reset upstream + gate re-enters loop.
-func (e *IssueEngine) ProcessGate(ctx context.Context, step *core.Step, result GateResult) error {
-	if step.Type != core.StepGate {
-		return fmt.Errorf("step %d is not a gate (type=%s)", step.ID, step.Type)
+// ProcessGate handles a gate Action: pass → downstream continue, reject → reset upstream + gate re-enters loop.
+func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, result GateResult) error {
+	if action.Type != core.ActionGate {
+		return fmt.Errorf("action %d is not a gate (type=%s)", action.ID, action.Type)
 	}
 
 	if result.Passed {
-		if err := e.transitionStep(ctx, step, core.StepDone); err != nil {
+		if err := e.transitionAction(ctx, action, core.ActionDone); err != nil {
 			return err
 		}
 		e.bus.Publish(ctx, core.Event{
-			Type:      core.EventGatePassed,
-			IssueID:   step.IssueID,
-			StepID:    step.ID,
-			Timestamp: time.Now().UTC(),
-			Data:      map[string]any{"reason": result.Reason},
+			Type:       core.EventGatePassed,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			Timestamp:  time.Now().UTC(),
+			Data:       map[string]any{"reason": result.Reason},
 		})
 		return nil
 	}
 
 	// Gate rejected — check rework round limit before cycling.
 	maxReworkRounds := 3 // default
-	if step.Config != nil {
-		if v, ok := step.Config["max_rework_rounds"].(float64); ok && v > 0 {
+	if action.Config != nil {
+		if v, ok := action.Config["max_rework_rounds"].(float64); ok && v > 0 {
 			maxReworkRounds = int(v)
 		}
 	}
 
 	// Read rework_count from signal count (single source of truth).
 	reworkCount := 0
-	if cnt, err := e.store.CountStepSignals(ctx, step.ID, core.SignalReject); err == nil {
+	if cnt, err := e.store.CountActionSignals(ctx, action.ID, core.SignalReject); err == nil {
 		reworkCount = cnt
 	}
 
 	if reworkCount >= maxReworkRounds {
 		// Rework limit reached — caller will transition to blocked.
 		e.bus.Publish(ctx, core.Event{
-			Type:      core.EventGateReworkLimitReached,
-			IssueID:   step.IssueID,
-			StepID:    step.ID,
-			Timestamp: time.Now().UTC(),
+			Type:       core.EventGateReworkLimitReached,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			Timestamp:  time.Now().UTC(),
 			Data: map[string]any{
 				"reason":            result.Reason,
 				"rework_count":      reworkCount,
@@ -70,55 +70,55 @@ func (e *IssueEngine) ProcessGate(ctx context.Context, step *core.Step, result G
 		return core.ErrMaxRetriesExceeded
 	}
 
-	// Record a SignalReject on the gate step — single source of truth for rework_count.
-	if _, err := e.store.CreateStepSignal(ctx, &core.StepSignal{
-		StepID:    step.ID,
-		IssueID:   step.IssueID,
-		Type:      core.SignalReject,
-		Source:    core.SignalSourceSystem,
-		Summary:   strings.TrimSpace(result.Reason),
-		Payload:   result.Metadata,
-		Actor:     "gate",
-		CreatedAt: time.Now().UTC(),
+	// Record a SignalReject on the gate action — single source of truth for rework_count.
+	if _, err := e.store.CreateActionSignal(ctx, &core.ActionSignal{
+		ActionID:   action.ID,
+		WorkItemID: action.WorkItemID,
+		Type:       core.SignalReject,
+		Source:     core.SignalSourceSystem,
+		Summary:    strings.TrimSpace(result.Reason),
+		Payload:    result.Metadata,
+		Actor:      "gate",
+		CreatedAt:  time.Now().UTC(),
 	}); err != nil {
-		slog.Error("failed to record gate reject signal", "step_id", step.ID, "error", err)
+		slog.Error("failed to record gate reject signal", "action_id", action.ID, "error", err)
 	}
 
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventGateRejected,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"reason": result.Reason, "rework_round": reworkCount + 1},
+		Type:       core.EventGateRejected,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]any{"reason": result.Reason, "rework_round": reworkCount + 1},
 	})
 
-	// Reset upstream steps for rework — persist retry_count via UpdateStep.
+	// Reset upstream actions for rework — persist retry_count via UpdateAction.
 	for _, upID := range result.ResetTo {
-		up, err := e.store.GetStep(ctx, upID)
+		up, err := e.store.GetAction(ctx, upID)
 		if err != nil {
-			return fmt.Errorf("get upstream step %d: %w", upID, err)
+			return fmt.Errorf("get upstream action %d: %w", upID, err)
 		}
 		if up.MaxRetries > 0 && up.RetryCount >= up.MaxRetries {
 			return core.ErrMaxRetriesExceeded
 		}
-		e.recordGateRework(ctx, up, step.ID, result.Reason, result.Metadata)
+		e.recordGateRework(ctx, up, action.ID, result.Reason, result.Metadata)
 		up.RetryCount++
-		up.Status = core.StepPending
-		if err := e.store.UpdateStep(ctx, up); err != nil {
-			return fmt.Errorf("reset step %d: %w", upID, err)
+		up.Status = core.ActionPending
+		if err := e.store.UpdateAction(ctx, up); err != nil {
+			return fmt.Errorf("reset action %d: %w", upID, err)
 		}
 	}
 
 	// Gate itself → pending (will be re-promoted after upstream completes).
-	return e.transitionStep(ctx, step, core.StepPending)
+	return e.transitionAction(ctx, action, core.ActionPending)
 }
 
 // processGateReject delegates to ProcessGate and handles ErrMaxRetriesExceeded
-// by transitioning the step to blocked (instead of propagating the error).
-func (e *IssueEngine) processGateReject(ctx context.Context, step *core.Step, result GateResult) error {
-	rejectErr := e.ProcessGate(ctx, step, result)
+// by transitioning the action to blocked (instead of propagating the error).
+func (e *WorkItemEngine) processGateReject(ctx context.Context, action *core.Action, result GateResult) error {
+	rejectErr := e.ProcessGate(ctx, action, result)
 	if rejectErr == core.ErrMaxRetriesExceeded {
-		_ = e.transitionStep(ctx, step, core.StepBlocked)
+		_ = e.transitionAction(ctx, action, core.ActionBlocked)
 		return nil
 	}
 	return rejectErr
@@ -126,49 +126,49 @@ func (e *IssueEngine) processGateReject(ctx context.Context, step *core.Step, re
 
 // GateVerdict represents the outcome of a single gate evaluator.
 type GateVerdict struct {
-	Decided  bool              // true if this evaluator made a decision
-	Passed   bool              // pass or reject (only meaningful when Decided)
-	Reason   string            // human-readable reason
-	ResetTo  []int64           // step IDs to reset on reject
-	Metadata map[string]any    // source context (art.Metadata, signal.Payload); used for merge failure recovery
-	Signal   *core.StepSignal  // non-nil for signal-driven verdicts (carries Source for event data)
+	Decided  bool               // true if this evaluator made a decision
+	Passed   bool               // pass or reject (only meaningful when Decided)
+	Reason   string             // human-readable reason
+	ResetTo  []int64            // action IDs to reset on reject
+	Metadata map[string]any     // source context (deliverable.Metadata, signal.Payload); used for merge failure recovery
+	Signal   *core.ActionSignal // non-nil for signal-driven verdicts (carries Source for event data)
 }
 
-// GateEvaluator evaluates a gate step and optionally returns a verdict.
+// GateEvaluator evaluates a gate action and optionally returns a verdict.
 // If Decided is false, the next evaluator in the chain is tried.
-type GateEvaluator func(ctx context.Context, step *core.Step) (GateVerdict, error)
+type GateEvaluator func(ctx context.Context, action *core.Action) (GateVerdict, error)
 
-// finalizeGate is called after a gate step's executor succeeds.
+// finalizeGate is called after a gate action's executor succeeds.
 // It runs the evaluator chain in order; the first evaluator that returns Decided=true wins.
-// Default chain: StepSignal (MCP/HTTP) → Manifest check → Artifact metadata.
-func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
+// Default chain: ActionSignal (MCP/HTTP) → Manifest check → Deliverable metadata.
+func (e *WorkItemEngine) finalizeGate(ctx context.Context, action *core.Action) error {
 	evaluators := e.gateEvaluators
 	if len(evaluators) == 0 {
 		evaluators = []GateEvaluator{
 			e.evalSignalVerdict,
 			e.evalManifestCheck,
-			e.evalArtifactMetadata,
+			e.evalDeliverableMetadata,
 		}
 	}
 	for _, eval := range evaluators {
-		v, err := eval(ctx, step)
+		v, err := eval(ctx, action)
 		if err != nil {
 			return err
 		}
 		if v.Decided {
-			return e.applyGateVerdict(ctx, step, v)
+			return e.applyGateVerdict(ctx, action, v)
 		}
 	}
 	// No evaluator decided — default pass.
-	return e.applyGatePass(ctx, step, GateVerdict{})
+	return e.applyGatePass(ctx, action, GateVerdict{})
 }
 
 // applyGateVerdict dispatches a decided verdict to the pass or reject path.
-func (e *IssueEngine) applyGateVerdict(ctx context.Context, step *core.Step, v GateVerdict) error {
+func (e *WorkItemEngine) applyGateVerdict(ctx context.Context, action *core.Action, v GateVerdict) error {
 	if v.Passed {
-		return e.applyGatePass(ctx, step, v)
+		return e.applyGatePass(ctx, action, v)
 	}
-	return e.processGateReject(ctx, step, GateResult{
+	return e.processGateReject(ctx, action, GateResult{
 		Passed:   false,
 		Reason:   v.Reason,
 		ResetTo:  v.ResetTo,
@@ -177,14 +177,14 @@ func (e *IssueEngine) applyGateVerdict(ctx context.Context, step *core.Step, v G
 }
 
 // applyGatePass handles gate pass: merge PR (if configured), emit event, transition done.
-func (e *IssueEngine) applyGatePass(ctx context.Context, step *core.Step, v GateVerdict) error {
-	if err := e.mergePRIfConfigured(ctx, step); err != nil {
-		if e.handleMergeConflictBlock(ctx, step, err) {
+func (e *WorkItemEngine) applyGatePass(ctx context.Context, action *core.Action, v GateVerdict) error {
+	if err := e.mergePRIfConfigured(ctx, action); err != nil {
+		if e.handleMergeConflictBlock(ctx, action, err) {
 			return nil
 		}
-		mergeReason, mergeMetadata := e.formatMergeFailureFeedback(step, err)
-		resetTo, _ := e.defaultGateResetTargets(ctx, step, v.Metadata)
-		return e.processGateReject(ctx, step, GateResult{
+		mergeReason, mergeMetadata := e.formatMergeFailureFeedback(action, err)
+		resetTo, _ := e.defaultGateResetTargets(ctx, action, v.Metadata)
+		return e.processGateReject(ctx, action, GateResult{
 			Passed:   false,
 			Reason:   mergeReason,
 			ResetTo:  resetTo,
@@ -201,21 +201,21 @@ func (e *IssueEngine) applyGatePass(ctx context.Context, step *core.Step, v Gate
 		}
 	}
 	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventGatePassed,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		Timestamp: time.Now().UTC(),
-		Data:      data,
+		Type:       core.EventGatePassed,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       data,
 	})
-	return e.transitionStep(ctx, step, core.StepDone)
+	return e.transitionAction(ctx, action, core.ActionDone)
 }
 
 // --- Gate Evaluators ---
 
-// evalSignalVerdict checks for an explicit StepSignal (MCP tool call or human HTTP API).
+// evalSignalVerdict checks for an explicit ActionSignal (MCP tool call or human HTTP API).
 // System-sourced signals are skipped — those are internal bookkeeping.
-func (e *IssueEngine) evalSignalVerdict(ctx context.Context, step *core.Step) (GateVerdict, error) {
-	signal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalApprove, core.SignalReject)
+func (e *WorkItemEngine) evalSignalVerdict(ctx context.Context, action *core.Action) (GateVerdict, error) {
+	signal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalApprove, core.SignalReject)
 	if signal == nil || signal.Source == core.SignalSourceSystem {
 		return GateVerdict{}, nil
 	}
@@ -236,7 +236,7 @@ func (e *IssueEngine) evalSignalVerdict(ctx context.Context, step *core.Step) (G
 	if strings.TrimSpace(reason) == "" {
 		reason = "gate rejected"
 	}
-	resetTo := e.immediatePredecessorIDs(ctx, step)
+	resetTo := e.immediatePredecessorIDs(ctx, action)
 	resetTo = extractResetTargets(signal.Payload, resetTo)
 	return GateVerdict{
 		Decided:  true,
@@ -249,11 +249,11 @@ func (e *IssueEngine) evalSignalVerdict(ctx context.Context, step *core.Step) (G
 }
 
 // evalManifestCheck evaluates the feature manifest if manifest_check is enabled.
-func (e *IssueEngine) evalManifestCheck(ctx context.Context, step *core.Step) (GateVerdict, error) {
-	if !manifestCheckEnabled(step) {
+func (e *WorkItemEngine) evalManifestCheck(ctx context.Context, action *core.Action) (GateVerdict, error) {
+	if !manifestCheckEnabled(action) {
 		return GateVerdict{}, nil
 	}
-	passed, reason, err := e.checkManifestEntries(ctx, step)
+	passed, reason, err := e.checkManifestEntries(ctx, action)
 	if err != nil {
 		return GateVerdict{}, fmt.Errorf("manifest check: %w", err)
 	}
@@ -264,33 +264,33 @@ func (e *IssueEngine) evalManifestCheck(ctx context.Context, step *core.Step) (G
 		Decided: true,
 		Passed:  false,
 		Reason:  reason,
-		ResetTo: e.immediatePredecessorIDs(ctx, step),
+		ResetTo: e.immediatePredecessorIDs(ctx, action),
 	}, nil
 }
 
-// evalArtifactMetadata checks the gate step's artifact for a verdict field.
-func (e *IssueEngine) evalArtifactMetadata(ctx context.Context, step *core.Step) (GateVerdict, error) {
-	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
+// evalDeliverableMetadata checks the gate action's deliverable for a verdict field.
+func (e *WorkItemEngine) evalDeliverableMetadata(ctx context.Context, action *core.Action) (GateVerdict, error) {
+	deliverable, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
 	if err == core.ErrNotFound {
-		return GateVerdict{}, nil // no artifact → continue to default pass
+		return GateVerdict{}, nil // no deliverable → continue to default pass
 	}
 	if err != nil {
-		return GateVerdict{}, fmt.Errorf("get gate artifact for step %d: %w", step.ID, err)
+		return GateVerdict{}, fmt.Errorf("get gate deliverable for action %d: %w", action.ID, err)
 	}
 
-	verdict, _ := art.Metadata["verdict"].(string)
+	verdict, _ := deliverable.Metadata["verdict"].(string)
 	if verdict != "reject" {
 		// "pass" or unrecognized → pass
-		return GateVerdict{Decided: true, Passed: true, Metadata: art.Metadata}, nil
+		return GateVerdict{Decided: true, Passed: true, Metadata: deliverable.Metadata}, nil
 	}
 
-	resetTo, reason := e.defaultGateResetTargets(ctx, step, art.Metadata)
+	resetTo, reason := e.defaultGateResetTargets(ctx, action, deliverable.Metadata)
 	return GateVerdict{
 		Decided:  true,
 		Passed:   false,
 		Reason:   reason,
 		ResetTo:  resetTo,
-		Metadata: art.Metadata,
+		Metadata: deliverable.Metadata,
 	}, nil
 }
 
@@ -325,10 +325,9 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
-
-// recordGateRework creates a SignalFeedback on the upstream step,
+// recordGateRework creates a SignalFeedback on the upstream action,
 // recording the gate rejection as a structured signal.
-func (e *IssueEngine) recordGateRework(ctx context.Context, upstreamStep *core.Step, gateStepID int64, reason string, metadata map[string]any) {
+func (e *WorkItemEngine) recordGateRework(ctx context.Context, upstreamAction *core.Action, gateActionID int64, reason string, metadata map[string]any) {
 	summary := strings.TrimSpace(reason)
 	if summary == "" {
 		summary = "gate rejected"
@@ -353,34 +352,34 @@ func (e *IssueEngine) recordGateRework(ctx context.Context, upstreamStep *core.S
 		}
 	}
 
-	sig := &core.StepSignal{
-		StepID:       upstreamStep.ID,
-		IssueID:      upstreamStep.IssueID,
-		Type:         core.SignalFeedback,
-		Source:       core.SignalSourceSystem,
-		Summary:      summary,
-		Content:      content.String(),
-		SourceStepID: gateStepID,
-		Payload:      metadata,
-		Actor:        "gate",
-		CreatedAt:    time.Now().UTC(),
+	sig := &core.ActionSignal{
+		ActionID:       upstreamAction.ID,
+		WorkItemID:     upstreamAction.WorkItemID,
+		Type:           core.SignalFeedback,
+		Source:         core.SignalSourceSystem,
+		Summary:        summary,
+		Content:        content.String(),
+		SourceActionID: gateActionID,
+		Payload:        metadata,
+		Actor:          "gate",
+		CreatedAt:      time.Now().UTC(),
 	}
-	if _, err := e.store.CreateStepSignal(ctx, sig); err != nil {
-		slog.Error("failed to record gate rework signal", "step_id", upstreamStep.ID, "error", err)
+	if _, err := e.store.CreateActionSignal(ctx, sig); err != nil {
+		slog.Error("failed to record gate rework signal", "action_id", upstreamAction.ID, "error", err)
 	}
 }
 
-func (e *IssueEngine) defaultGateResetTargets(ctx context.Context, step *core.Step, metadata map[string]any) (resetTo []int64, reason string) {
+func (e *WorkItemEngine) defaultGateResetTargets(ctx context.Context, action *core.Action, metadata map[string]any) (resetTo []int64, reason string) {
 	// By default only reset the closest upstream position.
 	// Full upstream closure is opt-in via reset_upstream_closure.
-	immediatePredecessors := e.immediatePredecessorIDs(ctx, step)
+	immediatePredecessors := e.immediatePredecessorIDs(ctx, action)
 	resetTo = extractResetTargets(metadata, immediatePredecessors)
 	if len(resetTo) == 0 {
 		resetTo = append([]int64(nil), immediatePredecessors...)
 	}
-	if step.Config != nil {
-		if v, ok := step.Config["reset_upstream_closure"].(bool); ok && v {
-			resetTo = e.predecessorIDs(ctx, step)
+	if action.Config != nil {
+		if v, ok := action.Config["reset_upstream_closure"].(bool); ok && v {
+			resetTo = e.predecessorIDs(ctx, action)
 		}
 	}
 	reason, _ = metadata["reason"].(string)
@@ -390,19 +389,19 @@ func (e *IssueEngine) defaultGateResetTargets(ctx context.Context, step *core.St
 	return resetTo, reason
 }
 
-// predecessorIDs returns IDs of all steps with lower Position in the same issue.
-func (e *IssueEngine) predecessorIDs(ctx context.Context, step *core.Step) []int64 {
-	steps, err := e.store.ListStepsByIssue(ctx, step.IssueID)
-	if err != nil || len(steps) == 0 {
+// predecessorIDs returns IDs of all actions with lower Position in the same work item.
+func (e *WorkItemEngine) predecessorIDs(ctx context.Context, action *core.Action) []int64 {
+	actions, err := e.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+	if err != nil || len(actions) == 0 {
 		return nil
 	}
-	return predecessorStepIDs(steps, step)
+	return predecessorActionIDs(actions, action)
 }
 
-func (e *IssueEngine) immediatePredecessorIDs(ctx context.Context, step *core.Step) []int64 {
-	steps, err := e.store.ListStepsByIssue(ctx, step.IssueID)
-	if err != nil || len(steps) == 0 {
+func (e *WorkItemEngine) immediatePredecessorIDs(ctx context.Context, action *core.Action) []int64 {
+	actions, err := e.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+	if err != nil || len(actions) == 0 {
 		return nil
 	}
-	return immediatePredecessorStepIDs(steps, step)
+	return immediatePredecessorActionIDs(actions, action)
 }

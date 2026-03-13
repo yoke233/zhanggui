@@ -1,4 +1,4 @@
-import type { Issue, Step } from "@/types/apiV2";
+import type { WorkItem, Action } from "@/types/apiV2";
 
 export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -40,7 +40,7 @@ export const formatRelativeTime = (input?: string | null): string => {
   });
 };
 
-export const formatIssueDuration = (issue: Pick<Issue, "created_at" | "updated_at" | "status">): string => {
+export const formatIssueDuration = (issue: Pick<WorkItem, "created_at" | "updated_at" | "status">): string => {
   const created = new Date(issue.created_at);
   if (Number.isNaN(created.getTime())) {
     return "-";
@@ -62,7 +62,7 @@ export const formatIssueDuration = (issue: Pick<Issue, "created_at" | "updated_a
 export const isActiveIssueStatus = (status: string): boolean =>
   status === "queued" || status === "running" || status === "blocked" || status === "pending";
 
-export const normalizeStepTypeLabel = (type: Step["type"]): string => {
+export const normalizeStepTypeLabel = (type: Action["type"]): string => {
   switch (type) {
     case "exec":
       return "执行";

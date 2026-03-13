@@ -10,114 +10,266 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// Resolver selects an agent for a step based on role and required capabilities.
+// Resolver selects an agent for an action based on role and required capabilities.
 type Resolver interface {
-	Resolve(ctx context.Context, step *core.Step) (agentID string, err error)
+	Resolve(ctx context.Context, action *core.Action) (agentID string, err error)
 }
 
-// BriefingBuilder assembles a Briefing for a step, injecting upstream context.
-type BriefingBuilder interface {
-	Build(ctx context.Context, step *core.Step) (*core.Briefing, error)
+// InputBuilder assembles the run input string for an action, injecting upstream context.
+type InputBuilder interface {
+	Build(ctx context.Context, action *core.Action) (string, error)
 }
 
 // Collector extracts structured metadata from agent markdown output (via small model + tool_use).
 type Collector interface {
-	Extract(ctx context.Context, stepType core.StepType, markdown string) (map[string]any, error)
+	Extract(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error)
 }
 
-// CompositeExpander decomposes a composite step into child steps for its child issue.
+// CompositeExpander decomposes a plan action into child actions for its child work item.
 type CompositeExpander interface {
-	Expand(ctx context.Context, step *core.Step) ([]*core.Step, error)
+	Expand(ctx context.Context, action *core.Action) ([]*core.Action, error)
 }
 
 // ExpanderFunc adapts a plain function into a CompositeExpander.
-type ExpanderFunc func(ctx context.Context, step *core.Step) ([]*core.Step, error)
+type ExpanderFunc func(ctx context.Context, action *core.Action) ([]*core.Action, error)
 
-func (f ExpanderFunc) Expand(ctx context.Context, step *core.Step) ([]*core.Step, error) {
-	return f(ctx, step)
+func (f ExpanderFunc) Expand(ctx context.Context, action *core.Action) ([]*core.Action, error) {
+	return f(ctx, action)
 }
 
 // CollectorFunc adapts a plain function into a Collector.
-type CollectorFunc func(ctx context.Context, stepType core.StepType, markdown string) (map[string]any, error)
+type CollectorFunc func(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error)
 
-func (f CollectorFunc) Extract(ctx context.Context, stepType core.StepType, markdown string) (map[string]any, error) {
-	return f(ctx, stepType, markdown)
+func (f CollectorFunc) Extract(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error) {
+	return f(ctx, actionType, markdown)
 }
 
-// prepare resolves agent, builds briefing, and returns values for the Execution record.
-func (e *IssueEngine) prepare(ctx context.Context, step *core.Step) (agentID, briefingSnapshot string, err error) {
+// prepare resolves agent, builds input, and returns values for the Run record.
+func (e *WorkItemEngine) prepare(ctx context.Context, action *core.Action) (agentID, inputSnapshot string, err error) {
 	if e.resolver != nil {
-		agentID, err = e.resolver.Resolve(ctx, step)
+		agentID, err = e.resolver.Resolve(ctx, action)
 		if err != nil {
-			return "", "", fmt.Errorf("resolve agent for step %d: %w", step.ID, err)
+			return "", "", fmt.Errorf("resolve agent for action %d: %w", action.ID, err)
 		}
 	}
 
-	if e.briefer != nil {
-		briefing, err := e.briefer.Build(ctx, step)
+	if e.inputBuilder != nil {
+		inputSnapshot, err = e.inputBuilder.Build(ctx, action)
 		if err != nil {
-			return "", "", fmt.Errorf("build briefing for step %d: %w", step.ID, err)
+			return "", "", fmt.Errorf("build input for action %d: %w", action.ID, err)
 		}
-		if _, err := e.store.CreateBriefing(ctx, briefing); err != nil {
-			return "", "", fmt.Errorf("store briefing for step %d: %w", step.ID, err)
-		}
-		briefingSnapshot = renderBriefingSnapshot(briefing)
 	}
 
-	return agentID, briefingSnapshot, nil
+	return agentID, inputSnapshot, nil
+}
+
+// finalize handles the run result: failure path or success path.
+func (e *WorkItemEngine) finalize(ctx context.Context, action *core.Action, run *core.Run, runErr error) error {
+	finished := time.Now().UTC()
+	run.FinishedAt = &finished
+
+	if runErr != nil {
+		return e.handleFailure(ctx, action, run, runErr)
+	}
+	return e.handleSuccess(ctx, action, run)
+}
+
+// handleFailure classifies the error and decides: retry, block, or fail.
+func (e *WorkItemEngine) handleFailure(ctx context.Context, action *core.Action, run *core.Run, runErr error) error {
+	run.Status = core.RunFailed
+	run.ErrorMessage = runErr.Error()
+
+	// Auto-classify timeout as transient.
+	if run.ErrorKind == "" && errors.Is(runErr, context.DeadlineExceeded) {
+		run.ErrorKind = core.ErrKindTransient
+	}
+
+	_ = e.store.UpdateRun(ctx, run)
+
+	e.bus.Publish(ctx, core.Event{
+		Type:       core.EventRunFailed,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		RunID:      run.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]any{"error": runErr.Error(), "error_kind": string(run.ErrorKind)},
+	})
+
+	// Permanent → fail immediately, skip retry.
+	if run.ErrorKind == core.ErrKindPermanent {
+		_ = e.transitionAction(ctx, action, core.ActionFailed)
+		return fmt.Errorf("action %d failed (permanent): %w", action.ID, runErr)
+	}
+
+	// Need help → block action for external intervention.
+	if run.ErrorKind == core.ErrKindNeedHelp {
+		_ = e.transitionAction(ctx, action, core.ActionBlocked)
+		return nil // Not an engine error; other actions can continue.
+	}
+
+	// Transient or unclassified → retry if budget remains.
+	if action.RetryCount < action.MaxRetries {
+		action.RetryCount++
+		action.Status = core.ActionPending
+		if err := e.store.UpdateAction(ctx, action); err != nil {
+			return fmt.Errorf("retry action %d: %w", action.ID, err)
+		}
+		return nil
+	}
+
+	_ = e.transitionAction(ctx, action, core.ActionFailed)
+	return fmt.Errorf("action %d failed: %w", action.ID, runErr)
+}
+
+// handleSuccess processes a successful run: check signals, collect metadata, then gate finalize or action done.
+func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action, run *core.Run) error {
+	run.Status = core.RunSucceeded
+	_ = e.store.UpdateRun(ctx, run)
+
+	e.bus.Publish(ctx, core.Event{
+		Type:       core.EventRunSucceeded,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		RunID:      run.ID,
+		Timestamp:  time.Now().UTC(),
+	})
+
+	// 1. Check if agent declared need_help via MCP tool.
+	helpSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalNeedHelp, core.SignalBlocked)
+	if helpSignal != nil && helpSignal.RunID == run.ID {
+		_ = e.transitionAction(ctx, action, core.ActionBlocked)
+		e.bus.Publish(ctx, core.Event{
+			Type:       core.EventActionNeedHelp,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			RunID:      run.ID,
+			Timestamp:  time.Now().UTC(),
+			Data:       helpSignal.Payload,
+		})
+		return nil // non-fatal; other actions can continue
+	}
+
+	// 2. Check if agent provided structured completion signal → skip Collector.
+	completeSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalComplete)
+	if completeSignal != nil && completeSignal.RunID == run.ID {
+		e.applySignalMetadata(ctx, action, run, completeSignal.Payload)
+	} else {
+		// 3. Fallback: LLM Collector extracts metadata (existing behavior).
+		if err := e.collectMetadata(ctx, action); err != nil {
+			e.bus.Publish(ctx, core.Event{
+				Type:       core.EventRunFailed,
+				WorkItemID: action.WorkItemID,
+				ActionID:   action.ID,
+				Timestamp:  time.Now().UTC(),
+				Data:       map[string]any{"collect_error": err.Error()},
+			})
+		}
+	}
+
+	switch action.Type {
+	case core.ActionGate:
+		return e.finalizeGate(ctx, action)
+	default:
+		return e.transitionAction(ctx, action, core.ActionDone)
+	}
+}
+
+// applySignalMetadata writes agent-provided metadata directly to the action's deliverable,
+// bypassing the LLM Collector.
+func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.Action, run *core.Run, payload map[string]any) {
+	del, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	if err != nil {
+		return
+	}
+	if del.Metadata == nil {
+		del.Metadata = map[string]any{}
+	}
+	for k, v := range payload {
+		del.Metadata[k] = v
+	}
+	del.Metadata["signal_source"] = "agent"
+	_ = e.store.UpdateDeliverable(ctx, del)
+}
+
+// collectMetadata runs the Collector (if set) to extract structured metadata from the action's latest Deliverable.
+func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Action) error {
+	if e.collector == nil {
+		return nil
+	}
+	del, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	if err != nil {
+		return nil // no deliverable to collect from
+	}
+	if del.ResultMarkdown == "" {
+		return nil
+	}
+
+	metadata, err := e.collector.Extract(ctx, action.Type, del.ResultMarkdown)
+	if err != nil {
+		return fmt.Errorf("collect metadata for action %d: %w", action.ID, err)
+	}
+
+	// Merge extracted metadata into existing metadata (don't overwrite).
+	if del.Metadata == nil {
+		del.Metadata = metadata
+	} else {
+		for k, v := range metadata {
+			if _, exists := del.Metadata[k]; !exists {
+				del.Metadata[k] = v
+			}
+		}
+	}
+
+	return e.store.UpdateDeliverable(ctx, del)
 }
 
 const (
-	maxBriefingRefChars   = 4000
-	maxBriefingTotalChars = 12000
+	maxInputRefChars   = 4000
+	maxInputTotalChars = 12000
 )
 
 // refBudget returns a per-ref character budget based on context type.
 // Smaller types get tighter caps so they don't starve higher-value refs.
-func refBudget(ref core.ContextRef) int {
+func refBudget(ref ContextRef) int {
 	switch ref.Type {
-	case core.CtxIssueSummary, core.CtxProjectBrief:
+	case CtxIssueSummary, CtxProjectBrief:
 		return 800
-	case core.CtxFeatureManifest:
+	case CtxFeatureManifest:
 		return 2000
-	case core.CtxAgentMemory:
+	case CtxAgentMemory:
 		return 1500
-	case core.CtxUpstreamArtifact:
-		return maxBriefingRefChars
+	case CtxUpstreamArtifact:
+		return maxInputRefChars
 	default:
-		return maxBriefingRefChars
+		return maxInputRefChars
 	}
 }
 
-func renderBriefingSnapshot(briefing *core.Briefing) string {
-	if briefing == nil {
-		return ""
-	}
-
-	objective := truncateBriefingText(strings.TrimSpace(briefing.Objective), maxBriefingTotalChars)
+func renderInputSnapshot(objective string, contextRefs []ContextRef) string {
+	objective = truncateText(strings.TrimSpace(objective), maxInputTotalChars)
 	var sb strings.Builder
 	sb.WriteString(objective)
 
-	if len(briefing.ContextRefs) == 0 {
+	if len(contextRefs) == 0 {
 		return strings.TrimSpace(sb.String())
 	}
 
-	remaining := maxBriefingTotalChars - len(objective)
+	remaining := maxInputTotalChars - len(objective)
 	if remaining <= 0 {
 		return strings.TrimSpace(sb.String())
 	}
 
 	const contextHeader = "\n\n# Context\n"
 	wroteContextHeader := false
-	for _, ref := range briefing.ContextRefs {
+	for _, ref := range contextRefs {
 		content := strings.TrimSpace(ref.Inline)
 		if content == "" || remaining <= 0 {
 			continue
 		}
 		budget := refBudget(ref)
-		content = truncateBriefingText(content, budget)
+		content = truncateText(content, budget)
 		if len(content) > remaining {
-			content = truncateBriefingText(content, remaining)
+			content = truncateText(content, remaining)
 		}
 		if strings.TrimSpace(content) == "" {
 			continue
@@ -136,7 +288,7 @@ func renderBriefingSnapshot(briefing *core.Briefing) string {
 		if available <= 0 {
 			break
 		}
-		content = truncateBriefingText(content, minInt(budget, available))
+		content = truncateText(content, minInt(budget, available))
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
@@ -154,7 +306,7 @@ func renderBriefingSnapshot(briefing *core.Briefing) string {
 	return strings.TrimSpace(sb.String())
 }
 
-func truncateBriefingText(text string, maxChars int) string {
+func truncateText(text string, maxChars int) string {
 	text = strings.TrimSpace(text)
 	if maxChars <= 0 || len(text) <= maxChars {
 		return text
@@ -171,164 +323,4 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// finalize handles the execution result: failure path or success path.
-func (e *IssueEngine) finalize(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
-	finished := time.Now().UTC()
-	exec.FinishedAt = &finished
-
-	if execErr != nil {
-		return e.handleFailure(ctx, step, exec, execErr)
-	}
-	return e.handleSuccess(ctx, step, exec)
-}
-
-// handleFailure classifies the error and decides: retry, block, or fail.
-func (e *IssueEngine) handleFailure(ctx context.Context, step *core.Step, exec *core.Execution, execErr error) error {
-	exec.Status = core.ExecFailed
-	exec.ErrorMessage = execErr.Error()
-
-	// Auto-classify timeout as transient.
-	if exec.ErrorKind == "" && errors.Is(execErr, context.DeadlineExceeded) {
-		exec.ErrorKind = core.ErrKindTransient
-	}
-
-	_ = e.store.UpdateExecution(ctx, exec)
-
-	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventExecFailed,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		ExecID:    exec.ID,
-		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"error": execErr.Error(), "error_kind": string(exec.ErrorKind)},
-	})
-
-	// Permanent → fail immediately, skip retry.
-	if exec.ErrorKind == core.ErrKindPermanent {
-		_ = e.transitionStep(ctx, step, core.StepFailed)
-		return fmt.Errorf("step %d failed (permanent): %w", step.ID, execErr)
-	}
-
-	// Need help → block step for external intervention.
-	if exec.ErrorKind == core.ErrKindNeedHelp {
-		_ = e.transitionStep(ctx, step, core.StepBlocked)
-		return nil // Not an engine error; other steps can continue.
-	}
-
-	// Transient or unclassified → retry if budget remains.
-	if step.RetryCount < step.MaxRetries {
-		step.RetryCount++
-		step.Status = core.StepPending
-		if err := e.store.UpdateStep(ctx, step); err != nil {
-			return fmt.Errorf("retry step %d: %w", step.ID, err)
-		}
-		return nil
-	}
-
-	_ = e.transitionStep(ctx, step, core.StepFailed)
-	return fmt.Errorf("step %d failed: %w", step.ID, execErr)
-}
-
-// handleSuccess processes a successful execution: check signals, collect metadata, then gate finalize or step done.
-func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *core.Execution) error {
-	exec.Status = core.ExecSucceeded
-	_ = e.store.UpdateExecution(ctx, exec)
-
-	e.bus.Publish(ctx, core.Event{
-		Type:      core.EventExecSucceeded,
-		IssueID:   step.IssueID,
-		StepID:    step.ID,
-		ExecID:    exec.ID,
-		Timestamp: time.Now().UTC(),
-	})
-
-	// 1. Check if agent declared need_help via MCP tool.
-	helpSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalNeedHelp, core.SignalBlocked)
-	if helpSignal != nil && helpSignal.ExecID == exec.ID {
-		_ = e.transitionStep(ctx, step, core.StepBlocked)
-		e.bus.Publish(ctx, core.Event{
-			Type:      core.EventStepNeedHelp,
-			IssueID:   step.IssueID,
-			StepID:    step.ID,
-			ExecID:    exec.ID,
-			Timestamp: time.Now().UTC(),
-			Data:      helpSignal.Payload,
-		})
-		return nil // non-fatal; other steps can continue
-	}
-
-	// 2. Check if agent provided structured completion signal → skip Collector.
-	completeSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalComplete)
-	if completeSignal != nil && completeSignal.ExecID == exec.ID {
-		e.applySignalMetadata(ctx, step, exec, completeSignal.Payload)
-	} else {
-		// 3. Fallback: LLM Collector extracts metadata (existing behavior).
-		if err := e.collectMetadata(ctx, step); err != nil {
-			e.bus.Publish(ctx, core.Event{
-				Type:      core.EventExecFailed,
-				IssueID:   step.IssueID,
-				StepID:    step.ID,
-				Timestamp: time.Now().UTC(),
-				Data:      map[string]any{"collect_error": err.Error()},
-			})
-		}
-	}
-
-	switch step.Type {
-	case core.StepGate:
-		return e.finalizeGate(ctx, step)
-	default:
-		return e.transitionStep(ctx, step, core.StepDone)
-	}
-}
-
-// applySignalMetadata writes agent-provided metadata directly to the step's artifact,
-// bypassing the LLM Collector.
-func (e *IssueEngine) applySignalMetadata(ctx context.Context, step *core.Step, exec *core.Execution, payload map[string]any) {
-	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
-	if err != nil {
-		return
-	}
-	if art.Metadata == nil {
-		art.Metadata = map[string]any{}
-	}
-	for k, v := range payload {
-		art.Metadata[k] = v
-	}
-	art.Metadata["signal_source"] = "agent"
-	_ = e.store.UpdateArtifact(ctx, art)
-}
-
-// collectMetadata runs the Collector (if set) to extract structured metadata from the step's latest Artifact.
-func (e *IssueEngine) collectMetadata(ctx context.Context, step *core.Step) error {
-	if e.collector == nil {
-		return nil
-	}
-	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
-	if err != nil {
-		return nil // no artifact to collect from
-	}
-	if art.ResultMarkdown == "" {
-		return nil
-	}
-
-	metadata, err := e.collector.Extract(ctx, step.Type, art.ResultMarkdown)
-	if err != nil {
-		return fmt.Errorf("collect metadata for step %d: %w", step.ID, err)
-	}
-
-	// Merge extracted metadata into existing metadata (don't overwrite).
-	if art.Metadata == nil {
-		art.Metadata = metadata
-	} else {
-		for k, v := range metadata {
-			if _, exists := art.Metadata[k]; !exists {
-				art.Metadata[k] = v
-			}
-		}
-	}
-
-	return e.store.UpdateArtifact(ctx, art)
 }

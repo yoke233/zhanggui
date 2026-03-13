@@ -2,11 +2,11 @@ package core
 
 import "time"
 
-// AgentContext tracks conversational state for an agent within an Issue.
+// AgentContext tracks conversational state for an agent within a WorkItem.
 type AgentContext struct {
 	ID               int64      `json:"id"`
 	AgentID          string     `json:"agent_id"`
-	IssueID          int64      `json:"issue_id"`
+	WorkItemID       int64      `json:"work_item_id"`
 	SystemPrompt     string     `json:"system_prompt,omitempty"`
 	SessionID        string     `json:"-"` // ACP session is internal routing state.
 	Summary          string     `json:"summary,omitempty"`

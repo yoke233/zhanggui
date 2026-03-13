@@ -1,6 +1,6 @@
 # AI Company Domain Model（最小落地版）
 
-> 状态：领域建模草案
+> 状态：草案
 > 更新时间：2026-03-13
 
 > 目标：从当前仓库已经稳定运行的 `project / issue / step / execution / artifact / chat session` 主线出发，逐步扩展为可覆盖产品、运营、财务、剪辑、销售、管理等场景的通用 AI Company 系统。

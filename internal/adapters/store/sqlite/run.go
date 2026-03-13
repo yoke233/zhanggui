@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateExecution(ctx context.Context, e *core.Execution) (int64, error) {
+func (s *Store) CreateRun(ctx context.Context, e *core.Run) (int64, error) {
 	now := time.Now().UTC()
-	model := executionModelFromCore(e)
+	model := runModelFromCore(e)
 	model.CreatedAt = now
 
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
@@ -22,8 +22,8 @@ func (s *Store) CreateExecution(ctx context.Context, e *core.Execution) (int64, 
 	return model.ID, nil
 }
 
-func (s *Store) GetExecution(ctx context.Context, id int64) (*core.Execution, error) {
-	var model ExecutionModel
+func (s *Store) GetRun(ctx context.Context, id int64) (*core.Run, error) {
+	var model RunModel
 	err := s.orm.WithContext(ctx).First(&model, id).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -34,8 +34,8 @@ func (s *Store) GetExecution(ctx context.Context, id int64) (*core.Execution, er
 	return model.toCore(), nil
 }
 
-func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core.Execution, error) {
-	var models []ExecutionModel
+func (s *Store) ListRunsByAction(ctx context.Context, stepID int64) ([]*core.Run, error) {
+	var models []RunModel
 	err := s.orm.WithContext(ctx).
 		Where("step_id = ?", stepID).
 		Order("attempt ASC").
@@ -44,15 +44,15 @@ func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core
 		return nil, fmt.Errorf("list executions by step: %w", err)
 	}
 
-	out := make([]*core.Execution, 0, len(models))
+	out := make([]*core.Run, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.ExecutionStatus) ([]*core.Execution, error) {
-	var models []ExecutionModel
+func (s *Store) ListRunsByStatus(ctx context.Context, status core.RunStatus) ([]*core.Run, error) {
+	var models []RunModel
 	err := s.orm.WithContext(ctx).
 		Where("status = ?", string(status)).
 		Order("id ASC").
@@ -61,16 +61,16 @@ func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.Executio
 		return nil, fmt.Errorf("list executions by status: %w", err)
 	}
 
-	out := make([]*core.Execution, 0, len(models))
+	out := make([]*core.Run, 0, len(models))
 	for i := range models {
 		out = append(out, models[i].toCore())
 	}
 	return out, nil
 }
 
-func (s *Store) UpdateExecution(ctx context.Context, e *core.Execution) error {
-	model := executionModelFromCore(e)
-	result := s.orm.WithContext(ctx).Model(&ExecutionModel{}).
+func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
+	model := runModelFromCore(e)
+	result := s.orm.WithContext(ctx).Model(&RunModel{}).
 		Where("id = ?", e.ID).
 		Updates(map[string]any{
 			"status":            model.Status,

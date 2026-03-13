@@ -35,7 +35,7 @@ export function ProjectsPage() {
         const entries = await Promise.all(
           projects.map(async (project) => {
             const [issues, resources] = await Promise.all([
-              apiClient.listIssues({
+              apiClient.listWorkItems({
                 project_id: project.id,
                 archived: false,
                 limit: 200,

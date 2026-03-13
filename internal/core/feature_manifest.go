@@ -35,8 +35,8 @@ type FeatureEntry struct {
 	Key         string         `json:"key"`
 	Description string         `json:"description"`
 	Status      FeatureStatus  `json:"status"`
-	IssueID     *int64         `json:"issue_id,omitempty"`
-	StepID      *int64         `json:"step_id,omitempty"`
+	WorkItemID  *int64         `json:"work_item_id,omitempty"`
+	ActionID    *int64         `json:"action_id,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	CreatedAt   time.Time      `json:"created_at"`
@@ -47,7 +47,7 @@ type FeatureEntry struct {
 type FeatureEntryFilter struct {
 	ManifestID int64
 	Status     *FeatureStatus
-	IssueID    *int64
+	WorkItemID *int64
 	Tags       []string
 	Limit      int
 	Offset     int
