@@ -12,6 +12,8 @@ import (
 type Store interface {
 	core.ProjectStore
 	core.ResourceBindingStore
+	core.ResourceLocatorStore
+	core.ActionResourceStore
 	core.WorkItemStore
 	core.ThreadStore
 	core.ActionStore

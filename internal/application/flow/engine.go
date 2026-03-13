@@ -24,6 +24,7 @@ type WorkItemEngine struct {
 	collector      Collector             // optional: metadata extraction
 	expander       CompositeExpander     // optional: composite decomposition
 	wsProvider     WorkspaceProvider     // optional: workspace isolation
+	resResolver    *ResourceResolver     // optional: external resource fetch/deposit
 	scmTokens      SCMTokens             // optional: SCM automation tokens (push/PR/merge)
 	prPrompts      PRFlowPromptsProvider // optional: configurable PR flow prompts
 	crFactory      ChangeRequestProviderFactory
@@ -92,6 +93,11 @@ func WithChangeRequestProviders(factory ChangeRequestProviderFactory) Option {
 // Evaluators are tried in order; the first one that returns Decided=true wins.
 func WithGateEvaluators(evaluators ...GateEvaluator) Option {
 	return func(e *WorkItemEngine) { e.gateEvaluators = evaluators }
+}
+
+// WithResourceResolver sets the external resource resolver for input fetch / output deposit.
+func WithResourceResolver(rr *ResourceResolver) Option {
+	return func(e *WorkItemEngine) { e.resResolver = rr }
 }
 
 // New creates a WorkItemEngine.

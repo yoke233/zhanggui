@@ -144,6 +144,18 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/resources/{resourceID}", h.getResourceBinding)
 	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
 
+	// Resource Locators (external storage locations)
+	r.Post("/projects/{projectID}/locators", h.createResourceLocator)
+	r.Get("/projects/{projectID}/locators", h.listResourceLocators)
+	r.Get("/locators/{locatorID}", h.getResourceLocator)
+	r.Put("/locators/{locatorID}", h.updateResourceLocator)
+	r.Delete("/locators/{locatorID}", h.deleteResourceLocator)
+
+	// Action Resources (per-action input/output resource declarations)
+	r.Post("/actions/{actionID}/resources", h.createActionResource)
+	r.Get("/actions/{actionID}/resources", h.listActionResources)
+	r.Delete("/action-resources/{resourceID}", h.deleteActionResource)
+
 	// Work Item public routes.
 	h.registerWorkItemRoutes(r, "/work-items")
 

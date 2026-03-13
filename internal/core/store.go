@@ -91,6 +91,8 @@ type RunProbeStore interface {
 type Store interface {
 	ProjectStore
 	ResourceBindingStore
+	ResourceLocatorStore
+	ActionResourceStore
 	WorkItemStore
 	ThreadStore
 	ActionStore

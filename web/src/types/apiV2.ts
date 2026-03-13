@@ -213,6 +213,66 @@ export interface CreateResourceBindingRequest {
   label?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Resource Locators (external storage locations)
+// ---------------------------------------------------------------------------
+
+export type ResourceLocatorKind = "local_fs" | "s3" | "http" | "git" | "webdav" | string;
+
+export interface ResourceLocator {
+  id: number;
+  project_id: number;
+  kind: ResourceLocatorKind;
+  label: string;
+  base_uri: string;
+  config?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateResourceLocatorRequest {
+  kind: ResourceLocatorKind;
+  label: string;
+  base_uri: string;
+  config?: Record<string, unknown>;
+}
+
+export interface UpdateResourceLocatorRequest {
+  kind?: ResourceLocatorKind;
+  label?: string;
+  base_uri?: string;
+  config?: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Action Resources (per-action input/output resource declarations)
+// ---------------------------------------------------------------------------
+
+export type ActionResourceDirection = "input" | "output";
+
+export interface ActionResource {
+  id: number;
+  action_id: number;
+  locator_id: number;
+  direction: ActionResourceDirection;
+  path: string;
+  media_type?: string;
+  description?: string;
+  required: boolean;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CreateActionResourceRequest {
+  locator_id: number;
+  direction: ActionResourceDirection;
+  path: string;
+  media_type?: string;
+  description?: string;
+  required?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 export interface CreateActionRequest {
   name: string;
   type: "exec" | "gate" | "composite" | "plan";

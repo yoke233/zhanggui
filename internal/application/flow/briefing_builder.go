@@ -13,11 +13,12 @@ import (
 type ContextRefType string
 
 const (
-	CtxIssueSummary     ContextRefType = "issue_summary"
-	CtxProjectBrief     ContextRefType = "project_brief"
-	CtxUpstreamArtifact ContextRefType = "upstream_artifact"
-	CtxAgentMemory      ContextRefType = "agent_memory"
-	CtxFeatureManifest  ContextRefType = "feature_manifest"
+	CtxIssueSummary      ContextRefType = "issue_summary"
+	CtxProjectBrief      ContextRefType = "project_brief"
+	CtxUpstreamArtifact  ContextRefType = "upstream_artifact"
+	CtxAgentMemory       ContextRefType = "agent_memory"
+	CtxFeatureManifest   ContextRefType = "feature_manifest"
+	CtxResourceManifest  ContextRefType = "resource_manifest"
 )
 
 // ContextRef points to a piece of context used when building input.

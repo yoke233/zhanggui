@@ -44,7 +44,7 @@ func (f CollectorFunc) Extract(ctx context.Context, actionType core.ActionType, 
 	return f(ctx, actionType, markdown)
 }
 
-// prepare resolves agent, builds input, and returns values for the Run record.
+// prepare resolves agent, builds input (with external resources), and returns values for the Run record.
 func (e *WorkItemEngine) prepare(ctx context.Context, action *core.Action) (agentID, inputSnapshot string, err error) {
 	if e.resolver != nil {
 		agentID, err = e.resolver.Resolve(ctx, action)
@@ -57,6 +57,29 @@ func (e *WorkItemEngine) prepare(ctx context.Context, action *core.Action) (agen
 		inputSnapshot, err = e.inputBuilder.Build(ctx, action)
 		if err != nil {
 			return "", "", fmt.Errorf("build input for action %d: %w", action.ID, err)
+		}
+	}
+
+	// Fetch declared input resources and append their context to the input.
+	if e.resResolver != nil {
+		ws := WorkspaceFromContext(ctx)
+		destDir := "/tmp/action-resources/" + fmt.Sprintf("%d", action.ID)
+		if ws != nil && ws.Path != "" {
+			destDir = ws.Path + "/.resources"
+		}
+		resolved, fetchErr := e.resResolver.FetchInputs(ctx, action.ID, destDir)
+		if fetchErr != nil {
+			return "", "", fmt.Errorf("fetch input resources for action %d: %w", action.ID, fetchErr)
+		}
+		if len(resolved) > 0 {
+			resourceCtx := FormatInputResourceContext(resolved)
+			if resourceCtx != "" {
+				if inputSnapshot != "" {
+					inputSnapshot += "\n\n# Input Resources\n\n" + resourceCtx
+				} else {
+					inputSnapshot = "# Input Resources\n\n" + resourceCtx
+				}
+			}
 		}
 	}
 
@@ -166,6 +189,27 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 		}
 	}
 
+	// Deposit declared output resources after successful execution.
+	if e.resResolver != nil {
+		ws := WorkspaceFromContext(ctx)
+		sourceDir := "/tmp/action-resources/" + fmt.Sprintf("%d", action.ID)
+		if ws != nil && ws.Path != "" {
+			sourceDir = ws.Path
+		}
+		if depositErr := e.resResolver.DepositOutputs(ctx, action.ID, sourceDir); depositErr != nil {
+			e.bus.Publish(ctx, core.Event{
+				Type:       core.EventRunFailed,
+				WorkItemID: action.WorkItemID,
+				ActionID:   action.ID,
+				RunID:      run.ID,
+				Timestamp:  time.Now().UTC(),
+				Data:       map[string]any{"deposit_error": depositErr.Error()},
+			})
+			// Don't fail the action for non-required deposit errors; required errors
+			// are already returned as errors from DepositOutputs.
+		}
+	}
+
 	switch action.Type {
 	case core.ActionGate:
 		return e.finalizeGate(ctx, action)
@@ -237,6 +281,8 @@ func refBudget(ref ContextRef) int {
 	case CtxFeatureManifest:
 		return 2000
 	case CtxAgentMemory:
+		return 1500
+	case CtxResourceManifest:
 		return 1500
 	case CtxUpstreamArtifact:
 		return maxInputRefChars
