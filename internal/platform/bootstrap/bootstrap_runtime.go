@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
@@ -17,6 +18,9 @@ func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string) *configrunti
 	}
 
 	cfgPath := filepath.Join(dataDir, "config.toml")
+	if resolved := resolveRuntimeConfigFilePath(dataDir); resolved != "" {
+		cfgPath = resolved
+	}
 	secretsPath := resolveSecretsFilePath(dataDir)
 	mcpEnv := configruntime.MCPEnvConfig{
 		DBPath: runtimeDBPath,
@@ -29,4 +33,14 @@ func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string) *configrunti
 		return nil
 	}
 	return runtimeManager
+}
+
+func resolveRuntimeConfigFilePath(dataDir string) string {
+	for _, name := range []string{"config.toml", "config.yaml", "config.yml"} {
+		path := filepath.Join(dataDir, name)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return filepath.Join(dataDir, "config.toml")
 }

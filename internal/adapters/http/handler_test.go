@@ -22,6 +22,30 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
+type failingCreateThreadMessageStore struct {
+	Store
+	err error
+}
+
+func (s *failingCreateThreadMessageStore) CreateThreadMessage(context.Context, *core.ThreadMessage) (int64, error) {
+	return 0, s.err
+}
+
+type failNthCreateStepStore struct {
+	Store
+	failAt int
+	calls  int
+	err    error
+}
+
+func (s *failNthCreateStepStore) CreateStep(ctx context.Context, step *core.Step) (int64, error) {
+	s.calls++
+	if s.calls == s.failAt {
+		return 0, s.err
+	}
+	return s.Store.CreateStep(ctx, step)
+}
+
 func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")

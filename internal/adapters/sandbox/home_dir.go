@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 
-	v2skills "github.com/yoke233/ai-workflow/internal/skills"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
+	v2skills "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // HomeDirSandbox isolates each ACP process by assigning a per-scope home/config directory:
@@ -119,7 +119,14 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	// Link ephemeral skills (pre-built directories, e.g. step-context).
 	// Unlike global skills we always replace — ephemeral skills are per-execution.
 	for name, srcDir := range in.EphemeralSkills {
-		dst := filepath.Join(skillsDir, name)
+		dstName, err := sanitizeSandboxSkillName(name)
+		if err != nil {
+			return launch, err
+		}
+		dst := filepath.Join(skillsDir, dstName)
+		if err := ensurePathWithinRoot(skillsDir, dst); err != nil {
+			return launch, err
+		}
 		// Remove stale link/dir unconditionally before creating the new one.
 		if _, statErr := os.Lstat(dst); statErr == nil {
 			_ = os.RemoveAll(dst)
@@ -283,3 +290,32 @@ func copyFile(dst, src string) error {
 	return nil
 }
 
+func sanitizeSandboxSkillName(name string) (string, error) {
+	clean := sanitizeComponent(name)
+	if clean == "" {
+		return "", fmt.Errorf("invalid ephemeral skill name %q", name)
+	}
+	if clean != strings.TrimSpace(name) {
+		return "", fmt.Errorf("ephemeral skill name %q contains unsafe path characters", name)
+	}
+	return clean, nil
+}
+
+func ensurePathWithinRoot(root, target string) error {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve sandbox root: %w", err)
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve sandbox target: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil {
+		return fmt.Errorf("check sandbox target scope: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("sandbox target %q escapes root %q", target, root)
+	}
+	return nil
+}

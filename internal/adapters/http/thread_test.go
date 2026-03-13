@@ -344,6 +344,38 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadAgentSessionDeleteRejectsCrossThreadSession(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "thread-a"})
+	var threadA core.Thread
+	decodeJSON(resp, &threadA)
+
+	resp, _ = post(ts, "/threads", map[string]any{"title": "thread-b"})
+	var threadB core.Thread
+	decodeJSON(resp, &threadB)
+
+	resp, _ = post(ts, fmt.Sprintf("/threads/%d/agents", threadB.ID), map[string]any{
+		"agent_profile_id": "worker-claude",
+	})
+	var sess core.ThreadAgentSession
+	decodeJSON(resp, &sess)
+
+	req, _ := http.NewRequest(http.MethodDelete,
+		ts.URL+fmt.Sprintf("/threads/%d/agents/%d", threadA.ID, sess.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-thread delete, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/agents", threadB.ID))
+	var sessions []core.ThreadAgentSession
+	decodeJSON(resp, &sessions)
+	if len(sessions) != 1 {
+		t.Fatalf("expected session to remain on original thread, got %d", len(sessions))
+	}
+}
+
 func TestThreadCreateWorkItem(t *testing.T) {
 	_, ts := setupAPI(t)
 

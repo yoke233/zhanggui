@@ -3,7 +3,6 @@ package acp
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,9 +41,9 @@ func (b *permissionBroker) NextID() string {
 }
 
 // Submit registers a pending permission request, blocks until resolved via
-// Resolve or until the timeout/context expires.  On timeout, the request is
-// auto-approved using the first allow-* option.
-func (b *permissionBroker) Submit(ctx context.Context, id string, req acpproto.RequestPermissionRequest, timeout time.Duration) (acpproto.RequestPermissionResponse, error) {
+// Resolve or until the timeout/context expires. On timeout, the request is
+// rejected by default.
+func (b *permissionBroker) Submit(ctx context.Context, id string, _ acpproto.RequestPermissionRequest, timeout time.Duration) (acpproto.RequestPermissionResponse, error) {
 	ch := make(chan permissionDecision, 1)
 	b.mu.Lock()
 	b.pending[id] = &pendingPermission{ch: ch}
@@ -66,8 +65,7 @@ func (b *permissionBroker) Submit(ctx context.Context, id string, req acpproto.R
 		}
 		return selectedResponse(d.OptionID), nil
 	case <-timer.C:
-		// Timeout → auto-approve with the first allow option.
-		return autoApproveResponse(req.Options), nil
+		return cancelledResponse(), nil
 	case <-ctx.Done():
 		return cancelledResponse(), ctx.Err()
 	}
@@ -107,20 +105,4 @@ func selectedResponse(optionID string) acpproto.RequestPermissionResponse {
 			},
 		},
 	}
-}
-
-// autoApproveResponse picks the first "allow" option, or the first available
-// option as a fallback.
-func autoApproveResponse(options []acpproto.PermissionOption) acpproto.RequestPermissionResponse {
-	for _, opt := range options {
-		kind := strings.ToLower(strings.TrimSpace(string(opt.Kind)))
-		if strings.HasPrefix(kind, "allow") {
-			return selectedResponse(string(opt.OptionId))
-		}
-	}
-	// Fallback: first option if any.
-	if len(options) > 0 {
-		return selectedResponse(string(options[0].OptionId))
-	}
-	return cancelledResponse()
 }

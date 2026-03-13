@@ -276,14 +276,17 @@ func (s *Store) CreateThreadWorkItemLink(ctx context.Context, link *core.ThreadW
 		CreatedAt:    now,
 	}
 
-	// If setting as primary, demote existing primary for this thread.
-	if link.IsPrimary {
-		s.orm.WithContext(ctx).Model(&ThreadWorkItemLinkModel{}).
-			Where("thread_id = ? AND is_primary = ?", link.ThreadID, true).
-			Update("is_primary", false)
-	}
-
-	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
+	err := s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if link.IsPrimary {
+			if err := tx.Model(&ThreadWorkItemLinkModel{}).
+				Where("thread_id = ? AND is_primary = ?", link.ThreadID, true).
+				Update("is_primary", false).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(model).Error
+	})
+	if err != nil {
 		return 0, err
 	}
 	link.ID = model.ID

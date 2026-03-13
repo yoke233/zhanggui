@@ -32,3 +32,11 @@ func (s *Semaphore) Release() {
 func (s *Semaphore) Wait() {
 	s.wg.Wait()
 }
+
+// Capacity returns the maximum number of concurrent slots.
+func (s *Semaphore) Capacity() int {
+	if s == nil {
+		return 0
+	}
+	return cap(s.ch)
+}

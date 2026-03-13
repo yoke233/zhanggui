@@ -15,7 +15,7 @@ import (
 )
 
 type acpSessionKey struct {
-	issueID  int64
+	issueID int64
 	agentID string // runtime AgentProfile.ID
 }
 
@@ -27,10 +27,18 @@ type pooledACPSession struct {
 	events    *switchingEventHandler
 
 	mu           sync.Mutex // serialize prompts
+	statsMu      sync.RWMutex
 	lastUsed     time.Time
 	turns        int
 	inputTokens  int64 // cumulative input tokens in this session
 	outputTokens int64 // cumulative output tokens in this session
+}
+
+type acpSessionFlight struct {
+	wg   sync.WaitGroup
+	sess *pooledACPSession
+	ac   *core.AgentContext
+	err  error
 }
 
 // switchingEventHandler forwards ACP events to the currently active handler.
@@ -63,8 +71,10 @@ type ACPSessionPool struct {
 	store core.Store
 	bus   core.EventBus
 
-	mu       sync.Mutex
-	sessions map[acpSessionKey]*pooledACPSession
+	mu              sync.Mutex
+	sessions        map[acpSessionKey]*pooledACPSession
+	inflight        map[acpSessionKey]*acpSessionFlight
+	createSessionFn func(context.Context, acpSessionKey, acpSessionAcquireInput) (*pooledACPSession, *core.AgentContext, error)
 
 	sub *core.Subscription
 }
@@ -74,6 +84,7 @@ func NewACPSessionPool(store core.Store, bus core.EventBus) *ACPSessionPool {
 		store:    store,
 		bus:      bus,
 		sessions: make(map[acpSessionKey]*pooledACPSession),
+		inflight: make(map[acpSessionKey]*acpSessionFlight),
 	}
 
 	if bus != nil {
@@ -147,7 +158,7 @@ type acpSessionAcquireInput struct {
 	Caps       acpclient.ClientCapabilities
 	WorkDir    string
 	MCPFactory func(agentSupportsSSE bool) []acpproto.McpServer
-	IssueID     int64
+	IssueID    int64
 	StepID     int64
 	ExecID     int64
 	IdleTTL    time.Duration
@@ -168,36 +179,88 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	p.mu.Lock()
 	if existing := p.sessions[key]; existing != nil {
 		now := time.Now().UTC()
-		if in.IdleTTL > 0 && !existing.lastUsed.IsZero() && now.Sub(existing.lastUsed) > in.IdleTTL {
+		lastUsed, turns, _, _ := existing.statsSnapshot()
+		if in.IdleTTL > 0 && !lastUsed.IsZero() && now.Sub(lastUsed) > in.IdleTTL {
 			delete(p.sessions, key)
 			p.mu.Unlock()
 			_ = existing.client.Close(context.Background())
-		} else if in.MaxTurns > 0 && existing.turns >= in.MaxTurns {
+		} else if in.MaxTurns > 0 && turns >= in.MaxTurns {
 			delete(p.sessions, key)
 			p.mu.Unlock()
 			_ = existing.client.Close(context.Background())
 		} else {
 			p.mu.Unlock()
-			ac, _ := p.store.FindAgentContext(ctx, in.Profile.ID, in.IssueID)
+			ac, _ := p.findAgentContext(ctx, in.Profile.ID, in.IssueID)
 			return existing, ac, nil
 		}
-	} else {
+	}
+	if flight := p.inflight[key]; flight != nil {
 		p.mu.Unlock()
+		flight.wg.Wait()
+		if flight.err != nil {
+			return nil, flight.ac, flight.err
+		}
+		return flight.sess, flight.ac, nil
+	}
+	flight := &acpSessionFlight{}
+	flight.wg.Add(1)
+	p.inflight[key] = flight
+	p.mu.Unlock()
+	defer func() {
+		flight.wg.Done()
+		p.mu.Lock()
+		delete(p.inflight, key)
+		p.mu.Unlock()
+	}()
+
+	createFn := p.createSession
+	if p.createSessionFn != nil {
+		createFn = p.createSessionFn
+	}
+	sess, ac, err := createFn(ctx, key, in)
+	flight.sess = sess
+	flight.ac = ac
+	flight.err = err
+	if err != nil {
+		return nil, ac, err
 	}
 
-	// Ensure AgentContext row exists (best-effort).
-	ac, err := p.store.FindAgentContext(ctx, in.Profile.ID, in.IssueID)
-	if err == core.ErrNotFound {
-		ac = &core.AgentContext{
-			AgentID:   in.Profile.ID,
-			IssueID:    in.IssueID,
-			TurnCount: 0,
+	p.mu.Lock()
+	if existing := p.sessions[key]; existing != nil {
+		p.mu.Unlock()
+		if sess != nil && sess.client != nil {
+			_ = sess.client.Close(context.Background())
 		}
-		id, cErr := p.store.CreateAgentContext(ctx, ac)
-		if cErr == nil {
-			ac.ID = id
+		return existing, ac, nil
+	}
+	p.sessions[key] = sess
+	p.mu.Unlock()
+
+	slog.Info("runtime acp pool: session acquired",
+		"issue_id", in.IssueID, "agent", in.Profile.ID,
+		"loaded", ac != nil && strings.TrimSpace(ac.SessionID) == strings.TrimSpace(string(sess.sessionID)))
+
+	return sess, ac, nil
+}
+
+func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, in acpSessionAcquireInput) (*pooledACPSession, *core.AgentContext, error) {
+	// Ensure AgentContext row exists (best-effort).
+	ac, err := p.findAgentContext(ctx, in.Profile.ID, in.IssueID)
+	if err == core.ErrNotFound {
+		if p.store != nil {
+			ac = &core.AgentContext{
+				AgentID:   in.Profile.ID,
+				IssueID:   in.IssueID,
+				TurnCount: 0,
+			}
+			id, cErr := p.store.CreateAgentContext(ctx, ac)
+			if cErr == nil {
+				ac.ID = id
+			} else {
+				slog.Warn("runtime acp pool: create agent context failed", "agent", in.Profile.ID, "issue_id", in.IssueID, "error", cErr)
+				ac = nil
+			}
 		} else {
-			slog.Warn("runtime acp pool: create agent context failed", "agent", in.Profile.ID, "issue_id", in.IssueID, "error", cErr)
 			ac = nil
 		}
 	} else if err != nil {
@@ -282,21 +345,20 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 		turns:     0,
 	}
 
-	p.mu.Lock()
-	p.sessions[key] = sess
-	p.mu.Unlock()
-
 	// Persist session id (best-effort).
 	if ac != nil && strings.TrimSpace(string(sessionID)) != "" {
 		ac.SessionID = strings.TrimSpace(string(sessionID))
 		_ = p.store.UpdateAgentContext(ctx, ac)
 	}
 
-	slog.Info("runtime acp pool: session acquired",
-		"issue_id", in.IssueID, "agent", in.Profile.ID,
-		"loaded", loaded)
-
 	return sess, ac, nil
+}
+
+func (p *ACPSessionPool) findAgentContext(ctx context.Context, agentID string, issueID int64) (*core.AgentContext, error) {
+	if p == nil || p.store == nil {
+		return nil, core.ErrNotFound
+	}
+	return p.store.FindAgentContext(ctx, agentID, issueID)
 }
 
 func (p *ACPSessionPool) NoteTurn(ctx context.Context, ac *core.AgentContext, sess *pooledACPSession) {
@@ -304,8 +366,10 @@ func (p *ACPSessionPool) NoteTurn(ctx context.Context, ac *core.AgentContext, se
 		return
 	}
 	now := time.Now().UTC()
+	sess.statsMu.Lock()
 	sess.lastUsed = now
 	sess.turns++
+	sess.statsMu.Unlock()
 
 	if ac != nil {
 		ac.TurnCount++
@@ -319,15 +383,17 @@ func (p *ACPSessionPool) NoteTokens(sess *pooledACPSession, input, output int64)
 	if sess == nil {
 		return
 	}
+	sess.statsMu.Lock()
 	sess.inputTokens += input
 	sess.outputTokens += output
+	sess.statsMu.Unlock()
 }
 
 // TokenBudgetStatus describes the result of a token budget check.
 type TokenBudgetStatus int
 
 const (
-	TokenBudgetOK      TokenBudgetStatus = iota // under warning threshold
+	TokenBudgetOK       TokenBudgetStatus = iota // under warning threshold
 	TokenBudgetWarning                           // above warning threshold but under hard limit
 	TokenBudgetExceeded                          // at or above hard limit
 )
@@ -343,7 +409,8 @@ func (p *ACPSessionPool) CheckTokenBudget(sess *pooledACPSession, profile *core.
 		return TokenBudgetOK
 	}
 
-	totalUsed := sess.inputTokens + sess.outputTokens
+	_, _, inputTokens, outputTokens := sess.statsSnapshot()
+	totalUsed := inputTokens + outputTokens
 
 	if totalUsed >= maxTokens {
 		return TokenBudgetExceeded
@@ -365,5 +432,15 @@ func (p *ACPSessionPool) SessionTokenUsage(sess *pooledACPSession) (input, outpu
 	if sess == nil {
 		return 0, 0
 	}
-	return sess.inputTokens, sess.outputTokens
+	_, _, input, output = sess.statsSnapshot()
+	return input, output
+}
+
+func (s *pooledACPSession) statsSnapshot() (time.Time, int, int64, int64) {
+	if s == nil {
+		return time.Time{}, 0, 0, 0
+	}
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+	return s.lastUsed, s.turns, s.inputTokens, s.outputTokens
 }

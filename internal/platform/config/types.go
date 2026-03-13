@@ -233,12 +233,12 @@ type RuntimeProfileConfig struct {
 
 // RuntimeSessionConfig configures session management for a runtime profile.
 type RuntimeSessionConfig struct {
-	Reuse             bool     `toml:"reuse"               yaml:"reuse" json:"reuse"`
-	MaxTurns          int      `toml:"max_turns"           yaml:"max_turns" json:"max_turns"`
-	IdleTTL           Duration `toml:"idle_ttl"            yaml:"idle_ttl" json:"idle_ttl"`
-	ThreadBootTemplate string  `toml:"thread_boot_template" yaml:"thread_boot_template" json:"thread_boot_template,omitempty"`
-	MaxContextTokens  int64    `toml:"max_context_tokens"  yaml:"max_context_tokens" json:"max_context_tokens,omitempty"`
-	ContextWarnRatio  float64  `toml:"context_warn_ratio"  yaml:"context_warn_ratio" json:"context_warn_ratio,omitempty"`
+	Reuse              bool     `toml:"reuse"               yaml:"reuse" json:"reuse"`
+	MaxTurns           int      `toml:"max_turns"           yaml:"max_turns" json:"max_turns"`
+	IdleTTL            Duration `toml:"idle_ttl"            yaml:"idle_ttl" json:"idle_ttl"`
+	ThreadBootTemplate string   `toml:"thread_boot_template" yaml:"thread_boot_template" json:"thread_boot_template,omitempty"`
+	MaxContextTokens   int64    `toml:"max_context_tokens"  yaml:"max_context_tokens" json:"max_context_tokens,omitempty"`
+	ContextWarnRatio   float64  `toml:"context_warn_ratio"  yaml:"context_warn_ratio" json:"context_warn_ratio,omitempty"`
 }
 
 // RuntimeCollectorConfig configures the runtime metadata collector.
@@ -265,7 +265,7 @@ type RunConfig struct {
 
 type SchedulerConfig struct {
 	MaxGlobalAgents int            `toml:"max_global_agents" yaml:"max_global_agents"`
-	MaxProjectRuns  int            `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	MaxProjectRuns  int            `toml:"max_project_runs"  yaml:"max_project_runs"`
 	Watchdog        WatchdogConfig `toml:"watchdog"          yaml:"watchdog"`
 }
 
@@ -484,7 +484,7 @@ type RunLayer struct {
 
 type SchedulerLayer struct {
 	MaxGlobalAgents *int           `toml:"max_global_agents" yaml:"max_global_agents"`
-	MaxProjectRuns  *int           `toml:"max_project_runs"  yaml:"max_project_Runs"`
+	MaxProjectRuns  *int           `toml:"max_project_runs"  yaml:"max_project_runs"`
 	Watchdog        *WatchdogLayer `toml:"watchdog"          yaml:"watchdog"`
 }
 

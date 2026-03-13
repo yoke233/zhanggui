@@ -243,6 +243,71 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadWorkItemLinkPrimarySwitchDemotesPrevious(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "primary-switch"})
+	issueID1, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-1", Status: core.IssueOpen})
+	issueID2, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-2", Status: core.IssueOpen})
+
+	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID: threadID, WorkItemID: issueID1, RelationType: "related", IsPrimary: true,
+	}); err != nil {
+		t.Fatalf("create first primary: %v", err)
+	}
+	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID: threadID, WorkItemID: issueID2, RelationType: "drives", IsPrimary: true,
+	}); err != nil {
+		t.Fatalf("create second primary: %v", err)
+	}
+
+	links, err := s.ListWorkItemsByThread(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list links: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("expected 2 links, got %d", len(links))
+	}
+	if links[0].IsPrimary {
+		t.Fatal("expected first link to be demoted from primary")
+	}
+	if !links[1].IsPrimary {
+		t.Fatal("expected second link to be primary")
+	}
+}
+
+func TestThreadWorkItemLinkDuplicatePrimaryRollsBackDemotion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "primary-rollback"})
+	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "wi-1", Status: core.IssueOpen})
+
+	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID: threadID, WorkItemID: issueID, RelationType: "related", IsPrimary: true,
+	}); err != nil {
+		t.Fatalf("create primary: %v", err)
+	}
+
+	if _, err := s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID: threadID, WorkItemID: issueID, RelationType: "related", IsPrimary: true,
+	}); err == nil {
+		t.Fatal("expected duplicate link creation to fail")
+	}
+
+	links, err := s.ListWorkItemsByThread(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected original link to remain, got %d links", len(links))
+	}
+	if !links[0].IsPrimary {
+		t.Fatal("expected original primary flag to remain after rollback")
+	}
+}
+
 func TestThreadWorkItemLinkCleanup(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

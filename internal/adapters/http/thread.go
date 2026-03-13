@@ -621,7 +621,11 @@ func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
-	threadID, _ := urlParamInt64(r, "threadID")
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
 	agentSessionID, ok := urlParamInt64(r, "agentSessionID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid agent session ID", "BAD_ID")
@@ -639,6 +643,20 @@ func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+		return
+	}
+
+	sess, err := h.store.GetThreadAgentSession(r.Context(), agentSessionID)
+	if err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if sess.ThreadID != threadID {
+		writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
 		return
 	}
 

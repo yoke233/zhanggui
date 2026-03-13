@@ -21,11 +21,12 @@ func RunServer(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg, _, secrets, err := LoadConfig()
+	cfg, dataDir, secrets, err := LoadConfig()
 	if err != nil {
 		return err
 	}
-	listenAddr := buildServerAddress(cfg.Server.Host, resolveServerPort(port, cfg.Server.Port))
+	serverPort := resolveServerPort(port, cfg.Server.Port)
+	listenAddr := buildServerAddress(cfg.Server.Host, serverPort)
 	frontendFS, err := ResolveFrontendFS()
 	if err != nil {
 		return err
@@ -33,9 +34,9 @@ func RunServer(args []string) error {
 	tokenRegistry := httpx.NewTokenRegistry(secrets.Tokens)
 	signalCfg := &bootstrap.AgentSignalConfig{
 		TokenRegistry: tokenRegistry,
-		ServerAddr:    "http://" + listenAddr,
+		ServerAddr:    buildServerBaseURL(cfg.Server.Host, serverPort),
 	}
-	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path), nil, cfg, bootstrap.SCMTokens{
+	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path, dataDir), nil, cfg, bootstrap.SCMTokens{
 		GitHub: strings.TrimSpace(secrets.GitHub.PAT),
 		Codeup: strings.TrimSpace(secrets.Codeup.PAT),
 	}, nil, signalCfg)
@@ -129,3 +130,10 @@ func buildServerAddress(host string, port int) string {
 	return net.JoinHostPort(trimmedHost, strconv.Itoa(port))
 }
 
+func buildServerBaseURL(host string, port int) string {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		trimmedHost = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(trimmedHost, strconv.Itoa(port))
+}

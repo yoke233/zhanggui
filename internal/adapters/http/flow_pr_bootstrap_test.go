@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -165,6 +166,72 @@ func TestResolveEnabledSCMRepoFromBindings_RejectsAmbiguousBindings(t *testing.T
 		},
 	}); ok {
 		t.Fatal("expected binding resolution to reject ambiguous scm flow bindings")
+	}
+}
+
+func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
+	h, _ := setupAPI(t)
+
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "branch", "-M", "main")
+	runGit(t, repoDir, "remote", "add", "origin", "https://github.com/acme/demo.git")
+
+	project := &core.Project{Name: "rollback-project", Kind: core.ProjectGeneral}
+	projectID, err := h.store.CreateProject(context.Background(), project)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	project.ID = projectID
+
+	binding := &core.ResourceBinding{
+		ProjectID: project.ID,
+		Kind:      "git",
+		URI:       repoDir,
+		Label:     "repo",
+		Config: map[string]any{
+			"provider":        "github",
+			"enable_scm_flow": true,
+			"base_branch":     "main",
+			"merge_method":    "squash",
+		},
+	}
+	bindingID, err := h.store.CreateResourceBinding(context.Background(), binding)
+	if err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+	binding.ID = bindingID
+
+	issue := &core.Issue{
+		ProjectID:         &project.ID,
+		ResourceBindingID: &binding.ID,
+		Title:             "rollback issue",
+		Status:            core.IssueOpen,
+		Priority:          core.PriorityMedium,
+	}
+	issueID, err := h.store.CreateIssue(context.Background(), issue)
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+	issue.ID = issueID
+
+	wrapped := &failNthCreateStepStore{
+		Store:  h.store,
+		failAt: 3,
+		err:    errors.New("boom"),
+	}
+	h.store = wrapped
+
+	if _, err := h.bootstrapPRIssueForIssue(context.Background(), issue.ID, bootstrapPRIssueRequest{}); err == nil {
+		t.Fatal("expected bootstrap failure")
+	}
+
+	steps, err := wrapped.ListStepsByIssue(context.Background(), issue.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("expected rollback to remove created steps, got %d", len(steps))
 	}
 }
 

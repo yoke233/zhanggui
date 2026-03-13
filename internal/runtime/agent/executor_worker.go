@@ -78,6 +78,7 @@ type ExecutorWorker struct {
 	cancel           context.CancelFunc
 	activeExecutions map[int64]*activeExecutionProbeTarget
 	probeSub         *nats.Subscription
+	wg               sync.WaitGroup
 }
 
 // NewExecutorWorker creates a new remote executor worker.
@@ -166,13 +167,18 @@ func (w *ExecutorWorker) Start(ctx context.Context) error {
 
 		for msg := range msgs.Messages() {
 			sem <- struct{}{}
+			w.wg.Add(1)
 			go func(m jetstream.Msg) {
-				defer func() { <-sem }()
+				defer func() {
+					<-sem
+					w.wg.Done()
+				}()
 				w.handleMessage(ctx, m)
 			}(msg)
 		}
 
 		if ctx.Err() != nil {
+			w.wg.Wait()
 			return ctx.Err()
 		}
 	}
@@ -247,12 +253,11 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 
 	resultData, _ := json.Marshal(resultMsg)
 	resultSubject := fmt.Sprintf("%s.invocation.result.%s", w.prefix, invocation.InvocationID)
-	if _, err := w.js.Publish(ctx, resultSubject, resultData); err != nil {
+	if err := publishInvocationResult(w.js, msg, resultSubject, resultData); err != nil {
 		slog.Error("executor worker: failed to publish result",
 			"exec_id", invocation.ExecID, "error", err)
+		return
 	}
-
-	_ = msg.Ack()
 
 	if execErr != nil {
 		slog.Error("executor worker: execution failed",
@@ -525,6 +530,7 @@ func (w *ExecutorWorker) Stop() {
 	if w.probeSub != nil {
 		_ = w.probeSub.Unsubscribe()
 	}
+	w.wg.Wait()
 	if w.pool != nil {
 		w.pool.Close()
 	}
@@ -551,4 +557,24 @@ func (f *natsEventForwarder) HandleSessionUpdate(ctx context.Context, update acp
 	}
 	_, err = f.js.Publish(ctx, f.subject, data)
 	return err
+}
+
+type invocationResultPublisher interface {
+	Publish(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error)
+}
+
+type invocationResultMessage interface {
+	Ack() error
+	Nak() error
+}
+
+func publishInvocationResult(publisher invocationResultPublisher, msg invocationResultMessage, subject string, data []byte) error {
+	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := publisher.Publish(publishCtx, subject, data); err != nil {
+		_ = msg.Nak()
+		return err
+	}
+	return msg.Ack()
 }

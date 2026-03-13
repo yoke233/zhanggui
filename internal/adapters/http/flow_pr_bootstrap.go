@@ -149,10 +149,21 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"objective": implementObjective,
 		},
 	}
+	createdStepIDs := make([]int64, 0, 4)
+	rollbackCreatedSteps := func(cause error) error {
+		for i := len(createdStepIDs) - 1; i >= 0; i-- {
+			if delErr := h.store.DeleteStep(ctx, createdStepIDs[i]); delErr != nil && !errors.Is(delErr, core.ErrNotFound) {
+				return fmt.Errorf("%w; rollback delete step %d: %v", cause, createdStepIDs[i], delErr)
+			}
+		}
+		return cause
+	}
+
 	implementID, err := h.store.CreateStep(ctx, implement)
 	if err != nil {
 		return bootstrapPRIssueResponse{}, err
 	}
+	createdStepIDs = append(createdStepIDs, implementID)
 
 	commitPush := &core.Step{
 		IssueID:    issueID,
@@ -170,8 +181,9 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 	}
 	commitPushID, err := h.store.CreateStep(ctx, commitPush)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
 	}
+	createdStepIDs = append(createdStepIDs, commitPushID)
 
 	openPR := &core.Step{
 		IssueID:    issueID,
@@ -191,8 +203,9 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 	}
 	openPRID, err := h.store.CreateStep(ctx, openPR)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
 	}
+	createdStepIDs = append(createdStepIDs, openPRID)
 
 	gate := &core.Step{
 		IssueID:    issueID,
@@ -210,13 +223,13 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"merge_on_pass":          true,
 			"merge_method":           bindingInfo.MergeMethod,
 			"reset_upstream_closure": true,
-			"max_rework_rounds":     float64(3),
+			"max_rework_rounds":      float64(3),
 			"objective":              gateObjective,
 		},
 	}
 	gateID, err := h.store.CreateStep(ctx, gate)
 	if err != nil {
-		return bootstrapPRIssueResponse{}, err
+		return bootstrapPRIssueResponse{}, rollbackCreatedSteps(err)
 	}
 
 	return bootstrapPRIssueResponse{

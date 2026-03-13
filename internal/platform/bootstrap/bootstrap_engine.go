@@ -39,7 +39,8 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, scmTokens, upgradeFn, base.signalCfg)
 	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
-	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, flowapp.FlowSchedulerConfig{MaxConcurrentFlows: 2})
+	schedulerCfg := resolveFlowSchedulerConfig(bootstrapCfg)
+	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, schedulerCfg)
 	go scheduler.Start(schedulerCtx)
 
 	return &flowStack{
@@ -153,7 +154,22 @@ func buildFlowEngine(
 	if llmClient != nil {
 		opts = append(opts, flowapp.WithCollector(llmcollector.NewLLMCollector(llmClient.Complete)))
 	}
+	if bootstrapCfg != nil && bootstrapCfg.Scheduler.MaxGlobalAgents > 0 {
+		opts = append(opts, flowapp.WithConcurrency(bootstrapCfg.Scheduler.MaxGlobalAgents))
+	}
 	return flowapp.New(store, bus, executor, opts...)
+}
+
+func resolveFlowSchedulerConfig(bootstrapCfg *config.Config) flowapp.FlowSchedulerConfig {
+	schedulerCfg := flowapp.FlowSchedulerConfig{
+		MaxConcurrentIssues: 2,
+		MaxConcurrentFlows:  2,
+	}
+	if bootstrapCfg != nil && bootstrapCfg.Scheduler.MaxProjectRuns > 0 {
+		schedulerCfg.MaxConcurrentIssues = bootstrapCfg.Scheduler.MaxProjectRuns
+		schedulerCfg.MaxConcurrentFlows = bootstrapCfg.Scheduler.MaxProjectRuns
+	}
+	return schedulerCfg
 }
 
 func reworkFollowupTemplate(cfg *config.Config) string {

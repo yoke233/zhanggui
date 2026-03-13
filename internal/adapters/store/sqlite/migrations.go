@@ -342,6 +342,7 @@ func runMigrations(db *sql.DB) error {
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_twil_thread ON thread_work_item_links(thread_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_twil_work_item ON thread_work_item_links(work_item_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_twil_primary_thread ON thread_work_item_links(thread_id) WHERE is_primary = 1`,
 		// thread_agent_sessions table.
 		`CREATE TABLE IF NOT EXISTS thread_agent_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

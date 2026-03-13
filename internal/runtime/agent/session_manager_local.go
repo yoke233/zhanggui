@@ -100,11 +100,11 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		scope = fmt.Sprintf("issue-%d-exec-%d", in.IssueID, in.ExecID)
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile:        in.Profile,
-		Driver:         in.Driver,
-		Launch:         in.Launch,
-		Scope:          scope,
-		ExtraSkills:    in.ExtraSkills,
+		Profile:         in.Profile,
+		Driver:          in.Driver,
+		Launch:          in.Launch,
+		Scope:           scope,
+		ExtraSkills:     in.ExtraSkills,
 		EphemeralSkills: in.EphemeralSkills,
 	})
 	if err != nil {
@@ -190,8 +190,11 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		id := lh.agentCtx.ID
 		handle.AgentContextID = &id
 	}
-	if lh.reuse && lh.pooled != nil && lh.pooled.turns > 0 {
-		handle.HasPriorTurns = true
+	if lh.reuse && lh.pooled != nil {
+		_, turns, _, _ := lh.pooled.statsSnapshot()
+		if turns > 0 {
+			handle.HasPriorTurns = true
+		}
 	}
 
 	m.mu.Lock()

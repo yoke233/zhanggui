@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	"github.com/yoke233/ai-workflow/internal/platform/bootstrap"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
@@ -22,20 +23,17 @@ func RunExecutor(args []string) error {
 	if err != nil {
 		return err
 	}
-	natsURL := opts.natsURL
-	if natsURL == "" {
-		natsURL = os.Getenv("AI_WORKFLOW_NATS_URL")
-	}
-	if natsURL == "" {
-		return fmt.Errorf("--nats-url is required (or set AI_WORKFLOW_NATS_URL)")
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	cfg, _, _, err := LoadConfig()
+	cfg, dataDir, _, err := LoadConfig()
 	if err != nil {
 		return err
 	}
-	dbPath := ExpandStorePath(cfg.Store.Path)
+	natsURL := resolveExecutorNATSURL(opts.natsURL, cfg)
+	if natsURL == "" {
+		return fmt.Errorf("--nats-url is required (or set AI_WORKFLOW_NATS_URL or runtime.session_manager.nats.url)")
+	}
+	dbPath := ExpandStorePath(cfg.Store.Path, dataDir)
 	runtimeDBPath := strings.TrimSuffix(dbPath, ".db") + "_runtime.db"
 	store, err := sqlite.New(runtimeDBPath)
 	if err != nil {
@@ -148,4 +146,15 @@ func parsePositiveInt(raw string, flagName string) (int, error) {
 		return 0, fmt.Errorf("invalid value for %s: %s", flagName, raw)
 	}
 	return n, nil
+}
+
+func resolveExecutorNATSURL(cliValue string, cfg *config.Config) string {
+	natsURL := strings.TrimSpace(cliValue)
+	if natsURL == "" {
+		natsURL = strings.TrimSpace(os.Getenv("AI_WORKFLOW_NATS_URL"))
+	}
+	if natsURL == "" && cfg != nil {
+		natsURL = strings.TrimSpace(cfg.Runtime.SessionManager.NATS.URL)
+	}
+	return natsURL
 }

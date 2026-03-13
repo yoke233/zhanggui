@@ -110,6 +110,14 @@ func (e *IssueEngine) getPRFlowPrompts() PRFlowPrompts {
 	return DefaultPRFlowPrompts()
 }
 
+// MaxConcurrency returns the engine's configured step execution concurrency.
+func (e *IssueEngine) MaxConcurrency() int {
+	if e == nil || e.sem == nil {
+		return 0
+	}
+	return e.sem.Capacity()
+}
+
 // Run starts executing an Issue. It blocks until the Issue completes, fails, or the context is cancelled.
 func (e *IssueEngine) Run(ctx context.Context, issueID int64) error {
 	issue, err := e.store.GetIssue(ctx, issueID)

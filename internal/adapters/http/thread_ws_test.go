@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -116,6 +117,67 @@ func TestAPI_WebSocket_ThreadSend_InvalidThread(t *testing.T) {
 	}
 	if errResp.Data.Code != "THREAD_NOT_FOUND" {
 		t.Fatalf("code = %q, want THREAD_NOT_FOUND", errResp.Data.Code)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_PersistFailureReturnsError(t *testing.T) {
+	h, ts := setupAPI(t)
+	h.store = &failingCreateThreadMessageStore{
+		Store: h.store,
+		err:   errors.New("insert failed"),
+	}
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title":    "ws-test-thread",
+		"owner_id": "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-t1",
+			"thread_id":  thread.ID,
+			"message":    "hello thread",
+			"sender_id":  "user-1",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var errResp struct {
+		Type string `json:"type"`
+		Data struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+			Error     string `json:"error"`
+		} `json:"data"`
+	}
+	if err := conn.ReadJSON(&errResp); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if errResp.Type != "thread.error" {
+		t.Fatalf("type = %q, want thread.error", errResp.Type)
+	}
+	if errResp.Data.Code != "THREAD_SEND_FAILED" {
+		t.Fatalf("code = %q, want THREAD_SEND_FAILED", errResp.Data.Code)
+	}
+	if errResp.Data.RequestID != "req-t1" {
+		t.Fatalf("request_id = %q, want req-t1", errResp.Data.RequestID)
 	}
 }
 

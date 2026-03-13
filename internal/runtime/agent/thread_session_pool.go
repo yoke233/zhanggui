@@ -30,6 +30,7 @@ type threadPooledSession struct {
 	// hold it at a time. RemoveAgent removes the session from the pool map
 	// before acquiring mu, so SendMessage and RemoveAgent cannot deadlock.
 	mu           sync.Mutex
+	closing      bool
 	lastUsed     time.Time
 	turns        int
 	inputTokens  int64
@@ -246,6 +247,9 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 
 	pooled.mu.Lock()
 	defer pooled.mu.Unlock()
+	if pooled.closing {
+		return fmt.Errorf("session for profile %q in thread %d is closing", profileID, threadID)
+	}
 
 	promptCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
@@ -322,8 +326,11 @@ func (p *ThreadSessionPool) RemoveAgent(ctx context.Context, threadID int64, age
 	p.mu.Unlock()
 
 	if pooled != nil {
+		pooled.mu.Lock()
+		pooled.closing = true
+
 		// Request progress summary before closing (graceful leave).
-		summary := p.requestProgressSummary(ctx, pooled)
+		summary := p.requestProgressSummaryLocked(ctx, pooled)
 		if strings.TrimSpace(summary) != "" {
 			sess.ProgressSummary = summary
 			sess.Status = core.ThreadAgentPaused
@@ -338,8 +345,9 @@ func (p *ThreadSessionPool) RemoveAgent(ctx context.Context, threadID int64, age
 
 		// Close ACP.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		_ = pooled.client.Close(closeCtx)
+		cancel()
+		pooled.mu.Unlock()
 	} else {
 		sess.Status = core.ThreadAgentLeft
 	}
@@ -365,7 +373,15 @@ func (p *ThreadSessionPool) requestProgressSummary(ctx context.Context, pooled *
 	pooled.mu.Lock()
 	defer pooled.mu.Unlock()
 
-	result, err := pooled.client.Prompt(summaryCtx, acpproto.PromptRequest{
+	return p.requestProgressSummaryLocked(summaryCtx, pooled)
+}
+
+func (p *ThreadSessionPool) requestProgressSummaryLocked(ctx context.Context, pooled *threadPooledSession) string {
+	if pooled == nil || pooled.client == nil {
+		return ""
+	}
+
+	result, err := pooled.client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: pooled.sessionID,
 		Prompt: []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{
 			Text: "You are about to leave this thread. Please provide a brief summary of your progress, key decisions made, and any pending items. Keep it concise (under 500 words).",

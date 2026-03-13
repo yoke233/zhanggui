@@ -112,3 +112,19 @@ func TestDefaultsTOML_LoadGlobalStrict(t *testing.T) {
 		t.Fatal("expected config to be loaded")
 	}
 }
+
+func TestLoadGlobalYAMLReadsSchedulerMaxProjectRuns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("scheduler:\n  max_project_runs: 7\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	cfg, err := LoadGlobal(path)
+	if err != nil {
+		t.Fatalf("LoadGlobal(config.yaml) returned error: %v", err)
+	}
+	if cfg.Scheduler.MaxProjectRuns != 7 {
+		t.Fatalf("expected scheduler.max_project_runs 7, got %d", cfg.Scheduler.MaxProjectRuns)
+	}
+}

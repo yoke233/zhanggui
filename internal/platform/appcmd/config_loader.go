@@ -3,7 +3,6 @@ package appcmd
 import (
 	"errors"
 	"os"
-	"path/filepath"
 
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
@@ -17,7 +16,7 @@ func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, "", nil, err
 	}
-	cfgPath := filepath.Join(dataDir, "config.toml")
+	cfgPath := resolveGlobalConfigFilePath(dataDir)
 	secretsPath := resolveSecretsFilePath(dataDir)
 	secrets, err := config.LoadSecrets(secretsPath)
 	if err != nil {
