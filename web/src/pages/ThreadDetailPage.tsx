@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   Bot,
+  Check,
   ChevronDown,
   ChevronUp,
   Link2,
@@ -19,7 +20,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -173,7 +173,7 @@ export function ThreadDetailPage() {
   const [linkWIId, setLinkWIId] = useState("");
   const [agentSessions, setAgentSessions] = useState<ThreadAgentSession[]>([]);
   const [availableProfiles, setAvailableProfiles] = useState<AgentProfile[]>([]);
-  const [inviteProfileID, setInviteProfileID] = useState("");
+  const [selectedInviteIDs, setSelectedInviteIDs] = useState<Set<string>>(new Set());
   const [invitingAgent, setInvitingAgent] = useState(false);
   const [removingAgentID, setRemovingAgentID] = useState<number | null>(null);
   const [savingRoutingMode, setSavingRoutingMode] = useState(false);
@@ -277,11 +277,13 @@ export function ThreadDetailPage() {
   }, [apiClient, id]);
 
   useEffect(() => {
-    if (inviteableProfiles.some((profile) => profile.id === inviteProfileID)) {
-      return;
-    }
-    setInviteProfileID(inviteableProfiles[0]?.id ?? "");
-  }, [inviteProfileID, inviteableProfiles]);
+    // Remove selections that are no longer inviteable (e.g. agent already joined)
+    setSelectedInviteIDs((prev) => {
+      const inviteableSet = new Set(inviteableProfiles.map((p) => p.id));
+      const next = new Set([...prev].filter((id) => inviteableSet.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [inviteableProfiles]);
 
   useEffect(() => {
     if (mentionCandidates.length === 0) {
@@ -565,16 +567,37 @@ export function ThreadDetailPage() {
     }
   };
 
+  const toggleInviteSelection = (profileID: string) => {
+    setSelectedInviteIDs((prev) => {
+      const next = new Set(prev);
+      if (next.has(profileID)) {
+        next.delete(profileID);
+      } else {
+        next.add(profileID);
+      }
+      return next;
+    });
+  };
+
   const handleInviteAgent = async () => {
-    if (!id || !inviteProfileID) return;
+    if (!id || selectedInviteIDs.size === 0) return;
     setInvitingAgent(true);
     setError(null);
+    const ids = [...selectedInviteIDs];
     try {
-      await apiClient.inviteThreadAgent(id, { agent_profile_id: inviteProfileID });
+      for (const profileID of ids) {
+        await apiClient.inviteThreadAgent(id, { agent_profile_id: profileID });
+      }
       const sessions = await apiClient.listThreadAgents(id);
       setAgentSessions(sessions);
+      setSelectedInviteIDs(new Set());
     } catch (e) {
       setError(getErrorMessage(e));
+      // Refresh sessions in case some succeeded
+      try {
+        const sessions = await apiClient.listThreadAgents(id);
+        setAgentSessions(sessions);
+      } catch { /* ignore */ }
     } finally {
       setInvitingAgent(false);
     }
@@ -1017,43 +1040,84 @@ export function ThreadDetailPage() {
               <div className="space-y-4 p-4">
                 {/* Invite Agent section */}
                 <div className="space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t("threads.inviteAgent", "Invite Agent")}
-                  </h3>
-                  <div className="flex gap-2">
-                    <Select
-                      aria-label={t("threads.agentProfile", "Agent profile")}
-                      className="flex-1 text-xs"
-                      value={inviteProfileID}
-                      onChange={(event) => setInviteProfileID(event.target.value)}
-                      disabled={invitingAgent || inviteableProfiles.length === 0}
-                    >
-                      {inviteableProfiles.length === 0 ? (
-                        <option value="">
-                          {t("threads.noInviteableAgents", "No available agents")}
-                        </option>
-                      ) : (
-                        inviteableProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {profile.name ? `${profile.name} (${profile.id})` : profile.id}
-                          </option>
-                        ))
-                      )}
-                    </Select>
-                    <Button
-                      size="sm"
-                      onClick={handleInviteAgent}
-                      disabled={invitingAgent || !inviteProfileID}
-                      className="shrink-0"
-                    >
-                      {invitingAgent ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Plus className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {t("threads.inviteBtn", "Add")}
-                    </Button>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("threads.inviteAgent", "Invite Agent")}
+                    </h3>
+                    {selectedInviteIDs.size > 0 && (
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleInviteAgent}
+                        disabled={invitingAgent}
+                      >
+                        {invitingAgent ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        {t("threads.inviteSelected", "Add")} ({selectedInviteIDs.size})
+                      </Button>
+                    )}
                   </div>
+                  {inviteableProfiles.length === 0 ? (
+                    <p className="rounded-lg border border-dashed px-3 py-3 text-center text-[11px] text-muted-foreground">
+                      {t("threads.noInviteableAgents", "All available agents have been invited")}
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {inviteableProfiles.map((profile) => {
+                        const isSelected = selectedInviteIDs.has(profile.id);
+                        return (
+                          <button
+                            key={profile.id}
+                            type="button"
+                            className={cn(
+                              "flex w-full items-start gap-2.5 rounded-lg border p-2.5 text-left transition-all",
+                              isSelected
+                                ? "border-blue-300 bg-blue-50 shadow-sm"
+                                : "border-border/60 bg-background hover:border-border hover:bg-muted/30",
+                              invitingAgent && "pointer-events-none opacity-60",
+                            )}
+                            onClick={() => toggleInviteSelection(profile.id)}
+                            disabled={invitingAgent}
+                          >
+                            {/* Checkbox */}
+                            <div className={cn(
+                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                              isSelected
+                                ? "border-blue-500 bg-blue-500 text-white"
+                                : "border-slate-300 bg-white",
+                            )}>
+                              {isSelected && <Check className="h-3 w-3" />}
+                            </div>
+                            {/* Avatar */}
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                              <Bot className="h-3.5 w-3.5" />
+                            </div>
+                            {/* Info */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-xs font-medium">
+                                  {profile.name ?? profile.id}
+                                </span>
+                                <Badge variant="outline" className="shrink-0 text-[9px]">{profile.role}</Badge>
+                              </div>
+                              {profile.name && (
+                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{profile.id}</p>
+                              )}
+                              <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                {t("threads.driver", "Driver")}: {profile.driver_id}
+                                {profile.capabilities && profile.capabilities.length > 0 && (
+                                  <> | {profile.capabilities.slice(0, 3).join(", ")}{profile.capabilities.length > 3 ? "..." : ""}</>
+                                )}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Agent Cards */}
