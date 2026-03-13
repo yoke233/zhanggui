@@ -81,6 +81,11 @@ type SessionAcquireInput struct {
 	// ExtraSkills are dynamically injected skill names (e.g. "step-signal")
 	// that should be linked alongside Profile.Skills in the sandbox.
 	ExtraSkills []string
+
+	// EphemeralSkills maps skill names to pre-built directories on disk.
+	// These are linked directly into the agent's skills dir, bypassing the
+	// global skillsRoot. Used for per-execution materials (e.g. step-context).
+	EphemeralSkills map[string]string
 }
 
 // SessionHandle is an opaque reference to an acquired session.

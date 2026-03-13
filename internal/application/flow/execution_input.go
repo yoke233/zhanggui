@@ -10,10 +10,17 @@ import (
 )
 
 // BuildExecutionInputFromBriefing constructs the execution input sent to an agent.
-func BuildExecutionInputFromBriefing(snapshot string, step *core.Step) string {
+func BuildExecutionInputFromBriefing(snapshot string, step *core.Step, hasStepContext bool) string {
 	var sb strings.Builder
 	sb.WriteString("# Task\n\n")
 	sb.WriteString(snapshot)
+
+	if hasStepContext {
+		sb.WriteString("\n\n# Reference Materials\n\n")
+		sb.WriteString("> Full details (issue body, upstream outputs, feature manifest) are pre-loaded\n")
+		sb.WriteString("> in `skills/step-context/`. Read the `SKILL.md` there for an index of\n")
+		sb.WriteString("> available files. Read individual files on demand — do not load everything.\n")
+	}
 
 	if step != nil && len(step.AcceptanceCriteria) > 0 {
 		sb.WriteString("\n\n# Acceptance Criteria\n\n")
@@ -30,10 +37,12 @@ func BuildExecutionInputFromBriefing(snapshot string, step *core.Step) string {
 // BuildExecutionInputForStep chooses between a full prompt and a follow-up prompt
 // depending on session reuse state and prior gate feedback.
 // The feedback parameter is pre-resolved by the caller (via ResolveLatestFeedback).
-func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string) string {
+// When hasStepContext is true, a "Reference Materials" section is appended directing
+// the agent to read pre-loaded files from skills/step-context/.
+func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string, hasStepContext bool) string {
 	// Gate steps must always receive the full prompt to keep output deterministic.
 	if step != nil && step.Type == core.StepGate {
-		return BuildExecutionInputFromBriefing(snapshot, step)
+		return BuildExecutionInputFromBriefing(snapshot, step, hasStepContext)
 	}
 
 	if profile != nil && profile.Session.Reuse && hasPriorTurns {
@@ -48,7 +57,7 @@ func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, ste
 		})
 	}
 
-	base := BuildExecutionInputFromBriefing(snapshot, step)
+	base := BuildExecutionInputFromBriefing(snapshot, step, hasStepContext)
 	if feedback == "" {
 		return base
 	}

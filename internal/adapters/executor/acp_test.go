@@ -16,7 +16,7 @@ import (
 func TestBuildExecutionInputFromBriefing(t *testing.T) {
 	t.Run("basic execution input", func(t *testing.T) {
 		step := &core.Step{Name: "implement auth"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step, false)
 		if !strings.Contains(executionInput, "# Task") {
 			t.Error("execution input should start with # Task header")
 		}
@@ -33,7 +33,7 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 				"No security vulnerabilities",
 			},
 		}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Implement JWT authentication", step, false)
 		if !strings.Contains(executionInput, "# Acceptance Criteria") {
 			t.Error("execution input should contain acceptance criteria header")
 		}
@@ -47,9 +47,28 @@ func TestBuildExecutionInputFromBriefing(t *testing.T) {
 
 	t.Run("empty acceptance criteria", func(t *testing.T) {
 		step := &core.Step{Name: "simple task"}
-		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step)
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, false)
 		if strings.Contains(executionInput, "Acceptance Criteria") {
 			t.Error("execution input should not contain acceptance criteria when empty")
+		}
+	})
+
+	t.Run("with step context", func(t *testing.T) {
+		step := &core.Step{Name: "implement"}
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, true)
+		if !strings.Contains(executionInput, "# Reference Materials") {
+			t.Error("execution input should contain Reference Materials header when hasStepContext=true")
+		}
+		if !strings.Contains(executionInput, "skills/step-context/") {
+			t.Error("execution input should reference skills/step-context/ path")
+		}
+	})
+
+	t.Run("without step context", func(t *testing.T) {
+		step := &core.Step{Name: "implement"}
+		executionInput := flowapp.BuildExecutionInputFromBriefing("Do something", step, false)
+		if strings.Contains(executionInput, "Reference Materials") {
+			t.Error("execution input should not contain Reference Materials when hasStepContext=false")
 		}
 	})
 }

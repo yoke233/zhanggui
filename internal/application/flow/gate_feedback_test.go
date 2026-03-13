@@ -24,7 +24,7 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 
 	// With feedback (pre-resolved), should use rework template.
 	feedback := "please add unit tests"
-	out := BuildExecutionInputForStep(profile, "ignored", step, true, feedback, reworkTmpl, continueTmpl)
+	out := BuildExecutionInputForStep(profile, "ignored", step, true, feedback, reworkTmpl, continueTmpl, false)
 	if !strings.Contains(out, "REWORK implement") {
 		t.Fatalf("expected rework followup template, got: %q", out)
 	}
@@ -33,7 +33,7 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 	}
 
 	// Without feedback, should use continue template (no base snapshot re-send).
-	out2 := BuildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, "", reworkTmpl, continueTmpl)
+	out2 := BuildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, "", reworkTmpl, continueTmpl, false)
 	if strings.Contains(out2, "BASE-SNAPSHOT") {
 		t.Fatalf("expected not to include base snapshot when reusing session, got: %q", out2)
 	}
@@ -51,7 +51,7 @@ func TestBuildExecutionInputForStep_GateAlwaysFullPrompt(t *testing.T) {
 		},
 	}
 	profile := &core.AgentProfile{Session: core.ProfileSession{Reuse: true}}
-	out := BuildExecutionInputForStep(profile, "SNAP", step, true, "some-feedback", "REWORK", "CONTINUE")
+	out := BuildExecutionInputForStep(profile, "SNAP", step, true, "some-feedback", "REWORK", "CONTINUE", false)
 	if !strings.Contains(out, "SNAP") {
 		t.Fatalf("expected full execution input to include snapshot, got: %q", out)
 	}

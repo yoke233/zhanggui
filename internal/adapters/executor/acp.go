@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // ACPExecutorConfig configures the ACP step executor.
@@ -30,6 +32,10 @@ type ACPExecutorConfig struct {
 	ContinueFollowupTemplate string
 	TokenRegistry            *httpx.TokenRegistry
 	ServerAddr               string // e.g. "http://127.0.0.1:8080"
+
+	// StepContextBuilder generates per-execution reference materials.
+	// When nil, step-context is not injected (graceful degradation).
+	StepContextBuilder *skills.StepContextBuilder
 }
 
 // NewACPStepExecutor creates a StepExecutor that uses a SessionManager for ACP agent execution.
@@ -95,6 +101,32 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			extraSkills = []string{"step-signal"}
 		}
 
+		// --- step-context: progressive loading ---
+		var stepContextDir string
+		var ephemeralSkills map[string]string
+		if cfg.StepContextBuilder != nil &&
+			(step.Type == core.StepExec || step.Type == core.StepGate) {
+
+			ctxParentDir := filepath.Join(workDir, ".ai-workflow", "step-contexts")
+			dir, buildErr := cfg.StepContextBuilder.Build(ctx, ctxParentDir, step, exec)
+			if buildErr != nil {
+				slog.Warn("step-context: build failed, proceeding without",
+					"step_id", step.ID, "error", buildErr)
+			} else if dir != "" {
+				stepContextDir = dir
+				extraSkills = append(extraSkills, "step-context")
+				ephemeralSkills = map[string]string{"step-context": stepContextDir}
+				slog.Info("step-context: materials prepared",
+					"step_id", step.ID, "dir", dir)
+			}
+		}
+
+		defer func() {
+			if stepContextDir != "" {
+				skills.Cleanup(stepContextDir)
+			}
+		}()
+
 		bridge := eventbridge.New(cfg.Bus, core.EventExecAgentOutput, eventbridge.Scope{
 			IssueID: step.IssueID,
 			StepID:  step.ID,
@@ -112,19 +144,20 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		mcpFactory := buildStepMCPFactory(step, profile.ID, exec.ID, cfg.MCPResolver)
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
-			Profile:     profile,
-			Driver:      driver,
-			Launch:      launchCfg,
-			Caps:        acpCaps,
-			WorkDir:     workDir,
-			MCPFactory:  mcpFactory,
-			IssueID:     step.IssueID,
-			StepID:      step.ID,
-			ExecID:      exec.ID,
-			Reuse:       reuse,
-			IdleTTL:     profile.Session.IdleTTL,
-			MaxTurns:    profile.Session.MaxTurns,
-			ExtraSkills: extraSkills,
+			Profile:        profile,
+			Driver:         driver,
+			Launch:         launchCfg,
+			Caps:           acpCaps,
+			WorkDir:        workDir,
+			MCPFactory:     mcpFactory,
+			IssueID:        step.IssueID,
+			StepID:         step.ID,
+			ExecID:         exec.ID,
+			Reuse:          reuse,
+			IdleTTL:        profile.Session.IdleTTL,
+			MaxTurns:       profile.Session.MaxTurns,
+			ExtraSkills:    extraSkills,
+			EphemeralSkills: ephemeralSkills,
 		})
 		if err != nil {
 			return fmt.Errorf("acquire session: %w", err)
@@ -143,10 +176,11 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		}
 
 		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, step)
-		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
+		hasStepContext := stepContextDir != ""
+		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasStepContext)
 
 		// Persist the full execution input for auditability.
-		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, step)
+		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, hasStepContext, step)
 
 		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
 		if err != nil {
@@ -452,7 +486,7 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.
-func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, step *core.Step) map[string]any {
+func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Step) map[string]any {
 	rec := map[string]any{
 		"prompt":   prompt,
 		"work_dir": workDir,
@@ -488,12 +522,15 @@ func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver
 	}
 
 	// Skills injected
-	var skills []string
+	var injectedSkills []string
 	if hasSignalSkill {
-		skills = append(skills, "step-signal")
+		injectedSkills = append(injectedSkills, "step-signal")
 	}
-	if len(skills) > 0 {
-		rec["skills_injected"] = skills
+	if hasStepContext {
+		injectedSkills = append(injectedSkills, "step-context")
+	}
+	if len(injectedSkills) > 0 {
+		rec["skills_injected"] = injectedSkills
 	}
 
 	// Step config (objective, profile_id, etc.)

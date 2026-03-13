@@ -18,6 +18,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
+	"github.com/yoke233/ai-workflow/internal/skills"
 )
 
 type flowStack struct {
@@ -107,6 +108,7 @@ func buildStepExecutor(
 			MCPResolver:              mcpResolver,
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
+			StepContextBuilder:       skills.NewStepContextBuilder(store),
 		}
 		if signalCfg != nil {
 			acpCfg.TokenRegistry = signalCfg.TokenRegistry

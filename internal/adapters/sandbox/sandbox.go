@@ -31,6 +31,11 @@ type PrepareInput struct {
 	// ExtraSkills are dynamically injected skill names (e.g. "step-signal")
 	// that should be linked alongside Profile.Skills.
 	ExtraSkills []string
+
+	// EphemeralSkills maps skill names to pre-built directories on disk.
+	// These directories are linked directly into the agent's skills dir,
+	// bypassing the global skillsRoot. Used for per-execution materials.
+	EphemeralSkills map[string]string
 }
 
 // NoopSandbox leaves launch config unchanged.

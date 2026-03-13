@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,6 +113,27 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	if len(allSkills) > 0 {
 		if err := v2skills.EnsureSkillsLinked(skillsRoot, skillsDir, allSkills); err != nil {
 			return launch, fmt.Errorf("ensure skills linked: %w", err)
+		}
+	}
+
+	// Link ephemeral skills (pre-built directories, e.g. step-context).
+	// Unlike global skills we always replace — ephemeral skills are per-execution.
+	for name, srcDir := range in.EphemeralSkills {
+		dst := filepath.Join(skillsDir, name)
+		// Remove stale link/dir unconditionally before creating the new one.
+		if _, statErr := os.Lstat(dst); statErr == nil {
+			_ = os.RemoveAll(dst)
+		}
+		// Direct symlink + Windows junction fallback (no skip-if-exists).
+		if linkErr := os.Symlink(srcDir, dst); linkErr != nil {
+			if runtime.GOOS == "windows" {
+				linkErr = createWindowsJunction(dst, srcDir)
+			}
+			if linkErr != nil {
+				slog.Warn("link ephemeral skill failed",
+					"skill", name, "src", srcDir, "error", linkErr)
+				// Non-fatal: agent can still work without the materials.
+			}
 		}
 	}
 
