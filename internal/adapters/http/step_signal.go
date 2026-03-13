@@ -103,7 +103,8 @@ func (h *Handler) stepDecision(w http.ResponseWriter, r *http.Request) {
 
 // stepUnblockRequest is the request body for POST /steps/{stepID}/unblock.
 type stepUnblockRequest struct {
-	Reason string `json:"reason"` // required
+	Reason       string `json:"reason"`                  // required
+	Instructions string `json:"instructions,omitempty"`   // optional: forwarded to agent as SignalInstruction
 }
 
 func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +155,23 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 	}
 	sig.ID = sigID
 
+	// If instructions are provided, create an additional SignalInstruction
+	// that will be picked up by ResolveLatestFeedback and forwarded to the agent.
+	if strings.TrimSpace(req.Instructions) != "" {
+		instrSig := &core.StepSignal{
+			StepID:    stepID,
+			IssueID:   step.IssueID,
+			Type:      core.SignalInstruction,
+			Source:    core.SignalSourceHuman,
+			Summary:   "human instruction on unblock",
+			Content:   strings.TrimSpace(req.Instructions),
+			Payload:   map[string]any{"reason": req.Reason, "instructions": req.Instructions},
+			Actor:     "human",
+			CreatedAt: time.Now().UTC(),
+		}
+		_, _ = h.store.CreateStepSignal(r.Context(), instrSig)
+	}
+
 	// Transition step back to pending for retry.
 	step.Status = core.StepPending
 	if err := h.store.UpdateStep(r.Context(), step); err != nil {
@@ -176,6 +194,13 @@ func (h *Handler) stepUnblock(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// pendingDecisionItem wraps a step with its latest context signals for richer inbox display.
+type pendingDecisionItem struct {
+	Step          *core.Step        `json:"step"`
+	LatestContext *core.StepSignal  `json:"latest_context,omitempty"`
+	Signals       []*core.StepSignal `json:"signals,omitempty"`
+}
+
 func (h *Handler) listPendingDecisions(w http.ResponseWriter, r *http.Request) {
 	issueID, hasIssue := queryInt64(r, "issue_id")
 
@@ -193,7 +218,25 @@ func (h *Handler) listPendingDecisions(w http.ResponseWriter, r *http.Request) {
 	if steps == nil {
 		steps = []*core.Step{}
 	}
-	writeJSON(w, http.StatusOK, steps)
+
+	// Enrich each step with latest context signal and recent signals.
+	items := make([]pendingDecisionItem, 0, len(steps))
+	for _, step := range steps {
+		item := pendingDecisionItem{Step: step}
+		// Attach latest context/feedback signal.
+		if latestCtx, _ := h.store.GetLatestStepSignal(r.Context(), step.ID, core.SignalContext, core.SignalFeedback); latestCtx != nil {
+			item.LatestContext = latestCtx
+		}
+		// Attach recent signals (up to 10).
+		if signals, _ := h.store.ListStepSignals(r.Context(), step.ID); len(signals) > 0 {
+			if len(signals) > 10 {
+				signals = signals[len(signals)-10:]
+			}
+			item.Signals = signals
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) listStepSignals(w http.ResponseWriter, r *http.Request) {

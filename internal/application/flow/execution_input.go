@@ -1,7 +1,7 @@
 package flow
 
 import (
-	"fmt"
+	"context"
 	"log/slog"
 	"strings"
 	"text/template"
@@ -29,13 +29,13 @@ func BuildExecutionInputFromBriefing(snapshot string, step *core.Step) string {
 
 // BuildExecutionInputForStep chooses between a full prompt and a follow-up prompt
 // depending on session reuse state and prior gate feedback.
-func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, reworkTmpl string, continueTmpl string) string {
+// The feedback parameter is pre-resolved by the caller (via ResolveLatestFeedback).
+func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string) string {
 	// Gate steps must always receive the full prompt to keep output deterministic.
 	if step != nil && step.Type == core.StepGate {
 		return BuildExecutionInputFromBriefing(snapshot, step)
 	}
 
-	feedback := latestGateFeedback(step)
 	if profile != nil && profile.Session.Reuse && hasPriorTurns {
 		if feedback != "" {
 			return renderFollowupExecutionMessage(reworkTmpl, followupVars{
@@ -55,42 +55,27 @@ func BuildExecutionInputForStep(profile *core.AgentProfile, snapshot string, ste
 	return base + "\n\n# Gate Feedback (Rework)\n\n" + feedback + "\n"
 }
 
-func latestGateFeedback(step *core.Step) string {
-	if step == nil || step.Config == nil {
+// ResolveLatestFeedback reads the latest feedback/instruction signal for a step.
+// Signals are the single source of truth for step interaction history.
+func ResolveLatestFeedback(ctx context.Context, store core.StepSignalStore, step *core.Step) string {
+	if store == nil || step == nil {
 		return ""
 	}
-
-	last, _ := step.Config["last_gate_feedback"].(map[string]any)
-	if last == nil {
-		if arr, ok := step.Config["rework_history"].([]any); ok && len(arr) > 0 {
-			if m, ok := arr[len(arr)-1].(map[string]any); ok {
-				last = m
-			}
-		}
-	}
-	if last == nil {
+	sig, _ := store.GetLatestStepSignal(ctx, step.ID, core.SignalFeedback, core.SignalInstruction)
+	if sig == nil {
 		return ""
 	}
-
-	reason, _ := last["reason"].(string)
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return ""
-	}
-
 	var sb strings.Builder
-	sb.WriteString("Reason: ")
-	sb.WriteString(reason)
-
-	if prURL, ok := last["pr_url"].(string); ok && strings.TrimSpace(prURL) != "" {
-		sb.WriteString("\nPR: ")
-		sb.WriteString(strings.TrimSpace(prURL))
+	if sig.Summary != "" {
+		sb.WriteString(sig.Summary)
 	}
-	if n, ok := last["pr_number"]; ok {
-		sb.WriteString("\nPR Number: ")
-		sb.WriteString(fmt.Sprint(n))
+	if sig.Content != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(sig.Content)
 	}
-	return sb.String()
+	return strings.TrimSpace(sb.String())
 }
 
 type followupVars struct {

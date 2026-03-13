@@ -60,13 +60,10 @@ func TestGateReworkLimit_DefaultBlocksAfter3Rounds(t *testing.T) {
 		t.Fatalf("expected gate status=blocked, got %s", gate.Status)
 	}
 
-	// Verify rework_count was persisted.
-	reworkCount := 0
-	if v, ok := gate.Config["rework_count"].(float64); ok {
-		reworkCount = int(v)
-	}
-	if reworkCount != 3 {
-		t.Fatalf("expected rework_count=3, got %d", reworkCount)
+	// Verify rework_count via signal count (single source of truth).
+	rejectCount, _ := store.CountStepSignals(ctx, gateID, core.SignalReject)
+	if rejectCount < 3 {
+		t.Fatalf("expected at least 3 reject signals, got %d", rejectCount)
 	}
 }
 

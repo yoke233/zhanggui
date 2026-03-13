@@ -259,17 +259,17 @@ func TestGateSignalReject_ReworkThenApprove_E2E(t *testing.T) {
 		t.Fatalf("expected 2 gate runs, got %d", gateRuns)
 	}
 
-	// Impl step should have retry_count=1 and rework_history.
+	// Impl step should have retry_count=1 and a feedback signal from gate rejection.
 	impl, _ := store.GetStep(ctx, implID)
 	if impl.RetryCount != 1 {
 		t.Fatalf("expected impl retry_count=1, got %d", impl.RetryCount)
 	}
-	if impl.Config == nil {
-		t.Fatal("expected impl config with rework_history")
+	feedbackSignals, _ := store.ListStepSignalsByType(ctx, implID, core.SignalFeedback)
+	if len(feedbackSignals) == 0 {
+		t.Fatal("expected at least one feedback signal on impl step after gate rejection")
 	}
-	history, ok := impl.Config["rework_history"].([]any)
-	if !ok || len(history) == 0 {
-		t.Fatalf("expected non-empty rework_history, got %v", impl.Config["rework_history"])
+	if feedbackSignals[0].SourceStepID != gateID {
+		t.Fatalf("expected feedback signal source_step_id=%d, got %d", gateID, feedbackSignals[0].SourceStepID)
 	}
 
 	// Gate and impl should be done.

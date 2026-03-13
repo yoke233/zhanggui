@@ -161,12 +161,7 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 			}
 		}
 	}
-	// Fallback: Config-based rework history if no signals found.
-	if len(reworkHistory) == 0 && step.Config != nil {
-		if rh, ok := step.Config["rework_history"].([]any); ok {
-			reworkHistory = rh
-		}
-	}
+	// Signals are the single source of truth; no Config fallback.
 
 	out := stepContextOutput{
 		Step: map[string]any{

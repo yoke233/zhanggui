@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -402,6 +403,11 @@ func runMigrations(db *sql.DB) error {
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_step_signals_step ON step_signals(step_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_step_signals_exec ON step_signals(exec_id)`,
+		// Step signals: new columns for unified interaction records.
+		`ALTER TABLE step_signals ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE step_signals ADD COLUMN content TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE step_signals ADD COLUMN source_step_id INTEGER`,
+		`CREATE INDEX IF NOT EXISTS idx_step_signals_type ON step_signals(step_id, type)`,
 		// issue_attachments table (file attachments for issues).
 		`CREATE TABLE IF NOT EXISTS issue_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -433,5 +439,110 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
+	// One-time data migration: convert legacy Config rework_history / blocked_type
+	// into StepSignal records. Idempotent — skips steps that already have signals.
+	migrateConfigToSignals(db)
+
 	return nil
+}
+
+// migrateConfigToSignals scans steps with rework_history or blocked_type in Config
+// and creates corresponding StepSignal records. Idempotent: skips if signals exist.
+func migrateConfigToSignals(db *sql.DB) {
+	rows, err := db.Query(`SELECT id, issue_id, config FROM steps WHERE config IS NOT NULL AND config != '' AND config != '{}'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stepID, issueID int64
+		var configJSON string
+		if err := rows.Scan(&stepID, &issueID, &configJSON); err != nil {
+			continue
+		}
+
+		var config map[string]any
+		if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+			continue
+		}
+
+		// Check if this step already has feedback/context signals (idempotent guard).
+		var existingCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM step_signals WHERE step_id = ? AND type IN ('feedback','context')`, stepID).Scan(&existingCount); err == nil && existingCount > 0 {
+			continue
+		}
+
+		// Migrate rework_history entries → SignalFeedback.
+		if history, ok := config["rework_history"].([]any); ok {
+			for _, entry := range history {
+				m, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				reason, _ := m["reason"].(string)
+				if reason == "" {
+					reason = "gate rejected"
+				}
+				gateStepID := int64(0)
+				if v, ok := m["gate_step_id"].(float64); ok {
+					gateStepID = int64(v)
+				}
+				createdAt := ""
+				if v, ok := m["at"].(string); ok {
+					createdAt = v
+				}
+				if createdAt == "" {
+					createdAt = "2024-01-01T00:00:00Z"
+				}
+
+				var sourceStepID any = nil
+				if gateStepID > 0 {
+					sourceStepID = gateStepID
+				}
+
+				// Serialize only the entry itself as payload, not the full config.
+				entryJSON, _ := json.Marshal(m)
+
+				_, _ = db.Exec(
+					`INSERT INTO step_signals (step_id, issue_id, type, source, summary, content, source_step_id, payload, actor, created_at) VALUES (?, ?, 'feedback', 'system', ?, ?, ?, ?, 'gate', ?)`,
+					stepID, issueID, reason, reason, sourceStepID, string(entryJSON), createdAt,
+				)
+			}
+		}
+
+		// Migrate blocked_type=merge_conflict → SignalContext.
+		if bt, ok := config["blocked_type"].(string); ok && bt == "merge_conflict" {
+			blockedReason, _ := config["blocked_reason"].(string)
+			if blockedReason == "" {
+				blockedReason = "merge_conflict"
+			}
+			blockedAt, _ := config["blocked_at"].(string)
+			if blockedAt == "" {
+				blockedAt = "2024-01-01T00:00:00Z"
+			}
+			// Extract only blocked-related fields as payload.
+			blockedPayload := map[string]any{
+				"blocked_type":   bt,
+				"blocked_reason": blockedReason,
+			}
+			if v, ok := config["merge_error"]; ok {
+				blockedPayload["merge_error"] = v
+			}
+			if v, ok := config["mergeable_state"]; ok {
+				blockedPayload["mergeable_state"] = v
+			}
+			if v, ok := config["pr_number"]; ok {
+				blockedPayload["pr_number"] = v
+			}
+			if v, ok := config["pr_url"]; ok {
+				blockedPayload["pr_url"] = v
+			}
+			payloadJSON, _ := json.Marshal(blockedPayload)
+			_, _ = db.Exec(
+				`INSERT INTO step_signals (step_id, issue_id, type, source, summary, content, payload, actor, created_at) VALUES (?, ?, 'context', 'system', 'merge_conflict', ?, ?, 'system', ?)`,
+				stepID, issueID, blockedReason, string(payloadJSON), blockedAt,
+			)
+		}
+	}
 }

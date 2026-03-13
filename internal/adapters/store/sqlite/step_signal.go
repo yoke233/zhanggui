@@ -57,6 +57,43 @@ func (s *Store) ListStepSignals(ctx context.Context, stepID int64) ([]*core.Step
 	return out, nil
 }
 
+func (s *Store) ListStepSignalsByType(ctx context.Context, stepID int64, types ...core.SignalType) ([]*core.StepSignal, error) {
+	var models []StepSignalModel
+	q := s.orm.WithContext(ctx).Where("step_id = ?", stepID)
+	if len(types) > 0 {
+		strs := make([]string, len(types))
+		for i, t := range types {
+			strs[i] = string(t)
+		}
+		q = q.Where("type IN ?", strs)
+	}
+	err := q.Order("id ASC").Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*core.StepSignal, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) CountStepSignals(ctx context.Context, stepID int64, types ...core.SignalType) (int, error) {
+	var count int64
+	q := s.orm.WithContext(ctx).Model(&StepSignalModel{}).Where("step_id = ?", stepID)
+	if len(types) > 0 {
+		strs := make([]string, len(types))
+		for i, t := range types {
+			strs[i] = string(t)
+		}
+		q = q.Where("type IN ?", strs)
+	}
+	if err := q.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
 func (s *Store) ListPendingHumanSteps(ctx context.Context, issueID int64) ([]*core.Step, error) {
 	var models []StepModel
 	err := s.orm.WithContext(ctx).

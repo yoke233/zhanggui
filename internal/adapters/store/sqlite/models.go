@@ -568,15 +568,18 @@ func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
 // ── StepSignal ──
 
 type StepSignalModel struct {
-	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	StepID    int64                     `gorm:"column:step_id;not null"`
-	IssueID   int64                     `gorm:"column:issue_id;not null"`
-	ExecID    *int64                    `gorm:"column:exec_id"`
-	Type      string                    `gorm:"column:type;not null"`
-	Source    string                    `gorm:"column:source;not null"`
-	Payload   JSONField[map[string]any] `gorm:"column:payload;type:text"`
-	Actor     string                    `gorm:"column:actor;not null"`
-	CreatedAt time.Time                 `gorm:"column:created_at"`
+	ID           int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	StepID       int64                     `gorm:"column:step_id;not null"`
+	IssueID      int64                     `gorm:"column:issue_id;not null"`
+	ExecID       *int64                    `gorm:"column:exec_id"`
+	Type         string                    `gorm:"column:type;not null"`
+	Source       string                    `gorm:"column:source;not null"`
+	Summary      string                    `gorm:"column:summary;not null"`
+	Content      string                    `gorm:"column:content;not null"`
+	SourceStepID *int64                    `gorm:"column:source_step_id"`
+	Payload      JSONField[map[string]any] `gorm:"column:payload;type:text"`
+	Actor        string                    `gorm:"column:actor;not null"`
+	CreatedAt    time.Time                 `gorm:"column:created_at"`
 }
 
 func (StepSignalModel) TableName() string { return "step_signals" }
@@ -586,15 +589,18 @@ func stepSignalModelFromCore(s *core.StepSignal) *StepSignalModel {
 		return nil
 	}
 	return &StepSignalModel{
-		ID:        s.ID,
-		StepID:    s.StepID,
-		IssueID:   s.IssueID,
-		ExecID:    int64PtrIfNonZero(s.ExecID),
-		Type:      string(s.Type),
-		Source:    string(s.Source),
-		Payload:   JSONField[map[string]any]{Data: s.Payload},
-		Actor:     s.Actor,
-		CreatedAt: s.CreatedAt,
+		ID:           s.ID,
+		StepID:       s.StepID,
+		IssueID:      s.IssueID,
+		ExecID:       int64PtrIfNonZero(s.ExecID),
+		Type:         string(s.Type),
+		Source:       string(s.Source),
+		Summary:      s.Summary,
+		Content:      s.Content,
+		SourceStepID: int64PtrIfNonZero(s.SourceStepID),
+		Payload:      JSONField[map[string]any]{Data: s.Payload},
+		Actor:        s.Actor,
+		CreatedAt:    s.CreatedAt,
 	}
 }
 
@@ -608,12 +614,17 @@ func (m *StepSignalModel) toCore() *core.StepSignal {
 		IssueID:   m.IssueID,
 		Type:      core.SignalType(m.Type),
 		Source:    core.SignalSource(m.Source),
+		Summary:   m.Summary,
+		Content:   m.Content,
 		Payload:   m.Payload.Data,
 		Actor:     m.Actor,
 		CreatedAt: m.CreatedAt,
 	}
 	if m.ExecID != nil {
 		sig.ExecID = *m.ExecID
+	}
+	if m.SourceStepID != nil {
+		sig.SourceStepID = *m.SourceStepID
 	}
 	return sig
 }

@@ -8,53 +8,6 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// TestSaveMergeConflictToConfig: verifies conflict metadata is persisted to step config.
-func TestSaveMergeConflictToConfig(t *testing.T) {
-	step := &core.Step{ID: 1, IssueID: 10}
-	metadata := map[string]any{
-		"merge_error":     "PR has conflicts",
-		"pr_number":       float64(42),
-		"pr_url":          "https://github.com/test/repo/pull/42",
-		"mergeable_state": "dirty",
-		"merge_provider":  "github",
-	}
-	saveMergeConflictToConfig(step, "merge failed: conflicts", metadata)
-
-	if step.Config == nil {
-		t.Fatal("expected config to be initialized")
-	}
-	if bt, _ := step.Config["blocked_type"].(string); bt != "merge_conflict" {
-		t.Fatalf("expected blocked_type=merge_conflict, got %q", bt)
-	}
-	if _, ok := step.Config["blocked_at"].(string); !ok {
-		t.Fatal("expected blocked_at timestamp")
-	}
-	if br, _ := step.Config["blocked_reason"].(string); br != "merge failed: conflicts" {
-		t.Fatalf("expected blocked_reason, got %q", br)
-	}
-	if ms, _ := step.Config["mergeable_state"].(string); ms != "dirty" {
-		t.Fatalf("expected mergeable_state=dirty, got %q", ms)
-	}
-	if prn, _ := step.Config["pr_number"].(float64); prn != 42 {
-		t.Fatalf("expected pr_number=42, got %v", prn)
-	}
-	if url, _ := step.Config["pr_url"].(string); url != "https://github.com/test/repo/pull/42" {
-		t.Fatalf("expected pr_url, got %q", url)
-	}
-}
-
-// TestSaveMergeConflictToConfig_NilConfig: works on a step with nil Config.
-func TestSaveMergeConflictToConfig_NilConfig(t *testing.T) {
-	step := &core.Step{ID: 2, Config: nil}
-	saveMergeConflictToConfig(step, "conflict", map[string]any{})
-	if step.Config == nil {
-		t.Fatal("config should have been initialized")
-	}
-	if bt, _ := step.Config["blocked_type"].(string); bt != "merge_conflict" {
-		t.Fatalf("expected blocked_type=merge_conflict, got %q", bt)
-	}
-}
-
 // TestHandleMergeConflictBlock_DirtyReturnsTrue: dirty merge error → handled (returns true).
 func TestHandleMergeConflictBlock_DirtyReturnsTrue(t *testing.T) {
 	store, bus := setup(t)
@@ -91,16 +44,17 @@ func TestHandleMergeConflictBlock_DirtyReturnsTrue(t *testing.T) {
 		t.Fatal("expected handleMergeConflictBlock to return true for dirty merge error")
 	}
 
-	// Verify step was updated with conflict info.
+	// Verify step was blocked and has a context signal for merge conflict.
 	updated, _ := store.GetStep(ctx, stepID)
 	if updated.Status != core.StepBlocked {
 		t.Fatalf("expected step status=blocked, got %s", updated.Status)
 	}
-	if bt, _ := updated.Config["blocked_type"].(string); bt != "merge_conflict" {
-		t.Fatalf("expected blocked_type=merge_conflict, got %q", bt)
+	ctxSignals, _ := store.ListStepSignalsByType(ctx, stepID, core.SignalContext)
+	if len(ctxSignals) == 0 {
+		t.Fatal("expected at least one context signal for merge conflict")
 	}
-	if ms, _ := updated.Config["mergeable_state"].(string); ms != "dirty" {
-		t.Fatalf("expected mergeable_state=dirty, got %q", ms)
+	if ctxSignals[0].Summary != "merge_conflict" {
+		t.Fatalf("expected context signal summary=merge_conflict, got %q", ctxSignals[0].Summary)
 	}
 
 	// Verify EventGateAwaitingHuman was published.
