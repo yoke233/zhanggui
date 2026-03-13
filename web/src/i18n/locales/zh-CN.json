@@ -573,7 +573,15 @@
     "scmFlowError": "当前项目已启用 PR/CR 流程，请直接创建 flow。",
     "nameRequired": "生成步骤前请先填写流程名称。",
     "nameEmpty": "流程名称不能为空。",
-    "autoTitle": "自动生成"
+    "autoTitle": "自动生成",
+    "attachments": "附件",
+    "attachmentsDesc": "拖拽或点击上传 .md、.txt 或图片文件",
+    "dropFilesHere": "拖拽文件到此处上传",
+    "browseFiles": "浏览文件",
+    "uploadingFiles": "上传中...",
+    "unsupportedFileType": "不支持的文件类型：{{name}}",
+    "fileTooLarge": "文件过大（最大 10MB）：{{name}}",
+    "nAttachments": "{{count}} 个附件"
   },
   "chat": {
     "newSession": "新会话",

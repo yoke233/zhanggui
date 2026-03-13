@@ -207,6 +207,10 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	}
 
 	// Create a new ACP process + session (or try to load a prior session id).
+	slog.Info("runtime acp pool: launching agent process",
+		"driver", in.Driver.ID, "command", in.Launch.Command,
+		"args", in.Launch.Args, "work_dir", in.WorkDir,
+		"issue_id", in.IssueID, "step_id", in.StepID)
 	switcher := &switchingEventHandler{}
 	handler := acphandler.NewACPHandler(in.WorkDir, "", nil)
 	handler.SetSuppressEvents(true)
@@ -214,19 +218,28 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	if err != nil {
 		return nil, ac, fmt.Errorf("launch ACP agent %q: %w", in.Driver.ID, err)
 	}
+	slog.Info("runtime acp pool: agent process started, initializing",
+		"driver", in.Driver.ID, "caps", fmt.Sprintf("%+v", in.Caps))
 	if err := client.Initialize(ctx, in.Caps); err != nil {
 		_ = client.Close(context.Background())
 		return nil, ac, fmt.Errorf("initialize ACP agent %q: %w", in.Driver.ID, err)
 	}
+	slog.Info("runtime acp pool: agent initialized successfully",
+		"driver", in.Driver.ID, "supports_sse_mcp", client.SupportsSSEMCP())
 
 	var mcpServers []acpproto.McpServer
 	if in.MCPFactory != nil {
 		mcpServers = in.MCPFactory(client.SupportsSSEMCP())
 	}
+	slog.Info("runtime acp pool: creating session",
+		"driver", in.Driver.ID, "mcp_server_count", len(mcpServers),
+		"work_dir", in.WorkDir)
 
 	var sessionID acpproto.SessionId
 	loaded := false
 	if ac != nil && strings.TrimSpace(ac.SessionID) != "" {
+		slog.Info("runtime acp pool: attempting to load prior session",
+			"session_id", ac.SessionID)
 		sid, lErr := client.LoadSession(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(strings.TrimSpace(ac.SessionID)),
 			Cwd:        in.WorkDir,
@@ -235,18 +248,28 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 		if lErr == nil && strings.TrimSpace(string(sid)) != "" {
 			sessionID = sid
 			loaded = true
+			slog.Info("runtime acp pool: loaded prior session", "session_id", string(sid))
+		} else if lErr != nil {
+			slog.Warn("runtime acp pool: load prior session failed, will create new",
+				"error", lErr)
 		}
 	}
 	if !loaded {
+		slog.Info("runtime acp pool: creating new session",
+			"driver", in.Driver.ID, "work_dir", in.WorkDir)
 		sid, nErr := client.NewSession(ctx, acpproto.NewSessionRequest{
 			Cwd:        in.WorkDir,
 			McpServers: mcpServers,
 		})
 		if nErr != nil {
+			slog.Error("runtime acp pool: session/new failed",
+				"driver", in.Driver.ID, "error", nErr,
+				"work_dir", in.WorkDir, "mcp_count", len(mcpServers))
 			_ = client.Close(context.Background())
 			return nil, ac, fmt.Errorf("create ACP session: %w", nErr)
 		}
 		sessionID = sid
+		slog.Info("runtime acp pool: new session created", "session_id", string(sid))
 	}
 	handler.SetSessionID(string(sessionID))
 

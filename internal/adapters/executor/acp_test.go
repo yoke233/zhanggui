@@ -263,21 +263,21 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	}
 
 	t.Run("nil resolver returns nil", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", nil)
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", 0, nil)
 		if factory != nil {
 			t.Fatal("expected nil factory")
 		}
 	})
 
 	t.Run("composite step does not inject", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepComposite}, "worker", resolver)
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepComposite}, "worker", 1, resolver)
 		if factory != nil {
 			t.Fatal("expected nil factory for composite step")
 		}
 	})
 
 	t.Run("exec step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", resolver)
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for exec step")
 		}
@@ -288,7 +288,7 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	})
 
 	t.Run("gate step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Step{Type: core.StepGate}, "worker", resolver)
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepGate}, "worker", 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for gate step")
 		}

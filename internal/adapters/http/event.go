@@ -234,6 +234,8 @@ func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) err
 		h.handleWSChatSetConfig(msg, writeJSON)
 	case "chat.set_mode":
 		h.handleWSChatSetMode(msg, writeJSON)
+	case "chat.permission_response":
+		h.handleWSChatPermissionResponse(msg, writeJSON)
 	case "thread.send":
 		h.handleWSThreadSend(msg, writeJSON)
 	case "subscribe_thread":
@@ -438,6 +440,70 @@ func (h *Handler) handleWSChatSetMode(msg wsMessage, writeJSON func(v any) error
 			Modes:     modes,
 		},
 	})
+}
+
+func (h *Handler) handleWSChatPermissionResponse(msg wsMessage, writeJSON func(v any) error) {
+	if h.lead == nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "CHAT_DISABLED",
+				Error: "lead chat service is not configured",
+			},
+		})
+		return
+	}
+
+	var req wsPermissionResponseRequest
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "chat.error",
+				Data: wsErrorPayload{
+					Code:  "BAD_REQUEST",
+					Error: "invalid chat.permission_response payload",
+				},
+			})
+			return
+		}
+	}
+
+	permID := strings.TrimSpace(req.PermissionID)
+	if permID == "" {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "BAD_REQUEST",
+				Error: "permission_id is required",
+			},
+		})
+		return
+	}
+
+	if err := h.lead.ResolvePermission(permID, req.OptionID, req.Cancel); err != nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{
+				Code:  "PERMISSION_RESOLVE_FAILED",
+				Error: err.Error(),
+			},
+		})
+		return
+	}
+
+	_ = writeJSON(wsOutboundMessage{
+		Type: "chat.permission_resolved",
+		Data: map[string]string{
+			"permission_id": permID,
+			"status":        "resolved",
+		},
+	})
+}
+
+type wsPermissionResponseRequest struct {
+	PermissionID string `json:"permission_id"`
+	OptionID     string `json:"option_id,omitempty"`
+	Cancel       bool   `json:"cancel,omitempty"`
 }
 
 // wsMessage is the WebSocket message envelope (for potential future use).

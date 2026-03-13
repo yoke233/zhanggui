@@ -2,10 +2,13 @@ package httpx
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
@@ -36,6 +39,7 @@ func AuthFromContext(ctx context.Context) (AuthInfo, bool) {
 }
 
 type TokenRegistry struct {
+	mu      sync.RWMutex
 	entries map[string]tokenRegistryEntry
 }
 
@@ -63,8 +67,41 @@ func NewTokenRegistry(tokens map[string]config.TokenEntry) *TokenRegistry {
 	return &TokenRegistry{entries: entries}
 }
 
+// GenerateScopedToken creates a random token with the given scopes, registers it,
+// and returns the token string. The caller should call RemoveToken when done.
+func (r *TokenRegistry) GenerateScopedToken(role string, scopes []string, submitter string) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	r.mu.Lock()
+	r.entries[token] = tokenRegistryEntry{
+		role:      role,
+		scopes:    scopes,
+		submitter: submitter,
+	}
+	r.mu.Unlock()
+	return token, nil
+}
+
+// RemoveToken removes a previously added runtime token.
+func (r *TokenRegistry) RemoveToken(token string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	delete(r.entries, token)
+	r.mu.Unlock()
+}
+
 func (r *TokenRegistry) Lookup(token string) (AuthInfo, bool) {
-	if r == nil || len(r.entries) == 0 {
+	if r == nil {
+		return AuthInfo{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.entries) == 0 {
 		return AuthInfo{}, false
 	}
 	trimmed := strings.TrimSpace(token)
@@ -85,7 +122,12 @@ func (r *TokenRegistry) Lookup(token string) (AuthInfo, bool) {
 }
 
 func (r *TokenRegistry) IsEmpty() bool {
-	return r == nil || len(r.entries) == 0
+	if r == nil {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.entries) == 0
 }
 
 func TokenAuthMiddleware(registry *TokenRegistry, opts ...AuthMiddlewareOption) func(http.Handler) http.Handler {

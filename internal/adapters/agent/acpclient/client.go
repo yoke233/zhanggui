@@ -24,6 +24,12 @@ func WithEventHandler(h EventHandler) Option {
 	}
 }
 
+func WithTraceRecorder(r TraceRecorder) Option {
+	return func(c *Client) {
+		c.traceRecorder = r
+	}
+}
+
 func WithCloseHook(hook func(context.Context) error) Option {
 	return func(c *Client) {
 		c.closeHook = hook
@@ -34,7 +40,8 @@ type Client struct {
 	cfg     LaunchConfig
 	handler acpproto.Client
 
-	eventHandler EventHandler
+	eventHandler  EventHandler
+	traceRecorder TraceRecorder
 
 	cmd       *exec.Cmd
 	transport *Transport
@@ -94,7 +101,7 @@ func New(cfg LaunchConfig, h acpproto.Client, opts ...Option) (*Client, error) {
 		opt(c)
 	}
 
-	c.transport = NewTransport(stdin, stdout)
+	c.transport = NewTransport(stdin, stdout, newTraceRelay(c.traceRecorder))
 	c.transport.SetRequestHandler(c.handleRequest)
 	c.transport.SetNotificationHandler(c.handleNotification)
 
@@ -128,7 +135,7 @@ func NewWithIO(cfg LaunchConfig, h acpproto.Client, writer io.WriteCloser, reade
 		opt(c)
 	}
 
-	c.transport = NewTransport(writer, reader)
+	c.transport = NewTransport(writer, reader, newTraceRelay(c.traceRecorder))
 	c.transport.SetRequestHandler(c.handleRequest)
 	c.transport.SetNotificationHandler(c.handleNotification)
 	return c, nil

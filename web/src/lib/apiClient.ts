@@ -28,6 +28,7 @@ import type {
   CreateProjectRequest,
   CreateIssueRequest,
   Issue,
+  IssueAttachment,
   CreateStepRequest,
   GenerateStepsRequest,
   Event,
@@ -303,6 +304,13 @@ export interface ApiClient {
   inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadAgentSession>;
   listThreadAgents(threadId: number): Promise<ThreadAgentSession[]>;
   removeThreadAgent(threadId: number, agentSessionId: number): Promise<void>;
+
+  // Issue Attachments
+  uploadIssueAttachment(issueId: number, file: File): Promise<IssueAttachment>;
+  listIssueAttachments(issueId: number): Promise<IssueAttachment[]>;
+  getIssueAttachment(attachmentId: number): Promise<IssueAttachment>;
+  deleteIssueAttachment(attachmentId: number): Promise<void>;
+  getAttachmentDownloadUrl(attachmentId: number): string;
 
   // Notifications
   listNotifications(params?: {
@@ -905,6 +913,43 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       }),
     deleteManifestEntry: (entryId: number) =>
       request<void>({ path: `/manifest/entries/${entryId}`, method: "DELETE" }),
+
+    // Issue Attachments
+    uploadIssueAttachment: async (issueId, file) => {
+      const url = buildUrl(baseUrl, `/issues/${issueId}/attachments`);
+      const formData = new FormData();
+      formData.append("file", file);
+      const headers: Record<string, string> = {};
+      const token = getToken?.();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetchImpl(url, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      const data = await readResponseData(response);
+      if (!response.ok) {
+        throw new ApiError(response.status, extractErrorMessage(response.status, data), data);
+      }
+      return data as IssueAttachment;
+    },
+    listIssueAttachments: (issueId) =>
+      request<IssueAttachment[]>({
+        path: `/issues/${issueId}/attachments`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getIssueAttachment: (attachmentId) =>
+      request<IssueAttachment>({
+        path: `/attachments/${attachmentId}`,
+      }),
+    deleteIssueAttachment: (attachmentId) =>
+      request<void>({
+        path: `/attachments/${attachmentId}`,
+        method: "DELETE",
+      }),
+    getAttachmentDownloadUrl: (attachmentId) =>
+      buildUrl(baseUrl, `/attachments/${attachmentId}/download`),
 
     // Notifications
     listNotifications: (params) =>

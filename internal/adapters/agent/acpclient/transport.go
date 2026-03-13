@@ -27,6 +27,9 @@ func (e *rpcError) Error() string {
 	if e == nil {
 		return ""
 	}
+	if len(e.Data) > 0 {
+		return fmt.Sprintf("rpc error(code=%d): %s [data=%s]", e.Code, e.Message, string(e.Data))
+	}
 	return fmt.Sprintf("rpc error(code=%d): %s", e.Code, e.Message)
 }
 
@@ -47,6 +50,7 @@ type pendingResponse struct {
 type Transport struct {
 	writer io.WriteCloser
 	reader *bufio.Scanner
+	trace  *traceRelay
 
 	writeMu sync.Mutex
 
@@ -65,12 +69,17 @@ type Transport struct {
 	doneOnce sync.Once
 }
 
-func NewTransport(writer io.WriteCloser, reader io.Reader) *Transport {
+func NewTransport(writer io.WriteCloser, reader io.Reader, trace ...*traceRelay) *Transport {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var relay *traceRelay
+	if len(trace) > 0 {
+		relay = trace[0]
+	}
 	t := &Transport{
 		writer:  writer,
 		reader:  scanner,
+		trace:   relay,
 		pending: make(map[string]chan pendingResponse),
 		done:    make(chan struct{}),
 	}
@@ -156,6 +165,7 @@ func (t *Transport) readLoop() {
 		if len(line) == 0 {
 			continue
 		}
+		t.trace.record(TraceDirectionRecv, line)
 		var env rpcEnvelope
 		if err := json.Unmarshal(line, &env); err != nil {
 			t.shutdown(fmt.Errorf("decode rpc envelope: %w", err))
@@ -270,8 +280,11 @@ func (t *Transport) writeMessage(msg any) error {
 	if _, err := t.writer.Write(data); err != nil {
 		return err
 	}
-	_, err = t.writer.Write([]byte{'\n'})
-	return err
+	if _, err := t.writer.Write([]byte{'\n'}); err != nil {
+		return err
+	}
+	t.trace.record(TraceDirectionSend, data)
+	return nil
 }
 
 func (t *Transport) deletePending(id string) {

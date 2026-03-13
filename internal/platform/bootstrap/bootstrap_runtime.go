@@ -10,7 +10,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
 
-func buildRuntimeManager(store *sqlite.Store) *configruntime.Manager {
+func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string) *configruntime.Manager {
 	dataDir, err := appdata.ResolveDataDir()
 	if err != nil {
 		return nil
@@ -18,7 +18,10 @@ func buildRuntimeManager(store *sqlite.Store) *configruntime.Manager {
 
 	cfgPath := filepath.Join(dataDir, "config.toml")
 	secretsPath := resolveSecretsFilePath(dataDir)
-	runtimeManager, err := configruntime.NewManager(cfgPath, secretsPath, configruntime.DisabledMCPEnv(), slog.Default(), func(ctx context.Context, snap *configruntime.Snapshot) error {
+	mcpEnv := configruntime.MCPEnvConfig{
+		DBPath: runtimeDBPath,
+	}
+	runtimeManager, err := configruntime.NewManager(cfgPath, secretsPath, mcpEnv, slog.Default(), func(ctx context.Context, snap *configruntime.Snapshot) error {
 		return configruntime.SyncRegistry(ctx, store, snap)
 	})
 	if err != nil {

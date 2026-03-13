@@ -194,6 +194,28 @@ func (panicStore) CountFeatureEntriesByStatus(context.Context, int64) (map[core.
 	panic("not implemented")
 }
 
+func (panicStore) CreateStepSignal(context.Context, *core.StepSignal) (int64, error) {
+	panic("not implemented")
+}
+func (panicStore) GetLatestStepSignal(context.Context, int64, ...core.SignalType) (*core.StepSignal, error) {
+	panic("not implemented")
+}
+func (panicStore) ListStepSignals(context.Context, int64) ([]*core.StepSignal, error) {
+	panic("not implemented")
+}
+func (panicStore) ListStepSignalsByType(context.Context, int64, ...core.SignalType) ([]*core.StepSignal, error) {
+	panic("not implemented")
+}
+func (panicStore) CountStepSignals(context.Context, int64, ...core.SignalType) (int, error) {
+	panic("not implemented")
+}
+func (panicStore) ListPendingHumanSteps(context.Context, int64) ([]*core.Step, error) {
+	panic("not implemented")
+}
+func (panicStore) ListAllPendingHumanSteps(context.Context) ([]*core.Step, error) {
+	panic("not implemented")
+}
+
 // --- Tests ---
 
 func TestBriefingBuilder_InjectsIssueSummary(t *testing.T) {

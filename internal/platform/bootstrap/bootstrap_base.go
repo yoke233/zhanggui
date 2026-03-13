@@ -24,6 +24,7 @@ type bootstrapBase struct {
 	registry       core.AgentRegistry
 	runtimeManager *configruntime.Manager
 	dataDir        string
+	signalCfg      *AgentSignalConfig
 }
 
 func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*bootstrapBase, error) {
@@ -41,7 +42,7 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 	}
 
 	seedRegistry(context.Background(), store, bootstrapCfg, roleResolver)
-	runtimeManager := buildRuntimeManager(store)
+	runtimeManager := buildRuntimeManager(store, runtimeDBPath)
 
 	dataDir := ""
 	if dd, err := appdata.ResolveDataDir(); err == nil {

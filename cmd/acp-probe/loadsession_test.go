@@ -16,7 +16,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/teamleader"
+	acphandler "github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
 
@@ -201,7 +201,7 @@ func TestLoadSessionReplaysEvents(t *testing.T) {
 	t.Log("=== Phase 3: verify ACPHandler.SetSuppressEvents works ===")
 
 	// Use a real ACPHandler to verify suppress logic.
-	acpHandler := teamleader.NewACPHandler(workDir, "test-session", nil)
+	acpHandler := acphandler.NewACPHandler(workDir, "test-session", nil)
 	acpHandler.SetSuppressEvents(true)
 
 	// Simulate feeding replayed events through the handler.
@@ -223,4 +223,3 @@ func TestLoadSessionReplaysEvents(t *testing.T) {
 
 	t.Log("=== Test complete ===")
 }
-

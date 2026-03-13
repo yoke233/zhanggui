@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,13 +45,56 @@ func (e *IssueEngine) ProcessGate(ctx context.Context, step *core.Step, result G
 		return nil
 	}
 
-	// Gate rejected.
+	// Gate rejected — check rework round limit before cycling.
+	maxReworkRounds := 3 // default
+	if step.Config != nil {
+		if v, ok := step.Config["max_rework_rounds"].(float64); ok && v > 0 {
+			maxReworkRounds = int(v)
+		}
+	}
+
+	// Read rework_count from signal count (single source of truth).
+	reworkCount := 0
+	if cnt, err := e.store.CountStepSignals(ctx, step.ID, core.SignalReject); err == nil {
+		reworkCount = cnt
+	}
+
+	if reworkCount >= maxReworkRounds {
+		// Rework limit reached — caller will transition to blocked.
+		e.bus.Publish(ctx, core.Event{
+			Type:      core.EventGateReworkLimitReached,
+			IssueID:   step.IssueID,
+			StepID:    step.ID,
+			Timestamp: time.Now().UTC(),
+			Data: map[string]any{
+				"reason":            result.Reason,
+				"rework_count":      reworkCount,
+				"max_rework_rounds": maxReworkRounds,
+			},
+		})
+		return core.ErrMaxRetriesExceeded
+	}
+
+	// Record a SignalReject on the gate step — single source of truth for rework_count.
+	if _, err := e.store.CreateStepSignal(ctx, &core.StepSignal{
+		StepID:    step.ID,
+		IssueID:   step.IssueID,
+		Type:      core.SignalReject,
+		Source:    core.SignalSourceSystem,
+		Summary:   strings.TrimSpace(result.Reason),
+		Payload:   result.Metadata,
+		Actor:     "gate",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		slog.Error("failed to record gate reject signal", "step_id", step.ID, "error", err)
+	}
+
 	e.bus.Publish(ctx, core.Event{
 		Type:      core.EventGateRejected,
 		IssueID:   step.IssueID,
 		StepID:    step.ID,
 		Timestamp: time.Now().UTC(),
-		Data:      map[string]any{"reason": result.Reason},
+		Data:      map[string]any{"reason": result.Reason, "rework_round": reworkCount + 1},
 	})
 
 	// Reset upstream steps for rework — persist retry_count via UpdateStep.
@@ -62,7 +106,7 @@ func (e *IssueEngine) ProcessGate(ctx context.Context, step *core.Step, result G
 		if up.MaxRetries > 0 && up.RetryCount >= up.MaxRetries {
 			return core.ErrMaxRetriesExceeded
 		}
-		recordGateRework(up, step.ID, result.Reason, result.Metadata)
+		e.recordGateRework(ctx, up, step.ID, result.Reason, result.Metadata)
 		up.RetryCount++
 		up.Status = core.StepPending
 		if err := e.store.UpdateStep(ctx, up); err != nil {
@@ -170,9 +214,16 @@ func (e *IssueEngine) checkManifestEntries(ctx context.Context, step *core.Step)
 }
 
 // finalizeGate is called after a gate step's executor succeeds.
-// It reads the latest Artifact's metadata.verdict to decide pass/reject.
+// Priority chain: StepSignal (MCP/HTTP) > Artifact metadata > default pass.
 func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
-	// Optional manifest check — runs before artifact verdict.
+	// 1. Check StepSignal (MCP tool call or human HTTP API).
+	// Skip system-sourced signals — those are internal bookkeeping (e.g. ProcessGate reject counting).
+	signal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalApprove, core.SignalReject)
+	if signal != nil && signal.Source != core.SignalSourceSystem {
+		return e.processGateSignal(ctx, step, signal)
+	}
+
+	// 2. Fallback: manifest check + artifact metadata (existing behavior).
 	if manifestCheckEnabled(step) {
 		passed, reason, err := e.checkManifestEntries(ctx, step)
 		if err != nil {
@@ -212,9 +263,14 @@ func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
 	if verdict != "reject" {
 		// "pass" or unrecognized → default pass.
 		if err := e.mergePRIfConfigured(ctx, step); err != nil {
-			// Merge failure: treat as reject and reset upstream for rework.
-			resetTo, _ := e.defaultGateResetTargets(ctx, step, art.Metadata)
+			// Merge conflicts (dirty) are not agent-fixable — block immediately for human resolution.
+			if e.handleMergeConflictBlock(ctx, step, err) {
+				return nil
+			}
+
+			// Other merge failures (behind, unstable, etc.) — rework cycle.
 			reason, metadata := e.formatMergeFailureFeedback(step, err)
+			resetTo, _ := e.defaultGateResetTargets(ctx, step, art.Metadata)
 			rejectErr := e.ProcessGate(ctx, step, GateResult{
 				Passed:   false,
 				Reason:   reason,
@@ -289,48 +345,81 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
-func recordGateRework(step *core.Step, gateStepID int64, reason string, metadata map[string]any) {
-	if step == nil {
-		return
-	}
-	if step.Config == nil {
-		step.Config = map[string]any{}
+
+// recordGateRework creates a SignalFeedback on the upstream step,
+// recording the gate rejection as a structured signal.
+func (e *IssueEngine) recordGateRework(ctx context.Context, upstreamStep *core.Step, gateStepID int64, reason string, metadata map[string]any) {
+	summary := strings.TrimSpace(reason)
+	if summary == "" {
+		summary = "gate rejected"
 	}
 
-	history, _ := step.Config["rework_history"].([]any)
-	entry := map[string]any{
-		"gate_step_id": gateStepID,
-		"reason":       strings.TrimSpace(reason),
-		"at":           time.Now().UTC().Format(time.RFC3339Nano),
-		"attempt":      step.RetryCount + 2, // next Attempt after this reset (RetryCount will be incremented)
-	}
+	// Build formatted content.
+	var content strings.Builder
+	content.WriteString("Reason: ")
+	content.WriteString(summary)
 	if metadata != nil {
-		if v, ok := metadata["pr_number"]; ok {
-			entry["pr_number"] = v
+		if prURL, ok := metadata["pr_url"].(string); ok && strings.TrimSpace(prURL) != "" {
+			content.WriteString("\nPR: ")
+			content.WriteString(strings.TrimSpace(prURL))
 		}
-		if v, ok := metadata["pr_url"]; ok {
-			entry["pr_url"] = v
+		if n, ok := metadata["pr_number"]; ok {
+			content.WriteString("\nPR Number: ")
+			content.WriteString(fmt.Sprint(n))
 		}
-		if v, ok := metadata["merge_error"]; ok {
-			entry["merge_error"] = v
-		}
-		if v, ok := metadata["mergeable_state"]; ok {
-			entry["mergeable_state"] = v
-		}
-		if v, ok := metadata["merge_action_hint"]; ok {
-			entry["merge_action_hint"] = v
+		if hint, ok := metadata["merge_action_hint"].(string); ok && strings.TrimSpace(hint) != "" {
+			content.WriteString("\nHint: ")
+			content.WriteString(strings.TrimSpace(hint))
 		}
 	}
-	if strings.TrimSpace(reason) == "" {
-		entry["reason"] = "gate rejected"
+
+	sig := &core.StepSignal{
+		StepID:       upstreamStep.ID,
+		IssueID:      upstreamStep.IssueID,
+		Type:         core.SignalFeedback,
+		Source:       core.SignalSourceSystem,
+		Summary:      summary,
+		Content:      content.String(),
+		SourceStepID: gateStepID,
+		Payload:      metadata,
+		Actor:        "gate",
+		CreatedAt:    time.Now().UTC(),
 	}
-	history = append(history, entry)
-	const maxHistory = 10
-	if len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
+	if _, err := e.store.CreateStepSignal(ctx, sig); err != nil {
+		slog.Error("failed to record gate rework signal", "step_id", upstreamStep.ID, "error", err)
 	}
-	step.Config["rework_history"] = history
-	step.Config["last_gate_feedback"] = entry
+}
+
+// recordMergeConflict creates a SignalContext on the gate step,
+// recording merge conflict details as a structured signal.
+func (e *IssueEngine) recordMergeConflict(ctx context.Context, gateStep *core.Step, reason string, metadata map[string]any) {
+	var content strings.Builder
+	content.WriteString(reason)
+	if metadata != nil {
+		if mergeErr, ok := metadata["merge_error"].(string); ok {
+			content.WriteString("\n\nMerge Error: ")
+			content.WriteString(mergeErr)
+		}
+		if hint, ok := metadata["merge_action_hint"].(string); ok && strings.TrimSpace(hint) != "" {
+			content.WriteString("\nAction: ")
+			content.WriteString(strings.TrimSpace(hint))
+		}
+	}
+
+	sig := &core.StepSignal{
+		StepID:    gateStep.ID,
+		IssueID:   gateStep.IssueID,
+		Type:      core.SignalContext,
+		Source:    core.SignalSourceSystem,
+		Summary:   "merge_conflict",
+		Content:   content.String(),
+		Payload:   metadata,
+		Actor:     "system",
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := e.store.CreateStepSignal(ctx, sig); err != nil {
+		slog.Error("failed to record merge conflict signal", "step_id", gateStep.ID, "error", err)
+	}
 }
 
 func (e *IssueEngine) formatMergeFailureFeedback(step *core.Step, err error) (string, map[string]any) {
@@ -414,6 +503,32 @@ func renderMergeReworkFeedbackTemplate(tmplText string, vars mergeReworkTemplate
 	return out
 }
 
+// handleMergeConflictBlock detects merge conflicts (dirty) and immediately blocks
+// the gate for human resolution instead of entering a rework cycle.
+// Returns true if the error was a merge conflict that was handled.
+func (e *IssueEngine) handleMergeConflictBlock(ctx context.Context, step *core.Step, err error) bool {
+	reason, metadata := e.formatMergeFailureFeedback(step, err)
+
+	var mergeErr *MergeError
+	if !errors.As(err, &mergeErr) || mergeErr == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(mergeErr.MergeableState), "dirty") {
+		return false
+	}
+
+	e.recordMergeConflict(ctx, step, reason, metadata)
+	e.bus.Publish(ctx, core.Event{
+		Type:      core.EventGateAwaitingHuman,
+		IssueID:   step.IssueID,
+		StepID:    step.ID,
+		Timestamp: time.Now().UTC(),
+		Data:      metadata,
+	})
+	_ = e.transitionStep(ctx, step, core.StepBlocked)
+	return true
+}
+
 func (e *IssueEngine) defaultGateResetTargets(ctx context.Context, step *core.Step, metadata map[string]any) (resetTo []int64, reason string) {
 	// By default only reset the closest upstream position.
 	// Full upstream closure is opt-in via reset_upstream_closure.
@@ -481,7 +596,7 @@ func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) 
 	}
 	originURL = strings.TrimSpace(originURL)
 
-	token := e.ghTokens.EffectiveMergePAT()
+	token := e.scmTokens.EffectivePAT()
 	if strings.TrimSpace(token) == "" {
 		return fmt.Errorf("missing merge PAT")
 	}
@@ -558,6 +673,61 @@ func (e *IssueEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int
 		}
 	}
 	return 0, fmt.Errorf("pr_number not found for merge")
+}
+
+// processGateSignal handles a gate verdict delivered via StepSignal (MCP tool or human HTTP API).
+func (e *IssueEngine) processGateSignal(ctx context.Context, step *core.Step, signal *core.StepSignal) error {
+	if signal.Type == core.SignalApprove {
+		if err := e.mergePRIfConfigured(ctx, step); err != nil {
+			// Merge conflicts (dirty) — block for human resolution.
+			if e.handleMergeConflictBlock(ctx, step, err) {
+				return nil
+			}
+			// Other merge failures — rework cycle.
+			resetTo, _ := e.defaultGateResetTargets(ctx, step, signal.Payload)
+			reason, metadata := e.formatMergeFailureFeedback(step, err)
+			rejectErr := e.ProcessGate(ctx, step, GateResult{
+				Passed:   false,
+				Reason:   reason,
+				ResetTo:  resetTo,
+				Metadata: metadata,
+			})
+			if rejectErr == core.ErrMaxRetriesExceeded {
+				_ = e.transitionStep(ctx, step, core.StepBlocked)
+				return nil
+			}
+			return rejectErr
+		}
+		reason, _ := signal.Payload["reason"].(string)
+		e.bus.Publish(ctx, core.Event{
+			Type:      core.EventGatePassed,
+			IssueID:   step.IssueID,
+			StepID:    step.ID,
+			Timestamp: time.Now().UTC(),
+			Data:      map[string]any{"reason": reason, "signal_source": string(signal.Source)},
+		})
+		return e.transitionStep(ctx, step, core.StepDone)
+	}
+
+	// SignalReject
+	reason, _ := signal.Payload["reason"].(string)
+	if strings.TrimSpace(reason) == "" {
+		reason = "gate rejected"
+	}
+	resetTo := e.immediatePredecessorIDs(ctx, step)
+	resetTo = extractResetTargets(signal.Payload, resetTo)
+
+	rejectErr := e.ProcessGate(ctx, step, GateResult{
+		Passed:   false,
+		Reason:   reason,
+		ResetTo:  resetTo,
+		Metadata: signal.Payload,
+	})
+	if rejectErr == core.ErrMaxRetriesExceeded {
+		_ = e.transitionStep(ctx, step, core.StepBlocked)
+		return nil
+	}
+	return rejectErr
 }
 
 func detectChangeRequestProvider(ctx context.Context, originURL string, providers []ChangeRequestProvider) (ChangeRequestProvider, ChangeRequestRepo, bool, error) {

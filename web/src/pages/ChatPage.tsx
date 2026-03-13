@@ -35,13 +35,13 @@ import {
   toEventListItem,
   touchSessionList,
   applyActivityPayload,
-  toRealtimePayload,
   buildRealtimeEvent,
   buildActivityHistory,
   computeEventLevel,
   EVENT_LEVEL_ORDER,
   type EventLevel,
 } from "@/components/chat/chatUtils";
+import { cn } from "@/lib/utils";
 import { ChatSessionSidebar } from "@/components/chat/ChatSessionSidebar";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { DraftSessionSetup } from "@/components/chat/DraftSessionSetup";
@@ -52,6 +52,25 @@ import { ChatScrollTrack } from "@/components/chat/ChatScrollTrack";
 import { Loader2 } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
+
+interface PermissionOption {
+  option_id: string;
+  kind: string;
+  name: string;
+}
+
+interface PermissionRequest {
+  permission_id: string;
+  session_id: string;
+  tool_call: {
+    tool_call_id?: string;
+    kind?: string;
+    title?: string;
+    locations?: { path: string }[];
+    raw_input?: unknown;
+  };
+  options: PermissionOption[];
+}
 
 export function ChatPage() {
   const { t } = useTranslation();
@@ -89,6 +108,7 @@ export function ChatPage() {
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
   const [configOptions, setConfigOptions] = useState<ConfigOption[]>([]);
   const [sessionModes, setSessionModes] = useState<SessionModeState | null>(null);
+  const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
@@ -97,6 +117,7 @@ export function ChatPage() {
   const pendingChunkBuffersRef = useRef<Record<string, string>>({});
   const chunkFlushFrameRef = useRef<number | null>(null);
   const pendingRequestIdRef = useRef<string | null>(null);
+  const activeSessionRef = useRef<string | null>(null);
   const syntheticEventIdRef = useRef(-1);
   const pendingDraftInfoRef = useRef<{
     projectId?: number;
@@ -134,14 +155,10 @@ export function ChatPage() {
       ...current,
       [detail.session_id]: true,
     }));
-    if (detail.available_commands) {
-      setAvailableCommands(detail.available_commands);
-    }
-    if (detail.config_options) {
-      setConfigOptions(detail.config_options);
-    }
-    if (detail.modes) {
-      setSessionModes(detail.modes);
+    if (detail.session_id === activeSessionRef.current) {
+      setAvailableCommands(detail.available_commands ?? []);
+      setConfigOptions(detail.config_options ?? []);
+      setSessionModes(detail.modes ?? null);
     }
   };
 
@@ -209,6 +226,13 @@ export function ChatPage() {
   useEffect(() => {
     void refreshSessions();
   }, []);
+
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+    setAvailableCommands([]);
+    setConfigOptions([]);
+    setSessionModes(null);
+  }, [activeSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -533,6 +557,10 @@ export function ChatPage() {
   }, [chatFeedEntries, feedVisibleCount]);
 
   const hasMoreFeedEntries = feedVisibleCount < chatFeedEntries.length;
+  const visiblePendingPermissions = useMemo(
+    () => pendingPermissions.filter((perm) => perm.session_id === activeSession),
+    [pendingPermissions, activeSession],
+  );
 
   // Event level filter
   const filteredEventItems = useMemo(
@@ -734,7 +762,8 @@ export function ChatPage() {
     const unsubscribeConfigUpdate = wsClient.subscribe<{ session_id?: string; config_options?: ConfigOption[] }>(
       "chat.config_updated",
       (payload) => {
-        if (payload.config_options) {
+        const sessionId = payload.session_id?.trim();
+        if (sessionId && sessionId === activeSessionRef.current && payload.config_options) {
           setConfigOptions(payload.config_options);
         }
       },
@@ -742,8 +771,25 @@ export function ChatPage() {
     const unsubscribeModeUpdate = wsClient.subscribe<{ session_id?: string; modes?: SessionModeState }>(
       "chat.mode_updated",
       (payload) => {
-        if (payload.modes) {
+        const sessionId = payload.session_id?.trim();
+        if (sessionId && sessionId === activeSessionRef.current && payload.modes) {
           setSessionModes(payload.modes);
+        }
+      },
+    );
+    const unsubscribePermissionRequest = wsClient.subscribe<PermissionRequest>(
+      "chat.permission_request",
+      (payload) => {
+        if (payload.permission_id) {
+          setPendingPermissions((prev) => [...prev, payload]);
+        }
+      },
+    );
+    const unsubscribePermissionResolved = wsClient.subscribe<{ permission_id?: string }>(
+      "chat.permission_resolved",
+      (payload) => {
+        if (payload.permission_id) {
+          setPendingPermissions((prev) => prev.filter((p) => p.permission_id !== payload.permission_id));
         }
       },
     );
@@ -759,6 +805,8 @@ export function ChatPage() {
       unsubscribeError();
       unsubscribeConfigUpdate();
       unsubscribeModeUpdate();
+      unsubscribePermissionRequest();
+      unsubscribePermissionResolved();
     };
   }, [wsClient]);
 
@@ -1017,6 +1065,21 @@ export function ChatPage() {
     [activeSession, wsClient],
   );
 
+  const handlePermissionResponse = useCallback(
+    (permissionId: string, optionId: string, cancel: boolean) => {
+      wsClient.send({
+        type: "chat.permission_response",
+        data: {
+          permission_id: permissionId,
+          option_id: optionId,
+          cancel,
+        },
+      });
+      setPendingPermissions((prev) => prev.filter((p) => p.permission_id !== permissionId));
+    },
+    [wsClient],
+  );
+
   const handleInputChange = (val: string) => {
     setMessageInput(val);
     if (val.startsWith("/")) {
@@ -1203,6 +1266,43 @@ export function ChatPage() {
           </div>{/* end scrollable inner */}
           <ChatScrollTrack containerRef={chatContainerRef} />
         </div>{/* end relative wrapper */}
+
+        {visiblePendingPermissions.length > 0 && (
+          <div className="space-y-2 border-t bg-amber-50/50 px-6 py-3">
+            {visiblePendingPermissions.map((perm) => {
+              const title = perm.tool_call.title || perm.tool_call.kind || "Tool Call";
+              const location = perm.tool_call.locations?.[0]?.path;
+              return (
+                <div key={perm.permission_id} className="flex items-center gap-3 rounded-lg border border-amber-200 bg-white px-4 py-2.5 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium text-amber-800">{title}</span>
+                    {location && <span className="ml-2 truncate font-mono text-xs text-muted-foreground">{location}</span>}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {perm.options.map((opt) => {
+                      const isAllow = opt.kind.startsWith("allow");
+                      return (
+                        <button
+                          key={opt.option_id}
+                          type="button"
+                          className={cn(
+                            "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                            isAllow
+                              ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80",
+                          )}
+                          onClick={() => handlePermissionResponse(perm.permission_id, opt.option_id, !isAllow)}
+                        >
+                          {opt.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {!isDraftSessionView && (
           <ChatInputBar

@@ -14,11 +14,9 @@ import (
 // Secrets holds authentication credentials loaded from secrets.toml.
 // Kept separate from config.toml for security isolation.
 type Secrets struct {
-	Tokens    map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
-	GitHub    GitHubSecrets         `toml:"github" yaml:"github"`
-	Codeup    CodeupSecrets         `toml:"codeup" yaml:"codeup"`
-	CommitPAT string                `toml:"commit_pat" yaml:"commit_pat"`
-	MergePAT  string                `toml:"merge_pat"  yaml:"merge_pat"`
+	Tokens map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
+	GitHub GitHubSecrets         `toml:"github" yaml:"github"`
+	Codeup CodeupSecrets         `toml:"codeup" yaml:"codeup"`
 }
 
 // TokenEntry defines a named token with scoped permissions.
@@ -46,6 +44,7 @@ type TokenEntry struct {
 // GitHubSecrets holds GitHub-related credentials.
 type GitHubSecrets struct {
 	Token          string `toml:"token"            yaml:"token"`
+	PAT            string `toml:"pat"              yaml:"pat"`
 	PrivateKeyPath string `toml:"private_key_path" yaml:"private_key_path"`
 	WebhookSecret  string `toml:"webhook_secret"   yaml:"webhook_secret"`
 }
@@ -53,6 +52,7 @@ type GitHubSecrets struct {
 // CodeupSecrets holds Codeup-related credentials for SCM automation.
 type CodeupSecrets struct {
 	Token string `toml:"token" yaml:"token"`
+	PAT   string `toml:"pat"   yaml:"pat"`
 }
 
 // AdminToken returns the token value for the "admin" role entry, or empty if none.

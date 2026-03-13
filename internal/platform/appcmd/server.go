@@ -31,10 +31,14 @@ func RunServer(args []string) error {
 		return err
 	}
 	tokenRegistry := httpx.NewTokenRegistry(secrets.Tokens)
-	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path), nil, cfg, bootstrap.GitHubTokens{
-		CommitPAT: strings.TrimSpace(secrets.CommitPAT),
-		MergePAT:  strings.TrimSpace(secrets.MergePAT),
-	}, nil)
+	signalCfg := &bootstrap.AgentSignalConfig{
+		TokenRegistry: tokenRegistry,
+		ServerAddr:    "http://" + listenAddr,
+	}
+	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path), nil, cfg, bootstrap.SCMTokens{
+		GitHub: strings.TrimSpace(secrets.GitHub.PAT),
+		Codeup: strings.TrimSpace(secrets.Codeup.PAT),
+	}, nil, signalCfg)
 	if cleanup != nil {
 		defer cleanup()
 	}

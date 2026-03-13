@@ -16,7 +16,6 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	acphandler "github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
@@ -51,7 +50,8 @@ type LeadAgentConfig struct {
 }
 
 type LeadAgent struct {
-	cfg LeadAgentConfig
+	cfg    LeadAgentConfig
+	broker *permissionBroker
 
 	mu          sync.Mutex
 	sessions    map[string]*leadSession
@@ -64,6 +64,7 @@ type LeadAgent struct {
 
 type leadSession struct {
 	client    ChatACPClient
+	handler   *leadChatHandler
 	sessionID acpproto.SessionId
 	bridge    *eventbridge.EventBridge
 	events    *suppressibleEventHandler
@@ -158,6 +159,7 @@ func NewLeadAgent(cfg LeadAgentConfig) *LeadAgent {
 
 	return &LeadAgent{
 		cfg:         cfg,
+		broker:      newPermissionBroker(),
 		sessions:    make(map[string]*leadSession),
 		catalog:     catalog,
 		catalogPath: catalogPath,
@@ -387,6 +389,18 @@ func (l *LeadAgent) GetSession(_ context.Context, sessionID string) (*chatapp.Se
 	return detail, nil
 }
 
+// ResolvePermission resolves a pending permission request initiated by the ACP
+// agent.  Called from the WebSocket handler when the user clicks allow/reject.
+func (l *LeadAgent) ResolvePermission(permissionID, optionID string, cancel bool) error {
+	if strings.TrimSpace(permissionID) == "" {
+		return errors.New("permission_id is required")
+	}
+	if !l.broker.Resolve(permissionID, optionID, cancel) {
+		return errors.New("permission request not found or already resolved")
+	}
+	return nil
+}
+
 func (l *LeadAgent) CancelChat(sessionID string) error {
 	id := strings.TrimSpace(sessionID)
 	if id == "" {
@@ -580,7 +594,7 @@ func (l *LeadAgent) getOrCreateSession(ctx context.Context, req chatapp.Request,
 func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID int64, projectName, profileID, driverID string) (*leadSession, string, error) {
 	scope := fmt.Sprintf("lead-chat-%d", time.Now().UnixNano())
 
-	client, bridge, events, profile, driver, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
+	client, handler, bridge, events, profile, driver, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -603,8 +617,10 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 		return nil, "", errors.New("create lead session returned empty session id")
 	}
 
+	handler.SetSessionID(publicID)
 	sess := &leadSession{
 		client:    client,
+		handler:   handler,
 		sessionID: sessionResult.SessionID,
 		bridge:    bridge,
 		events:    events,
@@ -672,7 +688,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		}
 	}
 
-	client, bridge, events, _, _, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
+	client, handler, bridge, events, _, _, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
 	if err != nil {
 		return nil, err
 	}
@@ -699,8 +715,10 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		loadedID = acpproto.SessionId(record.SessionID)
 	}
 
+	handler.SetSessionID(record.SessionID)
 	sess := &leadSession{
 		client:    client,
+		handler:   handler,
 		sessionID: loadedID,
 		bridge:    bridge,
 		events:    events,
@@ -734,9 +752,9 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	return sess, nil
 }
 
-func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, *core.AgentDriver, error) {
+func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, *core.AgentDriver, error) {
 	if l.cfg.Registry == nil {
-		return nil, nil, nil, nil, nil, errors.New("agent registry is not configured")
+		return nil, nil, nil, nil, nil, nil, errors.New("agent registry is not configured")
 	}
 
 	profileID := strings.TrimSpace(requestedProfileID)
@@ -745,13 +763,13 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	}
 	profile, driver, err := l.cfg.Registry.ResolveByID(ctx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
 	}
 	driverID := strings.TrimSpace(requestedDriverID)
 	if driverID != "" && !strings.EqualFold(driver.ID, driverID) {
 		overrideDriver, driverErr := l.cfg.Registry.GetDriver(ctx, driverID)
 		if driverErr != nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: %w", driverID, driverErr)
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: %w", driverID, driverErr)
 		}
 		clonedProfile := *profile
 		clonedProfile.DriverID = overrideDriver.ID
@@ -782,14 +800,14 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		Scope:   scope,
 	})
 	if sbErr != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", sbErr)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", sbErr)
 	}
 	launchCfg = sandboxedLaunch
 
-	handler := acphandler.NewACPHandler(workDir, publicSessionID, nil)
+	handler := newLeadChatHandler(workDir, l.cfg.Bus, l.broker)
 	client, err := l.cfg.NewClient(launchCfg, handler, acpclient.WithEventHandler(events))
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
 	}
 
 	caps := profile.EffectiveCapabilities()
@@ -804,10 +822,10 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 
 	if err := client.Initialize(initCtx, initCaps); err != nil {
 		_ = client.Close(context.Background())
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
 	}
 
-	return client, bridge, events, profile, driver, nil
+	return client, handler, bridge, events, profile, driver, nil
 }
 
 func (l *LeadAgent) removeSession(sessionID string) {

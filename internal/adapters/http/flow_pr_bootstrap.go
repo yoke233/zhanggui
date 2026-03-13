@@ -210,6 +210,7 @@ func (h *Handler) bootstrapPRIssueForIssue(ctx context.Context, issueID int64, r
 			"merge_on_pass":          true,
 			"merge_method":           bindingInfo.MergeMethod,
 			"reset_upstream_closure": true,
+			"max_rework_rounds":     float64(3),
 			"objective":              gateObjective,
 		},
 	}

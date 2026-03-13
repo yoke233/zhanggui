@@ -4,7 +4,6 @@ param(
   [string]$Owner = "yoke233",
   [string]$Repo = "test-workflow",
   [string]$BaseBranch = "main",
-  [switch]$UseMergePatOnly
 )
 
 Set-StrictMode -Version Latest
@@ -115,17 +114,16 @@ if (-not (Test-Path -LiteralPath $SecretsPath)) {
   throw "secrets.toml not found: $SecretsPath"
 }
 
-$commitPat = Read-SecretFromToml -Path $SecretsPath -Key "commit_pat"
-$mergePat = Read-SecretFromToml -Path $SecretsPath -Key "merge_pat"
-
-$gitPat = $commitPat
-$prPat = $commitPat
-$mergeToken = $mergePat
-if ($UseMergePatOnly) {
-  $gitPat = $mergePat
-  $prPat = $mergePat
-  $mergeToken = $mergePat
+# Read PAT from [github] section: pat = "..."
+$raw = Get-Content -Raw -LiteralPath $SecretsPath
+$patMatch = [regex]::Match($raw, '(?ms)\[github\].*?pat\s*=\s*"([^"]+)"')
+if (-not $patMatch.Success) {
+  throw "secrets.toml missing [github] pat field"
 }
+$pat = $patMatch.Groups[1].Value
+$gitPat = $pat
+$prPat = $pat
+$mergeToken = $pat
 
 $remoteUrl = "https://github.com/$Owner/$Repo.git"
 $apiBase = "https://api.github.com/repos/$Owner/$Repo"
@@ -166,10 +164,10 @@ Write-Host "Creating change branch $branch"
 & git -C $repoRoot add README.md | Out-Null
 & git -C $repoRoot -c user.name="ai-flow" -c user.email="ai-flow@local" commit -m "test: pat smoke $ts" | Out-Null
 
-Write-Host "Pushing branch via commit_pat"
+Write-Host "Pushing branch via github.pat"
 Invoke-GitWithPat -Token $gitPat -Args @("push", "-u", "origin", $branch) -WorkDir $repoRoot
 
-Write-Host "Creating PR via commit_pat"
+Write-Host "Creating PR via github.pat"
 $pr = Invoke-GHApi -Token $prPat -Method "POST" -Url "$apiBase/pulls" -Body @{
   title = "PAT smoke $ts"
   head  = $branch
@@ -181,7 +179,7 @@ $prNumber = [int]$pr.number
 if ($prNumber -le 0) { throw "Failed to read PR number from API response." }
 Write-Host "PR #$prNumber created: $($pr.html_url)"
 
-Write-Host "Merging PR via merge_pat"
+Write-Host "Merging PR via github.pat"
 $merge = Invoke-GHApi -Token $mergeToken -Method "PUT" -Url "$apiBase/pulls/$prNumber/merge" -Body @{
   merge_method   = "squash"
   commit_title   = "merge: PAT smoke $ts"

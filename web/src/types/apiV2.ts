@@ -895,6 +895,19 @@ export interface FeatureManifestSnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Issue Attachments
+// ---------------------------------------------------------------------------
+
+export interface IssueAttachment {
+  id: number;
+  issue_id: number;
+  file_name: string;
+  mime_type: string;
+  size: number;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 
@@ -933,6 +946,7 @@ export interface CreateNotificationRequest {
 export interface UnreadCountResponse {
   count: number;
 }
+
 
 // ---------------------------------------------------------------------------
 // Terminology aliases (external names → internal types)

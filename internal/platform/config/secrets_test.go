@@ -7,11 +7,10 @@ import (
 	"testing"
 )
 
-func TestLoadSecrets_StrictRejectsLegacyNestedPATFields(t *testing.T) {
+func TestLoadSecrets_StrictRejectsLegacyTopLevelPATFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secrets.toml")
 	content := `
-[github]
 commit_pat = "legacy-token"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -20,19 +19,22 @@ commit_pat = "legacy-token"
 
 	_, err := LoadSecrets(path)
 	if err == nil {
-		t.Fatal("expected legacy nested PAT fields to be rejected")
+		t.Fatal("expected legacy top-level PAT fields to be rejected by strict parsing")
 	}
 	if !strings.Contains(err.Error(), "strict mode") {
 		t.Fatalf("expected strict-mode decode error, got %v", err)
 	}
 }
 
-func TestLoadSecrets_TopLevelPATFieldsStillLoad(t *testing.T) {
+func TestLoadSecrets_NestedPATFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secrets.toml")
 	content := `
-commit_pat = "commit-token"
-merge_pat = "merge-token"
+[github]
+pat = "gh-pat-token"
+
+[codeup]
+pat = "codeup-pat-token"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write secrets: %v", err)
@@ -42,10 +44,10 @@ merge_pat = "merge-token"
 	if err != nil {
 		t.Fatalf("LoadSecrets error: %v", err)
 	}
-	if got := secrets.CommitPAT; got != "commit-token" {
-		t.Fatalf("CommitPAT = %q, want commit-token", got)
+	if got := secrets.GitHub.PAT; got != "gh-pat-token" {
+		t.Fatalf("GitHub.PAT = %q, want gh-pat-token", got)
 	}
-	if got := secrets.MergePAT; got != "merge-token" {
-		t.Fatalf("MergePAT = %q, want merge-token", got)
+	if got := secrets.Codeup.PAT; got != "codeup-pat-token" {
+		t.Fatalf("Codeup.PAT = %q, want codeup-pat-token", got)
 	}
 }

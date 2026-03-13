@@ -33,6 +33,8 @@ func runWithArgs(args []string) error {
 		return appcmd.RunExecutor(args[1:])
 	case "quality-gate":
 		return appcmd.RunQualityGate(args[1:])
+	case "mcp-serve":
+		return appcmd.RunMCPServe(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
@@ -46,5 +48,6 @@ Usage:
   ai-flow version
   ai-flow server [--port <port>]
   ai-flow executor --nats-url <url> [--agents claude,codex] [--max-concurrent 2]
-  ai-flow quality-gate [--backend-only|--frontend-only|--skip-backend|--skip-frontend]`)
+  ai-flow quality-gate [--backend-only|--frontend-only|--skip-backend|--skip-frontend]
+  ai-flow mcp-serve    (stdio MCP server, reads config from env vars)`)
 }

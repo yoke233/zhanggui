@@ -29,14 +29,14 @@ type flowStack struct {
 	schedulerStop context.CancelFunc
 }
 
-func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
+func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens SCMTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
 	sb := buildSandbox(bootstrapCfg, base.runtimeManager, base.dataDir)
 	acpPool := agentruntime.NewACPSessionPool(base.store, base.bus)
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
-	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, ghTokens, upgradeFn)
-	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, ghTokens, llmClient)
+	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, scmTokens, upgradeFn, base.signalCfg)
+	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
 	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, flowapp.FlowSchedulerConfig{MaxConcurrentFlows: 2})
 	go scheduler.Start(schedulerCtx)
@@ -80,8 +80,9 @@ func buildStepExecutor(
 	sessionMgr runtimeapp.SessionManager,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
-	ghTokens GitHubTokens,
+	scmTokens SCMTokens,
 	upgradeFn executoradapter.UpgradeFunc,
+	signalCfg *AgentSignalConfig,
 ) flowapp.StepExecutor {
 	mockEnabled := bootstrapCfg != nil && bootstrapCfg.Runtime.MockExecutor
 	if !mockEnabled {
@@ -98,7 +99,7 @@ func buildStepExecutor(
 		slog.Warn("bootstrap: using mock step executor (no ACP processes will be spawned)")
 		executor = executoradapter.NewMockStepExecutor(store, bus)
 	} else {
-		executor = executoradapter.NewACPStepExecutor(executoradapter.ACPExecutorConfig{
+		acpCfg := executoradapter.ACPExecutorConfig{
 			Registry:                 registry,
 			Store:                    store,
 			Bus:                      bus,
@@ -106,15 +107,20 @@ func buildStepExecutor(
 			MCPResolver:              mcpResolver,
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
-		})
+		}
+		if signalCfg != nil {
+			acpCfg.TokenRegistry = signalCfg.TokenRegistry
+			acpCfg.ServerAddr = signalCfg.ServerAddr
+		}
+		executor = executoradapter.NewACPStepExecutor(acpCfg)
 	}
 
 	return executoradapter.NewCompositeStepExecutor(executoradapter.CompositeStepExecutorConfig{
 		Store: store,
 		Bus:   bus,
-		GitHubTokens: flowapp.GitHubTokens{
-			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
-			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
+		SCMTokens: flowapp.SCMTokens{
+			GitHub: strings.TrimSpace(scmTokens.GitHub),
+			Codeup: strings.TrimSpace(scmTokens.Codeup),
 		},
 		UpgradeFunc: upgradeFn,
 		ACPExecutor: executor,
@@ -127,14 +133,14 @@ func buildFlowEngine(
 	executor flowapp.StepExecutor,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
-	ghTokens GitHubTokens,
+	scmTokens SCMTokens,
 	llmClient *llm.Client,
 ) *flowapp.FlowEngine {
 	opts := []flowapp.Option{
 		flowapp.WithWorkspaceProvider(workspaceprovider.NewCompositeProvider()),
-		flowapp.WithGitHubTokens(flowapp.GitHubTokens{
-			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
-			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
+		flowapp.WithSCMTokens(flowapp.SCMTokens{
+			GitHub: strings.TrimSpace(scmTokens.GitHub),
+			Codeup: strings.TrimSpace(scmTokens.Codeup),
 		}),
 		flowapp.WithPRFlowPromptsProvider(func() flowapp.PRFlowPrompts {
 			return currentPRFlowPrompts(runtimeManager, bootstrapCfg)

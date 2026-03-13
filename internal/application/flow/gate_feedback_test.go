@@ -7,53 +7,24 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestRecordGateRework_AppendsHistoryAndLastFeedback(t *testing.T) {
-	step := &core.Step{
-		ID:         10,
-		Name:       "implement",
-		RetryCount: 0,
-		Config:     map[string]any{},
-	}
-	recordGateRework(step, 99, "tests failing", map[string]any{"pr_number": 12, "pr_url": "https://example/pr/12"})
-
-	if step.Config["last_gate_feedback"] == nil {
-		t.Fatalf("expected last_gate_feedback to be set")
-	}
-	if _, ok := step.Config["rework_history"]; !ok {
-		t.Fatalf("expected rework_history to be set")
-	}
-	arr, ok := step.Config["rework_history"].([]any)
-	if !ok || len(arr) != 1 {
-		t.Fatalf("expected rework_history length 1, got %T len=%d", step.Config["rework_history"], len(arr))
-	}
-	last, ok := step.Config["last_gate_feedback"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected last_gate_feedback to be map, got %T", step.Config["last_gate_feedback"])
-	}
-	if got, _ := last["reason"].(string); strings.TrimSpace(got) != "tests failing" {
-		t.Fatalf("reason=%q, want %q", got, "tests failing")
-	}
-}
-
 func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
-	step := &core.Step{
-		Name:   "implement",
-		Type:   core.StepExec,
-		Config: map[string]any{},
-	}
-	recordGateRework(step, 1, "please add unit tests", map[string]any(nil))
-
 	profile := &core.AgentProfile{
 		ID: "worker",
 		Session: core.ProfileSession{
 			Reuse: true,
 		},
 	}
+	step := &core.Step{
+		Name: "implement",
+		Type: core.StepExec,
+	}
 
 	reworkTmpl := "REWORK {{.StepName}}: {{.Feedback}}"
 	continueTmpl := "CONTINUE {{.StepName}}"
 
-	out := BuildExecutionInputForStep(profile, "ignored", step, true, reworkTmpl, continueTmpl)
+	// With feedback (pre-resolved), should use rework template.
+	feedback := "please add unit tests"
+	out := BuildExecutionInputForStep(profile, "ignored", step, true, feedback, reworkTmpl, continueTmpl)
 	if !strings.Contains(out, "REWORK implement") {
 		t.Fatalf("expected rework followup template, got: %q", out)
 	}
@@ -61,10 +32,8 @@ func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testin
 		t.Fatalf("expected feedback to appear in followup, got: %q", out)
 	}
 
-	// If no feedback, should use continue template (and not re-send base snapshot).
-	step.Config["last_gate_feedback"] = nil
-	step.Config["rework_history"] = []any{}
-	out2 := BuildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, reworkTmpl, continueTmpl)
+	// Without feedback, should use continue template (no base snapshot re-send).
+	out2 := BuildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, "", reworkTmpl, continueTmpl)
 	if strings.Contains(out2, "BASE-SNAPSHOT") {
 		t.Fatalf("expected not to include base snapshot when reusing session, got: %q", out2)
 	}
@@ -82,7 +51,7 @@ func TestBuildExecutionInputForStep_GateAlwaysFullPrompt(t *testing.T) {
 		},
 	}
 	profile := &core.AgentProfile{Session: core.ProfileSession{Reuse: true}}
-	out := BuildExecutionInputForStep(profile, "SNAP", step, true, "REWORK", "CONTINUE")
+	out := BuildExecutionInputForStep(profile, "SNAP", step, true, "some-feedback", "REWORK", "CONTINUE")
 	if !strings.Contains(out, "SNAP") {
 		t.Fatalf("expected full execution input to include snapshot, got: %q", out)
 	}

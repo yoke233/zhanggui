@@ -52,6 +52,9 @@ func buildAPIStack(
 	apiOpts := buildAPIOptions(bootstrapCfg, base.runtimeManager, leadAgent, flow.scheduler, base.registry, dagGen)
 	apiOpts = append(apiOpts, api.WithExecutionProbeService(probeSvc))
 	apiOpts = append(apiOpts, api.WithThreadAgentRuntime(threadPool))
+	if base.dataDir != "" {
+		apiOpts = append(apiOpts, api.WithDataDir(base.dataDir))
+	}
 	if flow.llmClient != nil {
 		apiOpts = append(apiOpts, api.WithTextCompleter(flow.llmClient))
 	}

@@ -109,6 +109,8 @@ type Store interface {
 	DAGTemplateStore
 	UsageStore
 	FeatureManifestStore
+	StepSignalStore
+	IssueAttachmentStore
 	NotificationStore
 	Close() error
 }

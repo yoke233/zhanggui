@@ -25,6 +25,8 @@ type Store interface {
 	core.DAGTemplateStore
 	core.UsageStore
 	core.FeatureManifestStore
+	core.StepSignalStore
+	core.IssueAttachmentStore
 	core.NotificationStore
 	Close() error
 }
@@ -43,6 +45,7 @@ type LeadChatService interface {
 	GetSession(ctx context.Context, sessionID string) (*chatapp.SessionDetail, error)
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) ([]chatapp.ConfigOption, error)
 	SetSessionMode(ctx context.Context, sessionID, modeID string) (*chatapp.SessionModeState, error)
+	ResolvePermission(permissionID, optionID string, cancel bool) error
 	CancelChat(sessionID string) error
 	CloseSession(sessionID string)
 	DeleteSession(sessionID string)

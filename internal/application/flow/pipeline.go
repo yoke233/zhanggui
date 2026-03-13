@@ -231,7 +231,7 @@ func (e *IssueEngine) handleFailure(ctx context.Context, step *core.Step, exec *
 	return fmt.Errorf("step %d failed: %w", step.ID, execErr)
 }
 
-// handleSuccess processes a successful execution: collect metadata, then gate finalize or step done.
+// handleSuccess processes a successful execution: check signals, collect metadata, then gate finalize or step done.
 func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *core.Execution) error {
 	exec.Status = core.ExecSucceeded
 	_ = e.store.UpdateExecution(ctx, exec)
@@ -244,16 +244,36 @@ func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *
 		Timestamp: time.Now().UTC(),
 	})
 
-	// Collect: extract structured metadata from agent output.
-	if err := e.collectMetadata(ctx, step); err != nil {
-		// Collection failure is non-fatal — log via event but don't fail the step.
+	// 1. Check if agent declared need_help via MCP tool.
+	helpSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalNeedHelp, core.SignalBlocked)
+	if helpSignal != nil && helpSignal.ExecID == exec.ID {
+		_ = e.transitionStep(ctx, step, core.StepBlocked)
 		e.bus.Publish(ctx, core.Event{
-			Type:      core.EventExecFailed,
+			Type:      core.EventStepNeedHelp,
 			IssueID:   step.IssueID,
 			StepID:    step.ID,
+			ExecID:    exec.ID,
 			Timestamp: time.Now().UTC(),
-			Data:      map[string]any{"collect_error": err.Error()},
+			Data:      helpSignal.Payload,
 		})
+		return nil // non-fatal; other steps can continue
+	}
+
+	// 2. Check if agent provided structured completion signal → skip Collector.
+	completeSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalComplete)
+	if completeSignal != nil && completeSignal.ExecID == exec.ID {
+		e.applySignalMetadata(ctx, step, exec, completeSignal.Payload)
+	} else {
+		// 3. Fallback: LLM Collector extracts metadata (existing behavior).
+		if err := e.collectMetadata(ctx, step); err != nil {
+			e.bus.Publish(ctx, core.Event{
+				Type:      core.EventExecFailed,
+				IssueID:   step.IssueID,
+				StepID:    step.ID,
+				Timestamp: time.Now().UTC(),
+				Data:      map[string]any{"collect_error": err.Error()},
+			})
+		}
 	}
 
 	switch step.Type {
@@ -262,6 +282,23 @@ func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *
 	default:
 		return e.transitionStep(ctx, step, core.StepDone)
 	}
+}
+
+// applySignalMetadata writes agent-provided metadata directly to the step's artifact,
+// bypassing the LLM Collector.
+func (e *IssueEngine) applySignalMetadata(ctx context.Context, step *core.Step, exec *core.Execution, payload map[string]any) {
+	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
+	if err != nil {
+		return
+	}
+	if art.Metadata == nil {
+		art.Metadata = map[string]any{}
+	}
+	for k, v := range payload {
+		art.Metadata[k] = v
+	}
+	art.Metadata["signal_source"] = "agent"
+	_ = e.store.UpdateArtifact(ctx, art)
 }
 
 // collectMetadata runs the Collector (if set) to extract structured metadata from the step's latest Artifact.

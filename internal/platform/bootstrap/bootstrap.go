@@ -6,26 +6,34 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	executoradapter "github.com/yoke233/ai-workflow/internal/adapters/executor"
+	httpx "github.com/yoke233/ai-workflow/internal/adapters/http/server"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
 
-type GitHubTokens struct {
-	CommitPAT string
-	MergePAT  string
+type SCMTokens struct {
+	GitHub string
+	Codeup string
+}
+
+// AgentSignalConfig holds config for skill-based agent signal injection.
+type AgentSignalConfig struct {
+	TokenRegistry *httpx.TokenRegistry
+	ServerAddr    string // e.g. "http://127.0.0.1:8080"
 }
 
 // Build creates the runtime store, event bus, engine, event persister, and API handler.
 // Returns the store (for lifecycle), the agent registry, runtime manager, cleanup func, and route registrar.
-func Build(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*sqlite.Store, core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
+func Build(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, scmTokens SCMTokens, upgradeFn executoradapter.UpgradeFunc, signalCfg *AgentSignalConfig) (*sqlite.Store, core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
 	base, err := initBootstrapBase(storePath, roleResolver, bootstrapCfg)
 	if err != nil {
 		slog.Error("bootstrap: init failed", "error", err)
 		return nil, nil, nil, nil, nil
 	}
-	flow, err := buildFlowStack(base, bootstrapCfg, ghTokens, upgradeFn)
+	base.signalCfg = signalCfg
+	flow, err := buildFlowStack(base, bootstrapCfg, scmTokens, upgradeFn)
 	if err != nil {
 		slog.Error("bootstrap: flow assembly failed", "error", err)
 		base.persister.Stop()

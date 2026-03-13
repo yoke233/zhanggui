@@ -13,7 +13,7 @@ import (
 
 // runBuiltinSCMOpenPR creates or finds an open change request using the registered SCM providers.
 // It is provider-agnostic (GitHub PR today; GitLab MR later).
-func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.GitHubTokens, step *core.Step, execRec *core.Execution) error {
+func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Step, execRec *core.Execution) error {
 	if store == nil {
 		return fmt.Errorf("builtin scm_open_pr: store is nil")
 	}
@@ -61,9 +61,9 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 	}
 	originURL = strings.TrimSpace(originURL)
 
-	token := tokens.EffectiveCommitPAT()
+	token := tokens.EffectivePAT()
 	if strings.TrimSpace(token) == "" {
-		return fmt.Errorf("builtin scm_open_pr: missing SCM token")
+		return fmt.Errorf("builtin scm_open_pr: missing SCM PAT")
 	}
 
 	providers := scmadapter.NewChangeRequestProviders(token)
@@ -75,12 +75,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 		return fmt.Errorf("builtin scm_open_pr: unsupported origin url: %s", originURL)
 	}
 
-	mergeToken := strings.TrimSpace(tokens.MergePAT)
 	var fallbackProvider flowapp.ChangeRequestProvider
-	if mergeToken != "" && mergeToken != strings.TrimSpace(token) {
-		fallbackProviders := scmadapter.NewChangeRequestProviders(mergeToken)
-		fallbackProvider, _, _, _ = scmadapter.DetectChangeRequestProvider(ctx, originURL, fallbackProviders)
-	}
 
 	extra := map[string]any{}
 	if ws.Metadata != nil {

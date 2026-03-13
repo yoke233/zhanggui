@@ -14,7 +14,7 @@ type CompositeStepExecutorConfig struct {
 	Store core.Store
 	Bus   core.EventBus
 
-	GitHubTokens flowapp.GitHubTokens
+	SCMTokens flowapp.SCMTokens
 
 	// UpgradeFunc is called by the self_upgrade builtin to trigger a restart
 	// with a newly built binary. If nil, self_upgrade is disabled.
@@ -44,9 +44,9 @@ func NewCompositeStepExecutor(cfg CompositeStepExecutorConfig) flowapp.StepExecu
 		case "":
 			// fallthrough to ACP
 		case "git_commit_push":
-			return runBuiltinGitCommitPush(ctx, cfg.Store, cfg.Bus, cfg.GitHubTokens, step, exec)
+			return runBuiltinGitCommitPush(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, step, exec)
 		case "scm_open_pr", "github_open_pr":
-			return runBuiltinSCMOpenPR(ctx, cfg.Store, cfg.Bus, cfg.GitHubTokens, step, exec)
+			return runBuiltinSCMOpenPR(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, step, exec)
 		case "self_upgrade":
 			return runBuiltinSelfUpgrade(ctx, cfg.Store, cfg.Bus, step, exec, cfg.UpgradeFunc)
 		default:

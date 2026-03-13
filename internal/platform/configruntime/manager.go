@@ -338,24 +338,35 @@ func (m *Manager) Close() error {
 func (m *Manager) ResolveMCPServers(profileID string, agentSupportsSSE bool) []acpproto.McpServer {
 	snap := m.Current()
 	if snap == nil {
+		m.logger.Warn("mcp: resolve servers — no snapshot available", "profile", profileID)
 		return nil
 	}
 	bindings := snap.MCPBindingsByProfile[strings.TrimSpace(profileID)]
 	if len(bindings) == 0 {
+		m.logger.Info("mcp: no bindings for profile", "profile", profileID,
+			"all_profiles", mapKeys(snap.MCPBindingsByProfile))
 		return nil
 	}
+
+	m.logger.Info("mcp: resolving servers", "profile", profileID,
+		"bindings_count", len(bindings), "db_path", m.mcpEnv.DBPath)
 
 	var out []acpproto.McpServer
 	for _, binding := range bindings {
 		if !binding.Enabled {
+			m.logger.Info("mcp: binding disabled", "profile", profileID, "server", binding.ServerID)
 			continue
 		}
 		server, ok := snap.MCPServersByID[binding.ServerID]
 		if !ok || !server.Enabled {
+			m.logger.Warn("mcp: server not found or disabled", "server_id", binding.ServerID)
 			continue
 		}
 		if strings.EqualFold(server.Kind, "internal") {
-			out = append(out, buildInternalServer(server, m.mcpEnv, agentSupportsSSE)...)
+			servers := buildInternalServer(server, m.mcpEnv, agentSupportsSSE)
+			m.logger.Info("mcp: built internal server", "profile", profileID,
+				"server_id", binding.ServerID, "result_count", len(servers))
+			out = append(out, servers...)
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(server.Transport)) {
@@ -732,6 +743,9 @@ func buildInternalServer(server MCPServer, env MCPEnvConfig, agentSupportsSSE bo
 	if name == "" {
 		name = strings.TrimSpace(server.ID)
 	}
+	slog.Info("mcp: buildInternalServer", "name", name,
+		"db_path", env.DBPath, "server_addr", env.ServerAddr,
+		"agent_supports_sse", agentSupportsSSE)
 	if addr := strings.TrimSpace(env.ServerAddr); addr != "" && agentSupportsSSE {
 		url := strings.TrimRight(addr, "/") + legacyMCPEndpointPath
 		headers := []acpproto.HttpHeader{}
@@ -770,6 +784,14 @@ func buildInternalServer(server MCPServer, env MCPEnvConfig, agentSupportsSSE bo
 			Env:     stdioEnv,
 		},
 	}}
+}
+
+func mapKeys[K comparable, V any](m map[K][]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

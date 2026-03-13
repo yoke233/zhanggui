@@ -23,6 +23,8 @@ This folder stores reusable one-shot test scripts for current backend/frontend r
 - `p35-terminology-gate.ps1`: enforce P3.5 terminology gate (fail on `review_panel|change_agent|implement_agent`, require role-driven terms).
 - `p3-integration.ps1`: run current smoke baseline sequence.
 - `project-admin-e2e.ps1`: run browser E2E for project admin (`local_path` + `local_new` flows) via Playwright.
+- `issue-e2e-github.ps1`: full Issue E2E smoke against a local GitHub repo (server → project → issue → exec+gate steps → ACP agent → done).
+- `issue-e2e-codeup.ps1`: full Issue E2E smoke against a Codeup repo (auto-clones if needed, same flow as above).
 - `codeup-cr-smoke.ps1`: minimal Codeup API smoke for create CR, with optional merge.
 - `codeup-resource-binding.example.json`: minimal v2 git resource binding example for Codeup.
 
@@ -77,6 +79,43 @@ pwsh -NoProfile -File .\scripts\test\codeup-cr-smoke.ps1 `
   -TargetBranch "main" `
   -AutoMerge `
   -MergeType "no-fast-forward"
+```
+
+### Issue E2E (GitHub)
+
+Starts a server, creates a project with local GitHub repo, creates an issue with exec+gate steps, runs ACP agents, and waits until done.
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\issue-e2e-github.ps1
+```
+
+With custom options:
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\issue-e2e-github.ps1 `
+  -RepoPath "D:\project\test-workflow" `
+  -Port 8083 `
+  -TimeoutSeconds 600
+```
+
+### Issue E2E (Codeup)
+
+Same flow as GitHub but against a Codeup (Alibaba Cloud) repo. Auto-clones the repo if not already present. Reads `[codeup].pat` from secrets.toml.
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1
+```
+
+With custom options:
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1 `
+  -CodeupRepoUrl "https://codeup.aliyun.com/org/repo" `
+  -LocalClonePath "D:\project\codeup-test-workflow" `
+  -OrganizationId "5f6ea0829cffa29cfdd39a7f" `
+  -BaseBranch "master" `
+  -Port 8084 `
+  -TimeoutSeconds 600
 ```
 
 Use the Codeup binding example when creating a v2 git resource binding. `base_branch` is the default target branch for PR bootstrap, and step-level config can still override it.

@@ -24,7 +24,7 @@ type IssueEngine struct {
 	collector  Collector             // optional: metadata extraction
 	expander   CompositeExpander     // optional: composite decomposition
 	wsProvider WorkspaceProvider     // optional: workspace isolation
-	ghTokens   GitHubTokens          // optional: PR automation tokens (commit/merge)
+	scmTokens  SCMTokens             // optional: SCM automation tokens (push/PR/merge)
 	prPrompts  PRFlowPromptsProvider // optional: configurable PR flow prompts
 	crFactory  ChangeRequestProviderFactory
 }
@@ -64,9 +64,9 @@ func WithWorkspaceProvider(p WorkspaceProvider) Option {
 	return func(e *IssueEngine) { e.wsProvider = p }
 }
 
-// WithGitHubTokens sets optional GitHub tokens used by builtin PR automation (push/open PR/merge).
-func WithGitHubTokens(t GitHubTokens) Option {
-	return func(e *IssueEngine) { e.ghTokens = t }
+// WithSCMTokens sets optional GitHub tokens used by builtin PR automation (push/open PR/merge).
+func WithSCMTokens(t SCMTokens) Option {
+	return func(e *IssueEngine) { e.scmTokens = t }
 }
 
 // WithPRFlowPromptsProvider sets a provider for configurable PR flow prompts.

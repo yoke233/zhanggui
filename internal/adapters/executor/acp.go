@@ -9,9 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"os"
+	"path/filepath"
+
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
+	httpx "github.com/yoke233/ai-workflow/internal/adapters/http/server"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -27,6 +31,8 @@ type ACPExecutorConfig struct {
 	SessionManager           runtimeapp.SessionManager
 	ReworkFollowupTemplate   string
 	ContinueFollowupTemplate string
+	TokenRegistry            *httpx.TokenRegistry
+	ServerAddr               string // e.g. "http://127.0.0.1:8080"
 }
 
 // NewACPStepExecutor creates a StepExecutor that uses a SessionManager for ACP agent execution.
@@ -38,7 +44,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			return fmt.Errorf("session manager is not configured")
 		}
 
-		profile, driver, err := cfg.Registry.ResolveForStep(ctx, step)
+		profile, driver, err := resolveStepAgent(ctx, cfg.Registry, step)
 		if err != nil {
 			return fmt.Errorf("resolve agent for step %d: %w", step.ID, err)
 		}
@@ -59,6 +65,29 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			Env:     cloneEnv(driver.Env),
 		}
 
+		// Generate scoped token and write step-signal skill into workspace.
+		var scopedToken string
+		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" && workDir != "" &&
+			(step.Type == core.StepExec || step.Type == core.StepGate) {
+			scope := fmt.Sprintf("step:%d", step.ID)
+			tok, err := cfg.TokenRegistry.GenerateScopedToken(
+				fmt.Sprintf("agent-step-%d", step.ID),
+				[]string{scope},
+				fmt.Sprintf("agent/exec-%d", exec.ID),
+			)
+			if err != nil {
+				slog.Warn("step-signal: failed to generate token", "step_id", step.ID, "error", err)
+			} else {
+				scopedToken = tok
+				if err := writeStepSignalSkill(workDir, driver.ID, cfg.ServerAddr, tok, step, exec.ID); err != nil {
+					slog.Warn("step-signal: failed to write skill", "step_id", step.ID, "error", err)
+				} else {
+					slog.Info("step-signal: skill written to workspace",
+						"step_id", step.ID, "step_type", step.Type, "work_dir", workDir)
+				}
+			}
+		}
+
 		bridge := eventbridge.New(cfg.Bus, core.EventExecAgentOutput, eventbridge.Scope{
 			IssueID: step.IssueID,
 			StepID:  step.ID,
@@ -73,7 +102,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		}
 
 		reuse := profile.Session.Reuse
-		mcpFactory := buildStepMCPFactory(step, profile.ID, cfg.MCPResolver)
+		mcpFactory := buildStepMCPFactory(step, profile.ID, exec.ID, cfg.MCPResolver)
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
 			Profile:    profile,
@@ -93,6 +122,9 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			return fmt.Errorf("acquire session: %w", err)
 		}
 		defer func() {
+			if scopedToken != "" && cfg.TokenRegistry != nil {
+				cfg.TokenRegistry.RemoveToken(scopedToken)
+			}
 			if !reuse {
 				_ = cfg.SessionManager.Release(ctx, handle)
 			}
@@ -102,7 +134,11 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			exec.AgentContextID = handle.AgentContextID
 		}
 
-		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
+		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, step)
+		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
+
+		// Persist the full execution input for auditability.
+		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, scopedToken != "", step)
 
 		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
 		if err != nil {
@@ -197,17 +233,60 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 	}
 }
 
-func buildStepMCPFactory(step *core.Step, profileID string, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
+// resolveStepAgent resolves the agent profile and driver for a step.
+// It first checks step.Config["profile_id"] for an explicit profile assignment,
+// then falls back to ResolveForStep (role + capabilities matching).
+func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Step) (*core.AgentProfile, *core.AgentDriver, error) {
+	if pid, ok := step.Config["profile_id"].(string); ok && pid != "" {
+		p, d, err := registry.ResolveByID(ctx, pid)
+		if err == nil {
+			return p, d, nil
+		}
+		slog.Warn("resolve agent: explicit profile_id not found, falling back",
+			"profile_id", pid, "step_id", step.ID, "error", err)
+	}
+	return registry.ResolveForStep(ctx, step)
+}
+
+func buildStepMCPFactory(step *core.Step, profileID string, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
 	if resolver == nil || step == nil {
 		return nil
 	}
-	// complete_step should only be exposed while executing concrete steps.
+	// MCP tools should only be exposed while executing concrete steps.
 	if step.Type != core.StepExec && step.Type != core.StepGate {
 		return nil
 	}
 	return func(agentSupportsSSE bool) []acpproto.McpServer {
-		return resolver(profileID, agentSupportsSSE)
+		servers := resolver(profileID, agentSupportsSSE)
+		slog.Debug("mcp: resolved servers",
+			"profile", profileID, "step_id", step.ID,
+			"step_type", step.Type, "exec_id", execID,
+			"server_count", len(servers))
+		// Inject step context env vars into internal stdio MCP servers (mcp-serve).
+		stepEnv := []acpproto.EnvVariable{
+			{Name: "AI_WORKFLOW_STEP_ID", Value: fmt.Sprintf("%d", step.ID)},
+			{Name: "AI_WORKFLOW_ISSUE_ID", Value: fmt.Sprintf("%d", step.IssueID)},
+			{Name: "AI_WORKFLOW_STEP_TYPE", Value: string(step.Type)},
+			{Name: "AI_WORKFLOW_EXEC_ID", Value: fmt.Sprintf("%d", execID)},
+		}
+		for i := range servers {
+			if servers[i].Stdio != nil && containsArg(servers[i].Stdio.Args, "mcp-serve") {
+				servers[i].Stdio.Env = append(servers[i].Stdio.Env, stepEnv...)
+				slog.Debug("mcp: injected step env into mcp-serve",
+					"step_id", step.ID, "env_count", len(servers[i].Stdio.Env))
+			}
+		}
+		return servers
 	}
+}
+
+func containsArg(args []string, target string) bool {
+	for _, a := range args {
+		if a == target {
+			return true
+		}
+	}
+	return false
 }
 
 var reGateJSONLine = regexp.MustCompile(`(?m)^AI_WORKFLOW_GATE_JSON:\s*(\{.*\})\s*$`)
@@ -247,4 +326,145 @@ func cloneEnv(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// writeStepSignalSkill writes the step-signal skill into the workspace so ACP agents auto-load it.
+// For codex-acp: .agents/skills/step-signal/SKILL.md
+// For claude-acp: .claude/skills/step-signal/SKILL.md
+func writeStepSignalSkill(workDir, driverID, serverAddr, token string, step *core.Step, execID int64) error {
+	driverLower := strings.ToLower(driverID)
+	var skillDir string
+	switch {
+	case strings.Contains(driverLower, "codex"):
+		skillDir = filepath.Join(workDir, ".agents", "skills", "step-signal")
+	case strings.Contains(driverLower, "claude"):
+		skillDir = filepath.Join(workDir, ".claude", "skills", "step-signal")
+	default:
+		skillDir = filepath.Join(workDir, ".agents", "skills", "step-signal")
+	}
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir skill dir: %w", err)
+	}
+
+	content := buildStepSignalSkillContent(serverAddr, token, step, execID)
+	return os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644)
+}
+
+func buildStepSignalSkillContent(serverAddr, token string, step *core.Step, execID int64) string {
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.WriteString("name: step-signal\n")
+	b.WriteString("description: Signal task completion or gate decisions to the AI Workflow engine\n")
+	b.WriteString("---\n\n")
+	b.WriteString("# Step Signal\n\n")
+	b.WriteString("You are running inside an **ai-workflow** managed step. ")
+	b.WriteString("Use the HTTP API below to signal your result when you finish.\n\n")
+
+	b.WriteString("## Your Context\n\n")
+	b.WriteString(fmt.Sprintf("- **Server**: `%s`\n", serverAddr))
+	b.WriteString(fmt.Sprintf("- **Step ID**: `%d`\n", step.ID))
+	b.WriteString(fmt.Sprintf("- **Issue ID**: `%d`\n", step.IssueID))
+	b.WriteString(fmt.Sprintf("- **Step Type**: `%s`\n", step.Type))
+	b.WriteString(fmt.Sprintf("- **Execution ID**: `%d`\n\n", execID))
+
+	baseURL := fmt.Sprintf("%s/api/steps/%d/decision", serverAddr, step.ID)
+	authHeader := fmt.Sprintf(`-H "Authorization: Bearer %s"`, token)
+
+	switch step.Type {
+	case core.StepExec:
+		b.WriteString("## After Completing Your Task\n\n")
+		b.WriteString("**Signal completion** (do this BEFORE ending your response):\n\n")
+		b.WriteString("```bash\n")
+		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
+		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
+		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
+		b.WriteString("  -d '{\"decision\":\"complete\",\"reason\":\"<one sentence summary of what you did>\"}'\n")
+		b.WriteString("```\n\n")
+		b.WriteString("**If you are stuck and need human help:**\n\n")
+		b.WriteString("```bash\n")
+		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
+		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
+		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
+		b.WriteString("  -d '{\"decision\":\"need_help\",\"reason\":\"<why you are stuck>\"}'\n")
+		b.WriteString("```\n")
+
+	case core.StepGate:
+		b.WriteString("## After Reviewing the Code\n\n")
+		b.WriteString("**Approve** (review passes):\n\n")
+		b.WriteString("```bash\n")
+		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
+		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
+		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
+		b.WriteString("  -d '{\"decision\":\"approve\",\"reason\":\"<why it passes review>\"}'\n")
+		b.WriteString("```\n\n")
+		b.WriteString("**Reject** (needs fixes):\n\n")
+		b.WriteString("```bash\n")
+		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
+		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
+		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
+		b.WriteString("  -d '{\"decision\":\"reject\",\"reason\":\"<what needs fixing>\"}'\n")
+		b.WriteString("```\n")
+	}
+
+	b.WriteString("\n## Rules\n\n")
+	b.WriteString("1. **Always signal before ending your response.** The engine needs your signal to proceed.\n")
+	b.WriteString("2. Only call the decision endpoint **once** per execution.\n")
+	if step.Type == core.StepGate {
+		b.WriteString("3. Also output `AI_WORKFLOW_GATE_JSON: {\"verdict\":\"pass|reject\",\"reason\":\"...\"}` as a fallback.\n")
+	}
+
+	return b.String()
+}
+
+// buildExecutionInputRecord captures the full context sent to the agent for auditability.
+func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, step *core.Step) map[string]any {
+	rec := map[string]any{
+		"prompt":   prompt,
+		"work_dir": workDir,
+	}
+
+	// Agent identity
+	if profile != nil {
+		rec["profile_id"] = profile.ID
+		rec["profile_name"] = profile.Name
+		rec["role"] = profile.Role
+
+		caps := profile.EffectiveCapabilities()
+		rec["capabilities"] = map[string]any{
+			"fs_read":  caps.FSRead,
+			"fs_write": caps.FSWrite,
+			"terminal": caps.Terminal,
+		}
+
+		rec["actions_allowed"] = profile.ActionsAllowed
+		rec["session_reuse"] = profile.Session.Reuse
+		rec["session_max_turns"] = profile.Session.MaxTurns
+
+		if profile.MCP.Enabled {
+			rec["mcp_enabled"] = true
+			rec["mcp_tools"] = profile.MCP.Tools
+		}
+	}
+
+	if driver != nil {
+		rec["driver_id"] = driver.ID
+		rec["launch_command"] = driver.LaunchCommand
+		rec["launch_args"] = driver.LaunchArgs
+	}
+
+	// Skills injected
+	var skills []string
+	if hasSignalSkill {
+		skills = append(skills, "step-signal")
+	}
+	if len(skills) > 0 {
+		rec["skills_injected"] = skills
+	}
+
+	// Step config (objective, profile_id, etc.)
+	if step != nil && len(step.Config) > 0 {
+		rec["step_config"] = step.Config
+	}
+
+	return rec
 }

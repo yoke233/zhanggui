@@ -663,5 +663,134 @@ func TestResourceBindingCRUD(t *testing.T) {
 	}
 }
 
+func TestStepSignalCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create prerequisite issue + step.
+	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "signal-test", Status: core.IssueOpen})
+	stepID, _ := s.CreateStep(ctx, &core.Step{
+		IssueID: issueID, Name: "exec-step", Type: core.StepExec, Status: core.StepRunning, Position: 0,
+	})
+
+	// Create a signal.
+	sig := &core.StepSignal{
+		StepID:  stepID,
+		IssueID: issueID,
+		ExecID:  100,
+		Type:    core.SignalComplete,
+		Source:  core.SignalSourceAgent,
+		Payload: map[string]any{"summary": "did stuff"},
+		Actor:   "agent",
+	}
+	id, err := s.CreateStepSignal(ctx, sig)
+	if err != nil {
+		t.Fatalf("create signal: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("expected non-zero signal ID")
+	}
+
+	// List signals.
+	signals, err := s.ListStepSignals(ctx, stepID)
+	if err != nil {
+		t.Fatalf("list signals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(signals))
+	}
+	if signals[0].Type != core.SignalComplete {
+		t.Fatalf("expected type complete, got %s", signals[0].Type)
+	}
+	if signals[0].Payload["summary"] != "did stuff" {
+		t.Fatalf("payload mismatch: %v", signals[0].Payload)
+	}
+
+	// GetLatestStepSignal — match type.
+	latest, err := s.GetLatestStepSignal(ctx, stepID, core.SignalComplete)
+	if err != nil {
+		t.Fatalf("get latest: %v", err)
+	}
+	if latest == nil || latest.ID != id {
+		t.Fatalf("expected signal %d, got %v", id, latest)
+	}
+
+	// GetLatestStepSignal — no match.
+	none, err := s.GetLatestStepSignal(ctx, stepID, core.SignalApprove)
+	if err != nil {
+		t.Fatalf("get latest approve: %v", err)
+	}
+	if none != nil {
+		t.Fatalf("expected nil, got %v", none)
+	}
+
+	// Create a second signal and verify ordering.
+	sig2 := &core.StepSignal{
+		StepID: stepID, IssueID: issueID, ExecID: 100,
+		Type: core.SignalNeedHelp, Source: core.SignalSourceAgent,
+		Payload: map[string]any{"reason": "stuck"}, Actor: "agent",
+	}
+	s.CreateStepSignal(ctx, sig2)
+
+	latest2, _ := s.GetLatestStepSignal(ctx, stepID, core.SignalComplete, core.SignalNeedHelp)
+	if latest2 == nil || latest2.Type != core.SignalNeedHelp {
+		t.Fatalf("expected need_help as latest, got %v", latest2)
+	}
+}
+
+func TestListPendingHumanSteps(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	issueID, _ := s.CreateIssue(ctx, &core.Issue{Title: "pending-test", Status: core.IssueOpen})
+	// Blocked step — should appear.
+	s.CreateStep(ctx, &core.Step{
+		IssueID: issueID, Name: "blocked", Type: core.StepExec, Status: core.StepBlocked, Position: 0,
+	})
+	// Running step — should NOT appear.
+	s.CreateStep(ctx, &core.Step{
+		IssueID: issueID, Name: "running", Type: core.StepExec, Status: core.StepRunning, Position: 1,
+	})
+	// Done step — should NOT appear.
+	s.CreateStep(ctx, &core.Step{
+		IssueID: issueID, Name: "done", Type: core.StepExec, Status: core.StepDone, Position: 2,
+	})
+
+	pending, err := s.ListPendingHumanSteps(ctx, issueID)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending step, got %d", len(pending))
+	}
+	if pending[0].Name != "blocked" {
+		t.Fatalf("expected blocked step, got %s", pending[0].Name)
+	}
+
+	// Global query.
+	allPending, err := s.ListAllPendingHumanSteps(ctx)
+	if err != nil {
+		t.Fatalf("list all pending: %v", err)
+	}
+	if len(allPending) != 1 {
+		t.Fatalf("expected 1 all-pending step, got %d", len(allPending))
+	}
+}
+
+func TestSignalTypeIsTerminal(t *testing.T) {
+	terminal := []core.SignalType{core.SignalComplete, core.SignalNeedHelp, core.SignalBlocked, core.SignalApprove, core.SignalReject}
+	for _, st := range terminal {
+		if !st.IsTerminal() {
+			t.Errorf("expected %s to be terminal", st)
+		}
+	}
+	nonTerminal := []core.SignalType{core.SignalProgress, core.SignalUnblock, core.SignalOverride}
+	for _, st := range nonTerminal {
+		if st.IsTerminal() {
+			t.Errorf("expected %s to be non-terminal", st)
+		}
+	}
+}
+
 // Verify Store implements core.Store interface.
 var _ core.Store = (*Store)(nil)

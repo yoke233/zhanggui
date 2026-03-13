@@ -573,7 +573,15 @@
     "scmFlowError": "This project has PR/CR flow enabled. Please create the flow directly.",
     "nameRequired": "Please fill in the flow name before generating steps.",
     "nameEmpty": "Flow name cannot be empty.",
-    "autoTitle": "Auto Generate"
+    "autoTitle": "Auto Generate",
+    "attachments": "Attachments",
+    "attachmentsDesc": "Drag and drop or click to upload .md, .txt, or image files",
+    "dropFilesHere": "Drop files here to upload",
+    "browseFiles": "Browse Files",
+    "uploadingFiles": "Uploading...",
+    "unsupportedFileType": "Unsupported file type: {{name}}",
+    "fileTooLarge": "File too large (max 10MB): {{name}}",
+    "nAttachments": "{{count}} attachments"
   },
   "chat": {
     "newSession": "New Session",

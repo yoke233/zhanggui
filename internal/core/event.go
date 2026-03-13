@@ -31,14 +31,22 @@ const (
 	EventExecProbeTimeout     EventType = "exec.probe_timeout"
 	EventExecProbeUnreachable EventType = "exec.probe_unreachable"
 
-	EventGatePassed   EventType = "gate.passed"
-	EventGateRejected EventType = "gate.rejected"
+	EventGatePassed        EventType = "gate.passed"
+	EventGateRejected      EventType = "gate.rejected"
+	EventGateAwaitingHuman      EventType = "gate.awaiting_human"
+	EventGateReworkLimitReached EventType = "gate.rework_limit_reached"
+
+	// Step signal events — agent/human explicit declarations.
+	EventStepNeedHelp  EventType = "step.need_help"
+	EventStepUnblocked EventType = "step.unblocked"
+	EventStepSignal    EventType = "step.signal"
 
 	// Agent output events — discriminated by Data["type"].
 	EventExecAgentOutput EventType = "exec.agent_output"
 
 	// Chat events for LeadAgent direct conversations.
-	EventChatOutput EventType = "chat.output"
+	EventChatOutput            EventType = "chat.output"
+	EventChatPermissionRequest EventType = "chat.permission_request"
 
 	// Thread events for multi-participant discussion.
 	EventThreadMessage     EventType = "thread.message"

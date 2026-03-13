@@ -78,6 +78,7 @@ func (s *Store) UpdateExecution(ctx context.Context, e *core.Execution) error {
 			"agent_context_id":  model.AgentContextID,
 			"briefing_snapshot": model.BriefingSnapshot,
 			"artifact_id":       model.ArtifactID,
+			"input":             model.Input,
 			"output":            model.Output,
 			"error_message":     model.ErrorMessage,
 			"error_kind":        model.ErrorKind,

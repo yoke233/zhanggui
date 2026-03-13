@@ -1,0 +1,896 @@
+{
+  "captured_at": "2026-03-13T02:32:47Z",
+  "agent": "claude-acp",
+  "status": "passed",
+  "launch": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@zed-industries/claude-agent-acp"
+    ],
+    "work_dir": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-real-trace-4171535467",
+    "env_keys": [
+      "CLAUDECODE"
+    ]
+  },
+  "prompt": "Reply with exactly: ACP_REAL_TRACE_OK",
+  "supports_sse_mcp": true,
+  "session_id": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+  "result": {
+    "text": "ACP_REAL_TRACE_OK",
+    "stop_reason": "end_turn"
+  },
+  "trace": [
+    {
+      "sequence": 1,
+      "timestamp": "2026-03-13T02:32:47.5346599Z",
+      "offset_ms": 0,
+      "direction": "send",
+      "json": {
+        "id": "1",
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": true,
+              "writeTextFile": true
+            },
+            "terminal": true
+          },
+          "clientInfo": {
+            "name": "ai-workflow",
+            "title": "AI Workflow",
+            "version": "0.1.0"
+          },
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "timestamp": "2026-03-13T02:32:49.2808327Z",
+      "offset_ms": 1746,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "id": "1",
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "_meta": {
+              "claudeCode": {
+                "promptQueueing": true
+              }
+            },
+            "promptCapabilities": {
+              "image": true,
+              "embeddedContext": true
+            },
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "loadSession": true,
+            "sessionCapabilities": {
+              "fork": {},
+              "list": {},
+              "resume": {}
+            }
+          },
+          "agentInfo": {
+            "name": "@zed-industries/claude-agent-acp",
+            "title": "Claude Agent",
+            "version": "0.21.0"
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "timestamp": "2026-03-13T02:32:49.2808327Z",
+      "offset_ms": 1746,
+      "direction": "send",
+      "json": {
+        "id": "2",
+        "jsonrpc": "2.0",
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\xyad\\AppData\\Local\\Temp\\acp-real-trace-4171535467",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "timestamp": "2026-03-13T02:32:54.1146053Z",
+      "offset_ms": 6579,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "id": "2",
+        "result": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "models": {
+            "availableModels": [
+              {
+                "modelId": "default",
+                "name": "Default (recommended)",
+                "description": "Opus 4.6 · Most capable for complex work"
+              },
+              {
+                "modelId": "sonnet",
+                "name": "Sonnet",
+                "description": "Sonnet 4.6 · Best for everyday tasks"
+              },
+              {
+                "modelId": "haiku",
+                "name": "Haiku",
+                "description": "Haiku 4.5 · Fastest for quick answers"
+              }
+            ],
+            "currentModelId": "default"
+          },
+          "modes": {
+            "currentModeId": "default",
+            "availableModes": [
+              {
+                "id": "default",
+                "name": "Default",
+                "description": "Standard behavior, prompts for dangerous operations"
+              },
+              {
+                "id": "acceptEdits",
+                "name": "Accept Edits",
+                "description": "Auto-accept file edit operations"
+              },
+              {
+                "id": "plan",
+                "name": "Plan Mode",
+                "description": "Planning mode, no actual tool execution"
+              },
+              {
+                "id": "dontAsk",
+                "name": "Don't Ask",
+                "description": "Don't prompt for permissions, deny if not pre-approved"
+              },
+              {
+                "id": "bypassPermissions",
+                "name": "Bypass Permissions",
+                "description": "Bypass all permission checks"
+              }
+            ]
+          },
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "Mode",
+              "description": "Session permission mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Standard behavior, prompts for dangerous operations"
+                },
+                {
+                  "value": "acceptEdits",
+                  "name": "Accept Edits",
+                  "description": "Auto-accept file edit operations"
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan Mode",
+                  "description": "Planning mode, no actual tool execution"
+                },
+                {
+                  "value": "dontAsk",
+                  "name": "Don't Ask",
+                  "description": "Don't prompt for permissions, deny if not pre-approved"
+                },
+                {
+                  "value": "bypassPermissions",
+                  "name": "Bypass Permissions",
+                  "description": "Bypass all permission checks"
+                }
+              ]
+            },
+            {
+              "id": "model",
+              "name": "Model",
+              "description": "AI model to use",
+              "category": "model",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default (recommended)",
+                  "description": "Opus 4.6 · Most capable for complex work"
+                },
+                {
+                  "value": "sonnet",
+                  "name": "Sonnet",
+                  "description": "Sonnet 4.6 · Best for everyday tasks"
+                },
+                {
+                  "value": "haiku",
+                  "name": "Haiku",
+                  "description": "Haiku 4.5 · Fastest for quick answers"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 5,
+      "timestamp": "2026-03-13T02:32:54.11613Z",
+      "offset_ms": 6581,
+      "direction": "send",
+      "json": {
+        "id": "3",
+        "jsonrpc": "2.0",
+        "method": "session/prompt",
+        "params": {
+          "prompt": [
+            {
+              "text": "Reply with exactly: ACP_REAL_TRACE_OK",
+              "type": "text"
+            }
+          ],
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07"
+        }
+      }
+    },
+    {
+      "sequence": 6,
+      "timestamp": "2026-03-13T02:32:54.11613Z",
+      "offset_ms": 6581,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "debug",
+                "description": "Enable debug logging for this session and help diagnose issues (bundled)",
+                "input": {
+                  "hint": "[issue description]"
+                }
+              },
+              {
+                "name": "simplify",
+                "description": "Review changed code for reuse, quality, and efficiency, then fix any issues found. (bundled)",
+                "input": null
+              },
+              {
+                "name": "batch",
+                "description": "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR. (bundled)",
+                "input": {
+                  "hint": "\u003cinstruction\u003e"
+                }
+              },
+              {
+                "name": "loop",
+                "description": "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) (bundled)",
+                "input": {
+                  "hint": "[interval] \u003cprompt\u003e"
+                }
+              },
+              {
+                "name": "claude-api",
+                "description": "Build apps with the Claude API or Anthropic SDK.\nTRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use Claude API, Anthropic SDKs, or Agent SDK.\nDO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks. (bundled)",
+                "input": null
+              },
+              {
+                "name": "agently-task-dev",
+                "description": "Use only when the user explicitly wants to build with the Agently framework (mentions Agently/agently/OpenAICompatible/TriggerFlow/ToolExtension/ChromaCollection, or says “用 Agently 做/用 agently 做”). Deliver runnable code plus regression tests validating schema/ensure_keys and streaming (delta/instant/streaming_parse), with optional tools (Search/Browse/MCP), TriggerFlow orchestration, KB (ChromaDB), and serviceization (SSE/WS/HTTP). Do not use for generic streaming/testing questions that are not about Agently, or for prompt-only writing without tests/structure. (user)",
+                "input": null
+              },
+              {
+                "name": "ai-agent-prd",
+                "description": "Write comprehensive PRDs for AI Agent products—covering agent identity, capability architecture (skills, tools, memory, RAG, workflows), behavior specifications, safety guardrails, and evaluation frameworks. Use when: designing conversational agents, autonomous agents, copilots, multi-agent systems, or any LLM-powered agentic application. Triggers: 'AI agent PRD', 'agent product requirements', 'design AI agent', 'agent capability spec', 'LLM agent requirements', '智能体PRD', '智能体需求文档', '对话机器人PRD', '多智能体系统需求'. Anti-triggers: '传统PRD（非智能体）', '只润色提示词/只写Prompt', '只写用户故事/验收标准但不涉及工具调用、记忆或RAG'. (user)",
+                "input": null
+              },
+              {
+                "name": "baoyu-slide-deck",
+                "description": "Generates professional slide deck images from content. Creates outlines with style instructions, then generates individual slide images. Use when user asks to \"create slides\", \"make a presentation\", \"generate deck\", \"slide deck\", or \"PPT\". (user)",
+                "input": null
+              },
+              {
+                "name": "brainstorming",
+                "description": "Turn vague ideas into a validated design/spec through structured brainstorming. Use before any creative work (new features, UI/components, behavior changes, refactors) and whenever a user asks to brainstorm, define requirements, propose approaches, or write a design doc. (user)",
+                "input": null
+              },
+              {
+                "name": "codeagent",
+                "description": "Execute codeagent-wrapper for multi-backend AI code tasks. Supports Codex, Claude, and Gemini backends with file references (@syntax) and structured output. (user)",
+                "input": null
+              },
+              {
+                "name": "codebase-spec-extractor",
+                "description": "Extract complete, replicable engineering specifications from existing codebases. Produces documentation detailed enough to fully replicate a project without seeing the original source code—even using a different tech stack. Use when: analyzing existing projects, documenting legacy systems, creating technical specs from code, preparing for system migration, or onboarding new teams. Triggers: 'extract spec from code', 'document codebase', 'analyze project architecture', 'create spec from existing system'. (user)",
+                "input": null
+              },
+              {
+                "name": "codex-tmux-echo",
+                "description": "用 tmux 稳定驱动交互式 CLI：启动 session、发送按键、等待输出就绪，并支持 worker 向 controller pane 回传结果（backchannel）。 (user)",
+                "input": null
+              },
+              {
+                "name": "dayapp-mobile-push",
+                "description": "Send a critical mobile push through Day.app (Bark) with one GET request. Use when a task finishes, fails, is blocked, or needs immediate alerting, and you should summarize task name and summary from current task context before sending. (user)",
+                "input": null
+              },
+              {
+                "name": "deep-research",
+                "description": "Comprehensive research assistant that synthesizes information from multiple sources with citations.\nUse when: conducting in-depth research, gathering sources, writing research summaries, analyzing topics\nfrom multiple perspectives, or when user mentions research, investigation, or needs synthesized analysis\nwith citations. (user)",
+                "input": null
+              },
+              {
+                "name": "docx-offline",
+                "description": "DOCX 文档离线读写：提取/分析、OOXML 解包编辑回包、批注与修订（tracked changes/redlining）。适用于合同/制度/论文等需要保留格式与修订痕迹的场景（依赖安装可能需要网络）。 (user)",
+                "input": null
+              },
+              {
+                "name": "headless-web-viewer",
+                "description": "Render and view webpages using a headless browser (Playwright) to fetch JS-rendered HTML, extract visible text, and optionally save full-page screenshots. Use when a user asks to “无头浏览器打开/查看网页”, needs the rendered DOM instead of raw curl HTML, or wants a screenshot of a page. (user)",
+                "input": null
+              },
+              {
+                "name": "loopback",
+                "description": "Loopback 迭代开发循环 - 基于 Ralph Loop 思想实现的 Codex 版本。用于创建自引用的迭代开发循环，让 AI 在多次迭代中逐步改进代码，直到任务完成。Use when: (1) 需要多次迭代改进的任务, (2) 复杂功能需要分步实现, (3) 需要自我修正的代码生成, (4) 迭代优化已有代码. (user)",
+                "input": null
+              },
+              {
+                "name": "novel-writing",
+                "description": "Use when creating, continuing, or managing a long-form novel project with markdown-based memory system. Triggers include \"write novel\", \"novel memory\", \"initialize story project\", \"track foreshadowing\", \"chapter writing\", \"story bible\", \"lint\", \"审核\", \"质检\", \"一致性检查\", \"去AI味\", or any fiction writing workflow involving structured world-building, character tracking, and plot management. (user)",
+                "input": null
+              },
+              {
+                "name": "pdf-offline",
+                "description": "PDF 文档离线读写与表单处理：提取文本/表格、合并拆分、生成 PDF、填写表单。适用于“本地处理/读取/生成 PDF 文件”（依赖安装可能需要网络）。 (user)",
+                "input": null
+              },
+              {
+                "name": "ppt-freestyle",
+                "description": "自由式 HTML 演示文稿生成器——直接写纯 HTML/CSS 幻灯片，无需 JSON 或模板引擎。Claude 根据用户描述的内容和风格自由设计每一页，然后转成 PPTX 文件。适合需要创意自由度高、视觉效果独特的演示文稿。当用户说'自由式PPT'、'freestyle PPT'、'用HTML做PPT'、'直接写HTML幻灯片'、'不要模板做PPT'时触发此技能。 (user)",
+                "input": null
+              },
+              {
+                "name": "ppt-html-design",
+                "description": "使用约束型设计系统生成高质量多页演示文稿（PPT）。默认浅色主题，支持数据表格、图表渲染、KPI卡片、时间线、漏斗图、对比图等丰富视觉组件。Agent只需输出JSON数据定义，模板引擎自动生成HTML，再转换为PPTX。适用于任何需要生成演示文稿的场景：科技报告、商务汇报、行业分析、教育培训、营销方案、产品介绍、数据可视化等。当用户需要\"做PPT\"、\"生成演示文稿\"、\"做个汇报\"、\"presentation\"、\"幻灯片\"、\"slides\"时使用此技能。 (user)",
+                "input": null
+              },
+              {
+                "name": "pptx-offline",
+                "description": "PPTX 文档离线读写：解析/替换/重排/缩略图、OOXML 解包编辑回包，以及 html2pptx（HTML→PPT）工作流。适用于生成与维护演示文稿（依赖安装可能需要网络）。 (user)",
+                "input": null
+              },
+              {
+                "name": "prd-to-engineering-spec",
+                "description": "Transform PRD (Product Requirements Document) into actionable engineering specifications. Creates detailed technical specs that developers can implement step-by-step without ambiguity. Covers data modeling, API design, business logic, security architecture, deployment, and agent system design. Use when: converting product requirements to technical specs, validating PRD completeness, planning technical implementation, creating task breakdowns, or defining test specifications. Triggers: 'PRD to spec', 'convert requirements', 'technical spec from PRD', 'engineering doc from requirements', 'validate PRD'. (user)",
+                "input": null
+              },
+              {
+                "name": "prd-to-uiux-rd-spec",
+                "description": "从产品 PRD 产出“复刻级可落地”的 UI/UX 研发规格文档包（目录同构骨架、公共基座、组件/页面契约、覆盖映射、索引与 worklog）。适用于需要把 PRD 转成前端可复刻实现的规格文档、UI/UX 研发规格、界面契约与验收标准的场景；避免用于只要视觉灵感/纯 UI 赏析或直接写代码实现的请求。 (user)",
+                "input": null
+              },
+              {
+                "name": "prd-writing-guide",
+                "description": "Write complete, unambiguous PRDs that development teams can implement without guesswork. Includes requirement discovery framework, structured documentation methodology, completeness checklists, and common pitfall avoidance. Use when: writing new PRDs, reviewing PRD drafts, validating requirement completeness, preparing for engineering handoff. Triggers: 'write PRD', '写PRD', '产品需求文档', '需求文档', '需求规格', '需求评审', '完善需求', 'create requirements doc', 'product requirements', 'feature spec', 'requirements document'. Anti-triggers: 'technical design doc', 'architecture design', 'implementation plan', 'API design', '架构设计', '技术方案', '实现方案', '接口设计'. (user)",
+                "input": null
+              },
+              {
+                "name": "product-requirements",
+                "description": "Interactive Product Owner skill for requirements gathering, analysis, and PRD generation. Triggers when users request product requirements, feature specification, PRD creation, or need help understanding and documenting project requirements. Uses quality scoring and iterative dialogue to ensure comprehensive requirements before generating professional PRD documents. (user)",
+                "input": null
+              },
+              {
+                "name": "prototype-prompt-generator",
+                "description": "This skill should be used when users need to generate detailed, structured prompts for creating UI/UX prototypes. Trigger when users request help with \"create a prototype prompt\", \"design a mobile app\", \"generate UI specifications\", or need comprehensive design documentation for web/mobile applications. Works with multiple design systems including WeChat Work, iOS Native, Material Design, and Ant Design Mobile. (user)",
+                "input": null
+              },
+              {
+                "name": "repo-compliance-audit",
+                "description": "对任意代码仓库进行合规审计并生成可取证报告（Markdown + JSON findings），覆盖“是否遵循 AGENTS.md/仓库规则/用户指令”“文档索引/规格/工作记录/任务总结”“TDD 与离线回归证据”“可复现性（.env.example 等）”“潜在密钥泄露与仓库卫生”等；并支持在**人类勾选 finding.id** 后执行选择性低风险整改（默认不改业务逻辑）。触发场景：仓库交付前自检、接手陌生仓库、需要合规审计报告、需要把整改条目做成可选择的执行清单。 (user)",
+                "input": null
+              },
+              {
+                "name": "repo-deep-dive-report",
+                "description": "End-to-end source code repository deep dive and review. Use when you need to understand a repo’s architecture, core abstractions, entrypoints and execution flow, extension points, and operational/developer setup; and when you must deliver a structured report (Markdown + standalone HTML) with diagrams (Mermaid), actionable recommendations, and a scored evaluation. (user)",
+                "input": null
+              },
+              {
+                "name": "skill-creator",
+                "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. (user)",
+                "input": null
+              },
+              {
+                "name": "skill-review-audit",
+                "description": "Use when a user asks to review, interpret, or audit an AI agent skill (SKILL.md plus bundled scripts/references/assets) for capabilities, triggering behavior, tool/command usage, safety \u0026 privacy risk, supply-chain provenance, quality gaps, and improvement recommendations; also use when validating a skill before installing or deploying it. (user)",
+                "input": null
+              },
+              {
+                "name": "ui-ux-spec-genome",
+                "description": "A portable, reproducible UI/UX spec standard: scan a frontend repo for UI sources and scaffold a ui-ux-spec documentation bundle (tokens, global styles, components, patterns, pages, a11y). Also supports plan-driven UI-only refactors based on an existing ui-ux-spec. Excludes business logic and domain workflows. (user)",
+                "input": null
+              },
+              {
+                "name": "uiux-react-jsx-packager",
+                "description": "Package an existing React UI/UX demo into a single self-contained .jsx file with default-export root component, zero third-party runtime dependencies (no react-router/lucide/echarts/etc.), in-file styles (style tag or inline style objects), inline SVG icons, embedded or placeholder images, and state-based navigation. Use when asked to “合并为单文件 JSX/单文件打包/one-file React/零外部依赖/内联 CSS/替换图标库/用 state 做路由/把 demo 打包成独立 JSX 文件”. (user)",
+                "input": null
+              },
+              {
+                "name": "xlsx-offline",
+                "description": "Excel 表格离线读写与公式校验：创建/修改 xlsx，保持公式可复算，输出必须零公式错误；附带 LibreOffice 重算与错误扫描脚本（依赖安装可能需要网络）。 (user)",
+                "input": null
+              },
+              {
+                "name": "frontend-design",
+                "description": "(frontend-design) Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.",
+                "input": null
+              },
+              {
+                "name": "compact",
+                "description": "Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]",
+                "input": {
+                  "hint": "\u003coptional custom summarization instructions\u003e"
+                }
+              },
+              {
+                "name": "context",
+                "description": "Show current context usage",
+                "input": null
+              },
+              {
+                "name": "heapdump",
+                "description": "Dump the JS heap to ~/Desktop",
+                "input": null
+              },
+              {
+                "name": "init",
+                "description": "Initialize a new CLAUDE.md file with codebase documentation",
+                "input": null
+              },
+              {
+                "name": "pr-comments",
+                "description": "Get comments from a GitHub pull request",
+                "input": null
+              },
+              {
+                "name": "review",
+                "description": "Review a pull request",
+                "input": null
+              },
+              {
+                "name": "security-review",
+                "description": "Complete a security review of the pending changes on the current branch",
+                "input": null
+              },
+              {
+                "name": "extra-usage",
+                "description": "Configure extra usage to keep working when limits are hit",
+                "input": null
+              },
+              {
+                "name": "insights",
+                "description": "Generate a report analyzing your Claude Code sessions",
+                "input": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "sequence": 7,
+      "timestamp": "2026-03-13T02:32:55.7139761Z",
+      "offset_ms": 8179,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 8,
+      "timestamp": "2026-03-13T02:32:55.7144793Z",
+      "offset_ms": 8179,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "A"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 9,
+      "timestamp": "2026-03-13T02:32:55.9001438Z",
+      "offset_ms": 8365,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "CP_REAL_TRACE_"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 10,
+      "timestamp": "2026-03-13T02:32:55.9048019Z",
+      "offset_ms": 8370,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "OK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 11,
+      "timestamp": "2026-03-13T02:32:55.9317473Z",
+      "offset_ms": 8396,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 21541,
+            "size": 200000,
+            "cost": {
+              "amount": 0.08231075,
+              "currency": "USD"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 12,
+      "timestamp": "2026-03-13T02:32:55.9317473Z",
+      "offset_ms": 8396,
+      "direction": "recv",
+      "json": {
+        "jsonrpc": "2.0",
+        "id": "3",
+        "result": {
+          "stopReason": "end_turn",
+          "usage": {
+            "inputTokens": 3,
+            "outputTokens": 13,
+            "cachedReadTokens": 9154,
+            "cachedWriteTokens": 12383,
+            "totalTokens": 21553
+          }
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "offset_ms": 6592,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "available_commands_update",
+        "raw": {
+          "availableCommands": [
+            {
+              "description": "Enable debug logging for this session and help diagnose issues (bundled)",
+              "input": {
+                "hint": "[issue description]"
+              },
+              "name": "debug"
+            },
+            {
+              "description": "Review changed code for reuse, quality, and efficiency, then fix any issues found. (bundled)",
+              "name": "simplify"
+            },
+            {
+              "description": "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR. (bundled)",
+              "input": {
+                "hint": "\u003cinstruction\u003e"
+              },
+              "name": "batch"
+            },
+            {
+              "description": "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m) (bundled)",
+              "input": {
+                "hint": "[interval] \u003cprompt\u003e"
+              },
+              "name": "loop"
+            },
+            {
+              "description": "Build apps with the Claude API or Anthropic SDK.\nTRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use Claude API, Anthropic SDKs, or Agent SDK.\nDO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks. (bundled)",
+              "name": "claude-api"
+            },
+            {
+              "description": "Use only when the user explicitly wants to build with the Agently framework (mentions Agently/agently/OpenAICompatible/TriggerFlow/ToolExtension/ChromaCollection, or says “用 Agently 做/用 agently 做”). Deliver runnable code plus regression tests validating schema/ensure_keys and streaming (delta/instant/streaming_parse), with optional tools (Search/Browse/MCP), TriggerFlow orchestration, KB (ChromaDB), and serviceization (SSE/WS/HTTP). Do not use for generic streaming/testing questions that are not about Agently, or for prompt-only writing without tests/structure. (user)",
+              "name": "agently-task-dev"
+            },
+            {
+              "description": "Write comprehensive PRDs for AI Agent products—covering agent identity, capability architecture (skills, tools, memory, RAG, workflows), behavior specifications, safety guardrails, and evaluation frameworks. Use when: designing conversational agents, autonomous agents, copilots, multi-agent systems, or any LLM-powered agentic application. Triggers: 'AI agent PRD', 'agent product requirements', 'design AI agent', 'agent capability spec', 'LLM agent requirements', '智能体PRD', '智能体需求文档', '对话机器人PRD', '多智能体系统需求'. Anti-triggers: '传统PRD（非智能体）', '只润色提示词/只写Prompt', '只写用户故事/验收标准但不涉及工具调用、记忆或RAG'. (user)",
+              "name": "ai-agent-prd"
+            },
+            {
+              "description": "Generates professional slide deck images from content. Creates outlines with style instructions, then generates individual slide images. Use when user asks to \"create slides\", \"make a presentation\", \"generate deck\", \"slide deck\", or \"PPT\". (user)",
+              "name": "baoyu-slide-deck"
+            },
+            {
+              "description": "Turn vague ideas into a validated design/spec through structured brainstorming. Use before any creative work (new features, UI/components, behavior changes, refactors) and whenever a user asks to brainstorm, define requirements, propose approaches, or write a design doc. (user)",
+              "name": "brainstorming"
+            },
+            {
+              "description": "Execute codeagent-wrapper for multi-backend AI code tasks. Supports Codex, Claude, and Gemini backends with file references (@syntax) and structured output. (user)",
+              "name": "codeagent"
+            },
+            {
+              "description": "Extract complete, replicable engineering specifications from existing codebases. Produces documentation detailed enough to fully replicate a project without seeing the original source code—even using a different tech stack. Use when: analyzing existing projects, documenting legacy systems, creating technical specs from code, preparing for system migration, or onboarding new teams. Triggers: 'extract spec from code', 'document codebase', 'analyze project architecture', 'create spec from existing system'. (user)",
+              "name": "codebase-spec-extractor"
+            },
+            {
+              "description": "用 tmux 稳定驱动交互式 CLI：启动 session、发送按键、等待输出就绪，并支持 worker 向 controller pane 回传结果（backchannel）。 (user)",
+              "name": "codex-tmux-echo"
+            },
+            {
+              "description": "Send a critical mobile push through Day.app (Bark) with one GET request. Use when a task finishes, fails, is blocked, or needs immediate alerting, and you should summarize task name and summary from current task context before sending. (user)",
+              "name": "dayapp-mobile-push"
+            },
+            {
+              "description": "Comprehensive research assistant that synthesizes information from multiple sources with citations.\nUse when: conducting in-depth research, gathering sources, writing research summaries, analyzing topics\nfrom multiple perspectives, or when user mentions research, investigation, or needs synthesized analysis\nwith citations. (user)",
+              "name": "deep-research"
+            },
+            {
+              "description": "DOCX 文档离线读写：提取/分析、OOXML 解包编辑回包、批注与修订（tracked changes/redlining）。适用于合同/制度/论文等需要保留格式与修订痕迹的场景（依赖安装可能需要网络）。 (user)",
+              "name": "docx-offline"
+            },
+            {
+              "description": "Render and view webpages using a headless browser (Playwright) to fetch JS-rendered HTML, extract visible text, and optionally save full-page screenshots. Use when a user asks to “无头浏览器打开/查看网页”, needs the rendered DOM instead of raw curl HTML, or wants a screenshot of a page. (user)",
+              "name": "headless-web-viewer"
+            },
+            {
+              "description": "Loopback 迭代开发循环 - 基于 Ralph Loop 思想实现的 Codex 版本。用于创建自引用的迭代开发循环，让 AI 在多次迭代中逐步改进代码，直到任务完成。Use when: (1) 需要多次迭代改进的任务, (2) 复杂功能需要分步实现, (3) 需要自我修正的代码生成, (4) 迭代优化已有代码. (user)",
+              "name": "loopback"
+            },
+            {
+              "description": "Use when creating, continuing, or managing a long-form novel project with markdown-based memory system. Triggers include \"write novel\", \"novel memory\", \"initialize story project\", \"track foreshadowing\", \"chapter writing\", \"story bible\", \"lint\", \"审核\", \"质检\", \"一致性检查\", \"去AI味\", or any fiction writing workflow involving structured world-building, character tracking, and plot management. (user)",
+              "name": "novel-writing"
+            },
+            {
+              "description": "PDF 文档离线读写与表单处理：提取文本/表格、合并拆分、生成 PDF、填写表单。适用于“本地处理/读取/生成 PDF 文件”（依赖安装可能需要网络）。 (user)",
+              "name": "pdf-offline"
+            },
+            {
+              "description": "自由式 HTML 演示文稿生成器——直接写纯 HTML/CSS 幻灯片，无需 JSON 或模板引擎。Claude 根据用户描述的内容和风格自由设计每一页，然后转成 PPTX 文件。适合需要创意自由度高、视觉效果独特的演示文稿。当用户说'自由式PPT'、'freestyle PPT'、'用HTML做PPT'、'直接写HTML幻灯片'、'不要模板做PPT'时触发此技能。 (user)",
+              "name": "ppt-freestyle"
+            },
+            {
+              "description": "使用约束型设计系统生成高质量多页演示文稿（PPT）。默认浅色主题，支持数据表格、图表渲染、KPI卡片、时间线、漏斗图、对比图等丰富视觉组件。Agent只需输出JSON数据定义，模板引擎自动生成HTML，再转换为PPTX。适用于任何需要生成演示文稿的场景：科技报告、商务汇报、行业分析、教育培训、营销方案、产品介绍、数据可视化等。当用户需要\"做PPT\"、\"生成演示文稿\"、\"做个汇报\"、\"presentation\"、\"幻灯片\"、\"slides\"时使用此技能。 (user)",
+              "name": "ppt-html-design"
+            },
+            {
+              "description": "PPTX 文档离线读写：解析/替换/重排/缩略图、OOXML 解包编辑回包，以及 html2pptx（HTML→PPT）工作流。适用于生成与维护演示文稿（依赖安装可能需要网络）。 (user)",
+              "name": "pptx-offline"
+            },
+            {
+              "description": "Transform PRD (Product Requirements Document) into actionable engineering specifications. Creates detailed technical specs that developers can implement step-by-step without ambiguity. Covers data modeling, API design, business logic, security architecture, deployment, and agent system design. Use when: converting product requirements to technical specs, validating PRD completeness, planning technical implementation, creating task breakdowns, or defining test specifications. Triggers: 'PRD to spec', 'convert requirements', 'technical spec from PRD', 'engineering doc from requirements', 'validate PRD'. (user)",
+              "name": "prd-to-engineering-spec"
+            },
+            {
+              "description": "从产品 PRD 产出“复刻级可落地”的 UI/UX 研发规格文档包（目录同构骨架、公共基座、组件/页面契约、覆盖映射、索引与 worklog）。适用于需要把 PRD 转成前端可复刻实现的规格文档、UI/UX 研发规格、界面契约与验收标准的场景；避免用于只要视觉灵感/纯 UI 赏析或直接写代码实现的请求。 (user)",
+              "name": "prd-to-uiux-rd-spec"
+            },
+            {
+              "description": "Write complete, unambiguous PRDs that development teams can implement without guesswork. Includes requirement discovery framework, structured documentation methodology, completeness checklists, and common pitfall avoidance. Use when: writing new PRDs, reviewing PRD drafts, validating requirement completeness, preparing for engineering handoff. Triggers: 'write PRD', '写PRD', '产品需求文档', '需求文档', '需求规格', '需求评审', '完善需求', 'create requirements doc', 'product requirements', 'feature spec', 'requirements document'. Anti-triggers: 'technical design doc', 'architecture design', 'implementation plan', 'API design', '架构设计', '技术方案', '实现方案', '接口设计'. (user)",
+              "name": "prd-writing-guide"
+            },
+            {
+              "description": "Interactive Product Owner skill for requirements gathering, analysis, and PRD generation. Triggers when users request product requirements, feature specification, PRD creation, or need help understanding and documenting project requirements. Uses quality scoring and iterative dialogue to ensure comprehensive requirements before generating professional PRD documents. (user)",
+              "name": "product-requirements"
+            },
+            {
+              "description": "This skill should be used when users need to generate detailed, structured prompts for creating UI/UX prototypes. Trigger when users request help with \"create a prototype prompt\", \"design a mobile app\", \"generate UI specifications\", or need comprehensive design documentation for web/mobile applications. Works with multiple design systems including WeChat Work, iOS Native, Material Design, and Ant Design Mobile. (user)",
+              "name": "prototype-prompt-generator"
+            },
+            {
+              "description": "对任意代码仓库进行合规审计并生成可取证报告（Markdown + JSON findings），覆盖“是否遵循 AGENTS.md/仓库规则/用户指令”“文档索引/规格/工作记录/任务总结”“TDD 与离线回归证据”“可复现性（.env.example 等）”“潜在密钥泄露与仓库卫生”等；并支持在**人类勾选 finding.id** 后执行选择性低风险整改（默认不改业务逻辑）。触发场景：仓库交付前自检、接手陌生仓库、需要合规审计报告、需要把整改条目做成可选择的执行清单。 (user)",
+              "name": "repo-compliance-audit"
+            },
+            {
+              "description": "End-to-end source code repository deep dive and review. Use when you need to understand a repo’s architecture, core abstractions, entrypoints and execution flow, extension points, and operational/developer setup; and when you must deliver a structured report (Markdown + standalone HTML) with diagrams (Mermaid), actionable recommendations, and a scored evaluation. (user)",
+              "name": "repo-deep-dive-report"
+            },
+            {
+              "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. (user)",
+              "name": "skill-creator"
+            },
+            {
+              "description": "Use when a user asks to review, interpret, or audit an AI agent skill (SKILL.md plus bundled scripts/references/assets) for capabilities, triggering behavior, tool/command usage, safety \u0026 privacy risk, supply-chain provenance, quality gaps, and improvement recommendations; also use when validating a skill before installing or deploying it. (user)",
+              "name": "skill-review-audit"
+            },
+            {
+              "description": "A portable, reproducible UI/UX spec standard: scan a frontend repo for UI sources and scaffold a ui-ux-spec documentation bundle (tokens, global styles, components, patterns, pages, a11y). Also supports plan-driven UI-only refactors based on an existing ui-ux-spec. Excludes business logic and domain workflows. (user)",
+              "name": "ui-ux-spec-genome"
+            },
+            {
+              "description": "Package an existing React UI/UX demo into a single self-contained .jsx file with default-export root component, zero third-party runtime dependencies (no react-router/lucide/echarts/etc.), in-file styles (style tag or inline style objects), inline SVG icons, embedded or placeholder images, and state-based navigation. Use when asked to “合并为单文件 JSX/单文件打包/one-file React/零外部依赖/内联 CSS/替换图标库/用 state 做路由/把 demo 打包成独立 JSX 文件”. (user)",
+              "name": "uiux-react-jsx-packager"
+            },
+            {
+              "description": "Excel 表格离线读写与公式校验：创建/修改 xlsx，保持公式可复算，输出必须零公式错误；附带 LibreOffice 重算与错误扫描脚本（依赖安装可能需要网络）。 (user)",
+              "name": "xlsx-offline"
+            },
+            {
+              "description": "(frontend-design) Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.",
+              "name": "frontend-design"
+            },
+            {
+              "description": "Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]",
+              "input": {
+                "hint": "\u003coptional custom summarization instructions\u003e"
+              },
+              "name": "compact"
+            },
+            {
+              "description": "Show current context usage",
+              "name": "context"
+            },
+            {
+              "description": "Dump the JS heap to ~/Desktop",
+              "name": "heapdump"
+            },
+            {
+              "description": "Initialize a new CLAUDE.md file with codebase documentation",
+              "name": "init"
+            },
+            {
+              "description": "Get comments from a GitHub pull request",
+              "name": "pr-comments"
+            },
+            {
+              "description": "Review a pull request",
+              "name": "review"
+            },
+            {
+              "description": "Complete a security review of the pending changes on the current branch",
+              "name": "security-review"
+            },
+            {
+              "description": "Configure extra usage to keep working when limits are hit",
+              "name": "extra-usage"
+            },
+            {
+              "description": "Generate a report analyzing your Claude Code sessions",
+              "name": "insights"
+            }
+          ],
+          "sessionUpdate": "available_commands_update"
+        }
+      }
+    },
+    {
+      "offset_ms": 8189,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "agent_message_chunk",
+        "raw": {
+          "content": {
+            "text": "",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    {
+      "offset_ms": 8189,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "agent_message_chunk",
+        "text": "A",
+        "raw": {
+          "content": {
+            "text": "A",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    {
+      "offset_ms": 8375,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "agent_message_chunk",
+        "text": "CP_REAL_TRACE_",
+        "raw": {
+          "content": {
+            "text": "CP_REAL_TRACE_",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    {
+      "offset_ms": 8380,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "agent_message_chunk",
+        "text": "OK",
+        "raw": {
+          "content": {
+            "text": "OK",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    {
+      "offset_ms": 8407,
+      "update": {
+        "sessionId": "57f4e1f6-3a93-4ca5-b291-345ab2356a07",
+        "type": "usage_update",
+        "raw": {
+          "cost": {
+            "amount": 0.08231075,
+            "currency": "USD"
+          },
+          "sessionUpdate": "usage_update",
+          "size": 200000,
+          "used": 21541
+        }
+      }
+    }
+  ]
+}

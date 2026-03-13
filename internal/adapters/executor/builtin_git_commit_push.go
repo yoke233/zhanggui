@@ -14,7 +14,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.GitHubTokens, step *core.Step, execRec *core.Execution) error {
+func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Step, execRec *core.Execution) error {
 	if store == nil {
 		return fmt.Errorf("builtin git_commit_push: store is nil")
 	}
@@ -73,9 +73,9 @@ func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.Eve
 	if repoPath == "" {
 		repoPath = ws.Path
 	}
-	token := tokens.EffectiveCommitPAT()
+	token := tokens.EffectivePAT()
 	if strings.TrimSpace(token) == "" {
-		return fmt.Errorf("builtin git_commit_push: missing commit PAT")
+		return fmt.Errorf("builtin git_commit_push: missing SCM PAT")
 	}
 
 	branch := ""
@@ -102,14 +102,7 @@ func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.Eve
 	}
 
 	if err := pushWithToken(token); err != nil {
-		mergeTok := strings.TrimSpace(tokens.MergePAT)
-		if mergeTok != "" && mergeTok != strings.TrimSpace(token) && isAuthError(err) {
-			if err2 := pushWithToken(mergeTok); err2 != nil {
-				return err2
-			}
-		} else {
-			return err
-		}
+		return err
 	}
 
 	sha, _ := gitOutput(ctx, ws.Path, nil, "rev-parse", "HEAD")

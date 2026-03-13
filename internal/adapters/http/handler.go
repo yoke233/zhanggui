@@ -30,6 +30,7 @@ type Handler struct {
 	gitPAT              string
 	textCompleter       TextCompleter
 	threadPool          ThreadAgentRuntime
+	dataDir             string
 }
 
 // NewHandler creates the workflow API handler.
@@ -110,6 +111,11 @@ func WithThreadAgentRuntime(pool ThreadAgentRuntime) HandlerOption {
 	return func(h *Handler) { h.threadPool = pool }
 }
 
+// WithDataDir sets the data directory for file storage (uploads, etc.).
+func WithDataDir(dir string) HandlerOption {
+	return func(h *Handler) { h.dataDir = dir }
+}
+
 // Register mounts all workflow routes onto the given chi router.
 // Caller is responsible for mounting this under a prefix like /api.
 func (h *Handler) Register(r chi.Router) {
@@ -143,6 +149,13 @@ func (h *Handler) Register(r chi.Router) {
 	r.Post("/issues/{issueID}/run", h.runIssue)
 	r.Post("/issues/{issueID}/cancel", h.cancelIssue)
 
+	// Issue Attachments
+	r.Post("/issues/{issueID}/attachments", h.uploadIssueAttachment)
+	r.Get("/issues/{issueID}/attachments", h.listIssueAttachments)
+	r.Get("/attachments/{attachmentID}", h.getIssueAttachment)
+	r.Get("/attachments/{attachmentID}/download", h.downloadIssueAttachment)
+	r.Delete("/attachments/{attachmentID}", h.deleteIssueAttachment)
+
 	// Steps
 	r.Post("/issues/{issueID}/steps", h.createStep)
 	r.Get("/issues/{issueID}/steps", h.listSteps)
@@ -166,6 +179,12 @@ func (h *Handler) Register(r chi.Router) {
 	r.Put("/templates/{templateID}", h.updateDAGTemplate)
 	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
 	r.Post("/templates/{templateID}/create-issue", h.createIssueFromTemplate)
+
+	// Step signals (human intervention)
+	r.Post("/steps/{stepID}/decision", h.stepDecision)
+	r.Post("/steps/{stepID}/unblock", h.stepUnblock)
+	r.Get("/steps/{stepID}/signals", h.listStepSignals)
+	r.Get("/pending-decisions", h.listPendingDecisions)
 
 	// Executions
 	r.Get("/steps/{stepID}/executions", h.listExecutions)
