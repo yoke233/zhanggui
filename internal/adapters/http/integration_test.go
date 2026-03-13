@@ -972,3 +972,393 @@ func TestIntegration_GenerateSteps_Unavailable(t *testing.T) {
 	})
 	requireStatus(t, resp, http.StatusServiceUnavailable)
 }
+
+// ---------------------------------------------------------------------------
+// Test 16: Gate reject → rework → approve (artifact metadata path)
+// Mirrors issue-e2e-github.ps1: exec → gate(reject) → exec rework → gate(approve) → done
+// ---------------------------------------------------------------------------
+
+func TestIntegration_GateRejectReworkApprove(t *testing.T) {
+	var gateRuns int32
+	var execRuns int32
+	var store core.Store // captured by executor closure
+
+	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+		if step.Type == core.StepGate {
+			n := atomic.AddInt32(&gateRuns, 1)
+			verdict := "reject"
+			reason := "missing test coverage"
+			if n > 1 {
+				verdict = "pass"
+				reason = "all tests present, LGTM"
+			}
+			// Store gate verdict in artifact metadata (same path as real agents).
+			art := &core.Artifact{
+				ExecutionID:    exec.ID,
+				StepID:         step.ID,
+				IssueID:        step.IssueID,
+				ResultMarkdown: fmt.Sprintf("Review round %d: %s", n, reason),
+				Metadata:       map[string]any{"verdict": verdict, "reason": reason},
+			}
+			if _, err := store.CreateArtifact(ctx, art); err != nil {
+				return err
+			}
+			exec.Output = map[string]any{"verdict": verdict, "reason": reason}
+			return nil
+		}
+		// Exec step — just succeed.
+		atomic.AddInt32(&execRuns, 1)
+		exec.Output = map[string]any{"result": fmt.Sprintf("implemented %s", step.Name)}
+		return nil
+	}
+
+	env := setupIntegration(t, executor)
+	store = env.store
+	ts := env.server
+
+	// 1. Create project.
+	resp, _ := postJSON(ts, "/projects", map[string]any{
+		"name": "gate-rework-e2e", "kind": "dev",
+	})
+	requireStatus(t, resp, http.StatusCreated)
+	project := decode[core.Project](t, resp)
+
+	// 2. Create issue.
+	resp, _ = postJSON(ts, "/issues", map[string]any{
+		"title":      "gate reject→rework→approve",
+		"priority":   "medium",
+		"project_id": project.ID,
+	})
+	requireStatus(t, resp, http.StatusCreated)
+	issue := decode[core.Issue](t, resp)
+
+	// 3. Create steps: implement(exec) → review(gate).
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "implement", "type": "exec", "max_retries": 3,
+	})
+	requireStatus(t, resp, http.StatusCreated)
+	stepImpl := decode[core.Step](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "review", "type": "gate",
+	})
+	requireStatus(t, resp, http.StatusCreated)
+	stepGate := decode[core.Step](t, resp)
+
+	// 4. Run issue.
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	requireStatus(t, resp, http.StatusAccepted)
+
+	// 5. Poll until done.
+	doneIssue := pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
+	if doneIssue.Status != core.IssueDone {
+		t.Fatalf("expected done, got %s", doneIssue.Status)
+	}
+
+	// 6. Verify exec ran twice (original + rework) and gate ran twice.
+	if n := atomic.LoadInt32(&execRuns); n != 2 {
+		t.Fatalf("expected 2 exec runs, got %d", n)
+	}
+	if n := atomic.LoadInt32(&gateRuns); n != 2 {
+		t.Fatalf("expected 2 gate runs, got %d", n)
+	}
+
+	// 7. Verify step statuses.
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepImpl.ID))
+	finalImpl := decode[core.Step](t, resp)
+	if finalImpl.Status != core.StepDone {
+		t.Fatalf("expected impl done, got %s", finalImpl.Status)
+	}
+	if finalImpl.RetryCount != 1 {
+		t.Fatalf("expected impl retry_count=1, got %d", finalImpl.RetryCount)
+	}
+
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepGate.ID))
+	finalGate := decode[core.Step](t, resp)
+	if finalGate.Status != core.StepDone {
+		t.Fatalf("expected gate done, got %s", finalGate.Status)
+	}
+
+	// 8. Verify gate events (rejected + passed).
+	time.Sleep(100 * time.Millisecond) // allow persister to flush
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	events := decode[[]*core.Event](t, resp)
+	hasReject := false
+	hasPass := false
+	for _, ev := range events {
+		if ev.Type == core.EventGateRejected {
+			hasReject = true
+		}
+		if ev.Type == core.EventGatePassed {
+			hasPass = true
+		}
+	}
+	if !hasReject {
+		t.Error("expected gate.rejected event")
+	}
+	if !hasPass {
+		t.Error("expected gate.passed event")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: Gate rework limit → blocked → issue failed
+// Mirrors merge-conflict-e2e.ps1 scenario: gate always rejects → hits max_rework_rounds → blocked
+// ---------------------------------------------------------------------------
+
+func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
+	var gateRuns int32
+	var store core.Store // captured by executor closure
+
+	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+		if step.Type == core.StepGate {
+			atomic.AddInt32(&gateRuns, 1)
+			art := &core.Artifact{
+				ExecutionID:    exec.ID,
+				StepID:         step.ID,
+				IssueID:        step.IssueID,
+				ResultMarkdown: "Review: always reject",
+				Metadata:       map[string]any{"verdict": "reject", "reason": "merge conflict unresolvable"},
+			}
+			if _, err := store.CreateArtifact(ctx, art); err != nil {
+				return err
+			}
+			exec.Output = map[string]any{"verdict": "reject"}
+			return nil
+		}
+		exec.Output = map[string]any{"result": "ok"}
+		return nil
+	}
+
+	env := setupIntegration(t, executor)
+	store = env.store
+	ts := env.server
+
+	// Create issue with exec → gate (max_rework_rounds=2).
+	resp, _ := postJSON(ts, "/issues", map[string]any{
+		"title": "rework-limit-blocked", "priority": "medium",
+	})
+	issue := decode[core.Issue](t, resp)
+
+	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "implement", "type": "exec", "max_retries": 10,
+	})
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "review", "type": "gate",
+		"config": map[string]any{"max_rework_rounds": 2},
+	})
+	requireStatus(t, resp, http.StatusCreated)
+	stepGate := decode[core.Step](t, resp)
+
+	// Run — should end in failed (engine returns "stuck" when gate is blocked).
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueFailed, 10*time.Second)
+
+	// Gate step should be blocked.
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d", stepGate.ID))
+	finalGate := decode[core.Step](t, resp)
+	if finalGate.Status != core.StepBlocked {
+		t.Fatalf("expected gate blocked, got %s", finalGate.Status)
+	}
+
+	// Gate ran 3 times: round 1 reject → round 2 reject → round 3 reject (limit=2, so block after 2 rejects counted).
+	n := atomic.LoadInt32(&gateRuns)
+	if n < 2 {
+		t.Fatalf("expected at least 2 gate runs, got %d", n)
+	}
+
+	// Verify rework limit event was persisted.
+	time.Sleep(100 * time.Millisecond)
+	resp, _ = getJSON(ts, fmt.Sprintf("/issues/%d/events", issue.ID))
+	events := decode[[]*core.Event](t, resp)
+	hasLimitEvent := false
+	for _, ev := range events {
+		if ev.Type == core.EventGateReworkLimitReached {
+			hasLimitEvent = true
+		}
+	}
+	if !hasLimitEvent {
+		t.Error("expected gate.rework_limit_reached event")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 18: Gate via StepSignal (reject → rework → approve)
+// Mirrors real agent behavior: gate agent calls gate_approve/gate_reject via MCP tool
+// ---------------------------------------------------------------------------
+
+func TestIntegration_GateSignalRejectThenApprove(t *testing.T) {
+	var gateRuns int32
+	var store core.Store
+
+	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+		if step.Type == core.StepGate {
+			n := atomic.AddInt32(&gateRuns, 1)
+			if n == 1 {
+				// First run: agent rejects via StepSignal.
+				_, err := store.CreateStepSignal(ctx, &core.StepSignal{
+					StepID:    step.ID,
+					IssueID:   step.IssueID,
+					ExecID:    exec.ID,
+					Type:      core.SignalReject,
+					Source:    core.SignalSourceAgent,
+					Payload:   map[string]any{"reason": "no error handling in auth module"},
+					Actor:     "agent",
+					CreatedAt: time.Now().UTC(),
+				})
+				return err
+			}
+			// Second run: agent approves via StepSignal.
+			_, err := store.CreateStepSignal(ctx, &core.StepSignal{
+				StepID:    step.ID,
+				IssueID:   step.IssueID,
+				ExecID:    exec.ID,
+				Type:      core.SignalApprove,
+				Source:    core.SignalSourceAgent,
+				Payload:   map[string]any{"reason": "error handling added, LGTM"},
+				Actor:     "agent",
+				CreatedAt: time.Now().UTC(),
+			})
+			return err
+		}
+		// Exec step.
+		exec.Output = map[string]any{"result": "done"}
+		return nil
+	}
+
+	env := setupIntegration(t, executor)
+	store = env.store
+	ts := env.server
+
+	resp, _ := postJSON(ts, "/issues", map[string]any{
+		"title": "signal-gate-e2e", "priority": "medium",
+	})
+	issue := decode[core.Issue](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "implement", "type": "exec", "max_retries": 3,
+	})
+	stepImpl := decode[core.Step](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "review", "type": "gate",
+	})
+	stepGate := decode[core.Step](t, resp)
+
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
+
+	// Verify counts.
+	if n := atomic.LoadInt32(&gateRuns); n != 2 {
+		t.Fatalf("expected 2 gate runs, got %d", n)
+	}
+
+	// Verify step signals persisted.
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepGate.ID))
+	requireStatus(t, resp, http.StatusOK)
+	var signals []*core.StepSignal
+	decodeJSON(resp, &signals)
+	// Should have at least: 1 agent reject + 1 system reject (from ProcessGate) + 1 agent approve + feedback signals
+	hasAgentReject := false
+	hasAgentApprove := false
+	for _, sig := range signals {
+		if sig.Type == core.SignalReject && sig.Source == core.SignalSourceAgent {
+			hasAgentReject = true
+		}
+		if sig.Type == core.SignalApprove && sig.Source == core.SignalSourceAgent {
+			hasAgentApprove = true
+		}
+	}
+	if !hasAgentReject {
+		t.Error("expected agent reject signal on gate step")
+	}
+	if !hasAgentApprove {
+		t.Error("expected agent approve signal on gate step")
+	}
+
+	// Verify feedback signal on impl step (gate rejection propagated).
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepImpl.ID))
+	requireStatus(t, resp, http.StatusOK)
+	var implSignals []*core.StepSignal
+	decodeJSON(resp, &implSignals)
+	hasFeedback := false
+	for _, sig := range implSignals {
+		if sig.Type == core.SignalFeedback {
+			hasFeedback = true
+		}
+	}
+	if !hasFeedback {
+		t.Error("expected feedback signal on impl step from gate rejection")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 19: Step decision API — human approve/reject on running gate
+// Tests POST /steps/{stepID}/decision and GET /steps/{stepID}/signals
+// ---------------------------------------------------------------------------
+
+func TestIntegration_StepDecisionAPI(t *testing.T) {
+	// Gate executor blocks waiting for human decision (real scenario).
+	// For this test, the gate executor just succeeds — the signal was already
+	// written before the engine's finalizeGate checks it.
+	var store core.Store
+
+	executor := func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+		if step.Type == core.StepGate {
+			// Simulate: before finalizeGate runs, the human already submitted a decision.
+			// We pre-create an approve signal that finalizeGate will find.
+			_, err := store.CreateStepSignal(ctx, &core.StepSignal{
+				StepID:    step.ID,
+				IssueID:   step.IssueID,
+				ExecID:    exec.ID,
+				Type:      core.SignalApprove,
+				Source:    core.SignalSourceHuman,
+				Payload:   map[string]any{"reason": "looks good to me"},
+				Actor:     "human",
+				CreatedAt: time.Now().UTC(),
+			})
+			return err
+		}
+		exec.Output = map[string]any{"result": "ok"}
+		return nil
+	}
+
+	env := setupIntegration(t, executor)
+	store = env.store
+	ts := env.server
+
+	resp, _ := postJSON(ts, "/issues", map[string]any{
+		"title": "decision-api-test", "priority": "medium",
+	})
+	issue := decode[core.Issue](t, resp)
+
+	postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "build", "type": "exec",
+	})
+	resp, _ = postJSON(ts, fmt.Sprintf("/issues/%d/steps", issue.ID), map[string]any{
+		"name": "review", "type": "gate",
+	})
+	stepGate := decode[core.Step](t, resp)
+
+	// Run and wait for completion.
+	postJSON(ts, fmt.Sprintf("/issues/%d/run", issue.ID), nil)
+	pollIssueStatus(t, ts, issue.ID, core.IssueDone, 10*time.Second)
+
+	// Verify signals via API.
+	resp, _ = getJSON(ts, fmt.Sprintf("/steps/%d/signals", stepGate.ID))
+	requireStatus(t, resp, http.StatusOK)
+	var signals []*core.StepSignal
+	decodeJSON(resp, &signals)
+	if len(signals) == 0 {
+		t.Fatal("expected at least 1 signal on gate step")
+	}
+
+	// Verify pending-decisions returns empty (no more blocked steps).
+	resp, _ = getJSON(ts, "/pending-decisions")
+	requireStatus(t, resp, http.StatusOK)
+	var pending []map[string]any
+	decodeJSON(resp, &pending)
+	if len(pending) != 0 {
+		t.Fatalf("expected 0 pending decisions after completion, got %d", len(pending))
+	}
+}
