@@ -17,16 +17,25 @@ import (
 func RunServer(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	fmt.Println("[startup] parsing server args")
 	port, err := parseServerPort(args)
 	if err != nil {
 		return err
 	}
+	fmt.Println("[startup] loading config")
 	cfg, dataDir, secrets, err := LoadConfig()
 	if err != nil {
 		return err
 	}
+	fmt.Printf("[startup] data dir: %s\n", dataDir)
+	closeLog, err := initAppLogger(dataDir, "server")
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	serverPort := resolveServerPort(port, cfg.Server.Port)
 	listenAddr := buildServerAddress(cfg.Server.Host, serverPort)
+	fmt.Println("[startup] resolving frontend assets")
 	frontendFS, err := ResolveFrontendFS()
 	if err != nil {
 		return err
@@ -36,6 +45,7 @@ func RunServer(args []string) error {
 		TokenRegistry: tokenRegistry,
 		ServerAddr:    buildServerBaseURL(cfg.Server.Host, serverPort),
 	}
+	fmt.Println("[startup] building runtime")
 	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path, dataDir), nil, cfg, bootstrap.SCMTokens{
 		GitHub: strings.TrimSpace(secrets.GitHub.PAT),
 		Codeup: strings.TrimSpace(secrets.Codeup.PAT),
@@ -46,6 +56,7 @@ func RunServer(args []string) error {
 	if store == nil || registrar == nil {
 		return fmt.Errorf("bootstrap server failed")
 	}
+	fmt.Println("[startup] creating http server")
 	skipAuth := !cfg.Server.IsAuthRequired()
 	srv := httpx.NewServer(httpx.Config{
 		Addr:           listenAddr,

@@ -13,11 +13,21 @@ import (
 
 	sqlitestore "github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 )
 
 // RunMCPServe starts the MCP server over stdio.
 // It reads step context from environment variables and exposes tools based on step type.
 func RunMCPServe(args []string) error {
+	dataDir, err := appdata.ResolveDataDir()
+	if err == nil {
+		closeLog, logErr := initAppLogger(dataDir, "mcp-serve")
+		if logErr != nil {
+			return logErr
+		}
+		defer closeLog()
+	}
+
 	dbPath := strings.TrimSpace(os.Getenv("AI_WORKFLOW_DB_PATH"))
 	if dbPath == "" {
 		return fmt.Errorf("AI_WORKFLOW_DB_PATH is required")
@@ -139,12 +149,12 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	if signals, sErr := h.store.ListActionSignals(ctx, h.stepID); sErr == nil && len(signals) > 0 {
 		for _, sig := range signals {
 			entry := map[string]any{
-				"id":        sig.ID,
-				"type":      string(sig.Type),
-				"source":    string(sig.Source),
-				"summary":   sig.Summary,
-				"content":   sig.Content,
-				"actor":     sig.Actor,
+				"id":         sig.ID,
+				"type":       string(sig.Type),
+				"source":     string(sig.Source),
+				"summary":    sig.Summary,
+				"content":    sig.Content,
+				"actor":      sig.Actor,
 				"created_at": sig.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			}
 			if sig.SourceActionID != 0 {
@@ -288,11 +298,11 @@ func (h *mcpStepHandler) createSignal(ctx context.Context, sigType core.SignalTy
 		ActionID:   h.stepID,
 		WorkItemID: h.issueID,
 		RunID:      h.execID,
-		Type:      sigType,
-		Source:    core.SignalSourceAgent,
-		Payload:   payload,
-		Actor:     "agent",
-		CreatedAt: time.Now().UTC(),
+		Type:       sigType,
+		Source:     core.SignalSourceAgent,
+		Payload:    payload,
+		Actor:      "agent",
+		CreatedAt:  time.Now().UTC(),
 	}
 	if _, err := h.store.CreateActionSignal(ctx, sig); err != nil {
 		slog.Error("mcp-serve: failed to create signal", "type", sigType, "error", err)

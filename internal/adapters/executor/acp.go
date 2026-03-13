@@ -141,22 +141,22 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		}
 
 		reuse := profile.Session.Reuse
-		mcpFactory := buildStepMCPFactory(step, profile.ID, exec.ID, cfg.MCPResolver)
+		mcpFactory := buildStepMCPFactory(step, profile, exec.ID, cfg.MCPResolver)
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
-			Profile:        profile,
-			Driver:         driver,
-			Launch:         launchCfg,
-			Caps:           acpCaps,
-			WorkDir:        workDir,
-			MCPFactory:     mcpFactory,
-			IssueID:        step.WorkItemID,
-			StepID:         step.ID,
-			ExecID:         exec.ID,
-			Reuse:          reuse,
-			IdleTTL:        profile.Session.IdleTTL,
-			MaxTurns:       profile.Session.MaxTurns,
-			ExtraSkills:    extraSkills,
+			Profile:         profile,
+			Driver:          driver,
+			Launch:          launchCfg,
+			Caps:            acpCaps,
+			WorkDir:         workDir,
+			MCPFactory:      mcpFactory,
+			IssueID:         step.WorkItemID,
+			StepID:          step.ID,
+			ExecID:          exec.ID,
+			Reuse:           reuse,
+			IdleTTL:         profile.Session.IdleTTL,
+			MaxTurns:        profile.Session.MaxTurns,
+			ExtraSkills:     extraSkills,
 			EphemeralSkills: ephemeralSkills,
 		})
 		if err != nil {
@@ -297,8 +297,8 @@ func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *co
 	return registry.ResolveForAction(ctx, step)
 }
 
-func buildStepMCPFactory(step *core.Action, profileID string, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
-	if resolver == nil || step == nil {
+func buildStepMCPFactory(step *core.Action, profile *core.AgentProfile, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
+	if resolver == nil || step == nil || profile == nil || !profile.MCP.Enabled {
 		return nil
 	}
 	// MCP tools should only be exposed while executing concrete steps.
@@ -306,9 +306,9 @@ func buildStepMCPFactory(step *core.Action, profileID string, execID int64, reso
 		return nil
 	}
 	return func(agentSupportsSSE bool) []acpproto.McpServer {
-		servers := resolver(profileID, agentSupportsSSE)
+		servers := resolver(profile.ID, agentSupportsSSE)
 		slog.Debug("mcp: resolved servers",
-			"profile", profileID, "step_id", step.ID,
+			"profile", profile.ID, "step_id", step.ID,
 			"step_type", step.Type, "exec_id", execID,
 			"server_count", len(servers))
 		// Inject step context env vars into internal stdio MCP servers (mcp-serve).
@@ -455,11 +455,11 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 		ActionID:   step.ID,
 		WorkItemID: step.WorkItemID,
 		RunID:      exec.ID,
-		Type:    sigType,
-		Source:  core.SignalSourceAgent,
-		Summary: parsed.Reason,
-		Payload: map[string]any{"reason": parsed.Reason, "source": "output_fallback"},
-		Actor:   fmt.Sprintf("agent/%s", profileID),
+		Type:       sigType,
+		Source:     core.SignalSourceAgent,
+		Summary:    parsed.Reason,
+		Payload:    map[string]any{"reason": parsed.Reason, "source": "output_fallback"},
+		Actor:      fmt.Sprintf("agent/%s", profileID),
 	}
 	sigID, err := store.CreateActionSignal(ctx, sig)
 	if err != nil {
@@ -483,7 +483,6 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 	slog.Info("step-signal: created from output fallback",
 		"step_id", step.ID, "decision", parsed.Decision, "signal_id", sigID)
 }
-
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.
 func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Action) map[string]any {

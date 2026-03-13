@@ -29,6 +29,11 @@ func RunExecutor(args []string) error {
 	if err != nil {
 		return err
 	}
+	closeLog, err := initAppLogger(dataDir, "executor")
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	natsURL := resolveExecutorNATSURL(opts.natsURL, cfg)
 	if natsURL == "" {
 		return fmt.Errorf("--nats-url is required (or set AI_WORKFLOW_NATS_URL or runtime.session_manager.nats.url)")

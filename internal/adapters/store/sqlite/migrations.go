@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -190,12 +191,12 @@ CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(ex
 CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id);
 `
 
-func runMigrations(db *sql.DB) error {
+func runMigrations(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("nil db")
 	}
 
-	if _, err := db.Exec(schemaV1); err != nil {
+	if _, err := db.ExecContext(ctx, schemaV1); err != nil {
 		return fmt.Errorf("run base schema: %w", err)
 	}
 
@@ -444,7 +445,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_notifications_category ON notifications(category)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_issue ON notifications(issue_id)`,
 	} {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {
 				continue
 			}
@@ -465,15 +466,15 @@ func runMigrations(db *sql.DB) error {
 
 	// One-time data migration: convert legacy Config rework_history / blocked_type
 	// into ActionSignal records. Idempotent — skips steps that already have signals.
-	migrateConfigToSignals(db)
+	migrateConfigToSignals(ctx, db)
 
 	return nil
 }
 
 // migrateConfigToSignals scans steps with rework_history or blocked_type in Config
 // and creates corresponding ActionSignal records. Idempotent: skips if signals exist.
-func migrateConfigToSignals(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, issue_id, config FROM steps WHERE config IS NOT NULL AND config != '' AND config != '{}'`)
+func migrateConfigToSignals(ctx context.Context, db *sql.DB) {
+	rows, err := db.QueryContext(ctx, `SELECT id, issue_id, config FROM steps WHERE config IS NOT NULL AND config != '' AND config != '{}'`)
 	if err != nil {
 		return
 	}
@@ -493,7 +494,7 @@ func migrateConfigToSignals(db *sql.DB) {
 
 		// Check if this step already has feedback/context signals (idempotent guard).
 		var existingCount int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM action_signals WHERE step_id = ? AND type IN ('feedback','context')`, stepID).Scan(&existingCount); err == nil && existingCount > 0 {
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM action_signals WHERE step_id = ? AND type IN ('feedback','context')`, stepID).Scan(&existingCount); err == nil && existingCount > 0 {
 			continue
 		}
 
@@ -528,7 +529,7 @@ func migrateConfigToSignals(db *sql.DB) {
 				// Serialize only the entry itself as payload, not the full config.
 				entryJSON, _ := json.Marshal(m)
 
-				_, _ = db.Exec(
+				_, _ = db.ExecContext(ctx,
 					`INSERT INTO action_signals (step_id, issue_id, type, source, summary, content, source_step_id, payload, actor, created_at) VALUES (?, ?, 'feedback', 'system', ?, ?, ?, ?, 'gate', ?)`,
 					stepID, issueID, reason, reason, sourceStepID, string(entryJSON), createdAt,
 				)
@@ -563,7 +564,7 @@ func migrateConfigToSignals(db *sql.DB) {
 				blockedPayload["pr_url"] = v
 			}
 			payloadJSON, _ := json.Marshal(blockedPayload)
-			_, _ = db.Exec(
+			_, _ = db.ExecContext(ctx,
 				`INSERT INTO action_signals (step_id, issue_id, type, source, summary, content, payload, actor, created_at) VALUES (?, ?, 'context', 'system', 'merge_conflict', ?, ?, 'system', ?)`,
 				stepID, issueID, blockedReason, string(payloadJSON), blockedAt,
 			)

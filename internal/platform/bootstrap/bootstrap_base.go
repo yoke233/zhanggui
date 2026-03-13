@@ -31,21 +31,27 @@ type bootstrapBase struct {
 
 func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*bootstrapBase, error) {
 	runtimeDBPath := strings.TrimSuffix(storePath, filepath.Ext(storePath)) + "_runtime.db"
+	fmt.Println("[startup] init base: open runtime store")
 	store, err := sqlite.New(runtimeDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open runtime store %s: %w", runtimeDBPath, err)
 	}
 
+	fmt.Println("[startup] init base: create event bus")
 	bus := membus.NewBus()
+	fmt.Println("[startup] init base: start event persister")
 	persister := flowapp.NewEventPersister(store, bus)
 	if err := persister.Start(context.Background()); err != nil {
 		store.Close()
 		return nil, fmt.Errorf("start event persister: %w", err)
 	}
 
+	fmt.Println("[startup] init base: seed registry")
 	seedRegistry(context.Background(), store, bootstrapCfg, roleResolver)
+	fmt.Println("[startup] init base: build runtime manager")
 	runtimeManager := buildRuntimeManager(store, runtimeDBPath)
 
+	fmt.Println("[startup] init base: resolve data dir")
 	dataDir := ""
 	if dd, err := appdata.ResolveDataDir(); err == nil {
 		dataDir = dd
@@ -53,6 +59,7 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 
 	// Extract embedded builtin skills to <dataDir>/skills/ on startup.
 	if dataDir != "" {
+		fmt.Println("[startup] init base: ensure builtin skills")
 		skillsRoot := filepath.Join(dataDir, "skills")
 		if err := skills.EnsureBuiltinSkills(skillsRoot); err != nil {
 			slog.Warn("bootstrap: failed to extract builtin skills", "error", err)

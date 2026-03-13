@@ -1,8 +1,6 @@
 package configruntime
 
 import (
-	"strings"
-
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
@@ -14,7 +12,7 @@ func BuildAgents(cfg *config.Config) ([]*core.AgentDriver, []*core.AgentProfile)
 
 	drivers := convertDrivers(cfg.Runtime.Agents.Drivers)
 	profiles := convertProfiles(cfg.Runtime.Agents.Profiles)
-	return ensurePRReviewer(drivers, profiles)
+	return drivers, profiles
 }
 
 func convertDrivers(cfgs []config.RuntimeDriverConfig) []*core.AgentDriver {
@@ -66,55 +64,4 @@ func convertProfiles(cfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
 		}
 	}
 	return out
-}
-
-func ensurePRReviewer(drivers []*core.AgentDriver, profiles []*core.AgentProfile) ([]*core.AgentDriver, []*core.AgentProfile) {
-	const reviewerID = "pr-reviewer"
-	for _, profile := range profiles {
-		if profile != nil && profile.ID == reviewerID {
-			return drivers, profiles
-		}
-	}
-
-	hasCodex := false
-	for _, driver := range drivers {
-		if driver != nil && strings.TrimSpace(driver.ID) == "codex" {
-			hasCodex = true
-			break
-		}
-	}
-	if !hasCodex {
-		drivers = append(drivers, &core.AgentDriver{
-			ID:            "codex",
-			LaunchCommand: "npx",
-			LaunchArgs:    []string{"-y", "@zed-industries/codex-acp"},
-			CapabilitiesMax: core.DriverCapabilities{
-				FSRead:   true,
-				FSWrite:  true,
-				Terminal: true,
-			},
-		})
-	}
-
-	profiles = append(profiles, &core.AgentProfile{
-		ID:           reviewerID,
-		Name:         "PR Reviewer (Codex)",
-		DriverID:     "codex",
-		Role:         core.RoleGate,
-		Capabilities: []string{"prreview"},
-		ActionsAllowed: []core.AgentAction{
-			core.AgentActionReadContext,
-			core.AgentActionSearchFiles,
-			core.AgentActionTerminal,
-			core.AgentActionApprove,
-			core.AgentActionReject,
-			core.AgentActionSubmit,
-		},
-		PromptTemplate: "review",
-		Session: core.ProfileSession{
-			Reuse:    true,
-			MaxTurns: 12,
-		},
-	})
-	return drivers, profiles
 }

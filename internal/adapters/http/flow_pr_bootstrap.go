@@ -137,7 +137,7 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 	commitMessage := defaultPRCommitMessage(issueID)
 
 	implement := &core.Action{
-		WorkItemID:    issueID,
+		WorkItemID: issueID,
 		Name:       "implement",
 		Type:       core.ActionExec,
 		Status:     core.ActionPending,
@@ -166,7 +166,7 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 	createdStepIDs = append(createdStepIDs, implementID)
 
 	commitPush := &core.Action{
-		WorkItemID:    issueID,
+		WorkItemID: issueID,
 		Name:       "commit_push",
 		Type:       core.ActionExec,
 		Status:     core.ActionPending,
@@ -186,7 +186,7 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 	createdStepIDs = append(createdStepIDs, commitPushID)
 
 	openPR := &core.Action{
-		WorkItemID:    issueID,
+		WorkItemID: issueID,
 		Name:       "open_pr",
 		Type:       core.ActionExec,
 		Status:     core.ActionPending,
@@ -208,7 +208,7 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 	createdStepIDs = append(createdStepIDs, openPRID)
 
 	gate := &core.Action{
-		WorkItemID:    issueID,
+		WorkItemID: issueID,
 		Name:       "review_merge_gate",
 		Type:       core.ActionGate,
 		Status:     core.ActionPending,
@@ -217,7 +217,7 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 		Timeout:    10 * time.Minute,
 		MaxRetries: 0,
 		RequiredCapabilities: []string{
-			"prreview",
+			"review",
 		},
 		Config: map[string]any{
 			"merge_on_pass":          true,
