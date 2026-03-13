@@ -895,6 +895,46 @@ export interface FeatureManifestSnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type NotificationLevel = "info" | "success" | "warning" | "error";
+
+export type NotificationChannel = "browser" | "in_app" | "webhook" | "email";
+
+export interface Notification {
+  id: number;
+  level: NotificationLevel;
+  title: string;
+  body?: string;
+  category?: string;
+  action_url?: string;
+  project_id?: number | null;
+  issue_id?: number | null;
+  exec_id?: number | null;
+  channels?: NotificationChannel[];
+  read: boolean;
+  read_at?: string | null;
+  created_at: string;
+}
+
+export interface CreateNotificationRequest {
+  level?: NotificationLevel;
+  title: string;
+  body?: string;
+  category?: string;
+  action_url?: string;
+  project_id?: number;
+  issue_id?: number;
+  exec_id?: number;
+  channels?: NotificationChannel[];
+}
+
+export interface UnreadCountResponse {
+  count: number;
+}
+
+// ---------------------------------------------------------------------------
 // Terminology aliases (external names → internal types)
 // ---------------------------------------------------------------------------
 

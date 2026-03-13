@@ -25,6 +25,7 @@ type Store interface {
 	core.DAGTemplateStore
 	core.UsageStore
 	core.FeatureManifestStore
+	core.NotificationStore
 	Close() error
 }
 

@@ -51,6 +51,11 @@ const (
 	// Feature manifest events.
 	EventManifestEntryUpdated EventType = "manifest.entry_updated"
 	EventManifestGateChecked  EventType = "manifest.gate_checked"
+
+	// Notification events.
+	EventNotificationCreated EventType = "notification.created"
+	EventNotificationRead    EventType = "notification.read"
+	EventNotificationAllRead EventType = "notification.all_read"
 )
 
 // IsTransientAgentEvent returns true for streaming chunk events that should

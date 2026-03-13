@@ -128,6 +128,36 @@ export interface SystemEventEnvelope extends WsEnvelope<SystemEventPayload> {
   type: "system_event";
 }
 
+// Notification events (real-time push from server)
+export type NotificationEventType =
+  | "notification.created"
+  | "notification.read"
+  | "notification.all_read";
+
+export interface NotificationEventPayload {
+  notification?: {
+    id: number;
+    level: string;
+    title: string;
+    body?: string;
+    category?: string;
+    action_url?: string;
+    project_id?: number | null;
+    issue_id?: number | null;
+    exec_id?: number | null;
+    channels?: string[];
+    read: boolean;
+    created_at: string;
+    [key: string]: unknown;
+  };
+  notification_id?: number;
+  [key: string]: unknown;
+}
+
+export interface NotificationEventEnvelope extends WsEnvelope<NotificationEventPayload> {
+  type: NotificationEventType;
+}
+
 export interface WsClientMessage {
   type:
     | "chat.send"

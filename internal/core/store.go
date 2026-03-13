@@ -109,6 +109,7 @@ type Store interface {
 	DAGTemplateStore
 	UsageStore
 	FeatureManifestStore
+	NotificationStore
 	Close() error
 }
 

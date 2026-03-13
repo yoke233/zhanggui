@@ -66,6 +66,9 @@ import type {
   ThreadWorkItemLink,
   CreateThreadWorkItemLinkRequest,
   ThreadAgentSession,
+  Notification,
+  CreateNotificationRequest,
+  UnreadCountResponse,
 } from "../types/apiV2";
 import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
@@ -300,6 +303,23 @@ export interface ApiClient {
   inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadAgentSession>;
   listThreadAgents(threadId: number): Promise<ThreadAgentSession[]>;
   removeThreadAgent(threadId: number, agentSessionId: number): Promise<void>;
+
+  // Notifications
+  listNotifications(params?: {
+    category?: string;
+    level?: string;
+    read?: boolean;
+    project_id?: number;
+    issue_id?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<Notification[]>;
+  createNotification(body: CreateNotificationRequest): Promise<Notification>;
+  getNotification(notificationId: number): Promise<Notification>;
+  markNotificationRead(notificationId: number): Promise<void>;
+  markAllNotificationsRead(): Promise<void>;
+  deleteNotification(notificationId: number): Promise<void>;
+  getUnreadNotificationCount(): Promise<UnreadCountResponse>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -885,5 +905,36 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       }),
     deleteManifestEntry: (entryId: number) =>
       request<void>({ path: `/manifest/entries/${entryId}`, method: "DELETE" }),
+
+    // Notifications
+    listNotifications: (params) =>
+      request<Notification[]>({
+        path: "/notifications",
+        query: {
+          category: params?.category,
+          level: params?.level,
+          read: params?.read === undefined ? undefined : String(params.read),
+          project_id: params?.project_id,
+          issue_id: params?.issue_id,
+          limit: params?.limit,
+          offset: params?.offset,
+        },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createNotification: (body) =>
+      request<Notification, CreateNotificationRequest>({
+        path: "/notifications",
+        method: "POST",
+        body,
+      }),
+    getNotification: (notificationId) =>
+      request<Notification>({ path: `/notifications/${notificationId}` }),
+    markNotificationRead: (notificationId) =>
+      request<void>({ path: `/notifications/${notificationId}/read`, method: "POST" }),
+    markAllNotificationsRead: () =>
+      request<void>({ path: "/notifications/read-all", method: "POST" }),
+    deleteNotification: (notificationId) =>
+      request<void>({ path: `/notifications/${notificationId}`, method: "DELETE" }),
+    getUnreadNotificationCount: () =>
+      request<UnreadCountResponse>({ path: "/notifications/unread-count" }),
   };
 };

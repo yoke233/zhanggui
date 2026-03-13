@@ -388,6 +388,25 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_manifest ON feature_entries(manifest_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_status ON feature_entries(manifest_id, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_feature_entries_issue ON feature_entries(issue_id)`,
+		// notifications table (user-facing notification center).
+		`CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            level TEXT NOT NULL DEFAULT 'info',
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '',
+            action_url TEXT NOT NULL DEFAULT '',
+            project_id INTEGER,
+            issue_id INTEGER,
+            exec_id INTEGER,
+            channels TEXT,
+            read INTEGER NOT NULL DEFAULT 0,
+            read_at DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_category ON notifications(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_issue ON notifications(issue_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {
