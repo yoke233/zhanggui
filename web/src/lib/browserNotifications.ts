@@ -81,7 +81,7 @@ export class BrowserNotificationService {
   show(title: string, options?: BrowserNotificationOptions): void {
     if (!this.isSupported || Notification.permission !== "granted") return;
 
-    const notifOptions: NotificationOptions = {
+    const notifOptions: NotificationOptions & { vibrate?: number[] } = {
       body: options?.body,
       icon: options?.icon ?? this.defaultIcon(),
       badge: options?.badge,

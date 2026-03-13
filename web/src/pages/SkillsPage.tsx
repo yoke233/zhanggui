@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogBody,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useWorkbench } from "@/contexts/WorkbenchContext";

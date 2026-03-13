@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
 import {
-  ArrowDownLeft,
   ArrowUpRight,
   Check,
   ChevronRight,
@@ -16,11 +15,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
 import {
   Dialog,
   DialogHeader,
@@ -32,7 +29,7 @@ import {
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import { formatIssueDuration, formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Execution, Issue, IssuePriority, IssueStatus, Step, ThreadWorkItemLink, Thread, UpdateIssueRequest } from "@/types/apiV2";
+import type { Issue, IssuePriority, IssueStatus, Step, ThreadWorkItemLink, Thread, UpdateIssueRequest } from "@/types/apiV2";
 
 /* ── Status config ── */
 
@@ -83,7 +80,6 @@ const labelColors = [
 /* ── Step row ── */
 
 function StepRow({ step, index, isLast }: { step: Step; index: number; isLast: boolean }) {
-  const { t } = useTranslation();
   const sCfg = stepStatusConfig[step.status] ?? stepStatusConfig.pending;
   const tCfg = stepTypeColors[step.type] ?? stepTypeColors.exec;
   const statusLabel = statusConfig[step.status]?.label ?? step.status;

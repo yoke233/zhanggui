@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Plus, CheckCircle2, XCircle, Clock, SkipForward, Loader2, Trash2 } from "lucide-react";
+import { Plus, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,24 +19,6 @@ const STATUS_OPTIONS: { value: FeatureStatus | "all"; labelKey: string }[] = [
   { value: "fail", labelKey: "manifest.statusFail" },
   { value: "skipped", labelKey: "manifest.statusSkipped" },
 ];
-
-function StatusBadge({ status }: { status: FeatureStatus }) {
-  const { t } = useTranslation();
-  const map: Record<FeatureStatus, { variant: "default" | "success" | "destructive" | "secondary" | "outline"; icon: React.ReactNode }> = {
-    pending: { variant: "secondary", icon: <Clock className="h-3 w-3" /> },
-    pass: { variant: "success", icon: <CheckCircle2 className="h-3 w-3" /> },
-    fail: { variant: "destructive", icon: <XCircle className="h-3 w-3" /> },
-    skipped: { variant: "outline", icon: <SkipForward className="h-3 w-3" /> },
-  };
-  const { variant, icon } = map[status] ?? map.pending;
-  const labelKey = `manifest.status${status.charAt(0).toUpperCase()}${status.slice(1)}` as const;
-  return (
-    <Badge variant={variant} className="flex items-center gap-1 capitalize">
-      {icon}
-      {t(labelKey)}
-    </Badge>
-  );
-}
 
 function SummaryBar({ summary }: { summary: FeatureManifestSummary }) {
   const { t } = useTranslation();

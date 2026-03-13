@@ -192,7 +192,6 @@ export function ChatInputBar(props: ChatInputBarProps) {
                   <span className="mx-0.5 text-border">·</span>
                 )}
                 {configOptions.map((opt) => {
-                  const currentLabel = opt.options.find((o) => o.value === opt.current_value)?.name || opt.current_value;
                   return (
                     <span key={opt.id} className="inline-flex items-center gap-0.5 text-[11px]">
                       <span className="text-muted-foreground">{opt.name}:</span>

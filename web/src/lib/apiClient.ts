@@ -27,6 +27,7 @@ import type {
   CreateResourceBindingRequest,
   CreateProjectRequest,
   CreateIssueRequest,
+  UpdateIssueRequest,
   Issue,
   IssueAttachment,
   CreateStepRequest,
@@ -328,6 +329,26 @@ export interface ApiClient {
   markAllNotificationsRead(): Promise<void>;
   deleteNotification(notificationId: number): Promise<void>;
   getUnreadNotificationCount(): Promise<UnreadCountResponse>;
+
+  // Feature Manifest
+  getOrCreateManifest(projectId: number): Promise<FeatureManifest>;
+  getManifest(projectId: number): Promise<FeatureManifest>;
+  getManifestSummary(projectId: number): Promise<FeatureManifestSummary>;
+  getManifestSnapshot(projectId: number): Promise<FeatureManifestSnapshot>;
+  listManifestEntries(
+    projectId: number,
+    params?: { status?: FeatureStatus; limit?: number; offset?: number },
+  ): Promise<FeatureEntry[]>;
+  createManifestEntry(
+    projectId: number,
+    body: { key: string; description: string; status?: FeatureStatus; tags?: string[] },
+  ): Promise<FeatureEntry>;
+  updateManifestEntryStatus(entryId: number, status: FeatureStatus): Promise<FeatureEntry>;
+  updateManifestEntry(
+    entryId: number,
+    body: Partial<{ key: string; description: string; status: FeatureStatus; tags: string[] }>,
+  ): Promise<FeatureEntry>;
+  deleteManifestEntry(entryId: number): Promise<void>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
