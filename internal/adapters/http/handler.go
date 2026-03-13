@@ -228,6 +228,9 @@ func (h *Handler) Register(r chi.Router) {
 	// Git tags (version tagging & CI/CD trigger)
 	h.registerGitTagRoutes(r)
 
+	// Utility endpoints
+	r.Post("/utils/detect-git", h.detectGitInfo)
+
 	// WebSocket
 	r.Get("/ws", h.wsEvents)
 

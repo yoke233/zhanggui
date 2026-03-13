@@ -74,6 +74,13 @@ import type {
 } from "../types/apiV2";
 import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
+export interface DetectGitInfoResponse {
+  is_git: boolean;
+  remote_url?: string;
+  current_branch?: string;
+  default_branch?: string;
+}
+
 type Primitive = string | number | boolean;
 
 export interface RequestOptions<TBody = unknown> {
@@ -329,6 +336,9 @@ export interface ApiClient {
   markAllNotificationsRead(): Promise<void>;
   deleteNotification(notificationId: number): Promise<void>;
   getUnreadNotificationCount(): Promise<UnreadCountResponse>;
+
+  // Utility
+  detectGitInfo(path: string): Promise<DetectGitInfoResponse>;
 
   // Feature Manifest
   getOrCreateManifest(projectId: number): Promise<FeatureManifest>;
@@ -887,6 +897,14 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<void>({
         path: `/threads/${threadId}/agents/${agentSessionId}`,
         method: "DELETE",
+      }),
+
+    // Utility
+    detectGitInfo: (path: string) =>
+      request<DetectGitInfoResponse, { path: string }>({
+        path: "/utils/detect-git",
+        method: "POST",
+        body: { path },
       }),
 
     // Feature Manifest

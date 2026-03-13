@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
+  GitBranch,
+  Loader2,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -13,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { detectScmProviderFromBinding } from "@/lib/scm";
 import { getErrorMessage } from "@/lib/v2Workbench";
+import type { DetectGitInfoResponse } from "@/lib/apiClient";
 
 interface GitResourceDraftConfig {
   provider: "" | "github" | "codeup";
@@ -45,6 +48,74 @@ export function CreateProjectPage() {
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Git detection state: keyed by resource index.
+  const [gitDetections, setGitDetections] = useState<Record<number, {
+    loading: boolean;
+    result: DetectGitInfoResponse | null;
+  }>>({});
+  const detectTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  const detectGitForResource = useCallback(async (index: number, uri: string) => {
+    const trimmed = uri.trim();
+    if (!trimmed) {
+      setGitDetections((prev) => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
+      return;
+    }
+    setGitDetections((prev) => ({ ...prev, [index]: { loading: true, result: null } }));
+    try {
+      const result = await apiClient.detectGitInfo(trimmed);
+      setGitDetections((prev) => ({ ...prev, [index]: { loading: false, result } }));
+    } catch {
+      setGitDetections((prev) => ({ ...prev, [index]: { loading: false, result: null } }));
+    }
+  }, [apiClient]);
+
+  // Debounced git detection trigger for local_fs resources.
+  const scheduleGitDetection = useCallback((index: number, uri: string) => {
+    if (detectTimers.current[index]) {
+      clearTimeout(detectTimers.current[index]);
+    }
+    detectTimers.current[index] = setTimeout(() => {
+      void detectGitForResource(index, uri);
+    }, 600);
+  }, [detectGitForResource]);
+
+  // Promote a local_fs resource to git using detected info.
+  const promoteToGit = useCallback((index: number) => {
+    const detection = gitDetections[index]?.result;
+    if (!detection?.is_git) return;
+    const remoteUrl = detection.remote_url ?? "";
+    // Detect SCM provider from the remote URL.
+    const scmProvider = remoteUrl
+      ? detectScmProviderFromBinding({ kind: "git", uri: remoteUrl, config: {} })
+      : null;
+    setResources((current) =>
+      current.map((resource, i) => {
+        if (i !== index) return resource;
+        return {
+          ...resource,
+          kind: "git",
+          git: {
+            provider: scmProvider ?? "",
+            enableScmFlow: !!scmProvider,
+            baseBranch: detection.default_branch || detection.current_branch || "main",
+            mergeMethod: resource.git.mergeMethod || "squash",
+          },
+        };
+      }),
+    );
+    // Clear detection state for this index.
+    setGitDetections((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+  }, [gitDetections]);
 
   const filledResourceCount = useMemo(
     () => resources.filter((resource) => resource.kind.trim() && resource.uri.trim()).length,
@@ -216,7 +287,9 @@ export function CreateProjectPage() {
                       <option value="s3">s3</option>
                     </select>
                     <Input
-                      placeholder={t("createProject.uriPlaceholder")}
+                      placeholder={resource.kind === "local_fs"
+                        ? t("createProject.localFsPlaceholder", "D:/project/my-repo")
+                        : t("createProject.uriPlaceholder")}
                       value={resource.uri}
                       onChange={(event) => {
                         const uri = event.target.value;
@@ -228,6 +301,10 @@ export function CreateProjectPage() {
                         updateResource(index, { uri });
                         if (resource.kind === "git" && detected) {
                           updateGitResource(index, { provider: detected });
+                        }
+                        // Trigger git detection for local_fs resources.
+                        if (resource.kind === "local_fs") {
+                          scheduleGitDetection(index, uri);
                         }
                       }}
                     />
@@ -246,6 +323,68 @@ export function CreateProjectPage() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
+                  {resource.kind === "local_fs" && gitDetections[index] ? (
+                    (() => {
+                      const det = gitDetections[index];
+                      if (det.loading) {
+                        return (
+                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {t("createProject.detectingGit", "正在检测 Git 仓库...")}
+                          </div>
+                        );
+                      }
+                      if (det.result?.is_git) {
+                        const remoteUrl = det.result.remote_url ?? "";
+                        const detectedProvider = remoteUrl
+                          ? detectScmProviderFromBinding({ kind: "git", uri: remoteUrl, config: {} })
+                          : null;
+                        return (
+                          <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <GitBranch className="h-4 w-4 text-emerald-600" />
+                              <span className="text-sm font-medium text-emerald-700">
+                                {t("createProject.gitDetected", "检测到 Git 仓库")}
+                              </span>
+                            </div>
+                            <div className="space-y-1 text-xs text-muted-foreground">
+                              {remoteUrl ? (
+                                <div>
+                                  <span className="font-medium">Remote: </span>
+                                  <span className="break-all">{remoteUrl}</span>
+                                </div>
+                              ) : null}
+                              {det.result.current_branch ? (
+                                <div>
+                                  <span className="font-medium">Branch: </span>
+                                  <span>{det.result.current_branch}</span>
+                                </div>
+                              ) : null}
+                              {detectedProvider ? (
+                                <div>
+                                  <span className="font-medium">SCM Provider: </span>
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    {detectedProvider === "codeup" ? "Codeup" : "GitHub"}
+                                  </Badge>
+                                </div>
+                              ) : null}
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="mt-1 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                              onClick={() => promoteToGit(index)}
+                            >
+                              <GitBranch className="h-3.5 w-3.5" />
+                              {t("createProject.useAsGitRepo", "切换为 Git 仓库资源")}
+                            </Button>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()
+                  ) : null}
                   {resource.kind === "git" ? (
                     (() => {
                       const scmProvider = detectScmProviderFromBinding({

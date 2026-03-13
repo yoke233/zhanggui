@@ -16,6 +16,11 @@ func NewRunner(repoDir string) *Runner {
 	return &Runner{repoDir: repoDir}
 }
 
+// RemoteURL returns the fetch URL for the given remote name (e.g. "origin").
+func (r *Runner) RemoteURL(name string) (string, error) {
+	return r.run("remote", "get-url", name)
+}
+
 func (r *Runner) run(args ...string) (string, error) {
 	stdout, stderr, _, err := r.runRaw(args...)
 	if err != nil {

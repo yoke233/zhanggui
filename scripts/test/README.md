@@ -20,7 +20,6 @@ This folder stores reusable one-shot test scripts for current backend/frontend r
   - `internal/adapters/agent/acpclient` lifecycle tests (default skip; enable with `-IncludeACPClientIntegration`)
 - `frontend-unit.ps1`: run frontend unit tests.
 - `frontend-build.ps1`: run frontend production build.
-- `p35-terminology-gate.ps1`: enforce P3.5 terminology gate (fail on `review_panel|change_agent|implement_agent`, require role-driven terms).
 - `p3-integration.ps1`: run current smoke baseline sequence.
 - `project-admin-e2e.ps1`: run browser E2E for project admin (`local_path` + `local_new` flows) via Playwright.
 - `issue-e2e-github.ps1`: full Issue E2E smoke against a local GitHub repo (server → project → issue → exec+gate steps → ACP agent → done).
