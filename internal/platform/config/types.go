@@ -31,8 +31,23 @@ type Config struct {
 	Store     StoreConfig     `toml:"store"      yaml:"store"`
 	Context   ContextConfig   `toml:"context"    yaml:"context"`
 	Log       LogConfig       `toml:"log"        yaml:"log"`
+	Audit     AuditConfig     `toml:"audit"      yaml:"audit"`
 	LLMFilter LLMFilterConfig `toml:"llm_filter" yaml:"llm_filter"`
 	Runtime   RuntimeConfig   `toml:"runtime"    yaml:"runtime"`
+}
+
+type AuditConfig struct {
+	Enabled        bool            `toml:"enabled"         yaml:"enabled"`
+	FallbackDir    string          `toml:"fallback_dir"    yaml:"fallback_dir"`
+	RetentionDays  int             `toml:"retention_days"  yaml:"retention_days"`
+	RedactionLevel string          `toml:"redaction_level" yaml:"redaction_level"`
+	OTLP           AuditOTLPConfig `toml:"otlp"            yaml:"otlp"`
+}
+
+type AuditOTLPConfig struct {
+	Enabled  bool              `toml:"enabled" yaml:"enabled"`
+	Endpoint string            `toml:"endpoint" yaml:"endpoint"`
+	Headers  map[string]string `toml:"headers" yaml:"headers"`
 }
 
 type LLMFilterConfig struct {
@@ -360,7 +375,22 @@ type ConfigLayer struct {
 	Store     *StoreLayer     `toml:"store"     yaml:"store"`
 	Context   *ContextLayer   `toml:"context"   yaml:"context"`
 	Log       *LogLayer       `toml:"log"       yaml:"log"`
+	Audit     *AuditLayer     `toml:"audit"     yaml:"audit"`
 	Runtime   *RuntimeLayer   `toml:"runtime"   yaml:"runtime"`
+}
+
+type AuditLayer struct {
+	Enabled        *bool           `toml:"enabled" yaml:"enabled"`
+	FallbackDir    *string         `toml:"fallback_dir" yaml:"fallback_dir"`
+	RetentionDays  *int            `toml:"retention_days" yaml:"retention_days"`
+	RedactionLevel *string         `toml:"redaction_level" yaml:"redaction_level"`
+	OTLP           *AuditOTLPLayer `toml:"otlp" yaml:"otlp"`
+}
+
+type AuditOTLPLayer struct {
+	Enabled  *bool              `toml:"enabled" yaml:"enabled"`
+	Endpoint *string            `toml:"endpoint" yaml:"endpoint"`
+	Headers  *map[string]string `toml:"headers" yaml:"headers"`
 }
 
 type RuntimeLayer struct {

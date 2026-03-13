@@ -169,7 +169,6 @@ CREATE TABLE IF NOT EXISTS tool_call_audits (
     output_preview TEXT NOT NULL DEFAULT '',
     stdout_preview TEXT NOT NULL DEFAULT '',
     stderr_preview TEXT NOT NULL DEFAULT '',
-    log_ref TEXT NOT NULL DEFAULT '',
     redaction_level TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -353,7 +352,6 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
             output_preview TEXT NOT NULL DEFAULT '',
             stdout_preview TEXT NOT NULL DEFAULT '',
             stderr_preview TEXT NOT NULL DEFAULT '',
-            log_ref TEXT NOT NULL DEFAULT '',
             redaction_level TEXT NOT NULL DEFAULT '',
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,

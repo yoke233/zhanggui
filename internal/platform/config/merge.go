@@ -30,6 +30,7 @@ func MergeForRun(global *Config, project *ConfigLayer, override map[string]any) 
 func cloneConfig(in Config) Config {
 	out := in
 	out.GitHub = cloneGitHubConfig(in.GitHub)
+	out.Audit = cloneAuditConfig(in.Audit)
 	out.Runtime = cloneRuntimeConfig(in.Runtime)
 	return out
 }
@@ -187,6 +188,32 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 		if log.MaxAgeDays != nil {
 			cfg.Log.MaxAgeDays = *log.MaxAgeDays
+		}
+	}
+
+	if audit := layer.Audit; audit != nil {
+		if audit.Enabled != nil {
+			cfg.Audit.Enabled = *audit.Enabled
+		}
+		if audit.FallbackDir != nil {
+			cfg.Audit.FallbackDir = *audit.FallbackDir
+		}
+		if audit.RetentionDays != nil {
+			cfg.Audit.RetentionDays = *audit.RetentionDays
+		}
+		if audit.RedactionLevel != nil {
+			cfg.Audit.RedactionLevel = *audit.RedactionLevel
+		}
+		if otlp := audit.OTLP; otlp != nil {
+			if otlp.Enabled != nil {
+				cfg.Audit.OTLP.Enabled = *otlp.Enabled
+			}
+			if otlp.Endpoint != nil {
+				cfg.Audit.OTLP.Endpoint = *otlp.Endpoint
+			}
+			if otlp.Headers != nil {
+				cfg.Audit.OTLP.Headers = cloneStringMap(*otlp.Headers)
+			}
 		}
 	}
 
@@ -431,6 +458,12 @@ func cloneGitHubConfig(in GitHubConfig) GitHubConfig {
 	out.AuthorizedUsernames = cloneStringSlice(in.AuthorizedUsernames)
 	out.PR.Reviewers = cloneStringSlice(in.PR.Reviewers)
 	out.PR.Labels = cloneStringSlice(in.PR.Labels)
+	return out
+}
+
+func cloneAuditConfig(in AuditConfig) AuditConfig {
+	out := in
+	out.OTLP.Headers = cloneStringMap(in.OTLP.Headers)
 	return out
 }
 

@@ -16,6 +16,7 @@ import (
 	httpx "github.com/yoke233/ai-workflow/internal/adapters/http/server"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
+	"github.com/yoke233/ai-workflow/internal/audit"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/skills"
 )
@@ -32,6 +33,7 @@ type ACPExecutorConfig struct {
 	ContinueFollowupTemplate string
 	TokenRegistry            *httpx.TokenRegistry
 	ServerAddr               string // e.g. "http://127.0.0.1:8080"
+	AuditLogger              *audit.Logger
 
 	// StepContextBuilder generates per-execution reference materials.
 	// When nil, step-context is not injected (graceful degradation).
@@ -132,6 +134,15 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			ActionID:   step.ID,
 			RunID:      exec.ID,
 		})
+		var auditSink runtimeapp.EventSink
+		if cfg.AuditLogger != nil {
+			auditSink = cfg.AuditLogger.NewRunSink(audit.Scope{
+				WorkItemID: step.WorkItemID,
+				ActionID:   step.ID,
+				RunID:      exec.ID,
+			})
+		}
+		sink := newMultiSink(bridge, auditSink)
 
 		caps := profile.EffectiveCapabilities()
 		acpCaps := acpclient.ClientCapabilities{
@@ -142,6 +153,11 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 
 		reuse := profile.Session.Reuse
 		mcpFactory := buildStepMCPFactory(step, profile, exec.ID, cfg.MCPResolver)
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "started", map[string]any{
+			"agent_id":      profile.ID,
+			"session_reuse": reuse,
+			"work_dir":      workDir,
+		})
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
 			Profile:         profile,
@@ -160,8 +176,17 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			EphemeralSkills: ephemeralSkills,
 		})
 		if err != nil {
+			publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "failed", map[string]any{
+				"agent_id": profile.ID,
+				"error":    err.Error(),
+			})
 			return fmt.Errorf("acquire session: %w", err)
 		}
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "succeeded", map[string]any{
+			"agent_id":         profile.ID,
+			"agent_context_id": derefInt64(handle.AgentContextID),
+			"has_prior_turns":  handle.HasPriorTurns,
+		})
 		defer func() {
 			if scopedToken != "" && cfg.TokenRegistry != nil {
 				cfg.TokenRegistry.RemoveToken(scopedToken)
@@ -182,15 +207,40 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		// Persist the full execution input for auditability.
 		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, hasStepContext, step)
 
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.dispatch", "started", map[string]any{
+			"agent_id":    profile.ID,
+			"input_chars": len(executionInput),
+		})
 		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
 		if err != nil {
+			publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.dispatch", "failed", map[string]any{
+				"error": err.Error(),
+			})
 			return fmt.Errorf("start execution: %w", err)
 		}
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.dispatch", "succeeded", map[string]any{
+			"invocation_id": invocationID,
+		})
 
-		result, err := cfg.SessionManager.WatchExecution(ctx, invocationID, 0, bridge)
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.watch", "started", map[string]any{
+			"invocation_id": invocationID,
+		})
+		result, err := cfg.SessionManager.WatchExecution(ctx, invocationID, 0, sink)
 		if err != nil {
+			publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.watch", "failed", map[string]any{
+				"invocation_id": invocationID,
+				"error":         err.Error(),
+			})
 			return fmt.Errorf("watch execution: %w", err)
 		}
+		watchAuditData := map[string]any{
+			"invocation_id": invocationID,
+		}
+		if result != nil {
+			watchAuditData["stop_reason"] = result.StopReason
+			watchAuditData["output_chars"] = len(strings.TrimSpace(result.Text))
+		}
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.watch", "completed", watchAuditData)
 		if result != nil && result.AgentContextID != nil {
 			exec.AgentContextID = result.AgentContextID
 		}
@@ -220,11 +270,15 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			return fmt.Errorf("store deliverable: %w", err)
 		}
 		exec.DeliverableID = &artID
+		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "deliverable.persist", "succeeded", map[string]any{
+			"deliverable_id": artID,
+			"result_chars":   len(replyText),
+		})
 
 		// Fallback: if agent couldn't curl (network-isolated sandbox),
 		// extract signal from output text and create ActionSignal internally.
 		if hasSignalSkill {
-			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, step, exec, replyText, profile.ID)
+			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, cfg.AuditLogger, step, exec, replyText, profile.ID)
 		}
 
 		exec.Output = map[string]any{
@@ -382,6 +436,46 @@ func cloneEnv(in map[string]string) map[string]string {
 	return out
 }
 
+func publishExecutionAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.Logger, step *core.Action, exec *core.Run, kind string, status string, data map[string]any) {
+	if step == nil || exec == nil {
+		return
+	}
+	payload := map[string]any{
+		"kind":   strings.TrimSpace(kind),
+		"status": strings.TrimSpace(status),
+	}
+	for k, v := range data {
+		payload[k] = v
+	}
+	if auditLogger != nil {
+		if logRef := auditLogger.LogExecutionAudit(ctx, audit.Scope{
+			WorkItemID: step.WorkItemID,
+			ActionID:   step.ID,
+			RunID:      exec.ID,
+		}, kind, status, data); strings.TrimSpace(logRef) != "" {
+			payload["log_ref"] = logRef
+		}
+	}
+	if bus == nil {
+		return
+	}
+	bus.Publish(ctx, core.Event{
+		Type:       core.EventExecutionAudit,
+		WorkItemID: step.WorkItemID,
+		ActionID:   step.ID,
+		RunID:      exec.ID,
+		Timestamp:  time.Now().UTC(),
+		Data:       payload,
+	})
+}
+
+func derefInt64(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
 // outputSignal is the parsed result of an AI_WORKFLOW_SIGNAL line from agent output.
 type outputSignal struct {
 	Decision string `json:"decision"`
@@ -433,7 +527,7 @@ func decisionToSignalType(decision string) (core.SignalType, bool) {
 // If not, it parses the agent output for an AI_WORKFLOW_SIGNAL line and creates the
 // ActionSignal internally. This covers network-isolated environments where the agent
 // cannot curl the decision endpoint.
-func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, exec *core.Run, replyText, profileID string) {
+func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, auditLogger *audit.Logger, step *core.Action, exec *core.Run, replyText, profileID string) {
 	// Check if a terminal signal was already received via HTTP curl.
 	existing, _ := store.GetLatestActionSignal(ctx, step.ID,
 		core.SignalComplete, core.SignalNeedHelp, core.SignalApprove, core.SignalReject)
@@ -479,6 +573,11 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 			"source":    "agent",
 			"method":    "output_fallback",
 		},
+	})
+	publishExecutionAudit(ctx, bus, auditLogger, step, exec, "signal.fallback", "created", map[string]any{
+		"signal_id":   sigID,
+		"signal_type": string(sigType),
+		"actor":       fmt.Sprintf("agent/%s", profileID),
 	})
 	slog.Info("step-signal: created from output fallback",
 		"step_id", step.ID, "decision", parsed.Decision, "signal_id", sigID)

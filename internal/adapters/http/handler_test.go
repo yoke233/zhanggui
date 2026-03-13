@@ -14,12 +14,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	membus "github.com/yoke233/ai-workflow/internal/adapters/events/memory"
 	"github.com/yoke233/ai-workflow/internal/adapters/llmconfig"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	"github.com/yoke233/ai-workflow/internal/audit"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
@@ -95,6 +97,15 @@ func put(ts *httptest.Server, path string, body any) (*http.Response, error) {
 func decodeJSON(resp *http.Response, v any) error {
 	defer resp.Body.Close()
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+func mustMarshalJSONRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal raw json: %v", err)
+	}
+	return data
 }
 
 type stubSandboxController struct {
@@ -1092,6 +1103,355 @@ func TestAPI_ListEvents_FilterSessionID(t *testing.T) {
 	}
 	if got, _ := events[0].Data["session_id"].(string); got != "session-a" {
 		t.Fatalf("expected session-a, got %q", got)
+	}
+}
+
+func TestAPI_ListEvents_FilterThreadID(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	now := time.Now().UTC()
+	if _, err := h.store.CreateEvent(context.Background(), &core.Event{
+		Type:      core.EventThreadMessage,
+		Data:      map[string]any{"thread_id": int64(7), "message": "hello"},
+		Timestamp: now,
+	}); err != nil {
+		t.Fatalf("create thread event a: %v", err)
+	}
+	if _, err := h.store.CreateEvent(context.Background(), &core.Event{
+		Type:      core.EventThreadMessage,
+		Data:      map[string]any{"thread_id": int64(8), "message": "world"},
+		Timestamp: now.Add(time.Second),
+	}); err != nil {
+		t.Fatalf("create thread event b: %v", err)
+	}
+
+	resp, err := get(ts, "/events?types=thread.message&thread_id=7")
+	if err != nil {
+		t.Fatalf("get events: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var events []core.Event
+	if err := decodeJSON(resp, &events); err != nil {
+		t.Fatalf("decode events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if got, _ := events[0].Data["thread_id"].(float64); int64(got) != 7 {
+		t.Fatalf("expected thread_id=7, got %#v", events[0].Data["thread_id"])
+	}
+}
+
+func TestAPI_ListThreadEventsAlias(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "thread-events"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	if _, err := h.store.CreateEvent(context.Background(), &core.Event{
+		Type: core.EventThreadMessage,
+		Data: map[string]any{
+			"thread_id": thread.ID,
+			"message":   "from alias route",
+		},
+		Timestamp: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("create thread event: %v", err)
+	}
+
+	resp, err := get(ts, fmt.Sprintf("/threads/%d/events?types=thread.message", thread.ID))
+	if err != nil {
+		t.Fatalf("get thread events alias: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var events []core.Event
+	if err := decodeJSON(resp, &events); err != nil {
+		t.Fatalf("decode thread events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
+func TestAPI_ToolCallAuditRoutes(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	ctx := context.Background()
+	workItemID, err := h.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "tool-call-audit",
+		Status:   core.WorkItemOpen,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	actionID, err := h.store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "tool-call-action",
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
+	})
+	if err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+	runID, err := h.store.CreateRun(ctx, &core.Run{
+		ActionID:   actionID,
+		WorkItemID: workItemID,
+		Status:     core.RunCreated,
+		Attempt:    1,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	logger := audit.NewLogger(h.store, audit.Config{
+		Enabled:        true,
+		RootDir:        t.TempDir(),
+		RedactionLevel: "basic",
+	})
+	sink := logger.NewRunSink(audit.Scope{
+		WorkItemID: workItemID,
+		ActionID:   actionID,
+		RunID:      runID,
+	})
+
+	if err := sink.HandleSessionUpdate(ctx, acpclient.SessionUpdate{
+		SessionID: "session-1",
+		Type:      "tool_call",
+		Status:    "started",
+		RawJSON: mustMarshalJSONRaw(t, map[string]any{
+			"title":      "functions.shell_command",
+			"toolCallId": "call-1",
+			"status":     "started",
+			"rawInput": map[string]any{
+				"token": "sk-http-123",
+			},
+		}),
+	}); err != nil {
+		t.Fatalf("handle tool start: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := sink.HandleSessionUpdate(ctx, acpclient.SessionUpdate{
+		SessionID: "session-1",
+		Type:      "tool_call_update",
+		Status:    "completed",
+		RawJSON: mustMarshalJSONRaw(t, map[string]any{
+			"title":      "functions.shell_command",
+			"toolCallId": "call-1",
+			"status":     "completed",
+			"rawOutput": map[string]any{
+				"exit_code": 0,
+				"stdout":    "token=secret-value",
+				"stderr":    "authorization: Bearer qwe.rty",
+			},
+		}),
+	}); err != nil {
+		t.Fatalf("handle tool finish: %v", err)
+	}
+
+	listResp, err := get(ts, fmt.Sprintf("/executions/%d/tool-calls", runID))
+	if err != nil {
+		t.Fatalf("list tool call audits: %v", err)
+	}
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", listResp.StatusCode)
+	}
+	var list []*core.ToolCallAudit
+	if err := decodeJSON(listResp, &list); err != nil {
+		t.Fatalf("decode audit list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 audit item, got %d", len(list))
+	}
+	if list[0].ToolCallID != "call-1" || list[0].Status != "completed" {
+		t.Fatalf("unexpected audit list item: %+v", list[0])
+	}
+
+	detailResp, err := get(ts, fmt.Sprintf("/tool-calls/%d", list[0].ID))
+	if err != nil {
+		t.Fatalf("get tool call audit: %v", err)
+	}
+	if detailResp.StatusCode != http.StatusOK {
+		t.Fatalf("detail status = %d, want 200", detailResp.StatusCode)
+	}
+	var detail core.ToolCallAudit
+	if err := decodeJSON(detailResp, &detail); err != nil {
+		t.Fatalf("decode audit detail: %v", err)
+	}
+	if detail.ID != list[0].ID || detail.ToolCallID != "call-1" {
+		t.Fatalf("unexpected audit detail: %+v", detail)
+	}
+}
+
+func TestAPI_ExecutionAuditTimelineRoute(t *testing.T) {
+	h, ts := setupAPI(t)
+	ctx := context.Background()
+
+	workItemID, err := h.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "audit-timeline",
+		Status:   core.WorkItemRunning,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	actionID, err := h.store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "audit-timeline-action",
+		Type:       core.ActionExec,
+		Status:     core.ActionRunning,
+	})
+	if err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+	runStartedAt := time.Now().UTC().Add(-10 * time.Minute)
+	runID, err := h.store.CreateRun(ctx, &core.Run{
+		ActionID:   actionID,
+		WorkItemID: workItemID,
+		Status:     core.RunRunning,
+		Attempt:    1,
+		StartedAt:  &runStartedAt,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	eventAt := time.Now().UTC().Add(-5 * time.Minute)
+	if _, err := h.store.CreateEvent(ctx, &core.Event{
+		Type:       core.EventExecutionAudit,
+		WorkItemID: workItemID,
+		ActionID:   actionID,
+		RunID:      runID,
+		Timestamp:  eventAt,
+		Data: map[string]any{
+			"kind":   "execution.dispatch",
+			"status": "succeeded",
+		},
+	}); err != nil {
+		t.Fatalf("create execution audit event: %v", err)
+	}
+
+	probeCreatedAt := time.Now().UTC().Add(-4 * time.Minute)
+	probeSentAt := probeCreatedAt.Add(20 * time.Second)
+	probeAnsweredAt := probeSentAt.Add(30 * time.Second)
+	if _, err := h.store.CreateRunProbe(ctx, &core.RunProbe{
+		RunID:         runID,
+		WorkItemID:    workItemID,
+		ActionID:      actionID,
+		TriggerSource: core.RunProbeTriggerManual,
+		Question:      "still alive?",
+		Status:        core.RunProbeAnswered,
+		Verdict:       core.RunProbeAlive,
+		ReplyText:     "alive and progressing",
+		SentAt:        &probeSentAt,
+		AnsweredAt:    &probeAnsweredAt,
+		CreatedAt:     probeCreatedAt,
+	}); err != nil {
+		t.Fatalf("create run probe: %v", err)
+	}
+
+	toolStartedAt := time.Now().UTC().Add(-3 * time.Minute)
+	toolFinishedAt := toolStartedAt.Add(45 * time.Second)
+	if _, err := h.store.CreateToolCallAudit(ctx, &core.ToolCallAudit{
+		WorkItemID:     workItemID,
+		ActionID:       actionID,
+		RunID:          runID,
+		SessionID:      "session-1",
+		ToolCallID:     "call-1",
+		ToolName:       "functions.shell_command",
+		Status:         "completed",
+		StartedAt:      &toolStartedAt,
+		FinishedAt:     &toolFinishedAt,
+		DurationMs:     toolFinishedAt.Sub(toolStartedAt).Milliseconds(),
+		InputPreview:   "{\"command\":\"dir\"}",
+		OutputPreview:  "{\"stdout\":\"ok\"}",
+		RedactionLevel: "basic",
+		CreatedAt:      toolStartedAt,
+	}); err != nil {
+		t.Fatalf("create tool call audit: %v", err)
+	}
+	signalCreatedAt := time.Now().UTC().Add(-2 * time.Minute)
+	if _, err := h.store.CreateActionSignal(ctx, &core.ActionSignal{
+		ActionID:   actionID,
+		WorkItemID: workItemID,
+		RunID:      runID,
+		Type:       core.SignalComplete,
+		Source:     core.SignalSourceAgent,
+		Payload: map[string]any{
+			"summary": "implemented auth module with tests",
+		},
+		Actor:     "agent",
+		CreatedAt: signalCreatedAt,
+	}); err != nil {
+		t.Fatalf("create action signal: %v", err)
+	}
+
+	resp, err := get(ts, fmt.Sprintf("/executions/%d/audit-timeline", runID))
+	if err != nil {
+		t.Fatalf("get audit timeline: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var got struct {
+		ExecutionID int64 `json:"execution_id"`
+		Items       []struct {
+			Source    string    `json:"source"`
+			Kind      string    `json:"kind"`
+			Timestamp time.Time `json:"timestamp"`
+			Status    string    `json:"status"`
+			Summary   string    `json:"summary"`
+			Event     *struct {
+				Type string `json:"type"`
+			} `json:"event"`
+			Probe *struct {
+				Status string `json:"status"`
+			} `json:"probe"`
+			Signal *struct {
+				Type string `json:"type"`
+			} `json:"signal"`
+			ToolCall *struct {
+				ToolCallID string `json:"tool_call_id"`
+			} `json:"tool_call"`
+		} `json:"items"`
+	}
+	if err := decodeJSON(resp, &got); err != nil {
+		t.Fatalf("decode audit timeline: %v", err)
+	}
+	if got.ExecutionID != runID {
+		t.Fatalf("execution_id = %d, want %d", got.ExecutionID, runID)
+	}
+	if len(got.Items) != 4 {
+		t.Fatalf("expected 4 timeline items, got %d", len(got.Items))
+	}
+	if !got.Items[0].Timestamp.Before(got.Items[1].Timestamp) || !got.Items[1].Timestamp.Before(got.Items[2].Timestamp) || !got.Items[2].Timestamp.Before(got.Items[3].Timestamp) {
+		t.Fatalf("timeline items not sorted by timestamp: %+v", got.Items)
+	}
+	if got.Items[0].Source != "event" || got.Items[0].Kind != string(core.EventExecutionAudit) || got.Items[0].Status != "succeeded" {
+		t.Fatalf("unexpected event item: %+v", got.Items[0])
+	}
+	if got.Items[0].Summary != "execution.dispatch succeeded" {
+		t.Fatalf("event summary = %q, want execution.dispatch succeeded", got.Items[0].Summary)
+	}
+	if got.Items[1].Source != "probe" || got.Items[1].Probe == nil || got.Items[1].Probe.Status != string(core.RunProbeAnswered) {
+		t.Fatalf("unexpected probe item: %+v", got.Items[1])
+	}
+	if got.Items[2].Source != "tool_call" || got.Items[2].ToolCall == nil || got.Items[2].ToolCall.ToolCallID != "call-1" {
+		t.Fatalf("unexpected tool call item: %+v", got.Items[2])
+	}
+	if got.Items[3].Source != "signal" || got.Items[3].Signal == nil || got.Items[3].Signal.Type != string(core.SignalComplete) {
+		t.Fatalf("unexpected signal item: %+v", got.Items[3])
+	}
+	if got.Items[3].Summary != "implemented auth module with tests" {
+		t.Fatalf("signal summary = %q, want implemented auth module with tests", got.Items[3].Summary)
 	}
 }
 

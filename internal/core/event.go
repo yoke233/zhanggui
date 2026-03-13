@@ -25,6 +25,7 @@ const (
 	EventRunStarted          EventType = "run.started"
 	EventRunSucceeded        EventType = "run.succeeded"
 	EventRunFailed           EventType = "run.failed"
+	EventExecutionAudit      EventType = "execution.audit"
 	EventRunProbeRequested   EventType = "run.probe_requested"
 	EventRunProbeSent        EventType = "run.probe_sent"
 	EventRunProbeAnswered    EventType = "run.probe_answered"

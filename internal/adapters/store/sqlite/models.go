@@ -318,7 +318,6 @@ type ToolCallAuditModel struct {
 	OutputPreview  string     `gorm:"column:output_preview;not null"`
 	StdoutPreview  string     `gorm:"column:stdout_preview;not null"`
 	StderrPreview  string     `gorm:"column:stderr_preview;not null"`
-	LogRef         string     `gorm:"column:log_ref;not null"`
 	RedactionLevel string     `gorm:"column:redaction_level;not null"`
 	CreatedAt      time.Time  `gorm:"column:created_at"`
 }
@@ -1197,7 +1196,6 @@ func toolCallAuditModelFromCore(a *core.ToolCallAudit) *ToolCallAuditModel {
 		OutputPreview:  a.OutputPreview,
 		StdoutPreview:  a.StdoutPreview,
 		StderrPreview:  a.StderrPreview,
-		LogRef:         a.LogRef,
 		RedactionLevel: a.RedactionLevel,
 		CreatedAt:      a.CreatedAt,
 	}
@@ -1228,7 +1226,6 @@ func (m *ToolCallAuditModel) toCore() *core.ToolCallAudit {
 		OutputPreview:  m.OutputPreview,
 		StdoutPreview:  m.StdoutPreview,
 		StderrPreview:  m.StderrPreview,
-		LogRef:         m.LogRef,
 		RedactionLevel: m.RedactionLevel,
 		CreatedAt:      m.CreatedAt,
 	}

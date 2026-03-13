@@ -299,7 +299,6 @@ func TestToolCallAuditCRUD(t *testing.T) {
 		StartedAt:      &startedAt,
 		InputDigest:    "input-digest",
 		InputPreview:   "{\"token\":\"[REDACTED]\"}",
-		LogRef:         "2026/03/14/exec-1.jsonl",
 		RedactionLevel: "basic",
 		CreatedAt:      createdAt,
 	}

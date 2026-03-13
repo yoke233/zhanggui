@@ -14,6 +14,7 @@ import (
 	workspaceprovider "github.com/yoke233/ai-workflow/internal/adapters/workspace/provider"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	runtimeapp "github.com/yoke233/ai-workflow/internal/application/runtime"
+	"github.com/yoke233/ai-workflow/internal/audit"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
@@ -36,7 +37,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
-	executor := buildActionExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, scmTokens, upgradeFn, base.signalCfg)
+	executor := buildActionExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, base.dataDir, scmTokens, upgradeFn, base.signalCfg)
 	engine := buildWorkItemEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
 	schedulerCfg := resolveWorkItemSchedulerConfig(bootstrapCfg)
@@ -82,6 +83,7 @@ func buildActionExecutor(
 	sessionMgr runtimeapp.SessionManager,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
+	dataDir string,
 	scmTokens SCMTokens,
 	upgradeFn executoradapter.UpgradeFunc,
 	signalCfg *AgentSignalConfig,
@@ -101,6 +103,14 @@ func buildActionExecutor(
 		slog.Warn("bootstrap: using mock action executor (no ACP processes will be spawned)")
 		executor = executoradapter.NewMockActionExecutor(store, bus)
 	} else {
+		var auditLogger *audit.Logger
+		if bootstrapCfg != nil && bootstrapCfg.Audit.Enabled {
+			auditLogger = audit.NewLogger(store, audit.Config{
+				Enabled:        bootstrapCfg.Audit.Enabled,
+				RootDir:        audit.ResolveRootDir(dataDir, bootstrapCfg.Audit.FallbackDir),
+				RedactionLevel: bootstrapCfg.Audit.RedactionLevel,
+			})
+		}
 		acpCfg := executoradapter.ACPExecutorConfig{
 			Registry:                 registry,
 			Store:                    store,
@@ -110,6 +120,7 @@ func buildActionExecutor(
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
 			StepContextBuilder:       skills.NewActionContextBuilder(store),
+			AuditLogger:              auditLogger,
 		}
 		if signalCfg != nil {
 			acpCfg.TokenRegistry = signalCfg.TokenRegistry

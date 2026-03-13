@@ -25,7 +25,23 @@ func validateConfig(cfg *Config) error {
 	if err := validateRuntimeLLMConfig(cfg); err != nil {
 		return err
 	}
+	if err := validateAuditConfig(cfg); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func validateAuditConfig(cfg *Config) error {
+	if cfg == nil || !cfg.Audit.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.Audit.RedactionLevel) == "" {
+		return fmt.Errorf("audit.redaction_level is required when audit is enabled")
+	}
+	if cfg.Audit.RetentionDays < 0 {
+		return fmt.Errorf("audit.retention_days must be >= 0")
+	}
 	return nil
 }
 

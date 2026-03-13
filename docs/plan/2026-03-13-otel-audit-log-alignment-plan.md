@@ -1,240 +1,127 @@
-# OTel 审计日志对齐计划（仅覆盖审计链路）
+# 2026-03-13 OTel / Audit Log Alignment Plan
 
-## 摘要
+## 1. 结论
 
-本期不做“全项目所有日志全面 OTel 化”，只覆盖审计与调查最关键的链路：工具调用原文、执行调查日志、关键执行节点。  
-方案采用“数据库索引 + OTel 日志原文”双层设计：
+这份计划仍然适用，但目标已经收口，不再按“完整 OTel 审计链路”推进。
 
-- 数据库继续保存结构化事实与检索索引，作为 UI/API/筛选/聚合的数据源。
-- 原始审计明细统一对齐到 OpenTelemetry Logs 语义，优先通过 OTLP 导出；Collector 不可用时，降级写本地 OTel JSON/JSONL 文件。
-- `chat.permission_request` 不纳入本期数据库审计范围，只保留现有实时聊天链路，不作为执行审计目标。
+当前确定的方向是：
 
-默认策略：
+- 不接所有应用日志，不做“所有日志都接 OTel”。
+- 不保存 ACP `tool_call` 原始 payload。
+- 不提供 `tool_call payload` 的回读接口。
+- 不推进 OTLP 审计导出。
+- 审计重点放在可索引摘要和业务决策结果。
 
-- 范围：仅审计日志
-- 传输：`OTLP + 本地降级文件`
-- 保留：`30 天`
-- 脱敏：`基础脱敏`
+## 2. 审计边界
 
-## 关键变更
+### 2.1 保留什么
 
-### 1. 数据库存储边界
-
-保留现有结构化表作为主审计索引，不用 OTel 替代数据库：
-
-- 继续使用现有 `executions / artifacts / events / execution_probes / usage_records / threads / thread_messages / thread_agent_sessions`
-- 新增轻量审计索引表 `tool_call_audits`
-- 该表只存摘要和定位信息，不存完整原文
-
-`tool_call_audits` 需要包含这些字段：
-
-- `id`
-- `issue_id`
-- `step_id`
-- `execution_id`
-- `session_id`
-- `tool_call_id`
-- `tool_name`
-- `status`
-- `started_at`
-- `finished_at`
-- `duration_ms`
-- `exit_code`
-- `input_digest`
-- `output_digest`
-- `stdout_preview`
-- `stderr_preview`
-- `log_ref`
-- `created_at`
-
-索引要求：
-
-- `(execution_id, id)`
-- `(tool_call_id)`
-- `(step_id, id)`
-- `(issue_id, id)`
-
-### 2. OTel 审计日志模型
-
-新增一套统一审计写入器，负责把审计明细组织成 OTel Logs 风格的结构化记录。  
-不要求本期把所有 `slog` 改写，只要求审计事件使用统一 schema。
-
-统一资源属性：
-
-- `service.name=ai-workflow`
-- `service.version`
-- `deployment.environment`
-- `aiworkflow.component`
-- `host.name` 或实例标识
-
-统一日志属性：
-
-- `aiworkflow.issue_id`
-- `aiworkflow.step_id`
-- `aiworkflow.execution_id`
-- `aiworkflow.thread_id`
-- `aiworkflow.session_id`
-- `aiworkflow.tool_call_id`
-- `aiworkflow.audit.kind`
-- `aiworkflow.log_ref`
-- `aiworkflow.redaction.level`
-
-本期定义 4 类审计日志事件：
-
+- `tool_call_audits`
+  - 保存一次工具调用的轻量摘要。
+  - 包含 tool name、status、started_at、finished_at、duration_ms、exit_code。
+  - 包含 input/output/stdout/stderr 的 digest 与 redacted preview。
 - `execution.audit`
-  记录执行关键节点，如 acquire session、start execution、watch result、fallback signal、probe request
-- `tool.call.started`
-  记录工具名、输入摘要、关联 execution/session
-- `tool.call.finished`
-  记录状态、耗时、退出码、输出摘要、日志定位
-- `tool.call.payload`
-  记录完整输入/完整输出/完整 stdout/stderr 的原文载荷，仅写 OTel 日志，不进数据库
+  - 保存执行期关键过程节点的本地 JSONL 记录。
+  - 用于排查 session 获取、dispatch、watch、deliverable persist、fallback 等关键流程。
+- `ActionSignal`
+  - 保存 ACP skill 或 MCP 路径产出的决策性数据。
+  - 例如 `step-signal` 产生的 `complete / need_help / reject / approve`。
 
-原文载荷分片规则：
+### 2.2 明确不保留什么
 
-- 单条超过阈值时拆成多条 `tool.call.payload`
-- 每条带 `tool_call_id + chunk_index + chunk_total`
-- 数据库仅保存 digest、preview 和最终 `log_ref`
+- ACP `tool_call` 的 input/output/stdout/stderr 原始 payload。
+- `/tool-calls/{auditID}/payload` 这类 payload 回读接口。
+- OTLP exporter。
+- “把所有 slog / runtime log 都接到审计系统”的方案。
 
-### 3. 导出与降级策略
+## 3. 数据模型
 
-新增审计 exporter 抽象，按下面优先级工作：
+### 3.1 `tool_call_audits`
 
-1. 如果配置了 OTLP endpoint，则发送 OTel Logs
-2. 如果 OTLP 不可用或发送失败，则写本地降级文件
-3. 不允许因为审计写失败阻塞主执行链路；最多记录内部错误并继续执行
+用途：
 
-本地降级文件策略：
+- 给管理端和排障接口提供结构化索引。
+- 不承担原文归档职责。
 
-- 根目录放在 `dataDir/audit/tool-calls/`
-- 按日期分层：`YYYY/MM/DD/`
-- 默认按 execution 分文件：`exec-<execution_id>.jsonl`
-- `log_ref` 使用相对路径 + 可选偏移信息
-- 轮转与清理按 30 天 retention 执行
+字段原则：
 
-### 4. 脱敏与内容边界
+- 保留摘要字段。
+- 保留 redaction level，保证 preview 的口径可解释。
+- 不保留 `log_ref`。
 
-基础脱敏必须在进入 OTel 日志前执行，数据库和文件保持一致的脱敏结果。
+### 3.2 `ActionSignal`
 
-本期基础脱敏规则：
+用途：
 
-- 屏蔽常见密钥字段：`token`、`api_key`、`authorization`、`password`、`secret`
-- 屏蔽 Bearer、PAT、Git token、Cookie 等典型值
-- 对 stdout/stderr 做基于模式的替换，不尝试语义理解
-- 数据库 `preview` 使用脱敏后内容
-- `digest` 基于原始内容计算，便于对账；原始内容只进入 OTel 审计载荷，不进入数据库
+- 表达 agent 在执行过程中产出的业务判断和决策结果。
+- 这是审计中真正值得长期保留的“结果层信号”。
 
-明确不做：
+## 4. 查询面
 
-- 不做逐 token/流式思考持久化
-- 不做全量 chat permission 审计
-- 不做全项目普通应用日志统一迁移到 OTel
-- 不做 traces 全链路接线
-
-### 5. 查询与调查接口
-
-本期提供后台调查接口，不做完整 UI 设计。
-
-新增只读接口：
+保留接口：
 
 - `GET /executions/{execID}/tool-calls`
-  返回某次 execution 的工具调用摘要列表
 - `GET /tool-calls/{auditID}`
-  返回单条工具调用摘要详情
-- `GET /tool-calls/{auditID}/payload`
-  按 `log_ref` 读取对应 OTel 原文载荷；只读、管理员可见
 - `GET /executions/{execID}/audit-timeline`
-  聚合 `events + probes + tool_call_audits`，用于事故调查时间线
 
-返回体中统一包含：
+删除接口：
 
-- 结构化摘要
-- `log_ref`
-- `redacted=true/false`
-- 原文读取失败时的明确错误码
+- `GET /tool-calls/{auditID}/payload`
 
-## 实现变化
+`audit-timeline` 聚合范围：
 
-### 核心新增
+- `events`
+- `execution_probes`
+- `tool_call_audits`
+- `ActionSignal`
 
-- 新增审计模块，提供：
-  - `AuditLogger`
-  - `AuditExporter`
-  - `OTLP exporter`
-  - `Fallback file exporter`
-  - `Redactor`
-- 在执行器的工具调用事件汇聚点接入审计写入
-- 在运行时关键节点补 `execution.audit` 事件
-- 在 sqlite migration 中新增 `tool_call_audits`
+## 5. 实施阶段
 
-### 现有链路接入点
+### Phase 1: 审计索引
 
-优先改这几处：
+已完成：
 
-- 执行器到事件桥接链路：从现有 `tool_call / tool_call_completed` 事件里补建数据库摘要 + OTel 原文
-- 执行运行主线：execution start/watch/finalize/probe/fallback signal 写 `execution.audit`
-- HTTP 后台接口层：暴露工具调用摘要与 payload 查询接口
+- 新增 `tool_call_audits` 表与 store。
+- ACP executor 接入结构化工具调用摘要写入。
+- 管理端提供 tool call 列表与详情查询。
 
-### 配置新增
+### Phase 2: 执行审计
 
-在现有配置中新增审计节，而不是复用普通 `[log]`：
+已完成：
 
-- `audit.enabled`
-- `audit.otlp.endpoint`
-- `audit.otlp.headers`
-- `audit.fallback.dir`
-- `audit.retention_days`
-- `audit.redaction.level`
-- `audit.max_payload_bytes`
-- `audit.payload_chunk_bytes`
+- 新增 `audit.Logger`。
+- 新增 `execution.audit` 事件。
+- 本地 JSONL exporter 已接入执行期关键节点。
 
-默认值：
+### Phase 3: 决策信号收口
 
-- `enabled = true`
-- `retention_days = 30`
-- `redaction.level = "basic"`
-- `fallback.dir = "<dataDir>/audit/tool-calls"`
+已完成：
 
-## 测试计划
+- `audit-timeline` 聚合 `ActionSignal`。
+- `step-signal` 这类 ACP skill 产出的决策结果进入统一调查视图。
 
-### 单元测试
+### Phase 4: payload 删除收口
 
-- `Redactor` 能正确屏蔽常见 token/password/bearer/cookie
-- `tool.call.payload` 超长内容能正确分片
-- OTLP exporter 失败时自动降级到本地文件
-- `log_ref` 生成稳定且可回读
-- `tool_call_audits` digest/preview/status/exit_code 写入正确
+已完成：
 
-### 集成测试
+- 删除 `tool_call payload` 本地落盘。
+- 删除 payload 回读 API。
+- 删除 `tool_call_audits.log_ref`。
+- 删除 payload 相关配置项。
 
-- 一次成功的工具调用会：
-  - 写数据库摘要
-  - 写 OTel 审计原文
-  - API 可查到摘要
-  - API 可按 `log_ref` 取到 payload
-- 一次失败的工具调用会：
-  - 记录 `stderr_preview`
-  - 记录 `exit_code`
-  - payload 中包含脱敏后的 stderr
-- Collector 不可用时：
-  - 主执行仍成功
-  - 本地降级文件存在
-  - 数据库 `log_ref` 指向降级文件
-- retention 清理任务只删除过期本地 payload，不误删数据库索引
-- `chat.permission_request` 不会被错误写入新的执行审计表
+## 6. 验收标准
 
-### 回归测试
+- 一次 tool call 会生成一条可查询的 `tool_call_audits` 摘要记录。
+- 摘要 preview 必须经过脱敏。
+- `execution.audit` 可落到本地 JSONL。
+- `audit-timeline` 能同时看到事件、probe、tool call 摘要和 `ActionSignal`。
+- 仓库中不存在 tool call payload 的持久化与查询入口。
 
-- 现有 `executions / artifacts / events / probes / usage / threads` 行为不变
-- 现有 WebSocket 与事件流仍可用
-- 现有 analytics 与 usage API 不受影响
+## 7. 后续不做项
 
-## 假设与已定默认值
+以下内容明确不在本轮范围：
 
-- 本期只做审计日志 OTel 化，不做全量应用日志 OTel 化
-- 本期不做 OTel Trace 设计与接线
-- 本期不把 `chat.permission_request` 纳入执行审计
-- 工具调用完整输入输出进入 OTel 审计日志，不进入数据库
-- 数据库必须新增轻量索引表，不能只靠日志
-- 默认保留 30 天，采用基础脱敏
-- 默认优先 OTLP，失败降级本地文件
+- OTLP exporter
+- payload 分片与回读
+- payload retention
+- 全量日志接入 OTel

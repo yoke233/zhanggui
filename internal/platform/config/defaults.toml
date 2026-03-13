@@ -248,3 +248,14 @@ level = "info"
 file = ".ai-workflow/logs/app.log"
 max_size_mb = 100
 max_age_days = 30
+
+[audit]
+enabled = true
+fallback_dir = "audit/tool-calls"
+retention_days = 30
+redaction_level = "basic"
+
+  [audit.otlp]
+  enabled = false
+  endpoint = ""
+  headers = {}
