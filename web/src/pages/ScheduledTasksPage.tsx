@@ -494,7 +494,7 @@ export function ScheduledTasksPage() {
                   <option value="enabled">{t("scheduledTasks.filterEnabled")}</option>
                   <option value="disabled">{t("scheduledTasks.filterDisabled")}</option>
                 </Select>
-                <Link to="/analytics" className="text-xs font-medium text-slate-500 hover:text-slate-900">
+                <Link to="/monitoring/analytics" className="text-xs font-medium text-slate-500 hover:text-slate-900">
                   {t("scheduledTasks.openAnalytics")}
                 </Link>
               </div>

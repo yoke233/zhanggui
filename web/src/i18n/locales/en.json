@@ -60,9 +60,10 @@
     "projects": "Projects",
     "logout": "Logout",
     "noProject": "No project selected",
+    "monitoring": "Monitoring",
+    "runtime": "Runtime",
     "sectionWorkspace": "Workspace",
-    "sectionDelivery": "Delivery",
-    "sectionRuntime": "Runtime"
+    "sectionManage": "Manage"
   },
   "status": {
     "done": "Done",

@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-
 import SystemEventBanner from "@/components/SystemEventBanner";
 import { WorkbenchProvider, useWorkbench } from "@/contexts/WorkbenchContext";
 import { AppLayout } from "@/layouts/AppLayout";
+import { MonitoringLayout } from "@/layouts/MonitoringLayout";
+import { RuntimeLayout } from "@/layouts/RuntimeLayout";
 import { LoginPage } from "@/pages/LoginPage";
 
 const AgentsPage = lazy(() => import("@/pages/AgentsPage").then((module) => ({ default: module.AgentsPage })));
@@ -79,36 +81,54 @@ const WorkbenchRoutes = () => {
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/" element={<MobileHomePage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/threads" element={<ThreadsPage />} />
-            <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
             <Route path="/chat" element={<ChatPage />} />
-            {/* Work Items (primary entry) */}
+            {/* Work Items */}
             <Route path="/work-items" element={<WorkItemsPage />} />
             <Route path="/work-items/new" element={<CreateWorkItemPage />} />
             <Route path="/work-items/:workItemId" element={<WorkItemDetailPage />} />
-            {/* Legacy /issues routes redirect to /work-items */}
+            {/* Threads (accessible via URL, linked from work items) */}
+            <Route path="/threads" element={<ThreadsPage />} />
+            <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
+            {/* Projects */}
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/new" element={<CreateProjectPage />} />
+            <Route path="/projects/:projectId/git-tags" element={<GitTagsPage />} />
+            <Route path="/projects/:projectId/manifest" element={<FeatureManifestPage />} />
+            {/* Monitoring hub */}
+            <Route path="/monitoring" element={<MonitoringLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="usage" element={<UsagePage />} />
+              <Route path="inspections" element={<InspectionPage />} />
+              <Route path="scheduled-tasks" element={<ScheduledTasksPage />} />
+            </Route>
+            {/* Runtime hub */}
+            <Route path="/runtime" element={<RuntimeLayout />}>
+              <Route index element={<Navigate to="agents" replace />} />
+              <Route path="agents" element={<AgentsPage />} />
+              <Route path="skills" element={<SkillsPage />} />
+              <Route path="templates" element={<TemplatesPage />} />
+            </Route>
+            {/* Standalone pages */}
+            <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
+            <Route path="/sandbox" element={<SandboxPage />} />
+            {/* Legacy redirects */}
             <Route path="/issues" element={<LegacyWorkItemRedirect target="list" />} />
             <Route path="/issues/new" element={<LegacyWorkItemRedirect target="new" />} />
             <Route path="/issues/:workItemId" element={<LegacyWorkItemRedirect target="detail" />} />
-            {/* Legacy /flows routes redirect to /work-items */}
             <Route path="/flows" element={<LegacyWorkItemRedirect target="list" />} />
             <Route path="/flows/new" element={<LegacyWorkItemRedirect target="new" />} />
             <Route path="/flows/:workItemId" element={<LegacyWorkItemRedirect target="detail" />} />
-            <Route path="/templates" element={<TemplatesPage />} />
-            <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
-            <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/inspections" element={<InspectionPage />} />
-            <Route path="/usage" element={<UsagePage />} />
-            <Route path="/llm-api" element={<Navigate to="/agents" replace />} />
-            <Route path="/sandbox" element={<SandboxPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/skills" element={<SkillsPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/:projectId/git-tags" element={<GitTagsPage />} />
-            <Route path="/projects/:projectId/manifest" element={<FeatureManifestPage />} />
-            <Route path="/projects/new" element={<CreateProjectPage />} />
+            <Route path="/dashboard" element={<Navigate to="/monitoring/dashboard" replace />} />
+            <Route path="/analytics" element={<Navigate to="/monitoring/analytics" replace />} />
+            <Route path="/usage" element={<Navigate to="/monitoring/usage" replace />} />
+            <Route path="/inspections" element={<Navigate to="/monitoring/inspections" replace />} />
+            <Route path="/scheduled-tasks" element={<Navigate to="/monitoring/scheduled-tasks" replace />} />
+            <Route path="/agents" element={<Navigate to="/runtime/agents" replace />} />
+            <Route path="/skills" element={<Navigate to="/runtime/skills" replace />} />
+            <Route path="/templates" element={<Navigate to="/runtime/templates" replace />} />
+            <Route path="/llm-api" element={<Navigate to="/runtime/agents" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

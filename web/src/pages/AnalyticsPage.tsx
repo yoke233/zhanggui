@@ -438,7 +438,7 @@ export function AnalyticsPage() {
               </CardTitle>
               <p className="mt-2 text-sm text-muted-foreground">{t("scheduledTasks.analyticsCardDesc")}</p>
             </div>
-            <Link to="/scheduled-tasks">
+            <Link to="/monitoring/scheduled-tasks">
               <Button variant="outline" size="sm">
                 {t("scheduledTasks.openControlCenter")}
               </Button>

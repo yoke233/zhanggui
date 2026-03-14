@@ -60,9 +60,10 @@
     "projects": "项目",
     "logout": "退出登录",
     "noProject": "未选择项目",
+    "monitoring": "监控",
+    "runtime": "运行时",
     "sectionWorkspace": "协作",
-    "sectionDelivery": "交付",
-    "sectionRuntime": "运行时"
+    "sectionManage": "管理"
   },
   "status": {
     "done": "已完成",
