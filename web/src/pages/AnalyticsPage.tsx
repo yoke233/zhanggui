@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   BarChart3,
+  CalendarClock,
   Clock,
   Loader2,
   RefreshCw,
@@ -22,9 +23,7 @@ import {
 } from "@/components/ui/table";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, formatRelativeTime } from "@/lib/v2Workbench";
-import { CronJobsSection } from "@/components/analytics/CronJobsSection";
-import { CronSetupDialog } from "@/components/analytics/CronSetupDialog";
-import type { AnalyticsSummary, CronStatus } from "@/types/apiV2";
+import type { AnalyticsSummary } from "@/types/apiV2";
 
 function formatDuration(seconds: number): string {
   if (seconds < 1) return "<1s";
@@ -65,8 +64,6 @@ export function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState(7);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [cronIssues, setCronIssues] = useState<CronStatus[]>([]);
-  const [cronDialogOpen, setCronDialogOpen] = useState(false);
 
   const TIME_RANGES = [
     { label: "24h", value: 1 },
@@ -86,15 +83,11 @@ export function AnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [resp, cronResp] = await Promise.all([
-        apiClient.getAnalyticsSummary({
-          project_id: selectedProjectId ?? undefined,
-          since: rangeDays > 0 ? new Date(Date.now() - rangeDays * 86400000).toISOString() : undefined,
-        }),
-        apiClient.listCronWorkItems(),
-      ]);
+      const resp = await apiClient.getAnalyticsSummary({
+        project_id: selectedProjectId ?? undefined,
+        since: rangeDays > 0 ? new Date(Date.now() - rangeDays * 86400000).toISOString() : undefined,
+      });
       setData(resp);
-      setCronIssues(cronResp);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -114,27 +107,6 @@ export function AnalyticsPage() {
     () => (data?.status_distribution ?? []).reduce((s, d) => s + d.count, 0),
     [data],
   );
-
-  const handleCronToggle = async (cron: CronStatus) => {
-    try {
-      if (cron.enabled) {
-        await apiClient.disableWorkItemCron(cron.work_item_id);
-      } else {
-        await apiClient.setupWorkItemCron(cron.work_item_id, {
-          schedule: cron.schedule ?? "0 * * * *",
-          max_instances: cron.max_instances,
-        });
-      }
-      void load();
-    } catch (e) {
-      setError(getErrorMessage(e));
-    }
-  };
-
-  const handleCronSave = async (issueId: number, schedule: string, maxInstances: number) => {
-    await apiClient.setupWorkItemCron(issueId, { schedule, max_instances: maxInstances });
-    void load();
-  };
 
   return (
     <div className="flex-1 space-y-6 p-8">
@@ -456,18 +428,24 @@ export function AnalyticsPage() {
           </Table>
         </CardContent>
       </Card>
-
-      <CronJobsSection
-        cronIssues={cronIssues}
-        onToggle={handleCronToggle}
-        onAdd={() => setCronDialogOpen(true)}
-      />
-
-      <CronSetupDialog
-        open={cronDialogOpen}
-        onClose={() => setCronDialogOpen(false)}
-        onSave={handleCronSave}
-      />
+      <Card className="border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.94))]">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 text-sky-600" />
+                {t("scheduledTasks.title")}
+              </CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">{t("scheduledTasks.analyticsCardDesc")}</p>
+            </div>
+            <Link to="/scheduled-tasks">
+              <Button variant="outline" size="sm">
+                {t("scheduledTasks.openControlCenter")}
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+      </Card>
     </div>
   );
 }

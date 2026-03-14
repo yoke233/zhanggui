@@ -313,6 +313,7 @@ export interface AgentProfileMCP {
 export interface AgentProfile {
   id: string;
   name?: string;
+  driver_id?: string;
   driver?: DriverConfig;
   role: "lead" | "worker" | "gate" | "support" | string;
   capabilities?: string[];
@@ -858,6 +859,9 @@ export interface ThreadMember {
   role: string;
   status?: ThreadAgentSessionStatus;
   agent_data?: Record<string, unknown>;
+  turn_count?: number;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
   joined_at: string;
   last_active_at: string;
 }

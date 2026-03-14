@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
   Eye,
   Lightbulb,
   Loader2,
@@ -33,9 +32,6 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, formatRelativeTime } from "@/lib/v2Workbench";
 import type {
   InspectionReport,
-  InspectionFinding,
-  InspectionInsight,
-  SuggestedSkill,
 } from "@/types/apiV2";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -44,16 +40,6 @@ const SEVERITY_COLORS: Record<string, string> = {
   medium: "bg-amber-500 text-white",
   low: "bg-blue-500 text-white",
   info: "bg-slate-400 text-white",
-};
-
-const CATEGORY_ICONS: Record<string, string> = {
-  blocker: "block",
-  failure: "x-circle",
-  bottleneck: "clock",
-  pattern: "repeat",
-  waste: "trash",
-  skill_gap: "sparkles",
-  drift: "trending-down",
 };
 
 const STATUS_COLORS: Record<string, string> = {

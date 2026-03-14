@@ -10,23 +10,13 @@ import {
   DialogBody,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { AgentDriver } from "@/types/apiV2";
-
-interface ProfilePayload {
-  id: string;
-  name: string;
-  driver_id: string;
-  role: string;
-  capabilities: string[];
-  actions_allowed: string[];
-  session: { reuse: boolean; max_turns: number };
-}
+import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 
 interface Props {
   open: boolean;
   drivers: AgentDriver[];
   onClose: () => void;
-  onCreate: (payload: ProfilePayload) => Promise<void>;
+  onCreate: (payload: AgentProfile) => Promise<void>;
 }
 
 export function CreateProfileDialog({ open, drivers, onClose, onCreate }: Props) {
@@ -52,10 +42,20 @@ export function CreateProfileDialog({ open, drivers, onClose, onCreate }: Props)
   const handleCreate = async () => {
     setSubmitting(true);
     try {
+      const selectedDriver = drivers.find((driver) => driver.id === driverId);
+      if (!selectedDriver) {
+        return;
+      }
       await onCreate({
         id: name.trim(),
         name: name.trim(),
         driver_id: driverId,
+        driver: {
+          launch_command: selectedDriver.launch_command,
+          launch_args: selectedDriver.launch_args,
+          env: selectedDriver.env,
+          capabilities_max: selectedDriver.capabilities_max,
+        },
         role,
         capabilities: caps.split(",").map((s) => s.trim()).filter(Boolean),
         actions_allowed: actions.split(",").map((s) => s.trim()).filter(Boolean),

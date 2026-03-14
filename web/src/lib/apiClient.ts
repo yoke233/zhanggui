@@ -5,6 +5,7 @@ import type {
   FeatureStatus,
   BootstrapPRWorkItemRequest,
   BootstrapPRWorkItemResponse,
+  AgentDriver,
   CancelWorkItemResponse,
   AgentProfile,
   AnalyticsFilter,
@@ -180,6 +181,62 @@ const extractErrorMessage = (status: number, data: unknown): string => {
   return `Request failed with status ${status}`;
 };
 
+const normalizeCronStatus = (value: unknown): CronStatus | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const workItemID = raw.work_item_id ?? raw.issue_id;
+  if (typeof workItemID !== "number") {
+    return null;
+  }
+
+  return {
+    work_item_id: workItemID,
+    enabled: raw.enabled === true,
+    is_template: raw.is_template === true,
+    schedule: typeof raw.schedule === "string" ? raw.schedule : undefined,
+    max_instances: typeof raw.max_instances === "number" ? raw.max_instances : undefined,
+    last_triggered: typeof raw.last_triggered === "string" ? raw.last_triggered : undefined,
+  };
+};
+
+const deriveDriverID = (profile: AgentProfile): string => {
+  const explicitID = profile.driver_id?.trim();
+  if (explicitID) {
+    return explicitID;
+  }
+  const launchCommand = profile.driver?.launch_command?.trim();
+  if (launchCommand) {
+    return launchCommand;
+  }
+  return profile.id;
+};
+
+const deriveDriversFromProfiles = (profiles: AgentProfile[]): AgentDriver[] => {
+  const byID = new Map<string, AgentDriver>();
+
+  for (const profile of profiles) {
+    if (!profile.driver) {
+      continue;
+    }
+    const id = deriveDriverID(profile);
+    if (!id || byID.has(id)) {
+      continue;
+    }
+    byID.set(id, {
+      id,
+      launch_command: profile.driver.launch_command,
+      launch_args: profile.driver.launch_args,
+      env: profile.driver.env,
+      capabilities_max: profile.driver.capabilities_max,
+    });
+  }
+
+  return Array.from(byID.values());
+};
+
 export interface ApiClient {
   request<TResponse, TBody = unknown>(
     options: RequestOptions<TBody>,
@@ -299,6 +356,7 @@ export interface ApiClient {
 
   listProfiles(): Promise<AgentProfile[]>;
   createProfile(body: AgentProfile): Promise<AgentProfile>;
+  listDrivers(): Promise<AgentDriver[]>;
   listSkills(): Promise<SkillInfo[]>;
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
@@ -636,11 +694,21 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
   const listCronWorkItems: ApiClient["listCronWorkItems"] = () =>
     request<CronStatus[]>({
       path: "/work-items/cron",
-    }).then((items) => (Array.isArray(items) ? items : []));
+    }).then((items) => (
+      Array.isArray(items)
+        ? items.map((item) => normalizeCronStatus(item)).filter((item): item is CronStatus => item !== null)
+        : []
+    ));
 
   const getWorkItemCronStatus: ApiClient["getWorkItemCronStatus"] = (workItemId) =>
     request<CronStatus>({
       path: `/work-items/${workItemId}/cron`,
+    }).then((item) => {
+      const normalized = normalizeCronStatus(item);
+      if (!normalized) {
+        throw new ApiError(500, "Invalid cron status response", item);
+      }
+      return normalized;
     });
 
   const setupWorkItemCron: ApiClient["setupWorkItemCron"] = (workItemId, body) =>
@@ -648,12 +716,24 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       path: `/work-items/${workItemId}/cron`,
       method: "POST",
       body,
+    }).then((item) => {
+      const normalized = normalizeCronStatus(item);
+      if (!normalized) {
+        throw new ApiError(500, "Invalid cron status response", item);
+      }
+      return normalized;
     });
 
   const disableWorkItemCron: ApiClient["disableWorkItemCron"] = (workItemId) =>
     request<CronStatus>({
       path: `/work-items/${workItemId}/cron`,
       method: "DELETE",
+    }).then((item) => {
+      const normalized = normalizeCronStatus(item);
+      if (!normalized) {
+        throw new ApiError(500, "Invalid cron status response", item);
+      }
+      return normalized;
     });
 
   // -- Templates (primary) --
@@ -897,6 +977,10 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<AgentProfile[]>({
         path: "/agents/profiles",
       }).then((items) => (Array.isArray(items) ? items : [])),
+    listDrivers: () =>
+      request<AgentProfile[]>({
+        path: "/agents/profiles",
+      }).then((items) => deriveDriversFromProfiles(Array.isArray(items) ? items : [])),
     createProfile: (body) =>
       request<AgentProfile, AgentProfile>({
         path: "/agents/profiles",

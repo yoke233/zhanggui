@@ -27,7 +27,6 @@ import {
   toSummaryRecord,
   normalizeDriverKey,
   driverLabelForId,
-  fallbackLabel,
 } from "@/components/chat/chatUtils";
 
 /** Status indicator dot color */
@@ -188,14 +187,6 @@ export function MobileHomePage() {
 
   const draftProfileId = useMemo(() => leadProfiles[0]?.id ?? "", [leadProfiles]);
   const draftSessionReady = Boolean(draftProfileId && draftDriverId);
-  const currentProjectLabel = fallbackLabel(
-    projects.find((p) => p.id === draftProjectId)?.name,
-    t("chat.noProject"),
-  );
-  const currentDriverLabel = draftDriverId
-    ? (leadDriverOptions.find((o) => o.driverId === draftDriverId)?.label ?? driverLabelForId(draftDriverId, t))
-    : t("chat.noDriver");
-
   const filteredSessions = useMemo(() => {
     const query = sessionSearch.trim().toLowerCase();
     if (!query) return sessions;

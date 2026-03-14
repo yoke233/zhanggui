@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
-import { CreateDriverDialog } from "@/components/agents/CreateDriverDialog";
 import { CreateProfileDialog } from "@/components/agents/CreateProfileDialog";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 import type { LLMConfigItem, LLMConfigResponse, SandboxSupportResponse } from "@/types/system";
@@ -66,7 +65,6 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [llmError, setLLMError] = useState<string | null>(null);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
-  const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
 
   const hydrateLLM = (next: LLMConfigResponse) => {
@@ -275,7 +273,9 @@ export function AgentsPage() {
                         <TableCell className="px-3 py-3">
                           <Badge variant={roleBadgeVariant[profile.role] ?? "secondary"}>{profile.role}</Badge>
                         </TableCell>
-                        <TableCell className="px-3 py-3 text-sm text-slate-600">{profile.driver_id}</TableCell>
+                        <TableCell className="px-3 py-3 text-sm text-slate-600">
+                          {profile.driver_id ?? profile.driver?.launch_command ?? "-"}
+                        </TableCell>
                         <TableCell className="px-3 py-3">
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-slate-900">{activeConfig?.model || "-"}</div>
@@ -324,10 +324,6 @@ export function AgentsPage() {
                   <Button variant="outline" size="sm" onClick={() => void loadSandboxSupport()} disabled={sandboxLoading}>
                     <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${sandboxLoading ? "animate-spin" : ""}`} />
                     {t("common.refresh")}
-                  </Button>
-                  <Button size="sm" onClick={() => setDriverDialogOpen(true)}>
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    {t("agents.newDriver")}
                   </Button>
                 </div>
               </div>
@@ -528,16 +524,6 @@ export function AgentsPage() {
           </Card>
         </div>
       </div>
-
-      <CreateDriverDialog
-        open={driverDialogOpen}
-        onClose={() => setDriverDialogOpen(false)}
-        onCreate={async (payload) => {
-          await apiClient.createDriver(payload);
-          await load();
-        }}
-      />
-
       <CreateProfileDialog
         open={profileDialogOpen}
         drivers={drivers}

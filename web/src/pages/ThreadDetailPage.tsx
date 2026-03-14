@@ -204,6 +204,7 @@ function detectInviteIntent(message: string, inviteableProfiles: AgentProfile[])
 }
 
 type SidebarTab = "agents" | "details";
+type ThreadAgentSessionWithProfileID = ThreadAgentSession & { agent_profile_id: string };
 
 export function ThreadDetailPage() {
   const { t } = useTranslation();
@@ -250,14 +251,18 @@ export function ThreadDetailPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const id = Number(threadId);
-  const joinedAgentProfileIDs = new Set(agentSessions.map((session) => session.agent_profile_id));
+  const agentSessionsWithProfileID = agentSessions.filter(
+    (session): session is ThreadAgentSessionWithProfileID =>
+      typeof session.agent_profile_id === "string" && session.agent_profile_id.trim().length > 0,
+  );
+  const joinedAgentProfileIDs = new Set(agentSessionsWithProfileID.map((session) => session.agent_profile_id));
   const inviteableProfiles = availableProfiles.filter((profile) => !joinedAgentProfileIDs.has(profile.id));
-  const activeAgentProfileIDs = agentSessions
+  const activeAgentProfileIDs = agentSessionsWithProfileID
     .filter((session) => session.status === "active" || session.status === "booting")
     .map((session) => session.agent_profile_id);
   const agentRoutingMode = readAgentRoutingMode(thread);
   const profileByID = new Map(availableProfiles.map((profile) => [profile.id, profile]));
-  const agentSessionByProfileID = new Map(agentSessions.map((session) => [session.agent_profile_id, session]));
+  const agentSessionByProfileID = new Map(agentSessionsWithProfileID.map((session) => [session.agent_profile_id, session]));
   const committedMentionTargetID = readCommittedMentionTarget(newMessage, activeAgentProfileIDs);
   const committedMentionProfile = committedMentionTargetID ? profileByID.get(committedMentionTargetID) : undefined;
   const committedMentionSession = committedMentionTargetID ? agentSessionByProfileID.get(committedMentionTargetID) : undefined;
@@ -281,6 +286,7 @@ export function ThreadDetailPage() {
         || candidate.label.toLowerCase().includes(query);
     })
     .slice(0, 6);
+  const selectedMentionCandidate = mentionCandidates[selectedMentionIndex];
   const orderedWorkItemLinks = [...workItemLinks].sort((a, b) => {
     if (a.is_primary === b.is_primary) {
       return a.id - b.id;
@@ -848,7 +854,7 @@ export function ThreadDetailPage() {
                 {session?.status ?? "not_joined"}
               </span>
               <span className="mt-2 block text-xs text-slate-500">
-                {t("threads.turns", "Turns")}: {session?.turn_count ?? 0} | {((session ? (session.total_input_tokens + session.total_output_tokens) : 0) / 1000).toFixed(1)}k {t("threads.tokens", "tokens")}
+                {t("threads.turns", "Turns")}: {session?.turn_count ?? 0} | {(((session?.total_input_tokens ?? 0) + (session?.total_output_tokens ?? 0)) / 1000).toFixed(1)}k {t("threads.tokens", "tokens")}
               </span>
             </span>
           ) : null}
@@ -1043,7 +1049,7 @@ export function ThreadDetailPage() {
                           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{profile.id}</p>
                         )}
                         <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                          {profile.driver_id}
+                          {profile.driver_id ?? profile.driver?.launch_command ?? "-"}
                           {profile.capabilities && profile.capabilities.length > 0 && (
                             <> | {profile.capabilities.slice(0, 3).join(", ")}{profile.capabilities.length > 3 ? "..." : ""}</>
                           )}
@@ -1323,7 +1329,9 @@ export function ThreadDetailPage() {
                         }
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          applyMentionCandidate(mentionCandidates[selectedMentionIndex].id);
+                          if (selectedMentionCandidate) {
+                            applyMentionCandidate(selectedMentionCandidate.id);
+                          }
                           return;
                         }
                         if (e.key === "Escape") {
@@ -1467,7 +1475,7 @@ export function ThreadDetailPage() {
                                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{profile.id}</p>
                               )}
                               <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                                {t("threads.driver", "Driver")}: {profile.driver_id}
+                                {t("threads.driver", "Driver")}: {profile.driver_id ?? profile.driver?.launch_command ?? "-"}
                                 {profile.capabilities && profile.capabilities.length > 0 && (
                                   <> | {profile.capabilities.slice(0, 3).join(", ")}{profile.capabilities.length > 3 ? "..." : ""}</>
                                 )}
@@ -1481,7 +1489,7 @@ export function ThreadDetailPage() {
                 </div>
 
                 {/* Agent Cards */}
-                {agentSessions.length === 0 ? (
+                {agentSessionsWithProfileID.length === 0 ? (
                   <div className="rounded-xl border border-dashed py-8 text-center">
                     <Bot className="mx-auto h-8 w-8 text-muted-foreground/30" />
                     <p className="mt-2 text-xs text-muted-foreground">
@@ -1494,9 +1502,9 @@ export function ThreadDetailPage() {
                 ) : (
                   <div className="space-y-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {t("threads.activeAgents", "Active Agents")} ({agentSessions.length})
+                      {t("threads.activeAgents", "Active Agents")} ({agentSessionsWithProfileID.length})
                     </h3>
-                    {agentSessions.map((s) => {
+                    {agentSessionsWithProfileID.map((s) => {
                       const profile = profileByID.get(s.agent_profile_id);
                       return (
                         <div
@@ -1520,16 +1528,16 @@ export function ThreadDetailPage() {
                                   {profile?.name ?? s.agent_profile_id}
                                 </span>
                                 <span className="flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                  <span className={cn("h-1.5 w-1.5 rounded-full", agentStatusColor(s.status))} />
-                                  {s.status}
+                                  <span className={cn("h-1.5 w-1.5 rounded-full", agentStatusColor(s.status ?? "unknown"))} />
+                                  {s.status ?? "unknown"}
                                 </span>
                               </div>
                               {profile?.name && (
                                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{s.agent_profile_id}</p>
                               )}
                               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground">
-                                <span>{t("threads.turns", "Turns")}: {s.turn_count}</span>
-                                <span>{((s.total_input_tokens + s.total_output_tokens) / 1000).toFixed(1)}k tokens</span>
+                                <span>{t("threads.turns", "Turns")}: {s.turn_count ?? 0}</span>
+                                <span>{(((s.total_input_tokens ?? 0) + (s.total_output_tokens ?? 0)) / 1000).toFixed(1)}k tokens</span>
                               </div>
                             </div>
                             <button

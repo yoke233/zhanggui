@@ -11,6 +11,7 @@ import {
   ClipboardList,
   GitBranch,
   BarChart3,
+  CalendarClock,
   Bot,
   FolderOpen,
   FileStack,
@@ -42,6 +43,7 @@ const navSections = [
     labelKey: "nav.sectionDelivery",
     items: [
       { to: "/templates", icon: FileStack, labelKey: "nav.templates" },
+      { to: "/scheduled-tasks", icon: CalendarClock, labelKey: "nav.scheduledTasks" },
       { to: "/analytics", icon: BarChart3, labelKey: "nav.analytics" },
       { to: "/inspections", icon: ShieldCheck, labelKey: "nav.inspections" },
       { to: "/usage", icon: Coins, labelKey: "nav.usage" },
