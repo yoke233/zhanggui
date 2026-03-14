@@ -19,7 +19,6 @@ type Sandbox interface {
 
 type PrepareInput struct {
 	Profile *core.AgentProfile
-	Driver  *core.AgentDriver
 
 	Launch acpclient.LaunchConfig
 

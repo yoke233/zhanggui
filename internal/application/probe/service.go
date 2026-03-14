@@ -44,11 +44,23 @@ func NewRunProbeService(cfg RunProbeServiceConfig) *RunProbeService {
 }
 
 func (s *RunProbeService) ListRunProbes(ctx context.Context, runID int64) ([]*core.RunProbe, error) {
-	return s.store.ListRunProbesByRun(ctx, runID)
+	signals, err := s.store.ListProbeSignalsByRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	probes := make([]*core.RunProbe, 0, len(signals))
+	for _, sig := range signals {
+		probes = append(probes, core.ProbeFromSignal(sig))
+	}
+	return probes, nil
 }
 
 func (s *RunProbeService) GetLatestRunProbe(ctx context.Context, runID int64) (*core.RunProbe, error) {
-	return s.store.GetLatestRunProbe(ctx, runID)
+	sig, err := s.store.GetLatestProbeSignal(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return core.ProbeFromSignal(sig), nil
 }
 
 func (s *RunProbeService) RequestRunProbe(ctx context.Context, runID int64, source core.RunProbeTriggerSource, question string, timeout time.Duration) (*core.RunProbe, error) {
@@ -60,7 +72,7 @@ func (s *RunProbeService) RequestRunProbe(ctx context.Context, runID int64, sour
 		return nil, ErrRunNotRunning
 	}
 
-	if active, err := s.store.GetActiveRunProbe(ctx, runID); err == nil && active != nil {
+	if active, err := s.store.GetActiveProbeSignal(ctx, runID); err == nil && active != nil {
 		return nil, ErrRunProbeConflict
 	} else if err != nil && !errors.Is(err, core.ErrNotFound) {
 		return nil, err
@@ -88,21 +100,29 @@ func (s *RunProbeService) RequestRunProbe(ctx context.Context, runID int64, sour
 		Status:         core.RunProbePending,
 		Verdict:        core.RunProbeUnknown,
 	}
-	if _, err := s.store.CreateRunProbe(ctx, probe); err != nil {
+
+	// Create as probe_request signal.
+	reqSignal := core.NewProbeRequestSignal(probe)
+	sigID, err := s.store.CreateActionSignal(ctx, reqSignal)
+	if err != nil {
 		return nil, err
 	}
+	probe.ID = sigID
 	s.publishProbeEvent(ctx, core.EventRunProbeRequested, probe)
 
+	// Mark as sent.
 	now := time.Now().UTC()
 	probe.Status = core.RunProbeSent
 	probe.SentAt = &now
-	if err := s.store.UpdateRunProbe(ctx, probe); err != nil {
+	sentSignal := core.NewProbeRequestSignal(probe)
+	sentSignal.ID = sigID
+	if err := s.store.UpdateProbeSignal(ctx, sentSignal); err != nil {
 		return nil, err
 	}
 	s.publishProbeEvent(ctx, core.EventRunProbeSent, probe)
 
 	runtimeResult, err := s.sessionManager.ProbeRun(ctx, RunProbeRuntimeRequest{
-		RunID:   runID,
+		RunID:     runID,
 		SessionID: route.SessionID,
 		OwnerID:   route.OwnerID,
 		Question:  trimmedQuestion,
@@ -112,14 +132,18 @@ func (s *RunProbeService) RequestRunProbe(ctx context.Context, runID int64, sour
 		probe.Status = core.RunProbeFailed
 		probe.Error = err.Error()
 		probe.Verdict = core.RunProbeUnknown
-		if updateErr := s.store.UpdateRunProbe(ctx, probe); updateErr != nil {
+		failSignal := core.NewProbeResponseSignal(probe)
+		failSignal.ID = sigID
+		if updateErr := s.store.UpdateProbeSignal(ctx, failSignal); updateErr != nil {
 			return nil, updateErr
 		}
 		return probe, nil
 	}
 
 	s.applyRuntimeResult(probe, runtimeResult)
-	if err := s.store.UpdateRunProbe(ctx, probe); err != nil {
+	respSignal := core.NewProbeResponseSignal(probe)
+	respSignal.ID = sigID
+	if err := s.store.UpdateProbeSignal(ctx, respSignal); err != nil {
 		return nil, err
 	}
 	s.publishTerminalProbeEvent(ctx, probe)

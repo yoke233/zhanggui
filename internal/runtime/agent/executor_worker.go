@@ -274,16 +274,16 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		workDir = w.cfg.DefaultWorkDir
 	}
 
-	profile, driver, err := resolveRunProfile(ctx, w.cfg.Registry, invocation)
+	profile, err := resolveRunProfile(ctx, w.cfg.Registry, invocation)
 	if err != nil {
 		return nil, err
 	}
 
 	launchCfg := acpclient.LaunchConfig{
-		Command: driver.LaunchCommand,
-		Args:    driver.LaunchArgs,
+		Command: profile.Driver.LaunchCommand,
+		Args:    profile.Driver.LaunchArgs,
 		WorkDir: workDir,
-		Env:     cloneEnv(driver.Env),
+		Env:     cloneEnv(profile.Driver.Env),
 	}
 
 	sb := w.cfg.Sandbox
@@ -292,7 +292,6 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile: profile,
-		Driver:  driver,
 		Launch:  launchCfg,
 		Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.IssueID, invocation.ExecID),
 	})
@@ -309,7 +308,6 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 
 	acquireInput := acpSessionAcquireInput{
 		Profile:    profile,
-		Driver:     driver,
 		Launch:     sandboxedLaunch,
 		Caps:       acpCaps,
 		WorkDir:    workDir,
@@ -507,19 +505,19 @@ func (w *ExecutorWorker) respondProbe(msg *nats.Msg, res natsprobe.Response) {
 	}
 }
 
-func resolveRunProfile(ctx context.Context, registry core.AgentRegistry, invocation *natsInvocationMessage) (*core.AgentProfile, *core.AgentDriver, error) {
+func resolveRunProfile(ctx context.Context, registry core.AgentRegistry, invocation *natsInvocationMessage) (*core.AgentProfile, error) {
 	if registry == nil {
-		return nil, nil, fmt.Errorf("registry is required")
+		return nil, fmt.Errorf("registry is required")
 	}
 	profileID := strings.TrimSpace(invocation.ProfileID)
 	if profileID == "" {
 		profileID = strings.TrimSpace(invocation.AgentID)
 	}
-	profile, driver, err := registry.ResolveByID(ctx, profileID)
+	profile, err := registry.ResolveByID(ctx, profileID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve profile %q: %w", profileID, err)
+		return nil, fmt.Errorf("resolve profile %q: %w", profileID, err)
 	}
-	return profile, driver, nil
+	return profile, nil
 }
 
 // Stop gracefully shuts down the executor worker.

@@ -83,6 +83,16 @@ type Message struct {
 	Time    time.Time `json:"time"`
 }
 
+// GitStats holds lightweight git diff statistics for a session's working directory.
+type GitStats struct {
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	FilesChanged int    `json:"files_changed"`
+	PrURL        string `json:"pr_url,omitempty"`
+	PrNumber     int    `json:"pr_number,omitempty"`
+	PrState      string `json:"pr_state,omitempty"`
+}
+
 // SessionSummary is the minimal metadata required to render a session list.
 type SessionSummary struct {
 	SessionID    string    `json:"session_id"`
@@ -99,6 +109,7 @@ type SessionSummary struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	Status       string    `json:"status"`
 	MessageCount int       `json:"message_count"`
+	Git          *GitStats `json:"git,omitempty"`
 }
 
 // SessionDetail is a session summary plus the stored conversation history.

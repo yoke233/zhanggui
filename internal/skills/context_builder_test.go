@@ -17,18 +17,16 @@ type mockStore struct {
 
 	workItems    map[int64]*core.WorkItem
 	actions      map[int64][]*core.Action
-	deliverables map[int64]*core.Deliverable // actionID → latest deliverable
-	manifests    map[int64]*core.FeatureManifest
-	entries      map[int64][]*core.FeatureEntry // manifestID → entries
+	runs         map[int64]*core.Run         // actionID → latest run with result
+	entries map[int64][]*core.FeatureEntry // projectID → entries
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
 		workItems:    make(map[int64]*core.WorkItem),
 		actions:      make(map[int64][]*core.Action),
-		deliverables: make(map[int64]*core.Deliverable),
-		manifests:    make(map[int64]*core.FeatureManifest),
-		entries:      make(map[int64][]*core.FeatureEntry),
+		runs:         make(map[int64]*core.Run),
+		entries: make(map[int64][]*core.FeatureEntry),
 	}
 }
 
@@ -43,22 +41,15 @@ func (m *mockStore) ListActionsByWorkItem(_ context.Context, workItemID int64) (
 	return m.actions[workItemID], nil
 }
 
-func (m *mockStore) GetLatestDeliverableByAction(_ context.Context, actionID int64) (*core.Deliverable, error) {
-	if del, ok := m.deliverables[actionID]; ok {
-		return del, nil
-	}
-	return nil, core.ErrNotFound
-}
-
-func (m *mockStore) GetFeatureManifestByProject(_ context.Context, projectID int64) (*core.FeatureManifest, error) {
-	if fm, ok := m.manifests[projectID]; ok {
-		return fm, nil
+func (m *mockStore) GetLatestRunWithResult(_ context.Context, actionID int64) (*core.Run, error) {
+	if run, ok := m.runs[actionID]; ok {
+		return run, nil
 	}
 	return nil, core.ErrNotFound
 }
 
 func (m *mockStore) ListFeatureEntries(_ context.Context, filter core.FeatureEntryFilter) ([]*core.FeatureEntry, error) {
-	return m.entries[filter.ManifestID], nil
+	return m.entries[filter.ProjectID], nil
 }
 
 func (m *mockStore) Close() error { return nil }
@@ -78,19 +69,13 @@ func TestBuild_FullMaterials(t *testing.T) {
 		{ID: 1, WorkItemID: 10, Name: "requirements", Position: 0, Type: core.ActionExec},
 		{ID: 2, WorkItemID: 10, Name: "implement", Position: 1, Type: core.ActionExec},
 	}
-	store.deliverables[1] = &core.Deliverable{
+	store.runs[1] = &core.Run{
 		ID:             1,
 		ActionID:       1,
 		ResultMarkdown: "## Requirements\n\n- Login form with email/password\n- OAuth support",
 	}
-	store.manifests[projectID] = &core.FeatureManifest{
-		ID:        100,
-		ProjectID: projectID,
-		Version:   1,
-		Summary:   "Auth features",
-	}
-	store.entries[100] = []*core.FeatureEntry{
-		{ID: 1, ManifestID: 100, Key: "login", Description: "Login page", Status: core.FeaturePending},
+	store.entries[projectID] = []*core.FeatureEntry{
+		{ID: 1, ProjectID: projectID, Key: "login", Description: "Login page", Status: core.FeaturePending},
 	}
 
 	action := &core.Action{
@@ -175,8 +160,8 @@ func TestBuild_FullMaterials(t *testing.T) {
 	if err := json.Unmarshal(manifestContent, &manifestData); err != nil {
 		t.Fatalf("manifest.json should be valid JSON: %v", err)
 	}
-	if manifestData["summary"] != "Auth features" {
-		t.Error("manifest.json should contain manifest summary")
+	if manifestData["project_id"] != float64(projectID) {
+		t.Error("manifest.json should contain project_id")
 	}
 }
 
@@ -269,7 +254,7 @@ func TestBuild_SkillMD_Index(t *testing.T) {
 		{ID: 1, WorkItemID: 10, Name: "design", Position: 0},
 		{ID: 2, WorkItemID: 10, Name: "code", Position: 1},
 	}
-	store.deliverables[1] = &core.Deliverable{
+	store.runs[1] = &core.Run{
 		ActionID:       1,
 		ResultMarkdown: "Design output",
 	}
@@ -306,15 +291,15 @@ func TestBuild_SkillMD_Index(t *testing.T) {
 	}
 }
 
-func TestBuild_LargeDeliverable(t *testing.T) {
+func TestBuild_LargeResult(t *testing.T) {
 	store := newMockStore()
-	store.workItems[10] = &core.WorkItem{ID: 10, Title: "Large deliverable test"}
+	store.workItems[10] = &core.WorkItem{ID: 10, Title: "Large result test"}
 	largeContent := strings.Repeat("x", 100000) // 100KB — well above the old 4000 char limit
 	store.actions[10] = []*core.Action{
 		{ID: 1, WorkItemID: 10, Name: "big-action", Position: 0},
 		{ID: 2, WorkItemID: 10, Name: "next", Position: 1},
 	}
-	store.deliverables[1] = &core.Deliverable{
+	store.runs[1] = &core.Run{
 		ActionID:       1,
 		ResultMarkdown: largeContent,
 	}
@@ -385,7 +370,6 @@ func TestSanitizeFileName(t *testing.T) {
 var _ interface {
 	GetWorkItem(context.Context, int64) (*core.WorkItem, error)
 	ListActionsByWorkItem(context.Context, int64) ([]*core.Action, error)
-	GetLatestDeliverableByAction(context.Context, int64) (*core.Deliverable, error)
-	GetFeatureManifestByProject(context.Context, int64) (*core.FeatureManifest, error)
+	GetLatestRunWithResult(context.Context, int64) (*core.Run, error)
 	ListFeatureEntries(context.Context, core.FeatureEntryFilter) ([]*core.FeatureEntry, error)
 } = (*mockStore)(nil)

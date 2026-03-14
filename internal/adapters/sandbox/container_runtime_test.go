@@ -31,10 +31,11 @@ func TestBoxLiteSandboxMaterializesExternalHomeLinks(t *testing.T) {
 		Image:   "ghcr.io/example/acp:latest",
 	}
 	_, err := sb.Prepare(context.Background(), PrepareInput{
-		Profile: &core.AgentProfile{ID: "worker"},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+		Profile: &core.AgentProfile{
+			ID: "worker",
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			Command: "npx",

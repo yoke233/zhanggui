@@ -146,7 +146,8 @@ func isThreadEvent(t core.EventType) bool {
 		core.EventThreadAgentLeft,
 		core.EventThreadAgentOutput,
 		core.EventThreadAgentBooted,
-		core.EventThreadAgentFailed:
+		core.EventThreadAgentFailed,
+		core.EventThreadAgentThinking:
 		return true
 	}
 	return false
@@ -633,7 +634,8 @@ func readThreadAgentRoutingMode(thread *core.Thread) string {
 	}
 	value, _ := thread.Metadata["agent_routing_mode"].(string)
 	value = strings.TrimSpace(value)
-	if value == "broadcast" {
+	switch value {
+	case "broadcast", "auto":
 		return value
 	}
 	return "mention_only"

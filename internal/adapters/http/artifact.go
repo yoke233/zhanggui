@@ -6,6 +6,19 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
+func runToDeliverableResponse(run *core.Run) map[string]any {
+	return map[string]any{
+		"id":              run.ID,
+		"run_id":          run.ID,
+		"action_id":       run.ActionID,
+		"work_item_id":    run.WorkItemID,
+		"result_markdown": run.ResultMarkdown,
+		"metadata":        run.ResultMetadata,
+		"assets":          run.ResultAssets,
+		"created_at":      run.CreatedAt,
+	}
+}
+
 func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "artifactID")
 	if !ok {
@@ -13,7 +26,8 @@ func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.store.GetDeliverable(r.Context(), id)
+	// Artifact IDs now map to Run IDs (result data is inline on the Run).
+	run, err := h.store.GetRun(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "artifact not found", "NOT_FOUND")
 		return
@@ -22,7 +36,7 @@ func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, a)
+	writeJSON(w, http.StatusOK, runToDeliverableResponse(run))
 }
 
 func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +46,7 @@ func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.store.GetLatestDeliverableByAction(r.Context(), stepID)
+	run, err := h.store.GetLatestRunWithResult(r.Context(), stepID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "no artifact for this step", "NOT_FOUND")
 		return
@@ -41,7 +55,7 @@ func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, a)
+	writeJSON(w, http.StatusOK, runToDeliverableResponse(run))
 }
 
 func (h *Handler) listDeliverablesByRun(w http.ResponseWriter, r *http.Request) {
@@ -51,14 +65,20 @@ func (h *Handler) listDeliverablesByRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	artifacts, err := h.store.ListDeliverablesByRun(r.Context(), execID)
+	run, err := h.store.GetRun(r.Context(), execID)
+	if err == core.ErrNotFound {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if artifacts == nil {
-		artifacts = []*core.Deliverable{}
-	}
-	writeJSON(w, http.StatusOK, artifacts)
-}
 
+	// Return the run's inline result as a single-element array for backward compat.
+	if run.ResultMarkdown == "" {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, []map[string]any{runToDeliverableResponse(run)})
+}

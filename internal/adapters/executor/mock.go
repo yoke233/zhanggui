@@ -41,20 +41,8 @@ func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionEx
 			})
 		}
 
-		// Store artifact.
-		if store != nil {
-			art := &core.Deliverable{
-				RunID:          exec.ID,
-				ActionID:       step.ID,
-				WorkItemID:     step.WorkItemID,
-				ResultMarkdown: reply,
-			}
-			artID, err := store.CreateDeliverable(ctx, art)
-			if err != nil {
-				return fmt.Errorf("store artifact: %w", err)
-			}
-			exec.DeliverableID = &artID
-		}
+		// Store result inline on the Run.
+		exec.ResultMarkdown = reply
 
 		exec.Output = map[string]any{
 			"text":        reply,

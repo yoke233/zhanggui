@@ -74,8 +74,8 @@ func EnsureSkillsLinked(skillsRoot, targetSkillsDir string, skillNames []string)
 // Target locations:
 //   - codex-acp:  $CODEX_HOME/skills
 //   - claude-acp: $CLAUDE_CONFIG_DIR/skills
-func EnsureProfileSkills(profile *core.AgentProfile, driver *core.AgentDriver) error {
-	if profile == nil || driver == nil {
+func EnsureProfileSkills(profile *core.AgentProfile) error {
+	if profile == nil {
 		return nil
 	}
 	if len(profile.Skills) == 0 {
@@ -87,7 +87,7 @@ func EnsureProfileSkills(profile *core.AgentProfile, driver *core.AgentDriver) e
 		return err
 	}
 
-	targetSkillsDir, err := resolveTargetSkillsDir(driver)
+	targetSkillsDir, err := resolveTargetSkillsDir(profile)
 	if err != nil {
 		return err
 	}
@@ -111,50 +111,51 @@ func ResolveSkillsRoot() (string, error) {
 
 // EnsureProfileSkillsFromRoot ensures the given profile's skills are linked from an explicit
 // global shared skills root into the target agent home skills directory.
-func EnsureProfileSkillsFromRoot(profile *core.AgentProfile, driver *core.AgentDriver, skillsRoot string) error {
-	if profile == nil || driver == nil {
+func EnsureProfileSkillsFromRoot(profile *core.AgentProfile, skillsRoot string) error {
+	if profile == nil {
 		return nil
 	}
 	if len(profile.Skills) == 0 {
 		return nil
 	}
-	targetSkillsDir, err := resolveTargetSkillsDir(driver)
+	targetSkillsDir, err := resolveTargetSkillsDir(profile)
 	if err != nil {
 		return err
 	}
 	return EnsureSkillsLinked(skillsRoot, targetSkillsDir, profile.Skills)
 }
 
-func resolveTargetSkillsDir(driver *core.AgentDriver) (string, error) {
-	if driver == nil {
-		return "", fmt.Errorf("nil driver")
+func resolveTargetSkillsDir(profile *core.AgentProfile) (string, error) {
+	if profile == nil {
+		return "", fmt.Errorf("nil profile")
 	}
 
-	id := strings.ToLower(strings.TrimSpace(driver.ID))
+	id := strings.ToLower(strings.TrimSpace(profile.ID))
+	cmd := strings.ToLower(strings.TrimSpace(profile.Driver.LaunchCommand))
 	homeKey := ""
 	defaultDirName := ""
 
 	switch {
-	case strings.Contains(id, "codex"):
+	case strings.Contains(id, "codex") || strings.Contains(cmd, "codex"):
 		homeKey = "CODEX_HOME"
 		defaultDirName = ".codex"
-	case strings.Contains(id, "claude"):
+	case strings.Contains(id, "claude") || strings.Contains(cmd, "claude"):
 		homeKey = "CLAUDE_CONFIG_DIR"
 		defaultDirName = ".claude"
 	default:
 		// Fallback: infer by env keys present.
-		if _, ok := driver.Env["CODEX_HOME"]; ok || strings.TrimSpace(os.Getenv("CODEX_HOME")) != "" {
+		if _, ok := profile.Driver.Env["CODEX_HOME"]; ok || strings.TrimSpace(os.Getenv("CODEX_HOME")) != "" {
 			homeKey = "CODEX_HOME"
 			defaultDirName = ".codex"
-		} else if _, ok := driver.Env["CLAUDE_CONFIG_DIR"]; ok || strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" {
+		} else if _, ok := profile.Driver.Env["CLAUDE_CONFIG_DIR"]; ok || strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" {
 			homeKey = "CLAUDE_CONFIG_DIR"
 			defaultDirName = ".claude"
 		} else {
-			return "", fmt.Errorf("cannot infer agent home dir (driver id=%q)", driver.ID)
+			return "", fmt.Errorf("cannot infer agent home dir (profile id=%q)", profile.ID)
 		}
 	}
 
-	home := strings.TrimSpace(driver.Env[homeKey])
+	home := strings.TrimSpace(profile.Driver.Env[homeKey])
 	if home == "" {
 		home = strings.TrimSpace(os.Getenv(homeKey))
 	}

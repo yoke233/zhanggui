@@ -29,8 +29,15 @@ type Scope struct {
 	RunID      int64
 }
 
+// ToolCallAuditStore is the subset of EventStore needed by the audit logger.
+type ToolCallAuditStore interface {
+	CreateToolCallAudit(ctx context.Context, audit *core.ToolCallAudit) (int64, error)
+	GetToolCallAuditByToolCallID(ctx context.Context, runID int64, toolCallID string) (*core.ToolCallAudit, error)
+	UpdateToolCallAudit(ctx context.Context, audit *core.ToolCallAudit) error
+}
+
 type Logger struct {
-	store    core.ToolCallAuditStore
+	store    ToolCallAuditStore
 	cfg      Config
 	redactor *Redactor
 	exporter Exporter
@@ -52,11 +59,11 @@ func ResolveRootDir(dataDir string, fallbackDir string) string {
 	return filepath.Join(dataDir, trimmed)
 }
 
-func NewLogger(store core.ToolCallAuditStore, cfg Config) *Logger {
+func NewLogger(store ToolCallAuditStore, cfg Config) *Logger {
 	return NewLoggerWithExporter(store, cfg, nil)
 }
 
-func NewLoggerWithExporter(store core.ToolCallAuditStore, cfg Config, exporter Exporter) *Logger {
+func NewLoggerWithExporter(store ToolCallAuditStore, cfg Config, exporter Exporter) *Logger {
 	cfg.RootDir = filepath.Clean(strings.TrimSpace(cfg.RootDir))
 	if exporter == nil {
 		exporter = NewFileExporter(cfg.RootDir)

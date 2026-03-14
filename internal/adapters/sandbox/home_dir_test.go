@@ -72,10 +72,9 @@ func TestHomeDirSandboxPrepareSetsEnvAndLinksSkills(t *testing.T) {
 		Profile: &core.AgentProfile{
 			ID:     "worker",
 			Skills: []string{"demo-skill"},
-		},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			Command: "agent",
@@ -131,10 +130,9 @@ func TestHomeDirSandboxPrepareRejectsInvalidSkill(t *testing.T) {
 		Profile: &core.AgentProfile{
 			ID:     "worker",
 			Skills: []string{"broken-skill"},
-		},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			Command: "agent",
@@ -169,10 +167,11 @@ func TestHomeDirSandboxPrepareRejectsUnsafeEphemeralSkillName(t *testing.T) {
 	}
 	srcSkill := t.TempDir()
 	_, err := sb.Prepare(context.Background(), PrepareInput{
-		Profile: &core.AgentProfile{ID: "worker"},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+		Profile: &core.AgentProfile{
+			ID: "worker",
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			Command: "agent",
@@ -221,10 +220,11 @@ func TestHomeDirSandboxPrepareRejectsEscapingEphemeralSkillName(t *testing.T) {
 		RequireCodexAuth: true,
 	}
 	_, err := sb.Prepare(context.Background(), PrepareInput{
-		Profile: &core.AgentProfile{ID: "worker"},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+		Profile: &core.AgentProfile{
+			ID: "worker",
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			Command: "agent",

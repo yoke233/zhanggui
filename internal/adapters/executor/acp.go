@@ -41,7 +41,7 @@ type ACPExecutorConfig struct {
 }
 
 // NewACPActionExecutor creates a ActionExecutor that uses a SessionManager for ACP agent execution.
-// It resolves step → AgentProfile + AgentDriver via the AgentRegistry, acquires a session,
+// It resolves step → AgentProfile via the AgentRegistry, acquires a session,
 // starts the execution, watches for completion, then stores the result.
 func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
@@ -49,7 +49,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			return fmt.Errorf("session manager is not configured")
 		}
 
-		profile, driver, err := resolveStepAgent(ctx, cfg.Registry, step)
+		profile, err := resolveStepAgent(ctx, cfg.Registry, step)
 		if err != nil {
 			return fmt.Errorf("resolve agent for step %d: %w", step.ID, err)
 		}
@@ -64,10 +64,10 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		}
 
 		launchCfg := acpclient.LaunchConfig{
-			Command: driver.LaunchCommand,
-			Args:    driver.LaunchArgs,
+			Command: profile.Driver.LaunchCommand,
+			Args:    profile.Driver.LaunchArgs,
 			WorkDir: workDir,
-			Env:     cloneEnv(driver.Env),
+			Env:     cloneEnv(profile.Driver.Env),
 		}
 
 		// Generate scoped token and inject step-signal env vars for the agent process.
@@ -161,7 +161,6 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
 			Profile:         profile,
-			Driver:          driver,
 			Launch:          launchCfg,
 			Caps:            acpCaps,
 			WorkDir:         workDir,
@@ -205,7 +204,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		executionInput := flowapp.BuildRunInputForAction(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasStepContext)
 
 		// Persist the full execution input for auditability.
-		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, hasStepContext, step)
+		exec.Input = buildExecutionInputRecord(executionInput, profile, workDir, hasSignalSkill, hasStepContext, step)
 
 		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "execution.dispatch", "started", map[string]any{
 			"agent_id":    profile.ID,
@@ -255,24 +254,13 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			"content": replyText,
 		})
 
-		// Store agent output as a Deliverable.
-		art := &core.Deliverable{
-			RunID:          exec.ID,
-			ActionID:       step.ID,
-			WorkItemID:     step.WorkItemID,
-			ResultMarkdown: replyText,
-		}
+		// Store agent output inline on the Run.
+		exec.ResultMarkdown = replyText
 		if step.Type == core.ActionGate {
-			art.Metadata = extractGateMetadata(replyText)
+			exec.ResultMetadata = extractGateMetadata(replyText)
 		}
-		artID, err := cfg.Store.CreateDeliverable(ctx, art)
-		if err != nil {
-			return fmt.Errorf("store deliverable: %w", err)
-		}
-		exec.DeliverableID = &artID
 		publishExecutionAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "deliverable.persist", "succeeded", map[string]any{
-			"deliverable_id": artID,
-			"result_chars":   len(replyText),
+			"result_chars": len(replyText),
 		})
 
 		// Fallback: if agent couldn't curl (network-isolated sandbox),
@@ -336,14 +324,14 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 	}
 }
 
-// resolveStepAgent resolves the agent profile and driver for a step.
+// resolveStepAgent resolves the agent profile for a step.
 // It first checks step.Config["profile_id"] for an explicit profile assignment,
 // then falls back to ResolveForAction (role + capabilities matching).
-func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
+func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Action) (*core.AgentProfile, error) {
 	if pid, ok := step.Config["profile_id"].(string); ok && pid != "" {
-		p, d, err := registry.ResolveByID(ctx, pid)
+		p, err := registry.ResolveByID(ctx, pid)
 		if err == nil {
-			return p, d, nil
+			return p, nil
 		}
 		slog.Warn("resolve agent: explicit profile_id not found, falling back",
 			"profile_id", pid, "step_id", step.ID, "error", err)
@@ -584,7 +572,7 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 }
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.
-func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Action) map[string]any {
+func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Action) map[string]any {
 	rec := map[string]any{
 		"prompt":   prompt,
 		"work_dir": workDir,
@@ -611,12 +599,9 @@ func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver
 			rec["mcp_enabled"] = true
 			rec["mcp_tools"] = profile.MCP.Tools
 		}
-	}
 
-	if driver != nil {
-		rec["driver_id"] = driver.ID
-		rec["launch_command"] = driver.LaunchCommand
-		rec["launch_args"] = driver.LaunchArgs
+		rec["launch_command"] = profile.Driver.LaunchCommand
+		rec["launch_args"] = profile.Driver.LaunchArgs
 	}
 
 	// Skills injected

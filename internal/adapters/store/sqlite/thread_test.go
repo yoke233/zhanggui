@@ -137,10 +137,10 @@ func TestCreateThreadWithParticipants(t *testing.T) {
 		Status:  core.ThreadActive,
 		OwnerID: "owner-1",
 	}
-	participants := []*core.ThreadParticipant{
-		{UserID: "owner-1", Role: "owner"},
-		{UserID: "member-1", Role: "member"},
-		{UserID: "member-1", Role: "member"},
+	participants := []*core.ThreadMember{
+		{Kind: "human", UserID: "owner-1", Role: "owner"},
+		{Kind: "human", UserID: "member-1", Role: "member"},
+		{Kind: "human", UserID: "member-1", Role: "member"},
 	}
 
 	if err := s.CreateThreadWithParticipants(ctx, thread, participants); err != nil {
@@ -150,12 +150,12 @@ func TestCreateThreadWithParticipants(t *testing.T) {
 		t.Fatal("expected persisted thread id")
 	}
 
-	listed, err := s.ListThreadParticipants(ctx, thread.ID)
+	listed, err := s.ListThreadMembers(ctx, thread.ID)
 	if err != nil {
-		t.Fatalf("list participants: %v", err)
+		t.Fatalf("list members: %v", err)
 	}
 	if len(listed) != 2 {
-		t.Fatalf("expected 2 unique participants, got %d", len(listed))
+		t.Fatalf("expected 2 unique members, got %d", len(listed))
 	}
 }
 
@@ -389,7 +389,7 @@ func TestThreadWorkItemLinkCleanup(t *testing.T) {
 	}
 }
 
-func TestThreadAgentSessionCRUD(t *testing.T) {
+func TestThreadMemberAgentCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -400,252 +400,185 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 		t.Fatalf("create thread: %v", err)
 	}
 
-	// Create agent session.
-	sess := &core.ThreadAgentSession{
+	// Create agent member.
+	member := &core.ThreadMember{
 		ThreadID:       threadID,
+		Kind:           "agent",
+		UserID:         "worker-claude",
 		AgentProfileID: "worker-claude",
-		ACPSessionID:   "acp-sess-001",
+		Role:           "agent",
 		Status:         core.ThreadAgentActive,
+		AgentData:      map[string]any{"acp_session_id": "acp-sess-001"},
 	}
-	sessID, err := s.CreateThreadAgentSession(ctx, sess)
+	memberID, err := s.AddThreadMember(ctx, member)
 	if err != nil {
-		t.Fatalf("create agent session: %v", err)
+		t.Fatalf("add agent member: %v", err)
 	}
-	if sessID <= 0 {
-		t.Fatal("expected positive session id")
+	if memberID <= 0 {
+		t.Fatal("expected positive member id")
 	}
 
-	// Get session.
-	got, err := s.GetThreadAgentSession(ctx, sessID)
+	// Get member.
+	got, err := s.GetThreadMember(ctx, memberID)
 	if err != nil {
-		t.Fatalf("get session: %v", err)
+		t.Fatalf("get member: %v", err)
 	}
 	if got.AgentProfileID != "worker-claude" || got.Status != core.ThreadAgentActive {
-		t.Fatalf("unexpected session: %+v", got)
+		t.Fatalf("unexpected member: %+v", got)
 	}
 
-	// List sessions.
-	sessions, err := s.ListThreadAgentSessions(ctx, threadID)
+	// List members (filter for agents).
+	members, err := s.ListThreadMembers(ctx, threadID)
 	if err != nil {
-		t.Fatalf("list sessions: %v", err)
+		t.Fatalf("list members: %v", err)
 	}
-	if len(sessions) != 1 {
-		t.Fatalf("expected 1 session, got %d", len(sessions))
+	agentCount := 0
+	for _, m := range members {
+		if m.Kind == "agent" {
+			agentCount++
+		}
+	}
+	if agentCount != 1 {
+		t.Fatalf("expected 1 agent member, got %d", agentCount)
 	}
 
 	// Update status.
 	got.Status = core.ThreadAgentLeft
-	if err := s.UpdateThreadAgentSession(ctx, got); err != nil {
-		t.Fatalf("update session: %v", err)
+	if err := s.UpdateThreadMember(ctx, got); err != nil {
+		t.Fatalf("update member: %v", err)
 	}
-	got2, _ := s.GetThreadAgentSession(ctx, sessID)
+	got2, _ := s.GetThreadMember(ctx, memberID)
 	if got2.Status != core.ThreadAgentLeft {
 		t.Fatalf("expected status 'left', got %q", got2.Status)
 	}
 
-	// Delete session.
-	if err := s.DeleteThreadAgentSession(ctx, sessID); err != nil {
-		t.Fatalf("delete session: %v", err)
+	// Delete member.
+	if err := s.RemoveThreadMember(ctx, memberID); err != nil {
+		t.Fatalf("remove member: %v", err)
 	}
-	_, err = s.GetThreadAgentSession(ctx, sessID)
+	_, err = s.GetThreadMember(ctx, memberID)
 	if err != core.ErrNotFound {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
-
-	// Duplicate profile per thread should fail.
-	s1 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: core.ThreadAgentActive}
-	s.CreateThreadAgentSession(ctx, s1)
-	s2 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: core.ThreadAgentActive}
-	if _, err := s.CreateThreadAgentSession(ctx, s2); err == nil {
-		t.Fatal("expected error for duplicate profile per thread")
-	}
 }
 
-func TestThreadAgentSessionRejectsInvalidStatus(t *testing.T) {
+func TestThreadMemberAgentDataRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "agent-invalid-status"})
-	if err != nil {
-		t.Fatalf("create thread: %v", err)
-	}
-
-	_, err = s.CreateThreadAgentSession(ctx, &core.ThreadAgentSession{
-		ThreadID:       threadID,
-		AgentProfileID: "worker-bad",
-		Status:         core.ThreadAgentStatus("broken"),
-	})
-	if err == nil {
-		t.Fatal("expected error for invalid thread agent status")
-	}
-}
-
-func TestCreateThreadAgentSessionWithParticipant(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "agent-tx"})
-	if err != nil {
-		t.Fatalf("create thread: %v", err)
-	}
-
-	sess := &core.ThreadAgentSession{
-		ThreadID:       threadID,
-		AgentProfileID: "worker-1",
-		Status:         core.ThreadAgentActive,
-	}
-	participant := &core.ThreadParticipant{
-		ThreadID: threadID,
-		UserID:   "worker-1",
-		Role:     "agent",
-	}
-
-	if err := s.CreateThreadAgentSessionWithParticipant(ctx, sess, participant); err != nil {
-		t.Fatalf("create thread agent session with participant: %v", err)
-	}
-	if sess.ID <= 0 {
-		t.Fatal("expected persisted session id")
-	}
-
-	participants, err := s.ListThreadParticipants(ctx, threadID)
-	if err != nil {
-		t.Fatalf("list participants: %v", err)
-	}
-	if len(participants) != 1 || participants[0].UserID != "worker-1" {
-		t.Fatalf("unexpected participants: %+v", participants)
-	}
-}
-
-func TestThreadAgentSessionRuntimeFields(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	// Create thread.
-	thread := &core.Thread{Title: "runtime-fields-test"}
+	thread := &core.Thread{Title: "agent-data-test"}
 	threadID, err := s.CreateThread(ctx, thread)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
 
-	// Create agent session with new runtime fields.
-	sess := &core.ThreadAgentSession{
-		ThreadID:          threadID,
-		AgentProfileID:    "claude-worker",
-		ACPSessionID:      "acp-123",
-		Status:            core.ThreadAgentActive,
-		TurnCount:         5,
-		TotalInputTokens:  12000,
-		TotalOutputTokens: 3500,
-		ProgressSummary:   "Implemented feature X, pending tests.",
-		Metadata:          map[string]any{"model": "claude-4"},
+	member := &core.ThreadMember{
+		ThreadID:       threadID,
+		Kind:           "agent",
+		UserID:         "claude-worker",
+		AgentProfileID: "claude-worker",
+		Role:           "agent",
+		Status:         core.ThreadAgentActive,
+		AgentData: map[string]any{
+			"acp_session_id": "acp-123",
+			"model":          "claude-4",
+		},
 	}
-	sessID, err := s.CreateThreadAgentSession(ctx, sess)
+	memberID, err := s.AddThreadMember(ctx, member)
 	if err != nil {
-		t.Fatalf("create session: %v", err)
+		t.Fatalf("add member: %v", err)
 	}
 
-	// Verify fields round-trip.
-	got, err := s.GetThreadAgentSession(ctx, sessID)
+	got, err := s.GetThreadMember(ctx, memberID)
 	if err != nil {
-		t.Fatalf("get session: %v", err)
-	}
-	if got.TurnCount != 0 {
-		// Note: CreateThreadAgentSession doesn't set runtime fields; they start at default.
-		// The runtime fields are set via UpdateThreadAgentSession.
+		t.Fatalf("get member: %v", err)
 	}
 
-	// Update with runtime fields.
+	// Update with runtime fields in AgentData.
 	got.Status = core.ThreadAgentPaused
-	got.TurnCount = 10
-	got.TotalInputTokens = 25000
-	got.TotalOutputTokens = 8000
-	got.ProgressSummary = "Completed feature X with tests."
-	got.Metadata = map[string]any{"model": "claude-4", "turns_remaining": float64(2)}
-	if err := s.UpdateThreadAgentSession(ctx, got); err != nil {
-		t.Fatalf("update session: %v", err)
+	got.AgentData = map[string]any{
+		"acp_session_id":      "acp-123",
+		"turn_count":          float64(10),
+		"total_input_tokens":  float64(25000),
+		"total_output_tokens": float64(8000),
+		"progress_summary":    "Completed feature X with tests.",
+		"model":               "claude-4",
+	}
+	if err := s.UpdateThreadMember(ctx, got); err != nil {
+		t.Fatalf("update member: %v", err)
 	}
 
-	// Re-read and verify.
-	updated, err := s.GetThreadAgentSession(ctx, sessID)
+	updated, err := s.GetThreadMember(ctx, memberID)
 	if err != nil {
-		t.Fatalf("get updated session: %v", err)
+		t.Fatalf("get updated member: %v", err)
 	}
 	if updated.Status != core.ThreadAgentPaused {
 		t.Fatalf("expected status %q, got %q", core.ThreadAgentPaused, updated.Status)
 	}
-	if updated.TurnCount != 10 {
-		t.Fatalf("expected turn_count 10, got %d", updated.TurnCount)
-	}
-	if updated.TotalInputTokens != 25000 {
-		t.Fatalf("expected total_input_tokens 25000, got %d", updated.TotalInputTokens)
-	}
-	if updated.TotalOutputTokens != 8000 {
-		t.Fatalf("expected total_output_tokens 8000, got %d", updated.TotalOutputTokens)
-	}
-	if updated.ProgressSummary != "Completed feature X with tests." {
-		t.Fatalf("unexpected progress_summary: %q", updated.ProgressSummary)
-	}
-	if updated.Metadata == nil || updated.Metadata["model"] != "claude-4" {
-		t.Fatalf("unexpected metadata: %v", updated.Metadata)
+	if updated.AgentData == nil || updated.AgentData["model"] != "claude-4" {
+		t.Fatalf("unexpected agent_data: %v", updated.AgentData)
 	}
 }
 
-func TestThreadParticipantCRUD(t *testing.T) {
+func TestThreadMemberCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
 	// Create thread.
-	thread := &core.Thread{Title: "participant-test"}
+	thread := &core.Thread{Title: "member-test"}
 	threadID, err := s.CreateThread(ctx, thread)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
 
-	// Add participant.
-	p := &core.ThreadParticipant{
+	// Add human member.
+	p := &core.ThreadMember{
 		ThreadID: threadID,
+		Kind:     "human",
 		UserID:   "user-1",
 		Role:     "owner",
 	}
-	pID, err := s.AddThreadParticipant(ctx, p)
+	pID, err := s.AddThreadMember(ctx, p)
 	if err != nil {
-		t.Fatalf("add participant: %v", err)
+		t.Fatalf("add member: %v", err)
 	}
 	if pID <= 0 {
-		t.Fatal("expected positive participant id")
+		t.Fatal("expected positive member id")
 	}
 
-	// Add second participant.
-	p2 := &core.ThreadParticipant{
-		ThreadID: threadID,
-		UserID:   "agent-1",
-		Role:     "agent",
+	// Add second member (agent).
+	p2 := &core.ThreadMember{
+		ThreadID:       threadID,
+		Kind:           "agent",
+		UserID:         "agent-1",
+		AgentProfileID: "agent-1",
+		Role:           "agent",
 	}
-	if _, err := s.AddThreadParticipant(ctx, p2); err != nil {
-		t.Fatalf("add participant 2: %v", err)
+	if _, err := s.AddThreadMember(ctx, p2); err != nil {
+		t.Fatalf("add member 2: %v", err)
 	}
 
-	// List participants.
-	participants, err := s.ListThreadParticipants(ctx, threadID)
+	// List members.
+	members, err := s.ListThreadMembers(ctx, threadID)
 	if err != nil {
-		t.Fatalf("list participants: %v", err)
+		t.Fatalf("list members: %v", err)
 	}
-	if len(participants) != 2 {
-		t.Fatalf("expected 2 participants, got %d", len(participants))
-	}
-
-	// Remove participant.
-	if err := s.RemoveThreadParticipant(ctx, threadID, "user-1"); err != nil {
-		t.Fatalf("remove participant: %v", err)
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
 	}
 
-	participants, _ = s.ListThreadParticipants(ctx, threadID)
-	if len(participants) != 1 {
-		t.Fatalf("expected 1 participant after remove, got %d", len(participants))
+	// Remove member by user.
+	if err := s.RemoveThreadMemberByUser(ctx, threadID, "user-1"); err != nil {
+		t.Fatalf("remove member: %v", err)
+	}
+
+	members, _ = s.ListThreadMembers(ctx, threadID)
+	if len(members) != 1 {
+		t.Fatalf("expected 1 member after remove, got %d", len(members))
 	}
 
 	// Remove non-existent.
-	if err := s.RemoveThreadParticipant(ctx, threadID, "nobody"); err != core.ErrNotFound {
+	if err := s.RemoveThreadMemberByUser(ctx, threadID, "nobody"); err != core.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }

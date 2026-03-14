@@ -50,12 +50,13 @@ const (
 	EventChatPermissionRequest EventType = "chat.permission_request"
 
 	// Thread events for multi-participant discussion.
-	EventThreadMessage     EventType = "thread.message"
-	EventThreadAgentJoined EventType = "thread.agent_joined"
-	EventThreadAgentLeft   EventType = "thread.agent_left"
-	EventThreadAgentOutput EventType = "thread.agent_output"
-	EventThreadAgentBooted EventType = "thread.agent_booted"
-	EventThreadAgentFailed EventType = "thread.agent_failed"
+	EventThreadMessage       EventType = "thread.message"
+	EventThreadAgentJoined   EventType = "thread.agent_joined"
+	EventThreadAgentLeft     EventType = "thread.agent_left"
+	EventThreadAgentOutput   EventType = "thread.agent_output"
+	EventThreadAgentBooted   EventType = "thread.agent_booted"
+	EventThreadAgentFailed   EventType = "thread.agent_failed"
+	EventThreadAgentThinking EventType = "thread.agent_thinking"
 
 	// Feature manifest events.
 	EventManifestEntryUpdated EventType = "manifest.entry_updated"
@@ -85,10 +86,17 @@ func IsTransientAgentEvent(ev Event) bool {
 	return false
 }
 
+// Event category constants.
+const (
+	EventCategoryDomain    = "domain"
+	EventCategoryToolAudit = "tool_audit"
+)
+
 // Event is a domain event emitted during WorkItem execution.
 type Event struct {
 	ID         int64          `json:"id"`
 	Type       EventType      `json:"type"`
+	Category   string         `json:"category,omitempty"`
 	WorkItemID int64          `json:"work_item_id,omitempty"`
 	ActionID   int64          `json:"action_id,omitempty"`
 	RunID      int64          `json:"run_id,omitempty"`

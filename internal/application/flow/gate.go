@@ -268,29 +268,29 @@ func (e *WorkItemEngine) evalManifestCheck(ctx context.Context, action *core.Act
 	}, nil
 }
 
-// evalDeliverableMetadata checks the gate action's deliverable for a verdict field.
+// evalDeliverableMetadata checks the gate action's latest run result for a verdict field.
 func (e *WorkItemEngine) evalDeliverableMetadata(ctx context.Context, action *core.Action) (GateVerdict, error) {
-	deliverable, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	run, err := e.store.GetLatestRunWithResult(ctx, action.ID)
 	if err == core.ErrNotFound {
-		return GateVerdict{}, nil // no deliverable → continue to default pass
+		return GateVerdict{}, nil // no result → continue to default pass
 	}
 	if err != nil {
-		return GateVerdict{}, fmt.Errorf("get gate deliverable for action %d: %w", action.ID, err)
+		return GateVerdict{}, fmt.Errorf("get gate result for action %d: %w", action.ID, err)
 	}
 
-	verdict, _ := deliverable.Metadata["verdict"].(string)
+	verdict, _ := run.ResultMetadata["verdict"].(string)
 	if verdict != "reject" {
 		// "pass" or unrecognized → pass
-		return GateVerdict{Decided: true, Passed: true, Metadata: deliverable.Metadata}, nil
+		return GateVerdict{Decided: true, Passed: true, Metadata: run.ResultMetadata}, nil
 	}
 
-	resetTo, reason := e.defaultGateResetTargets(ctx, action, deliverable.Metadata)
+	resetTo, reason := e.defaultGateResetTargets(ctx, action, run.ResultMetadata)
 	return GateVerdict{
 		Decided:  true,
 		Passed:   false,
 		Reason:   reason,
 		ResetTo:  resetTo,
-		Metadata: deliverable.Metadata,
+		Metadata: run.ResultMetadata,
 	}, nil
 }
 

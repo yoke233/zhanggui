@@ -1338,10 +1338,9 @@ func TestAPI_ExecutionAuditTimelineRoute(t *testing.T) {
 		t.Fatalf("create execution audit event: %v", err)
 	}
 
-	probeCreatedAt := time.Now().UTC().Add(-4 * time.Minute)
-	probeSentAt := probeCreatedAt.Add(20 * time.Second)
+	probeSentAt := time.Now().UTC().Add(-4 * time.Minute).Add(20 * time.Second)
 	probeAnsweredAt := probeSentAt.Add(30 * time.Second)
-	if _, err := h.store.CreateRunProbe(ctx, &core.RunProbe{
+	probeSig := core.NewProbeResponseSignal(&core.RunProbe{
 		RunID:         runID,
 		WorkItemID:    workItemID,
 		ActionID:      actionID,
@@ -1352,9 +1351,9 @@ func TestAPI_ExecutionAuditTimelineRoute(t *testing.T) {
 		ReplyText:     "alive and progressing",
 		SentAt:        &probeSentAt,
 		AnsweredAt:    &probeAnsweredAt,
-		CreatedAt:     probeCreatedAt,
-	}); err != nil {
-		t.Fatalf("create run probe: %v", err)
+	})
+	if _, err := h.store.CreateActionSignal(ctx, probeSig); err != nil {
+		t.Fatalf("create probe signal: %v", err)
 	}
 
 	toolStartedAt := time.Now().UTC().Add(-3 * time.Minute)

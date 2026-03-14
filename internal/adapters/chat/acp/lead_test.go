@@ -14,19 +14,9 @@ import (
 
 type fakeLeadRegistry struct {
 	profile       *core.AgentProfile
-	driver        *core.AgentDriver
 	lastResolveID string
 }
 
-func (f *fakeLeadRegistry) GetDriver(context.Context, string) (*core.AgentDriver, error) {
-	return nil, core.ErrDriverNotFound
-}
-func (f *fakeLeadRegistry) ListDrivers(context.Context) ([]*core.AgentDriver, error) {
-	return nil, nil
-}
-func (f *fakeLeadRegistry) CreateDriver(context.Context, *core.AgentDriver) error { return nil }
-func (f *fakeLeadRegistry) UpdateDriver(context.Context, *core.AgentDriver) error { return nil }
-func (f *fakeLeadRegistry) DeleteDriver(context.Context, string) error            { return nil }
 func (f *fakeLeadRegistry) GetProfile(context.Context, string) (*core.AgentProfile, error) {
 	return nil, core.ErrProfileNotFound
 }
@@ -36,12 +26,12 @@ func (f *fakeLeadRegistry) ListProfiles(context.Context) ([]*core.AgentProfile, 
 func (f *fakeLeadRegistry) CreateProfile(context.Context, *core.AgentProfile) error { return nil }
 func (f *fakeLeadRegistry) UpdateProfile(context.Context, *core.AgentProfile) error { return nil }
 func (f *fakeLeadRegistry) DeleteProfile(context.Context, string) error             { return nil }
-func (f *fakeLeadRegistry) ResolveForAction(context.Context, *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
-	return f.profile, f.driver, nil
+func (f *fakeLeadRegistry) ResolveForAction(context.Context, *core.Action) (*core.AgentProfile, error) {
+	return f.profile, nil
 }
-func (f *fakeLeadRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, *core.AgentDriver, error) {
+func (f *fakeLeadRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, error) {
 	f.lastResolveID = id
-	return f.profile, f.driver, nil
+	return f.profile, nil
 }
 
 type fakeChatACPClient struct {
@@ -98,10 +88,9 @@ func TestLeadAgentRestoresPersistedSession(t *testing.T) {
 			ID:   "lead",
 			Name: "Codex Lead",
 			Role: core.RoleLead,
-		},
-		driver: &core.AgentDriver{
-			ID:            "codex-acp",
-			LaunchCommand: "fake",
+			Driver: core.DriverConfig{
+				LaunchCommand: "fake",
+			},
 		},
 	}
 
@@ -183,10 +172,9 @@ func TestLeadAgentPersistsProjectAndProfileSelection(t *testing.T) {
 			ID:   "lead-alt",
 			Name: "Claude Lead",
 			Role: core.RoleLead,
-		},
-		driver: &core.AgentDriver{
-			ID:            "codex-acp",
-			LaunchCommand: "fake",
+			Driver: core.DriverConfig{
+				LaunchCommand: "fake",
+			},
 		},
 	}
 	client := &fakeChatACPClient{
@@ -236,10 +224,9 @@ func TestLeadAgentPersistsSessionStateMetadata(t *testing.T) {
 			ID:   "lead",
 			Name: "Claude Lead",
 			Role: core.RoleLead,
-		},
-		driver: &core.AgentDriver{
-			ID:            "claude-acp",
-			LaunchCommand: "fake",
+			Driver: core.DriverConfig{
+				LaunchCommand: "fake",
+			},
 		},
 	}
 	client := &fakeChatACPClient{

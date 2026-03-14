@@ -26,13 +26,6 @@ func setupSkillTestServerWithImporter(t *testing.T, importer skillset.GitHubImpo
 	skillsRoot := filepath.Join(dataDir, "skills")
 
 	registry := agentapp.NewConfigRegistry()
-	registry.LoadDrivers([]*core.AgentDriver{{
-		ID:            "test-driver",
-		LaunchCommand: "echo",
-		CapabilitiesMax: core.DriverCapabilities{
-			FSRead: true, FSWrite: true, Terminal: true,
-		},
-	}})
 
 	h := NewHandler(nil, nil, nil,
 		WithRegistry(registry),
@@ -63,7 +56,7 @@ func TestSkillRoutesExposeValidationAndProfileRefs(t *testing.T) {
 	writeSkillFile(t, skillsRoot, "strict-review", skillset.DefaultSkillMD("strict-review"))
 	writeSkillFile(t, skillsRoot, "broken-skill", "# broken")
 	registry.LoadProfiles([]*core.AgentProfile{
-		{ID: "worker-a", Name: "worker-a", DriverID: "test-driver", Role: core.RoleWorker, Skills: []string{"strict-review", "broken-skill"}},
+		{ID: "worker-a", Name: "worker-a", Role: core.RoleWorker, Skills: []string{"strict-review", "broken-skill"}},
 	})
 
 	resp, err := getJSON(ts, "/skills/")
@@ -132,7 +125,7 @@ func TestDeleteSkillFailsWhenReferenced(t *testing.T) {
 
 	writeSkillFile(t, skillsRoot, "strict-review", skillset.DefaultSkillMD("strict-review"))
 	registry.LoadProfiles([]*core.AgentProfile{
-		{ID: "worker-a", Name: "worker-a", DriverID: "test-driver", Role: core.RoleWorker, Skills: []string{"strict-review"}},
+		{ID: "worker-a", Name: "worker-a", Role: core.RoleWorker, Skills: []string{"strict-review"}},
 	})
 
 	resp, err := deleteReq(ts, "/skills/strict-review")
@@ -152,10 +145,9 @@ func TestCreateProfileRejectsInvalidSkills(t *testing.T) {
 	writeSkillFile(t, skillsRoot, "strict-review", skillset.DefaultSkillMD("strict-review"))
 
 	resp, err := postJSON(ts, "/agents/profiles", map[string]any{
-		"id":        "worker-a",
-		"driver_id": "test-driver",
-		"role":      "worker",
-		"skills":    []string{"strict-review", "missing-skill"},
+		"id":     "worker-a",
+		"role":   "worker",
+		"skills": []string{"strict-review", "missing-skill"},
 	})
 	if err != nil {
 		t.Fatalf("POST /agents/profiles: %v", err)
@@ -313,18 +305,10 @@ func TestProfileValidationUsesResolvedSkillsRoot(t *testing.T) {
 	writeSkillFile(t, skillsRoot, "strict-review", skillset.DefaultSkillMD("strict-review"))
 
 	registry := agentapp.NewConfigRegistry()
-	registry.LoadDrivers([]*core.AgentDriver{{
-		ID:            "test-driver",
-		LaunchCommand: "echo",
-		CapabilitiesMax: core.DriverCapabilities{
-			FSRead: true, FSWrite: true, Terminal: true,
-		},
-	}})
 	err := registry.CreateProfile(context.Background(), &core.AgentProfile{
-		ID:       "worker-a",
-		DriverID: "test-driver",
-		Role:     core.RoleWorker,
-		Skills:   []string{"strict-review"},
+		ID:     "worker-a",
+		Role:   core.RoleWorker,
+		Skills: []string{"strict-review"},
 	})
 	if err != nil {
 		t.Fatalf("expected resolved skills root to validate profile, got %v", err)

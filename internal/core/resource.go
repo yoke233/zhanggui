@@ -7,11 +7,12 @@ import (
 
 // Well-known ResourceBinding kinds.
 const (
-	ResourceKindGit     = "git"
-	ResourceKindLocalFS = "local_fs"
-	ResourceKindS3      = "s3"
-	ResourceKindHTTP    = "http"
-	ResourceKindWebDAV  = "webdav"
+	ResourceKindGit        = "git"
+	ResourceKindLocalFS    = "local_fs"
+	ResourceKindS3         = "s3"
+	ResourceKindHTTP       = "http"
+	ResourceKindWebDAV     = "webdav"
+	ResourceKindAttachment = "attachment"
 )
 
 // ResourceBinding is the unified representation of an external resource
@@ -22,13 +23,17 @@ const (
 //  2. I/O storage — ActionResource references it for per-action file
 //     fetch/deposit (e.g. shared drive, S3 bucket, CDN).
 //
+// When Kind is "attachment", the binding represents a work-item file
+// attachment (IssueID is set, ProjectID may be zero).
+//
 // The Kind field determines which provider handles it; the URI field
 // can be a local path ("/home/user/repo"), a remote URL
 // ("https://github.com/org/repo.git"), or a storage URI ("s3://bucket/prefix").
 type ResourceBinding struct {
 	ID        int64          `json:"id"`
 	ProjectID int64          `json:"project_id"`
-	Kind      string         `json:"kind"` // "git" | "local_fs" | "s3" | "http" | "webdav" | ...
+	IssueID   *int64         `json:"issue_id,omitempty"`
+	Kind      string         `json:"kind"` // "git" | "local_fs" | "s3" | "http" | "webdav" | "attachment" | ...
 	URI       string         `json:"uri"`  // local path, remote URL, or storage URI
 	Config    map[string]any `json:"config,omitempty"`
 	Label     string         `json:"label,omitempty"`
@@ -91,6 +96,7 @@ type ResourceBindingStore interface {
 	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
 	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
 	ListResourceBindings(ctx context.Context, projectID int64) ([]*ResourceBinding, error)
+	ListResourceBindingsByIssue(ctx context.Context, issueID int64, kind string) ([]*ResourceBinding, error)
 	UpdateResourceBinding(ctx context.Context, rb *ResourceBinding) error
 	DeleteResourceBinding(ctx context.Context, id int64) error
 }
@@ -115,4 +121,47 @@ type ResourceProvider interface {
 
 	// Deposit uploads/copies a local file to the resource location.
 	Deposit(ctx context.Context, binding *ResourceBinding, path string, localPath string) error
+}
+
+// NewAttachmentBinding creates a ResourceBinding that represents a work-item file attachment.
+func NewAttachmentBinding(issueID int64, fileName, filePath, mimeType string, size int64) *ResourceBinding {
+	return &ResourceBinding{
+		IssueID: &issueID,
+		Kind:    ResourceKindAttachment,
+		URI:     filePath,
+		Label:   fileName,
+		Config: map[string]any{
+			"mime_type": mimeType,
+			"size":      size,
+		},
+	}
+}
+
+// AttachmentFileName returns the display name for an attachment binding.
+func (rb *ResourceBinding) AttachmentFileName() string { return rb.Label }
+
+// AttachmentFilePath returns the on-disk path for an attachment binding.
+func (rb *ResourceBinding) AttachmentFilePath() string { return rb.URI }
+
+// AttachmentMimeType extracts the MIME type from an attachment binding's Config.
+func (rb *ResourceBinding) AttachmentMimeType() string {
+	if rb.Config == nil {
+		return ""
+	}
+	s, _ := rb.Config["mime_type"].(string)
+	return s
+}
+
+// AttachmentSize extracts the file size from an attachment binding's Config.
+func (rb *ResourceBinding) AttachmentSize() int64 {
+	if rb.Config == nil {
+		return 0
+	}
+	switch v := rb.Config["size"].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	}
+	return 0
 }

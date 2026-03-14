@@ -31,7 +31,6 @@ type Run struct {
 	AgentID          string         `json:"agent_id,omitempty"`
 	AgentContextID   *int64         `json:"agent_context_id,omitempty"`
 	BriefingSnapshot string         `json:"briefing_snapshot,omitempty"` // briefing at run time
-	DeliverableID    *int64         `json:"deliverable_id,omitempty"`   // points to Deliverable
 	Input            map[string]any `json:"input,omitempty"`
 	Output           map[string]any `json:"output,omitempty"`
 	ErrorMessage     string         `json:"error_message,omitempty"`
@@ -40,4 +39,13 @@ type Run struct {
 	StartedAt        *time.Time     `json:"started_at,omitempty"`
 	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
+	// Inline result fields (formerly in Deliverable/artifacts table).
+	ResultMarkdown string         `json:"result_markdown,omitempty"`
+	ResultMetadata map[string]any `json:"result_metadata,omitempty"`
+	ResultAssets   []Asset        `json:"result_assets,omitempty"`
+}
+
+// HasResult returns true if this Run produced a non-empty result.
+func (r *Run) HasResult() bool {
+	return r.ResultMarkdown != ""
 }

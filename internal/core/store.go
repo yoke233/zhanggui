@@ -28,22 +28,15 @@ type ActionStore interface {
 	UpdateActionDependsOn(ctx context.Context, id int64, dependsOn []int64) error
 }
 
-// RunStore persists Run aggregates.
+// RunStore persists Run aggregates (including inline result/deliverable data).
 type RunStore interface {
 	CreateRun(ctx context.Context, r *Run) (int64, error)
 	GetRun(ctx context.Context, id int64) (*Run, error)
 	ListRunsByAction(ctx context.Context, actionID int64) ([]*Run, error)
 	ListRunsByStatus(ctx context.Context, status RunStatus) ([]*Run, error)
 	UpdateRun(ctx context.Context, r *Run) error
-}
-
-// DeliverableStore persists Deliverable records.
-type DeliverableStore interface {
-	CreateDeliverable(ctx context.Context, d *Deliverable) (int64, error)
-	GetDeliverable(ctx context.Context, id int64) (*Deliverable, error)
-	GetLatestDeliverableByAction(ctx context.Context, actionID int64) (*Deliverable, error)
-	ListDeliverablesByRun(ctx context.Context, runID int64) ([]*Deliverable, error)
-	UpdateDeliverable(ctx context.Context, d *Deliverable) error
+	// GetLatestRunWithResult returns the most recent Run for the given action that has a non-empty result.
+	GetLatestRunWithResult(ctx context.Context, actionID int64) (*Run, error)
 }
 
 // AgentContextStore persists AgentContext records.
@@ -54,11 +47,17 @@ type AgentContextStore interface {
 	UpdateAgentContext(ctx context.Context, ac *AgentContext) error
 }
 
-// EventStore persists domain events.
+// EventStore persists domain events and tool call audits (unified in event_log).
 type EventStore interface {
 	CreateEvent(ctx context.Context, e *Event) (int64, error)
 	ListEvents(ctx context.Context, filter EventFilter) ([]*Event, error)
 	GetLatestRunEventTime(ctx context.Context, runID int64, eventType EventType) (*time.Time, error)
+	// Tool call audit methods (stored as category='tool_audit' events in event_log).
+	CreateToolCallAudit(ctx context.Context, audit *ToolCallAudit) (int64, error)
+	GetToolCallAudit(ctx context.Context, id int64) (*ToolCallAudit, error)
+	GetToolCallAuditByToolCallID(ctx context.Context, runID int64, toolCallID string) (*ToolCallAudit, error)
+	ListToolCallAuditsByRun(ctx context.Context, runID int64) ([]*ToolCallAudit, error)
+	UpdateToolCallAudit(ctx context.Context, audit *ToolCallAudit) error
 }
 
 // DAGTemplateStore persists DAGTemplate records.
@@ -70,17 +69,6 @@ type DAGTemplateStore interface {
 	DeleteDAGTemplate(ctx context.Context, id int64) error
 }
 
-// RunProbeStore persists probe records and run routing metadata.
-type RunProbeStore interface {
-	CreateRunProbe(ctx context.Context, probe *RunProbe) (int64, error)
-	GetRunProbe(ctx context.Context, id int64) (*RunProbe, error)
-	ListRunProbesByRun(ctx context.Context, runID int64) ([]*RunProbe, error)
-	GetLatestRunProbe(ctx context.Context, runID int64) (*RunProbe, error)
-	GetActiveRunProbe(ctx context.Context, runID int64) (*RunProbe, error)
-	UpdateRunProbe(ctx context.Context, probe *RunProbe) error
-	GetRunProbeRoute(ctx context.Context, runID int64) (*RunProbeRoute, error)
-}
-
 // Store is the aggregate interface combining all sub-stores.
 type Store interface {
 	ProjectStore
@@ -90,18 +78,15 @@ type Store interface {
 	ThreadStore
 	ActionStore
 	RunStore
-	DeliverableStore
 	AgentContextStore
 	EventStore
-	RunProbeStore
 	AnalyticsStore
 	DAGTemplateStore
 	UsageStore
-	ToolCallAuditStore
-	FeatureManifestStore
+	FeatureEntryStore
 	ActionSignalStore
-	WorkItemAttachmentStore
 	NotificationStore
+	InspectionStore
 	Close() error
 }
 
@@ -118,6 +103,7 @@ type EventFilter struct {
 	RunID      *int64
 	ThreadID   *int64
 	SessionID  string
+	Category   string
 	Types      []EventType
 	Limit      int
 	Offset     int

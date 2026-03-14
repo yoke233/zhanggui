@@ -371,7 +371,7 @@ func TestToolCallAuditCRUD(t *testing.T) {
 	}
 }
 
-func TestArtifactCRUD(t *testing.T) {
+func TestRunResultFields(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -379,60 +379,55 @@ func TestArtifactCRUD(t *testing.T) {
 	sID, _ := s.CreateAction(ctx, &core.Action{WorkItemID: fID, Name: "s", Type: core.ActionExec, Status: core.ActionPending})
 	eID, _ := s.CreateRun(ctx, &core.Run{ActionID: sID, WorkItemID: fID, Status: core.RunCreated, Attempt: 1})
 
-	art := &core.Deliverable{
-		RunID:          eID,
-		ActionID:       sID,
-		WorkItemID:     fID,
-		ResultMarkdown: "## Done\nImplemented login API.",
-		Metadata:       map[string]any{"status": "completed", "deliverables": []any{map[string]any{"type": "branch", "ref": "feat/login"}}},
-		Assets:         []core.Asset{{Name: "screenshot.png", URI: "file:///tmp/screenshot.png", MediaType: "image/png"}},
-	}
-	id, err := s.CreateDeliverable(ctx, art)
+	// Set result fields on the Run.
+	run, err := s.GetRun(ctx, eID)
 	if err != nil {
-		t.Fatalf("create artifact: %v", err)
+		t.Fatalf("get run: %v", err)
+	}
+	run.ResultMarkdown = "## Done\nImplemented login API."
+	run.ResultMetadata = map[string]any{"status": "completed", "deliverables": []any{map[string]any{"type": "branch", "ref": "feat/login"}}}
+	run.ResultAssets = []core.Asset{{Name: "screenshot.png", URI: "file:///tmp/screenshot.png", MediaType: "image/png"}}
+	if err := s.UpdateRun(ctx, run); err != nil {
+		t.Fatalf("update run with result: %v", err)
 	}
 
-	got, err := s.GetDeliverable(ctx, id)
+	got, err := s.GetRun(ctx, eID)
 	if err != nil {
-		t.Fatalf("get artifact: %v", err)
+		t.Fatalf("get run: %v", err)
 	}
 	if got.ResultMarkdown != "## Done\nImplemented login API." {
 		t.Fatalf("result_markdown not preserved")
 	}
-	if got.Metadata["status"] != "completed" {
-		t.Fatalf("metadata not preserved: %v", got.Metadata)
+	if got.ResultMetadata["status"] != "completed" {
+		t.Fatalf("result_metadata not preserved: %v", got.ResultMetadata)
 	}
-	if len(got.Assets) != 1 || got.Assets[0].Name != "screenshot.png" {
-		t.Fatalf("assets not preserved: %v", got.Assets)
+	if len(got.ResultAssets) != 1 || got.ResultAssets[0].Name != "screenshot.png" {
+		t.Fatalf("result_assets not preserved: %v", got.ResultAssets)
 	}
 
-	// GetLatestByStep
-	latest, err := s.GetLatestDeliverableByAction(ctx, sID)
+	// GetLatestRunWithResult
+	latest, err := s.GetLatestRunWithResult(ctx, sID)
 	if err != nil {
 		t.Fatalf("get latest: %v", err)
 	}
-	if latest.ID != id {
-		t.Fatalf("expected latest to be %d, got %d", id, latest.ID)
+	if latest.ID != eID {
+		t.Fatalf("expected latest to be %d, got %d", eID, latest.ID)
 	}
 
-	// ListByExecution
-	artifacts, err := s.ListDeliverablesByRun(ctx, eID)
-	if err != nil {
-		t.Fatalf("list by exec: %v", err)
-	}
-	if len(artifacts) != 1 {
-		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	// HasResult
+	if !got.HasResult() {
+		t.Fatal("expected HasResult() to be true")
 	}
 
-	// UpdateDeliverable
-	got.Metadata["verdict"] = "pass"
+	// Update result fields
+	got.ResultMetadata["verdict"] = "pass"
 	got.ResultMarkdown = "## Updated\nRevised output."
-	if err := s.UpdateDeliverable(ctx, got); err != nil {
-		t.Fatalf("update artifact: %v", err)
+	if err := s.UpdateRun(ctx, got); err != nil {
+		t.Fatalf("update run result: %v", err)
 	}
-	updated, _ := s.GetDeliverable(ctx, id)
-	if updated.Metadata["verdict"] != "pass" {
-		t.Fatalf("metadata not updated: %v", updated.Metadata)
+	updated, _ := s.GetRun(ctx, eID)
+	if updated.ResultMetadata["verdict"] != "pass" {
+		t.Fatalf("result_metadata not updated: %v", updated.ResultMetadata)
 	}
 	if updated.ResultMarkdown != "## Updated\nRevised output." {
 		t.Fatalf("result_markdown not updated: %s", updated.ResultMarkdown)

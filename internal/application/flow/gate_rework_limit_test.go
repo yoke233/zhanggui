@@ -17,14 +17,9 @@ func TestGateReworkLimit_DefaultBlocksAfter3Rounds(t *testing.T) {
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		if action.Type == core.ActionGate {
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": "reject", "reason": "conflict"},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": "reject", "reason": "conflict"}
+			return nil
 		}
 		return nil
 	}
@@ -76,14 +71,9 @@ func TestGateReworkLimit_CustomLimit(t *testing.T) {
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		if action.Type == core.ActionGate {
 			atomic.AddInt32(&gateCount, 1)
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": "reject", "reason": "always reject"},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": "reject", "reason": "always reject"}
+			return nil
 		}
 		return nil
 	}
@@ -139,14 +129,9 @@ func TestGateReworkLimit_PassBeforeLimit(t *testing.T) {
 			if n > 1 {
 				verdict = "pass"
 			}
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": verdict, "reason": fmt.Sprintf("round %d", n)},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": verdict, "reason": fmt.Sprintf("round %d", n)}
+			return nil
 		}
 		return nil
 	}
@@ -196,14 +181,9 @@ func TestGateReworkLimit_EventPublished(t *testing.T) {
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		if action.Type == core.ActionGate {
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": "reject", "reason": "conflict"},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": "reject", "reason": "conflict"}
+			return nil
 		}
 		return nil
 	}

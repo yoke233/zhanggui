@@ -35,6 +35,9 @@ type persistedLeadSession struct {
 	AvailableCommands []chatapp.AvailableCommand `json:"available_commands,omitempty"`
 	ConfigOptions     []chatapp.ConfigOption     `json:"config_options,omitempty"`
 	Modes             *chatapp.SessionModeState  `json:"modes,omitempty"`
+	PrURL             string                     `json:"pr_url,omitempty"`
+	PrNumber          int                        `json:"pr_number,omitempty"`
+	PrState           string                     `json:"pr_state,omitempty"`
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
 	Messages          []chatapp.Message          `json:"messages,omitempty"`

@@ -61,7 +61,6 @@ type EventSink interface {
 // SessionAcquireInput contains everything needed to acquire an agent session.
 type SessionAcquireInput struct {
 	Profile *core.AgentProfile
-	Driver  *core.AgentDriver
 	Launch  acpclient.LaunchConfig
 	Caps    acpclient.ClientCapabilities
 	WorkDir string

@@ -102,24 +102,24 @@ func (e *WorkItemEngine) mergePRIfConfigured(ctx context.Context, action *core.A
 	})
 }
 
-// resolvePRNumber finds the PR number from gate deliverable or predecessor deliverables.
+// resolvePRNumber finds the PR number from gate run result or predecessor run results.
 func (e *WorkItemEngine) resolvePRNumber(ctx context.Context, action *core.Action) (int, error) {
-	// Prefer gate deliverable metadata.
-	deliverable, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
-	if err == nil && deliverable != nil && deliverable.Metadata != nil {
-		if n, ok := toInt64(deliverable.Metadata["pr_number"]); ok && n > 0 {
+	// Prefer gate run result metadata.
+	run, err := e.store.GetLatestRunWithResult(ctx, action.ID)
+	if err == nil && run != nil && run.ResultMetadata != nil {
+		if n, ok := toInt64(run.ResultMetadata["pr_number"]); ok && n > 0 {
 			return int(n), nil
 		}
 	}
 
-	// Fallback: scan predecessor deliverables.
+	// Fallback: scan predecessor run results.
 	predecessors := e.predecessorIDs(ctx, action)
 	for _, id := range predecessors {
-		d, err := e.store.GetLatestDeliverableByAction(ctx, id)
-		if err != nil || d == nil || d.Metadata == nil {
+		r, err := e.store.GetLatestRunWithResult(ctx, id)
+		if err != nil || r == nil || r.ResultMetadata == nil {
 			continue
 		}
-		if n, ok := toInt64(d.Metadata["pr_number"]); ok && n > 0 {
+		if n, ok := toInt64(r.ResultMetadata["pr_number"]); ok && n > 0 {
 			return int(n), nil
 		}
 	}

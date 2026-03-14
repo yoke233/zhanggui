@@ -10,108 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateFeatureManifest(ctx context.Context, m *core.FeatureManifest) (int64, error) {
-	if s == nil || s.orm == nil {
-		return 0, fmt.Errorf("store is not initialized")
-	}
-	if m == nil {
-		return 0, fmt.Errorf("manifest is nil")
-	}
-	if m.ProjectID == 0 {
-		return 0, fmt.Errorf("project_id is required")
-	}
-
-	if m.Version == 0 {
-		m.Version = 1
-	}
-	now := time.Now().UTC()
-	model := featureManifestModelFromCore(m)
-	model.CreatedAt = now
-	model.UpdatedAt = now
-
-	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return 0, core.ErrManifestAlreadyExists
-		}
-		return 0, err
-	}
-	m.ID = model.ID
-	m.CreatedAt = now
-	m.UpdatedAt = now
-	return model.ID, nil
-}
-
-func (s *Store) GetFeatureManifest(ctx context.Context, id int64) (*core.FeatureManifest, error) {
-	if s == nil || s.orm == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
-	var model FeatureManifestModel
-	if err := s.orm.WithContext(ctx).First(&model, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, core.ErrNotFound
-		}
-		return nil, err
-	}
-	return model.toCore(), nil
-}
-
-func (s *Store) GetFeatureManifestByProject(ctx context.Context, projectID int64) (*core.FeatureManifest, error) {
-	if s == nil || s.orm == nil {
-		return nil, fmt.Errorf("store is not initialized")
-	}
-	var model FeatureManifestModel
-	if err := s.orm.WithContext(ctx).Where("project_id = ?", projectID).First(&model).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, core.ErrNotFound
-		}
-		return nil, err
-	}
-	return model.toCore(), nil
-}
-
-func (s *Store) UpdateFeatureManifest(ctx context.Context, m *core.FeatureManifest) error {
-	if s == nil || s.orm == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	if m == nil {
-		return fmt.Errorf("manifest is nil")
-	}
-
-	now := time.Now().UTC()
-	// Use atomic version increment to avoid lost updates under concurrency.
-	result := s.orm.WithContext(ctx).Model(&FeatureManifestModel{}).
-		Where("id = ?", m.ID).
-		Updates(map[string]any{
-			"version":    gorm.Expr("version + 1"),
-			"summary":    m.Summary,
-			"metadata":   JSONField[map[string]any]{Data: m.Metadata},
-			"updated_at": now,
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return core.ErrNotFound
-	}
-	m.Version++ // reflect the increment in the caller's copy
-	m.UpdatedAt = now
-	return nil
-}
-
-func (s *Store) DeleteFeatureManifest(ctx context.Context, id int64) error {
-	if s == nil || s.orm == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	result := s.orm.WithContext(ctx).Delete(&FeatureManifestModel{}, id)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return core.ErrNotFound
-	}
-	return nil
-}
-
 // --- FeatureEntry CRUD ---
 
 func (s *Store) CreateFeatureEntry(ctx context.Context, entry *core.FeatureEntry) (int64, error) {
@@ -160,12 +58,12 @@ func (s *Store) GetFeatureEntry(ctx context.Context, id int64) (*core.FeatureEnt
 	return model.toCore(), nil
 }
 
-func (s *Store) GetFeatureEntryByKey(ctx context.Context, manifestID int64, key string) (*core.FeatureEntry, error) {
+func (s *Store) GetFeatureEntryByKey(ctx context.Context, projectID int64, key string) (*core.FeatureEntry, error) {
 	if s == nil || s.orm == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
 	var model FeatureEntryModel
-	if err := s.orm.WithContext(ctx).Where("manifest_id = ? AND key = ?", manifestID, key).First(&model).Error; err != nil {
+	if err := s.orm.WithContext(ctx).Where("project_id = ? AND key = ?", projectID, key).First(&model).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, core.ErrNotFound
 		}
@@ -180,8 +78,8 @@ func (s *Store) ListFeatureEntries(ctx context.Context, filter core.FeatureEntry
 	}
 
 	query := s.orm.WithContext(ctx).Model(&FeatureEntryModel{})
-	if filter.ManifestID > 0 {
-		query = query.Where("manifest_id = ?", filter.ManifestID)
+	if filter.ProjectID > 0 {
+		query = query.Where("project_id = ?", filter.ProjectID)
 	}
 	if filter.Status != nil {
 		query = query.Where("status = ?", string(*filter.Status))
@@ -284,7 +182,7 @@ func (s *Store) DeleteFeatureEntry(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) CountFeatureEntriesByStatus(ctx context.Context, manifestID int64) (map[core.FeatureStatus]int, error) {
+func (s *Store) CountFeatureEntriesByStatus(ctx context.Context, projectID int64) (map[core.FeatureStatus]int, error) {
 	if s == nil || s.orm == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -297,7 +195,7 @@ func (s *Store) CountFeatureEntriesByStatus(ctx context.Context, manifestID int6
 	var rows []statusCount
 	err := s.orm.WithContext(ctx).Model(&FeatureEntryModel{}).
 		Select("status, COUNT(*) as count").
-		Where("manifest_id = ?", manifestID).
+		Where("project_id = ?", projectID).
 		Group("status").
 		Find(&rows).Error
 	if err != nil {

@@ -70,6 +70,14 @@ type RuntimeConfig struct {
 	SessionManager RuntimeSessionManagerConfig `toml:"session_manager" yaml:"session_manager" json:"session_manager"`
 	ExecutionProbe RuntimeExecutionProbeConfig `toml:"execution_probe" yaml:"execution_probe" json:"execution_probe"`
 	Cron           RuntimeCronConfig           `toml:"cron"            yaml:"cron" json:"cron"`
+	Inspection     RuntimeInspectionConfig     `toml:"inspection"      yaml:"inspection" json:"inspection"`
+}
+
+// RuntimeInspectionConfig configures the self-evolving inspection system.
+type RuntimeInspectionConfig struct {
+	Enabled    bool     `toml:"enabled"        yaml:"enabled" json:"enabled"`
+	Interval   Duration `toml:"interval"       yaml:"interval" json:"interval"`             // how often to run (default "24h")
+	LookbackH  int      `toml:"lookback_hours" yaml:"lookback_hours" json:"lookback_hours"` // hours of data to inspect (default 24)
 }
 
 // RuntimeCronConfig configures the cron trigger for scheduled flows.

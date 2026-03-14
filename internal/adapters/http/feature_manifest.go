@@ -3,130 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
-
-// --- Manifest endpoints ---
-
-func (h *Handler) createManifest(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := urlParamInt64(r, "projectID")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	var body struct {
-		Summary  string         `json:"summary"`
-		Metadata map[string]any `json:"metadata"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
-		writeError(w, http.StatusBadRequest, "invalid JSON", "bad_request")
-		return
-	}
-
-	m := &core.FeatureManifest{
-		ProjectID: projectID,
-		Summary:   body.Summary,
-		Metadata:  body.Metadata,
-	}
-	_, err := h.store.CreateFeatureManifest(r.Context(), m)
-	if err != nil {
-		if errors.Is(err, core.ErrManifestAlreadyExists) {
-			writeError(w, http.StatusConflict, "manifest already exists for this project", "conflict")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-	writeJSON(w, http.StatusCreated, m)
-}
-
-func (h *Handler) getManifest(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := urlParamInt64(r, "projectID")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, m)
-}
-
-func (h *Handler) updateManifest(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := urlParamInt64(r, "projectID")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
-	var body struct {
-		Summary  *string        `json:"summary"`
-		Metadata map[string]any `json:"metadata"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON", "bad_request")
-		return
-	}
-
-	if body.Summary != nil {
-		m.Summary = *body.Summary
-	}
-	if body.Metadata != nil {
-		m.Metadata = body.Metadata
-	}
-	// Version is atomically incremented by the store layer.
-	if err := h.store.UpdateFeatureManifest(r.Context(), m); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, m)
-}
-
-func (h *Handler) deleteManifest(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := urlParamInt64(r, "projectID")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
-	if err := h.store.DeleteFeatureManifest(r.Context(), m.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
 
 // --- Entry endpoints ---
 
@@ -134,16 +15,6 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := urlParamInt64(r, "projectID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
 		return
 	}
 
@@ -166,7 +37,7 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry := &core.FeatureEntry{
-		ManifestID:  m.ID,
+		ProjectID:   projectID,
 		Key:         body.Key,
 		Description: body.Description,
 		WorkItemID:  body.IssueID,
@@ -178,7 +49,7 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 		entry.Status = core.FeatureStatus(body.Status)
 	}
 
-	_, err = h.store.CreateFeatureEntry(r.Context(), entry)
+	_, err := h.store.CreateFeatureEntry(r.Context(), entry)
 	if err != nil {
 		if errors.Is(err, core.ErrDuplicateEntryKey) {
 			writeError(w, http.StatusConflict, "duplicate entry key", "conflict")
@@ -186,11 +57,6 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
 		return
-	}
-
-	// Bump manifest version (atomic increment in store layer).
-	if err := h.store.UpdateFeatureManifest(r.Context(), m); err != nil {
-		slog.Warn("feature manifest: version bump failed after entry create", "manifest_id", m.ID, "error", err)
 	}
 
 	writeJSON(w, http.StatusCreated, entry)
@@ -203,20 +69,10 @@ func (h *Handler) listManifestEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
 	filter := core.FeatureEntryFilter{
-		ManifestID: m.ID,
-		Limit:      queryInt(r, "limit", 200),
-		Offset:     queryInt(r, "offset", 0),
+		ProjectID: projectID,
+		Limit:     queryInt(r, "limit", 200),
+		Offset:    queryInt(r, "offset", 0),
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
 		st := core.FeatureStatus(s)
@@ -369,17 +225,7 @@ func (h *Handler) getManifestSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
-	counts, err := h.store.CountFeatureEntriesByStatus(r.Context(), m.ID)
+	counts, err := h.store.CountFeatureEntriesByStatus(r.Context(), projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
 		return
@@ -391,13 +237,12 @@ func (h *Handler) getManifestSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"manifest_id": m.ID,
-		"version":     m.Version,
-		"pass":        counts[core.FeaturePass],
-		"fail":        counts[core.FeatureFail],
-		"pending":     counts[core.FeaturePending],
-		"skipped":     counts[core.FeatureSkipped],
-		"total":       total,
+		"project_id": projectID,
+		"pass":       counts[core.FeaturePass],
+		"fail":       counts[core.FeatureFail],
+		"pending":    counts[core.FeaturePending],
+		"skipped":    counts[core.FeatureSkipped],
+		"total":      total,
 	})
 }
 
@@ -408,19 +253,9 @@ func (h *Handler) getManifestSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := h.store.GetFeatureManifestByProject(r.Context(), projectID)
-	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "manifest not found", "not_found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
 	entries, err := h.store.ListFeatureEntries(r.Context(), core.FeatureEntryFilter{
-		ManifestID: m.ID,
-		Limit:      500,
+		ProjectID: projectID,
+		Limit:     500,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
@@ -428,7 +263,12 @@ func (h *Handler) getManifestSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"manifest": m,
-		"entries":  entries,
+		"project_id": projectID,
+		"entries":    entries,
 	})
+}
+
+// getManifest returns a computed manifest-like response from entries for backward compatibility.
+func (h *Handler) getManifest(w http.ResponseWriter, r *http.Request) {
+	h.getManifestSummary(w, r)
 }

@@ -85,13 +85,24 @@ type ThreadMessage struct {
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
-// ThreadParticipant represents a participant in a Thread.
-type ThreadParticipant struct {
-	ID       int64     `json:"id"`
-	ThreadID int64     `json:"thread_id"`
-	UserID   string    `json:"user_id"`
-	Role     string    `json:"role"` // "owner", "member", "agent"
-	JoinedAt time.Time `json:"joined_at"`
+// ThreadMemberKind constants.
+const (
+	ThreadMemberKindHuman = "human"
+	ThreadMemberKindAgent = "agent"
+)
+
+// ThreadMember represents a unified member (human or agent) in a Thread.
+type ThreadMember struct {
+	ID             int64             `json:"id"`
+	ThreadID       int64             `json:"thread_id"`
+	Kind           string            `json:"kind"` // "human" or "agent"
+	UserID         string            `json:"user_id,omitempty"`
+	AgentProfileID string            `json:"agent_profile_id,omitempty"`
+	Role           string            `json:"role"`
+	Status         ThreadAgentStatus `json:"status,omitempty"`
+	AgentData      map[string]any    `json:"agent_data,omitempty"` // acp_session_id, turn_count, tokens, progress, metadata
+	JoinedAt       time.Time         `json:"joined_at"`
+	LastActiveAt   time.Time         `json:"last_active_at"`
 }
 
 // ThreadWorkItemLink represents an explicit link between a Thread and a WorkItem.
@@ -104,10 +115,10 @@ type ThreadWorkItemLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// ThreadAgentSession represents an AI agent session within a Thread.
+// ThreadAgentStatus represents the lifecycle status of an agent thread member.
 type ThreadAgentStatus string
 
-// ThreadAgentSession status constants.
+// ThreadAgentStatus constants.
 const (
 	ThreadAgentJoining ThreadAgentStatus = "joining"
 	ThreadAgentBooting ThreadAgentStatus = "booting"
@@ -157,21 +168,6 @@ func CanTransitionThreadAgentStatus(from, to ThreadAgentStatus) bool {
 	}
 }
 
-type ThreadAgentSession struct {
-	ID                int64             `json:"id"`
-	ThreadID          int64             `json:"thread_id"`
-	AgentProfileID    string            `json:"agent_profile_id"`
-	ACPSessionID      string            `json:"acp_session_id"`
-	Status            ThreadAgentStatus `json:"status"`
-	TurnCount         int               `json:"turn_count"`
-	TotalInputTokens  int64             `json:"total_input_tokens"`
-	TotalOutputTokens int64             `json:"total_output_tokens"`
-	ProgressSummary   string            `json:"progress_summary,omitempty"`
-	Metadata          map[string]any    `json:"metadata,omitempty"`
-	JoinedAt          time.Time         `json:"joined_at"`
-	LastActiveAt      time.Time         `json:"last_active_at"`
-}
-
 // ThreadStore persists Thread aggregates.
 type ThreadStore interface {
 	CreateThread(ctx context.Context, thread *Thread) (int64, error)
@@ -183,9 +179,13 @@ type ThreadStore interface {
 	CreateThreadMessage(ctx context.Context, msg *ThreadMessage) (int64, error)
 	ListThreadMessages(ctx context.Context, threadID int64, limit, offset int) ([]*ThreadMessage, error)
 
-	AddThreadParticipant(ctx context.Context, p *ThreadParticipant) (int64, error)
-	ListThreadParticipants(ctx context.Context, threadID int64) ([]*ThreadParticipant, error)
-	RemoveThreadParticipant(ctx context.Context, threadID int64, userID string) error
+	// ThreadMember CRUD (unified human + agent members).
+	AddThreadMember(ctx context.Context, m *ThreadMember) (int64, error)
+	ListThreadMembers(ctx context.Context, threadID int64) ([]*ThreadMember, error)
+	GetThreadMember(ctx context.Context, id int64) (*ThreadMember, error)
+	UpdateThreadMember(ctx context.Context, m *ThreadMember) error
+	RemoveThreadMember(ctx context.Context, id int64) error
+	RemoveThreadMemberByUser(ctx context.Context, threadID int64, userID string) error
 
 	CreateThreadWorkItemLink(ctx context.Context, link *ThreadWorkItemLink) (int64, error)
 	ListWorkItemsByThread(ctx context.Context, threadID int64) ([]*ThreadWorkItemLink, error)
@@ -194,9 +194,4 @@ type ThreadStore interface {
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
 
-	CreateThreadAgentSession(ctx context.Context, s *ThreadAgentSession) (int64, error)
-	GetThreadAgentSession(ctx context.Context, id int64) (*ThreadAgentSession, error)
-	ListThreadAgentSessions(ctx context.Context, threadID int64) ([]*ThreadAgentSession, error)
-	UpdateThreadAgentSession(ctx context.Context, s *ThreadAgentSession) error
-	DeleteThreadAgentSession(ctx context.Context, id int64) error
 }

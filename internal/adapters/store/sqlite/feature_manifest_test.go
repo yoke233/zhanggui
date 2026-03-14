@@ -7,92 +7,16 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-func TestFeatureManifestCRUD(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	// Create a project first.
-	proj := &core.Project{Name: "manifest-test"}
-	pid, err := store.CreateProject(ctx, proj)
-	if err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-
-	// Create manifest.
-	m := &core.FeatureManifest{
-		ProjectID: pid,
-		Summary:   "v1 feature checklist",
-		Metadata:  map[string]any{"owner": "team-a"},
-	}
-	mid, err := store.CreateFeatureManifest(ctx, m)
-	if err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-	if mid == 0 {
-		t.Fatal("expected non-zero manifest ID")
-	}
-
-	// Duplicate should fail.
-	dup := &core.FeatureManifest{ProjectID: pid}
-	_, err = store.CreateFeatureManifest(ctx, dup)
-	if err != core.ErrManifestAlreadyExists {
-		t.Fatalf("expected ErrManifestAlreadyExists, got %v", err)
-	}
-
-	// Get by ID.
-	got, err := store.GetFeatureManifest(ctx, mid)
-	if err != nil {
-		t.Fatalf("get manifest: %v", err)
-	}
-	if got.Summary != "v1 feature checklist" {
-		t.Fatalf("summary = %q, want %q", got.Summary, "v1 feature checklist")
-	}
-	if got.Version != 1 {
-		t.Fatalf("version = %d, want 1", got.Version)
-	}
-
-	// Get by project.
-	got2, err := store.GetFeatureManifestByProject(ctx, pid)
-	if err != nil {
-		t.Fatalf("get by project: %v", err)
-	}
-	if got2.ID != mid {
-		t.Fatalf("ID mismatch: %d vs %d", got2.ID, mid)
-	}
-
-	// Update.
-	got.Summary = "updated summary"
-	got.Version = 2
-	if err := store.UpdateFeatureManifest(ctx, got); err != nil {
-		t.Fatalf("update manifest: %v", err)
-	}
-	got3, _ := store.GetFeatureManifest(ctx, mid)
-	if got3.Summary != "updated summary" || got3.Version != 2 {
-		t.Fatalf("update not persisted: summary=%q, version=%d", got3.Summary, got3.Version)
-	}
-
-	// Delete.
-	if err := store.DeleteFeatureManifest(ctx, mid); err != nil {
-		t.Fatalf("delete manifest: %v", err)
-	}
-	_, err = store.GetFeatureManifest(ctx, mid)
-	if err != core.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
-	}
-}
-
 func TestFeatureEntryCRUD(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
 	proj := &core.Project{Name: "entry-test"}
 	pid, _ := store.CreateProject(ctx, proj)
-	m := &core.FeatureManifest{ProjectID: pid}
-	mid, _ := store.CreateFeatureManifest(ctx, m)
 
 	// Create entries.
 	e1 := &core.FeatureEntry{
-		ManifestID:  mid,
+		ProjectID:   pid,
 		Key:         "auth.login.success",
 		Description: "User can log in with valid credentials",
 		Tags:        []string{"auth", "core"},
@@ -109,7 +33,7 @@ func TestFeatureEntryCRUD(t *testing.T) {
 	}
 
 	e2 := &core.FeatureEntry{
-		ManifestID:  mid,
+		ProjectID:   pid,
 		Key:         "auth.login.fail",
 		Description: "Invalid credentials show error",
 		Status:      core.FeaturePass,
@@ -121,7 +45,7 @@ func TestFeatureEntryCRUD(t *testing.T) {
 	}
 
 	// Duplicate key should fail.
-	dupEntry := &core.FeatureEntry{ManifestID: mid, Key: "auth.login.success"}
+	dupEntry := &core.FeatureEntry{ProjectID: pid, Key: "auth.login.success"}
 	_, err = store.CreateFeatureEntry(ctx, dupEntry)
 	if err != core.ErrDuplicateEntryKey {
 		t.Fatalf("expected ErrDuplicateEntryKey, got %v", err)
@@ -137,7 +61,7 @@ func TestFeatureEntryCRUD(t *testing.T) {
 	}
 
 	// Get by key.
-	got2, err := store.GetFeatureEntryByKey(ctx, mid, "auth.login.fail")
+	got2, err := store.GetFeatureEntryByKey(ctx, pid, "auth.login.fail")
 	if err != nil {
 		t.Fatalf("get by key: %v", err)
 	}
@@ -146,7 +70,7 @@ func TestFeatureEntryCRUD(t *testing.T) {
 	}
 
 	// List all.
-	entries, err := store.ListFeatureEntries(ctx, core.FeatureEntryFilter{ManifestID: mid})
+	entries, err := store.ListFeatureEntries(ctx, core.FeatureEntryFilter{ProjectID: pid})
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
 	}
@@ -157,8 +81,8 @@ func TestFeatureEntryCRUD(t *testing.T) {
 	// List by status filter.
 	passStatus := core.FeaturePass
 	filtered, err := store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: mid,
-		Status:     &passStatus,
+		ProjectID: pid,
+		Status:    &passStatus,
 	})
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
@@ -203,8 +127,6 @@ func TestCountFeatureEntriesByStatus(t *testing.T) {
 
 	proj := &core.Project{Name: "count-test"}
 	pid, _ := store.CreateProject(ctx, proj)
-	m := &core.FeatureManifest{ProjectID: pid}
-	mid, _ := store.CreateFeatureManifest(ctx, m)
 
 	entries := []struct {
 		key    string
@@ -219,16 +141,16 @@ func TestCountFeatureEntriesByStatus(t *testing.T) {
 	}
 	for _, e := range entries {
 		_, err := store.CreateFeatureEntry(ctx, &core.FeatureEntry{
-			ManifestID: mid,
-			Key:        e.key,
-			Status:     e.status,
+			ProjectID: pid,
+			Key:       e.key,
+			Status:    e.status,
 		})
 		if err != nil {
 			t.Fatalf("create %s: %v", e.key, err)
 		}
 	}
 
-	counts, err := store.CountFeatureEntriesByStatus(ctx, mid)
+	counts, err := store.CountFeatureEntriesByStatus(ctx, pid)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -253,26 +175,24 @@ func TestFeatureEntryTagsFilter(t *testing.T) {
 
 	proj := &core.Project{Name: "tags-test"}
 	pid, _ := store.CreateProject(ctx, proj)
-	m := &core.FeatureManifest{ProjectID: pid}
-	mid, _ := store.CreateFeatureManifest(ctx, m)
 
 	// Create entries with different tags.
 	store.CreateFeatureEntry(ctx, &core.FeatureEntry{
-		ManifestID: mid, Key: "auth.login", Tags: []string{"auth", "core"},
+		ProjectID: pid, Key: "auth.login", Tags: []string{"auth", "core"},
 	})
 	store.CreateFeatureEntry(ctx, &core.FeatureEntry{
-		ManifestID: mid, Key: "auth.logout", Tags: []string{"auth"},
+		ProjectID: pid, Key: "auth.logout", Tags: []string{"auth"},
 	})
 	store.CreateFeatureEntry(ctx, &core.FeatureEntry{
-		ManifestID: mid, Key: "payment.checkout", Tags: []string{"payment", "core"},
+		ProjectID: pid, Key: "payment.checkout", Tags: []string{"payment", "core"},
 	})
 	store.CreateFeatureEntry(ctx, &core.FeatureEntry{
-		ManifestID: mid, Key: "settings.profile", Tags: []string{"settings"},
+		ProjectID: pid, Key: "settings.profile", Tags: []string{"settings"},
 	})
 
 	// Filter by single tag.
 	entries, err := store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: mid, Tags: []string{"auth"},
+		ProjectID: pid, Tags: []string{"auth"},
 	})
 	if err != nil {
 		t.Fatalf("filter by auth: %v", err)
@@ -283,7 +203,7 @@ func TestFeatureEntryTagsFilter(t *testing.T) {
 
 	// Filter by multiple tags (AND).
 	entries, err = store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: mid, Tags: []string{"auth", "core"},
+		ProjectID: pid, Tags: []string{"auth", "core"},
 	})
 	if err != nil {
 		t.Fatalf("filter by auth+core: %v", err)
@@ -297,42 +217,12 @@ func TestFeatureEntryTagsFilter(t *testing.T) {
 
 	// Filter by tag with no matches.
 	entries, err = store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: mid, Tags: []string{"nonexistent"},
+		ProjectID: pid, Tags: []string{"nonexistent"},
 	})
 	if err != nil {
 		t.Fatalf("filter by nonexistent: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("nonexistent tag: got %d entries, want 0", len(entries))
-	}
-}
-
-func TestFeatureManifestAtomicVersionBump(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	proj := &core.Project{Name: "version-test"}
-	pid, _ := store.CreateProject(ctx, proj)
-	m := &core.FeatureManifest{ProjectID: pid, Summary: "v1"}
-	mid, _ := store.CreateFeatureManifest(ctx, m)
-
-	got, _ := store.GetFeatureManifest(ctx, mid)
-	if got.Version != 1 {
-		t.Fatalf("initial version = %d, want 1", got.Version)
-	}
-
-	// Update should atomically increment version.
-	got.Summary = "v2"
-	if err := store.UpdateFeatureManifest(ctx, got); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if got.Version != 2 {
-		t.Fatalf("after update, caller version = %d, want 2", got.Version)
-	}
-
-	// Verify in DB.
-	got2, _ := store.GetFeatureManifest(ctx, mid)
-	if got2.Version != 2 {
-		t.Fatalf("DB version = %d, want 2", got2.Version)
 	}
 }

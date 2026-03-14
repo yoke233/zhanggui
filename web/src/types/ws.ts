@@ -201,7 +201,8 @@ export type ThreadEventType =
   | "thread.agent_left"
   | "thread.agent_output"
   | "thread.agent_booted"
-  | "thread.agent_failed";
+  | "thread.agent_failed"
+  | "thread.agent_thinking";
 
 export interface ThreadEventPayload {
   thread_id?: number;

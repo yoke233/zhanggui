@@ -25,13 +25,8 @@ func (e *WorkItemEngine) checkManifestEntries(ctx context.Context, action *core.
 		return true, "", nil // no project → skip check
 	}
 
-	manifest, err := e.store.GetFeatureManifestByProject(ctx, *workItem.ProjectID)
-	if err != nil {
-		return true, "", nil // no manifest → skip check
-	}
-
 	// Determine which entries to check.
-	filter := core.FeatureEntryFilter{ManifestID: manifest.ID, Limit: 500}
+	filter := core.FeatureEntryFilter{ProjectID: *workItem.ProjectID, Limit: 500}
 
 	// If manifest_issue_id is configured, check only entries linked to that work item.
 	if workItemID, ok := action.Config["manifest_issue_id"].(float64); ok {

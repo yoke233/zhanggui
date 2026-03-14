@@ -77,13 +77,15 @@ func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
 			"agent_id":          model.AgentID,
 			"agent_context_id":  model.AgentContextID,
 			"briefing_snapshot": model.BriefingSnapshot,
-			"artifact_id":       model.ArtifactID,
 			"input":             model.Input,
 			"output":            model.Output,
 			"error_message":     model.ErrorMessage,
 			"error_kind":        model.ErrorKind,
 			"started_at":        model.StartedAt,
 			"finished_at":       model.FinishedAt,
+			"result_markdown":   model.ResultMarkdown,
+			"result_metadata":   model.ResultMetadata,
+			"result_assets":     model.ResultAssets,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("update execution: %w", result.Error)
@@ -92,4 +94,19 @@ func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
 		return core.ErrNotFound
 	}
 	return nil
+}
+
+func (s *Store) GetLatestRunWithResult(ctx context.Context, actionID int64) (*core.Run, error) {
+	var model RunModel
+	err := s.orm.WithContext(ctx).
+		Where("step_id = ? AND result_markdown != '' AND result_markdown IS NOT NULL", actionID).
+		Order("id DESC").
+		First(&model).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
+		return nil, fmt.Errorf("get latest run with result for action %d: %w", actionID, err)
+	}
+	return model.toCore(), nil
 }

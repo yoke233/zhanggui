@@ -8,6 +8,7 @@ import { ChatPage } from "@/pages/ChatPage";
 import { CreateWorkItemPage } from "@/pages/CreateWorkItemPage";
 import { CreateProjectPage } from "@/pages/CreateProjectPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { MobileHomePage } from "@/pages/MobileHomePage";
 import { ExecutionDetailPage } from "@/pages/ExecutionDetailPage";
 import { WorkItemDetailPage } from "@/pages/WorkItemDetailPage";
 import { WorkItemsPage } from "@/pages/WorkItemsPage";
@@ -20,6 +21,7 @@ import { SkillsPage } from "@/pages/SkillsPage";
 import { TemplatesPage } from "@/pages/TemplatesPage";
 import { ThreadsPage } from "@/pages/ThreadsPage";
 import { ThreadDetailPage } from "@/pages/ThreadDetailPage";
+import { InspectionPage } from "@/pages/InspectionPage";
 import { UsagePage } from "@/pages/UsagePage";
 
 interface AppProps {
@@ -66,7 +68,8 @@ const WorkbenchRoutes = () => {
       <SystemEventBanner wsClient={wsClient} />
       <Routes>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/" element={<MobileHomePage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/threads" element={<ThreadsPage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
@@ -85,6 +88,7 @@ const WorkbenchRoutes = () => {
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/inspections" element={<InspectionPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/llm-api" element={<Navigate to="/agents" replace />} />
           <Route path="/sandbox" element={<SandboxPage />} />

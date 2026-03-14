@@ -12,112 +12,31 @@ import (
 	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
-func testDriver(id string) *core.AgentDriver {
-	return &core.AgentDriver{
-		ID:            id,
+func testDriverConfig() core.DriverConfig {
+	return core.DriverConfig{
 		LaunchCommand: "npx",
-		LaunchArgs:    []string{"-y", "@test/" + id},
+		LaunchArgs:    []string{"-y", "@test/claude-acp"},
 		CapabilitiesMax: core.DriverCapabilities{
 			FSRead: true, FSWrite: true, Terminal: true,
 		},
 	}
 }
 
-func testProfile(id, driverID string, role core.AgentRole, caps ...string) *core.AgentProfile {
+func testProfile(id string, role core.AgentRole, caps ...string) *core.AgentProfile {
 	return &core.AgentProfile{
 		ID:           id,
 		Name:         id,
-		DriverID:     driverID,
+		Driver:       testDriverConfig(),
 		Role:         role,
 		Capabilities: caps,
-	}
-}
-
-func TestConfigRegistry_DriverCRUD(t *testing.T) {
-	ctx := context.Background()
-	reg := NewConfigRegistry()
-
-	d := testDriver("claude-acp")
-
-	// Create
-	if err := reg.CreateDriver(ctx, d); err != nil {
-		t.Fatalf("CreateDriver: %v", err)
-	}
-
-	// Duplicate
-	if err := reg.CreateDriver(ctx, d); !errors.Is(err, core.ErrDuplicateDriver) {
-		t.Fatalf("expected ErrDuplicateDriver, got %v", err)
-	}
-
-	// Get
-	got, err := reg.GetDriver(ctx, "claude-acp")
-	if err != nil {
-		t.Fatalf("GetDriver: %v", err)
-	}
-	if got.LaunchCommand != "npx" {
-		t.Fatalf("expected npx, got %s", got.LaunchCommand)
-	}
-
-	// Get not found
-	_, err = reg.GetDriver(ctx, "nope")
-	if !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-
-	// List
-	list, err := reg.ListDrivers(ctx)
-	if err != nil {
-		t.Fatalf("ListDrivers: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1, got %d", len(list))
-	}
-
-	// Update
-	d2 := testDriver("claude-acp")
-	d2.LaunchCommand = "node"
-	if err := reg.UpdateDriver(ctx, d2); err != nil {
-		t.Fatalf("UpdateDriver: %v", err)
-	}
-	got, _ = reg.GetDriver(ctx, "claude-acp")
-	if got.LaunchCommand != "node" {
-		t.Fatalf("expected node, got %s", got.LaunchCommand)
-	}
-
-	// Update not found
-	if err := reg.UpdateDriver(ctx, testDriver("nope")); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-
-	// Delete not found
-	if err := reg.DeleteDriver(ctx, "nope"); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-
-	// Delete — add a profile referencing it first
-	p := testProfile("worker", "claude-acp", core.RoleWorker)
-	_ = reg.CreateProfile(ctx, p)
-	if err := reg.DeleteDriver(ctx, "claude-acp"); !errors.Is(err, core.ErrDriverInUse) {
-		t.Fatalf("expected ErrDriverInUse, got %v", err)
-	}
-	_ = reg.DeleteProfile(ctx, "worker")
-
-	// Now delete should succeed
-	if err := reg.DeleteDriver(ctx, "claude-acp"); err != nil {
-		t.Fatalf("DeleteDriver: %v", err)
-	}
-	list, _ = reg.ListDrivers(ctx)
-	if len(list) != 0 {
-		t.Fatalf("expected 0, got %d", len(list))
 	}
 }
 
 func TestConfigRegistry_ProfileCRUD(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
-	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp")})
 
-	p := testProfile("worker-1", "claude-acp", core.RoleWorker, "backend")
+	p := testProfile("worker-1", core.RoleWorker, "backend")
 
 	// Create
 	if err := reg.CreateProfile(ctx, p); err != nil {
@@ -127,12 +46,6 @@ func TestConfigRegistry_ProfileCRUD(t *testing.T) {
 	// Duplicate
 	if err := reg.CreateProfile(ctx, p); !errors.Is(err, core.ErrDuplicateProfile) {
 		t.Fatalf("expected ErrDuplicateProfile, got %v", err)
-	}
-
-	// Create with missing driver
-	bad := testProfile("orphan", "nope", core.RoleWorker)
-	if err := reg.CreateProfile(ctx, bad); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
 	}
 
 	// Get
@@ -154,7 +67,7 @@ func TestConfigRegistry_ProfileCRUD(t *testing.T) {
 	}
 
 	// Update
-	p2 := testProfile("worker-1", "claude-acp", core.RoleWorker, "backend", "frontend")
+	p2 := testProfile("worker-1", core.RoleWorker, "backend", "frontend")
 	if err := reg.UpdateProfile(ctx, p2); err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
@@ -164,7 +77,7 @@ func TestConfigRegistry_ProfileCRUD(t *testing.T) {
 	}
 
 	// Update not found
-	if err := reg.UpdateProfile(ctx, testProfile("nope", "claude-acp", core.RoleWorker)); !errors.Is(err, core.ErrProfileNotFound) {
+	if err := reg.UpdateProfile(ctx, testProfile("nope", core.RoleWorker)); !errors.Is(err, core.ErrProfileNotFound) {
 		t.Fatalf("expected ErrProfileNotFound, got %v", err)
 	}
 
@@ -187,21 +100,16 @@ func TestConfigRegistry_CapabilityOverflow(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
 
-	// Driver with read-only capabilities.
-	d := &core.AgentDriver{
-		ID:            "read-only",
-		LaunchCommand: "cat",
-		CapabilitiesMax: core.DriverCapabilities{
-			FSRead: true, FSWrite: false, Terminal: false,
-		},
-	}
-	reg.LoadDrivers([]*core.AgentDriver{d})
-
-	// Profile that requests write — should fail.
+	// Profile with read-only driver — requesting write should fail.
 	p := &core.AgentProfile{
-		ID:             "writer",
-		DriverID:       "read-only",
-		Role:           core.RoleWorker,
+		ID:   "writer",
+		Role: core.RoleWorker,
+		Driver: core.DriverConfig{
+			LaunchCommand: "cat",
+			CapabilitiesMax: core.DriverCapabilities{
+				FSRead: true, FSWrite: false, Terminal: false,
+			},
+		},
 		ActionsAllowed: []core.AgentAction{core.AgentActionFSWrite},
 	}
 	if err := reg.CreateProfile(ctx, p); !errors.Is(err, core.ErrCapabilityOverflow) {
@@ -210,9 +118,14 @@ func TestConfigRegistry_CapabilityOverflow(t *testing.T) {
 
 	// Profile that only reads — should succeed.
 	p2 := &core.AgentProfile{
-		ID:             "reader",
-		DriverID:       "read-only",
-		Role:           core.RoleSupport,
+		ID:   "reader",
+		Role: core.RoleSupport,
+		Driver: core.DriverConfig{
+			LaunchCommand: "cat",
+			CapabilitiesMax: core.DriverCapabilities{
+				FSRead: true, FSWrite: false, Terminal: false,
+			},
+		},
 		ActionsAllowed: []core.AgentAction{core.AgentActionReadContext},
 	}
 	if err := reg.CreateProfile(ctx, p2); err != nil {
@@ -223,12 +136,11 @@ func TestConfigRegistry_CapabilityOverflow(t *testing.T) {
 func TestConfigRegistry_ResolveForAction(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
-	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp"), testDriver("codex-acp")})
 	reg.LoadProfiles([]*core.AgentProfile{
-		testProfile("lead", "claude-acp", core.RoleLead, "planning"),
-		testProfile("worker-be", "codex-acp", core.RoleWorker, "backend"),
-		testProfile("worker-fe", "claude-acp", core.RoleWorker, "frontend"),
-		testProfile("gate", "claude-acp", core.RoleGate, "review"),
+		testProfile("lead", core.RoleLead, "planning"),
+		testProfile("worker-be", core.RoleWorker, "backend"),
+		testProfile("worker-fe", core.RoleWorker, "frontend"),
+		testProfile("gate", core.RoleGate, "review"),
 	})
 
 	tests := []struct {
@@ -261,7 +173,7 @@ func TestConfigRegistry_ResolveForAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, d, err := reg.ResolveForAction(ctx, tt.action)
+			p, err := reg.ResolveForAction(ctx, tt.action)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("expected %v, got %v", tt.wantErr, err)
@@ -274,9 +186,6 @@ func TestConfigRegistry_ResolveForAction(t *testing.T) {
 			if p.ID != tt.wantID {
 				t.Fatalf("expected profile %q, got %q", tt.wantID, p.ID)
 			}
-			if d == nil {
-				t.Fatal("expected non-nil driver")
-			}
 		})
 	}
 }
@@ -284,23 +193,19 @@ func TestConfigRegistry_ResolveForAction(t *testing.T) {
 func TestConfigRegistry_ResolveByID(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
-	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp")})
 	reg.LoadProfiles([]*core.AgentProfile{
-		testProfile("lead", "claude-acp", core.RoleLead),
+		testProfile("lead", core.RoleLead),
 	})
 
-	p, d, err := reg.ResolveByID(ctx, "lead")
+	p, err := reg.ResolveByID(ctx, "lead")
 	if err != nil {
 		t.Fatalf("ResolveByID: %v", err)
 	}
 	if p.ID != "lead" {
 		t.Fatalf("expected lead, got %s", p.ID)
 	}
-	if d.ID != "claude-acp" {
-		t.Fatalf("expected claude-acp, got %s", d.ID)
-	}
 
-	_, _, err = reg.ResolveByID(ctx, "nope")
+	_, err = reg.ResolveByID(ctx, "nope")
 	if !errors.Is(err, core.ErrProfileNotFound) {
 		t.Fatalf("expected ErrProfileNotFound, got %v", err)
 	}
@@ -309,9 +214,8 @@ func TestConfigRegistry_ResolveByID(t *testing.T) {
 func TestConfigRegistry_Resolve_EngineInterface(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
-	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp")})
 	reg.LoadProfiles([]*core.AgentProfile{
-		testProfile("worker", "claude-acp", core.RoleWorker),
+		testProfile("worker", core.RoleWorker),
 	})
 
 	// Use as flow resolver interface.
@@ -328,20 +232,14 @@ func TestConfigRegistry_Resolve_EngineInterface(t *testing.T) {
 func TestConfigRegistry_LoadBulk(t *testing.T) {
 	reg := NewConfigRegistry()
 
-	drivers := []*core.AgentDriver{testDriver("a"), testDriver("b")}
 	profiles := []*core.AgentProfile{
-		testProfile("p1", "a", core.RoleWorker),
-		testProfile("p2", "b", core.RoleGate),
+		testProfile("p1", core.RoleWorker),
+		testProfile("p2", core.RoleGate),
 	}
-	reg.LoadDrivers(drivers)
 	reg.LoadProfiles(profiles)
 
 	ctx := context.Background()
-	dl, _ := reg.ListDrivers(ctx)
 	pl, _ := reg.ListProfiles(ctx)
-	if len(dl) != 2 {
-		t.Fatalf("expected 2 drivers, got %d", len(dl))
-	}
 	if len(pl) != 2 {
 		t.Fatalf("expected 2 profiles, got %d", len(pl))
 	}
@@ -350,7 +248,6 @@ func TestConfigRegistry_LoadBulk(t *testing.T) {
 func TestConfigRegistry_RejectsInvalidSkillReference(t *testing.T) {
 	ctx := context.Background()
 	reg := NewConfigRegistry()
-	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp")})
 
 	dataDir := t.TempDir()
 	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
@@ -362,7 +259,7 @@ func TestConfigRegistry_RejectsInvalidSkillReference(t *testing.T) {
 		t.Fatalf("write skill: %v", err)
 	}
 
-	p := testProfile("worker-1", "claude-acp", core.RoleWorker, "backend")
+	p := testProfile("worker-1", core.RoleWorker, "backend")
 	p.Skills = []string{"strict-review", "missing-skill"}
 	if err := reg.CreateProfile(ctx, p); !errors.Is(err, core.ErrInvalidSkills) {
 		t.Fatalf("expected ErrInvalidSkills, got %v", err)

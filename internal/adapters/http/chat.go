@@ -146,7 +146,7 @@ type crystallizeChatSessionRequest struct {
 type crystallizeChatSessionResponse struct {
 	Thread       *core.Thread              `json:"thread"`
 	WorkItem     *core.WorkItem            `json:"work_item,omitempty"`
-	Participants []*core.ThreadParticipant `json:"participants"`
+	Participants []*core.ThreadMember `json:"participants"`
 }
 
 func (h *chatHandlers) crystallizeThread(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +205,7 @@ func (h *chatHandlers) crystallizeThread(w http.ResponseWriter, r *http.Request)
 					continue
 				}
 				participant.ThreadID = thread.ID
-				id, err := txStore.AddThreadParticipant(r.Context(), participant)
+				id, err := txStore.AddThreadMember(r.Context(), participant)
 				if err != nil {
 					return err
 				}

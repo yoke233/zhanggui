@@ -37,6 +37,31 @@ var allowedAttachmentExt = map[string]string{
 
 const maxAttachmentSize = 10 << 20 // 10 MB
 
+// attachmentResponse is the JSON shape returned for attachment endpoints (backward compat).
+type attachmentResponse struct {
+	ID         int64     `json:"id"`
+	WorkItemID int64     `json:"work_item_id"`
+	FileName   string    `json:"file_name"`
+	MimeType   string    `json:"mime_type"`
+	Size       int64     `json:"size"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func toAttachmentResponse(rb *core.ResourceBinding) *attachmentResponse {
+	var issueID int64
+	if rb.IssueID != nil {
+		issueID = *rb.IssueID
+	}
+	return &attachmentResponse{
+		ID:         rb.ID,
+		WorkItemID: issueID,
+		FileName:   rb.AttachmentFileName(),
+		MimeType:   rb.AttachmentMimeType(),
+		Size:       rb.AttachmentSize(),
+		CreatedAt:  rb.CreatedAt,
+	}
+}
+
 func (h *Handler) uploadWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
@@ -119,23 +144,17 @@ func (h *Handler) uploadWorkItemAttachment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	att := &core.WorkItemAttachment{
-		WorkItemID: issueID,
-		FileName: header.Filename,
-		FilePath: diskPath,
-		MimeType: mimeType,
-		Size:     written,
-	}
+	rb := core.NewAttachmentBinding(issueID, header.Filename, diskPath, mimeType, written)
 
-	id, err := h.store.CreateWorkItemAttachment(r.Context(), att)
+	id, err := h.store.CreateResourceBinding(r.Context(), rb)
 	if err != nil {
 		os.Remove(diskPath)
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	att.ID = id
+	rb.ID = id
 
-	writeJSON(w, http.StatusCreated, att)
+	writeJSON(w, http.StatusCreated, toAttachmentResponse(rb))
 }
 
 func (h *Handler) listWorkItemAttachments(w http.ResponseWriter, r *http.Request) {
@@ -145,15 +164,16 @@ func (h *Handler) listWorkItemAttachments(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	attachments, err := h.store.ListWorkItemAttachments(r.Context(), issueID)
+	bindings, err := h.store.ListResourceBindingsByIssue(r.Context(), issueID, core.ResourceKindAttachment)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if attachments == nil {
-		attachments = []*core.WorkItemAttachment{}
+	resp := make([]*attachmentResponse, 0, len(bindings))
+	for _, rb := range bindings {
+		resp = append(resp, toAttachmentResponse(rb))
 	}
-	writeJSON(w, http.StatusOK, attachments)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) getWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +183,7 @@ func (h *Handler) getWorkItemAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
+	rb, err := h.store.GetResourceBinding(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -172,7 +192,7 @@ func (h *Handler) getWorkItemAttachment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, att)
+	writeJSON(w, http.StatusOK, toAttachmentResponse(rb))
 }
 
 func (h *Handler) downloadWorkItemAttachment(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +202,7 @@ func (h *Handler) downloadWorkItemAttachment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
+	rb, err := h.store.GetResourceBinding(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -192,15 +212,15 @@ func (h *Handler) downloadWorkItemAttachment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	f, err := os.Open(att.FilePath)
+	f, err := os.Open(rb.AttachmentFilePath())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "file not found on disk", "FILE_MISSING")
 		return
 	}
 	defer f.Close()
 
-	w.Header().Set("Content-Type", att.MimeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, att.FileName))
+	w.Header().Set("Content-Type", rb.AttachmentMimeType())
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, rb.AttachmentFileName()))
 	io.Copy(w, f)
 }
 
@@ -211,7 +231,7 @@ func (h *Handler) deleteWorkItemAttachment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	att, err := h.store.GetWorkItemAttachment(r.Context(), attID)
+	rb, err := h.store.GetResourceBinding(r.Context(), attID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "attachment not found", "NOT_FOUND")
@@ -221,13 +241,13 @@ func (h *Handler) deleteWorkItemAttachment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.store.DeleteWorkItemAttachment(r.Context(), attID); err != nil {
+	if err := h.store.DeleteResourceBinding(r.Context(), attID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
 	// Best-effort remove file from disk.
-	os.Remove(att.FilePath)
+	os.Remove(rb.AttachmentFilePath())
 
 	w.WriteHeader(http.StatusNoContent)
 }

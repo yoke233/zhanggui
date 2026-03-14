@@ -59,6 +59,7 @@ func (ProjectModel) TableName() string { return "projects" }
 type ResourceBindingModel struct {
 	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	ProjectID int64                     `gorm:"column:project_id;not null"`
+	IssueID   *int64                    `gorm:"column:issue_id"`
 	Kind      string                    `gorm:"column:kind;not null"`
 	URI       string                    `gorm:"column:uri;not null"`
 	Config    JSONField[map[string]any] `gorm:"column:config;type:text"`
@@ -86,42 +87,6 @@ type WorkItemModel struct {
 }
 
 func (WorkItemModel) TableName() string { return "issues" }
-
-type WorkItemAttachmentModel struct {
-	ID        int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	IssueID   int64     `gorm:"column:issue_id;not null"`
-	FileName  string    `gorm:"column:file_name;not null"`
-	FilePath  string    `gorm:"column:file_path;not null"`
-	MimeType  string    `gorm:"column:mime_type;not null"`
-	Size      int64     `gorm:"column:size;not null"`
-	CreatedAt time.Time `gorm:"column:created_at"`
-}
-
-func (WorkItemAttachmentModel) TableName() string { return "work_item_attachments" }
-
-func (m *WorkItemAttachmentModel) toCore() *core.WorkItemAttachment {
-	return &core.WorkItemAttachment{
-		ID:         m.ID,
-		WorkItemID: m.IssueID,
-		FileName:   m.FileName,
-		FilePath:   m.FilePath,
-		MimeType:   m.MimeType,
-		Size:       m.Size,
-		CreatedAt:  m.CreatedAt,
-	}
-}
-
-func workItemAttachmentModelFromCore(a *core.WorkItemAttachment) *WorkItemAttachmentModel {
-	return &WorkItemAttachmentModel{
-		ID:        a.ID,
-		IssueID:   a.WorkItemID,
-		FileName:  a.FileName,
-		FilePath:  a.FilePath,
-		MimeType:  a.MimeType,
-		Size:      a.Size,
-		CreatedAt: a.CreatedAt,
-	}
-}
 
 type ActionModel struct {
 	ID                   int64                     `gorm:"column:id;primaryKey;autoIncrement"`
@@ -154,7 +119,6 @@ type RunModel struct {
 	AgentID          string                    `gorm:"column:agent_id"`
 	AgentContextID   *int64                    `gorm:"column:agent_context_id"`
 	BriefingSnapshot string                    `gorm:"column:briefing_snapshot"`
-	ArtifactID       *int64                    `gorm:"column:artifact_id"`
 	Input            JSONField[map[string]any] `gorm:"column:input;type:text"`
 	Output           JSONField[map[string]any] `gorm:"column:output;type:text"`
 	ErrorMessage     string                    `gorm:"column:error_message"`
@@ -163,22 +127,12 @@ type RunModel struct {
 	StartedAt        *time.Time                `gorm:"column:started_at"`
 	FinishedAt       *time.Time                `gorm:"column:finished_at"`
 	CreatedAt        time.Time                 `gorm:"column:created_at"`
+	ResultMarkdown   string                    `gorm:"column:result_markdown"`
+	ResultMetadata   JSONField[map[string]any] `gorm:"column:result_metadata;type:text"`
+	ResultAssets     JSONField[[]core.Asset]   `gorm:"column:result_assets;type:text"`
 }
 
 func (RunModel) TableName() string { return "executions" }
-
-type DeliverableModel struct {
-	ID             int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ExecutionID    int64                     `gorm:"column:execution_id;not null"`
-	StepID         int64                     `gorm:"column:step_id;not null"`
-	IssueID        int64                     `gorm:"column:issue_id;not null"`
-	ResultMarkdown string                    `gorm:"column:result_markdown;not null"`
-	Metadata       JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	Assets         JSONField[[]core.Asset]   `gorm:"column:assets;type:text"`
-	CreatedAt      time.Time                 `gorm:"column:created_at"`
-}
-
-func (DeliverableModel) TableName() string { return "artifacts" }
 
 type AgentContextModel struct {
 	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
@@ -199,6 +153,7 @@ func (AgentContextModel) TableName() string { return "agent_contexts" }
 type EventModel struct {
 	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	Type      string                    `gorm:"column:type;not null"`
+	Category  string                    `gorm:"column:category;not null;default:domain"`
 	IssueID   *int64                    `gorm:"column:issue_id"`
 	StepID    *int64                    `gorm:"column:step_id"`
 	ExecID    *int64                    `gorm:"column:exec_id"`
@@ -206,47 +161,12 @@ type EventModel struct {
 	Timestamp time.Time                 `gorm:"column:timestamp"`
 }
 
-func (EventModel) TableName() string { return "events" }
-
-type RunProbeModel struct {
-	ID             int64      `gorm:"column:id;primaryKey;autoIncrement"`
-	ExecutionID    int64      `gorm:"column:execution_id;not null"`
-	IssueID        int64      `gorm:"column:issue_id;not null"`
-	StepID         int64      `gorm:"column:step_id;not null"`
-	AgentContextID *int64     `gorm:"column:agent_context_id"`
-	SessionID      string     `gorm:"column:session_id;not null"`
-	OwnerID        string     `gorm:"column:owner_id;not null"`
-	TriggerSource  string     `gorm:"column:trigger_source;not null"`
-	Question       string     `gorm:"column:question;not null"`
-	Status         string     `gorm:"column:status;not null"`
-	Verdict        string     `gorm:"column:verdict;not null"`
-	ReplyText      string     `gorm:"column:reply_text;not null"`
-	Error          string     `gorm:"column:error;not null"`
-	SentAt         *time.Time `gorm:"column:sent_at"`
-	AnsweredAt     *time.Time `gorm:"column:answered_at"`
-	CreatedAt      time.Time  `gorm:"column:created_at"`
-}
-
-func (RunProbeModel) TableName() string { return "execution_probes" }
-
-type AgentDriverModel struct {
-	ID            string                       `gorm:"column:id;primaryKey"`
-	LaunchCommand string                       `gorm:"column:launch_command;not null"`
-	LaunchArgs    JSONField[[]string]          `gorm:"column:launch_args;type:text"`
-	Env           JSONField[map[string]string] `gorm:"column:env;type:text"`
-	CapFSRead     bool                         `gorm:"column:cap_fs_read;not null"`
-	CapFSWrite    bool                         `gorm:"column:cap_fs_write;not null"`
-	CapTerminal   bool                         `gorm:"column:cap_terminal;not null"`
-	CreatedAt     time.Time                    `gorm:"column:created_at"`
-	UpdatedAt     time.Time                    `gorm:"column:updated_at"`
-}
-
-func (AgentDriverModel) TableName() string { return "agent_drivers" }
+func (EventModel) TableName() string { return "event_log" }
 
 type AgentProfileModel struct {
 	ID               string                        `gorm:"column:id;primaryKey"`
 	Name             string                        `gorm:"column:name;not null"`
-	DriverID         string                        `gorm:"column:driver_id;not null"`
+	DriverConfig     JSONField[core.DriverConfig]  `gorm:"column:driver_config;type:text"`
 	Role             string                        `gorm:"column:role;not null"`
 	Capabilities     JSONField[[]string]           `gorm:"column:capabilities;type:text"`
 	ActionsAllowed   JSONField[[]core.AgentAction] `gorm:"column:actions_allowed;type:text"`
@@ -297,33 +217,6 @@ type UsageRecordModel struct {
 }
 
 func (UsageRecordModel) TableName() string { return "usage_records" }
-
-type ToolCallAuditModel struct {
-	ID             int64      `gorm:"column:id;primaryKey;autoIncrement"`
-	IssueID        int64      `gorm:"column:issue_id;not null"`
-	StepID         int64      `gorm:"column:step_id;not null"`
-	ExecutionID    int64      `gorm:"column:execution_id;not null"`
-	SessionID      string     `gorm:"column:session_id;not null"`
-	ToolCallID     string     `gorm:"column:tool_call_id;not null"`
-	ToolName       string     `gorm:"column:tool_name;not null"`
-	Status         string     `gorm:"column:status;not null"`
-	StartedAt      *time.Time `gorm:"column:started_at"`
-	FinishedAt     *time.Time `gorm:"column:finished_at"`
-	DurationMs     int64      `gorm:"column:duration_ms;not null"`
-	ExitCode       *int       `gorm:"column:exit_code"`
-	InputDigest    string     `gorm:"column:input_digest;not null"`
-	OutputDigest   string     `gorm:"column:output_digest;not null"`
-	StdoutDigest   string     `gorm:"column:stdout_digest;not null"`
-	StderrDigest   string     `gorm:"column:stderr_digest;not null"`
-	InputPreview   string     `gorm:"column:input_preview;not null"`
-	OutputPreview  string     `gorm:"column:output_preview;not null"`
-	StdoutPreview  string     `gorm:"column:stdout_preview;not null"`
-	StderrPreview  string     `gorm:"column:stderr_preview;not null"`
-	RedactionLevel string     `gorm:"column:redaction_level;not null"`
-	CreatedAt      time.Time  `gorm:"column:created_at"`
-}
-
-func (ToolCallAuditModel) TableName() string { return "tool_call_audits" }
 
 // ── Thread ──
 
@@ -401,26 +294,55 @@ func (m *ThreadMessageModel) toCore() *core.ThreadMessage {
 	}
 }
 
-type ThreadParticipantModel struct {
-	ID       int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID int64     `gorm:"column:thread_id;not null"`
-	UserID   string    `gorm:"column:user_id;not null"`
-	Role     string    `gorm:"column:role;not null"`
-	JoinedAt time.Time `gorm:"column:joined_at"`
+// ThreadMemberModel persists unified thread members (human + agent).
+type ThreadMemberModel struct {
+	ID             int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID       int64                     `gorm:"column:thread_id;not null"`
+	Kind           string                    `gorm:"column:kind;not null"`
+	UserID         string                    `gorm:"column:user_id;not null;default:''"`
+	AgentProfileID string                    `gorm:"column:agent_profile_id;not null;default:''"`
+	Role           string                    `gorm:"column:role;not null;default:'member'"`
+	Status         string                    `gorm:"column:status;not null;default:''"`
+	AgentData      JSONField[map[string]any] `gorm:"column:agent_data;type:text"`
+	JoinedAt       time.Time                 `gorm:"column:joined_at"`
+	LastActiveAt   time.Time                 `gorm:"column:last_active_at"`
 }
 
-func (ThreadParticipantModel) TableName() string { return "thread_participants" }
+func (ThreadMemberModel) TableName() string { return "thread_members" }
 
-func (m *ThreadParticipantModel) toCore() *core.ThreadParticipant {
+func (m *ThreadMemberModel) toCore() *core.ThreadMember {
 	if m == nil {
 		return nil
 	}
-	return &core.ThreadParticipant{
-		ID:       m.ID,
-		ThreadID: m.ThreadID,
-		UserID:   m.UserID,
-		Role:     m.Role,
-		JoinedAt: m.JoinedAt,
+	return &core.ThreadMember{
+		ID:             m.ID,
+		ThreadID:       m.ThreadID,
+		Kind:           m.Kind,
+		UserID:         m.UserID,
+		AgentProfileID: m.AgentProfileID,
+		Role:           m.Role,
+		Status:         core.ThreadAgentStatus(m.Status),
+		AgentData:      m.AgentData.Data,
+		JoinedAt:       m.JoinedAt,
+		LastActiveAt:   m.LastActiveAt,
+	}
+}
+
+func threadMemberModelFromCore(m *core.ThreadMember) *ThreadMemberModel {
+	if m == nil {
+		return nil
+	}
+	return &ThreadMemberModel{
+		ID:             m.ID,
+		ThreadID:       m.ThreadID,
+		Kind:           m.Kind,
+		UserID:         m.UserID,
+		AgentProfileID: m.AgentProfileID,
+		Role:           m.Role,
+		Status:         string(m.Status),
+		AgentData:      JSONField[map[string]any]{Data: m.AgentData},
+		JoinedAt:       m.JoinedAt,
+		LastActiveAt:   m.LastActiveAt,
 	}
 }
 
@@ -450,91 +372,10 @@ func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
 	}
 }
 
-// ThreadAgentSessionModel persists thread agent sessions.
-type ThreadAgentSessionModel struct {
-	ID                int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID          int64                     `gorm:"column:thread_id;not null"`
-	AgentProfileID    string                    `gorm:"column:agent_profile_id;not null"`
-	ACPSessionID      string                    `gorm:"column:acp_session_id;not null;default:''"`
-	Status            string                    `gorm:"column:status;not null;default:joining"`
-	TurnCount         int                       `gorm:"column:turn_count;not null;default:0"`
-	TotalInputTokens  int64                     `gorm:"column:total_input_tokens;not null;default:0"`
-	TotalOutputTokens int64                     `gorm:"column:total_output_tokens;not null;default:0"`
-	ProgressSummary   string                    `gorm:"column:progress_summary;not null;default:''"`
-	Metadata          JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	JoinedAt          time.Time                 `gorm:"column:joined_at"`
-	LastActiveAt      time.Time                 `gorm:"column:last_active_at"`
-}
-
-func (ThreadAgentSessionModel) TableName() string { return "thread_agent_sessions" }
-
-func (m *ThreadAgentSessionModel) toCore() *core.ThreadAgentSession {
-	if m == nil {
-		return nil
-	}
-	return &core.ThreadAgentSession{
-		ID:                m.ID,
-		ThreadID:          m.ThreadID,
-		AgentProfileID:    m.AgentProfileID,
-		ACPSessionID:      m.ACPSessionID,
-		Status:            core.ThreadAgentStatus(m.Status),
-		TurnCount:         m.TurnCount,
-		TotalInputTokens:  m.TotalInputTokens,
-		TotalOutputTokens: m.TotalOutputTokens,
-		ProgressSummary:   m.ProgressSummary,
-		Metadata:          m.Metadata.Data,
-		JoinedAt:          m.JoinedAt,
-		LastActiveAt:      m.LastActiveAt,
-	}
-}
-
-// FeatureManifestModel is the GORM model for feature_manifests table.
-type FeatureManifestModel struct {
-	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ProjectID int64                     `gorm:"column:project_id;not null"`
-	Version   int                       `gorm:"column:version;not null"`
-	Summary   string                    `gorm:"column:summary;not null"`
-	Metadata  JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	CreatedAt time.Time                 `gorm:"column:created_at"`
-	UpdatedAt time.Time                 `gorm:"column:updated_at"`
-}
-
-func (FeatureManifestModel) TableName() string { return "feature_manifests" }
-
-func (m *FeatureManifestModel) toCore() *core.FeatureManifest {
-	if m == nil {
-		return nil
-	}
-	return &core.FeatureManifest{
-		ID:        m.ID,
-		ProjectID: m.ProjectID,
-		Version:   m.Version,
-		Summary:   m.Summary,
-		Metadata:  m.Metadata.Data,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
-	}
-}
-
-func featureManifestModelFromCore(fm *core.FeatureManifest) *FeatureManifestModel {
-	if fm == nil {
-		return nil
-	}
-	return &FeatureManifestModel{
-		ID:        fm.ID,
-		ProjectID: fm.ProjectID,
-		Version:   fm.Version,
-		Summary:   fm.Summary,
-		Metadata:  JSONField[map[string]any]{Data: fm.Metadata},
-		CreatedAt: fm.CreatedAt,
-		UpdatedAt: fm.UpdatedAt,
-	}
-}
-
 // FeatureEntryModel is the GORM model for feature_entries table.
 type FeatureEntryModel struct {
 	ID          int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ManifestID  int64                     `gorm:"column:manifest_id;not null"`
+	ProjectID   int64                     `gorm:"column:project_id;not null"`
 	Key         string                    `gorm:"column:key;not null"`
 	Description string                    `gorm:"column:description;not null"`
 	Status      string                    `gorm:"column:status;not null"`
@@ -554,7 +395,7 @@ func (m *FeatureEntryModel) toCore() *core.FeatureEntry {
 	}
 	return &core.FeatureEntry{
 		ID:          m.ID,
-		ManifestID:  m.ManifestID,
+		ProjectID:   m.ProjectID,
 		Key:         m.Key,
 		Description: m.Description,
 		Status:      core.FeatureStatus(m.Status),
@@ -573,7 +414,7 @@ func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
 	}
 	return &FeatureEntryModel{
 		ID:          e.ID,
-		ManifestID:  e.ManifestID,
+		ProjectID:   e.ProjectID,
 		Key:         e.Key,
 		Description: e.Description,
 		Status:      string(e.Status),
@@ -687,6 +528,7 @@ func resourceBindingModelFromCore(rb *core.ResourceBinding) *ResourceBindingMode
 	return &ResourceBindingModel{
 		ID:        rb.ID,
 		ProjectID: rb.ProjectID,
+		IssueID:   rb.IssueID,
 		Kind:      rb.Kind,
 		URI:       rb.URI,
 		Config:    JSONField[map[string]any]{Data: rb.Config},
@@ -703,6 +545,7 @@ func (m *ResourceBindingModel) toCore() *core.ResourceBinding {
 	return &core.ResourceBinding{
 		ID:        m.ID,
 		ProjectID: m.ProjectID,
+		IssueID:   m.IssueID,
 		Kind:      m.Kind,
 		URI:       m.URI,
 		Config:    m.Config.Data,
@@ -816,7 +659,6 @@ func runModelFromCore(exec *core.Run) *RunModel {
 		AgentID:          exec.AgentID,
 		AgentContextID:   exec.AgentContextID,
 		BriefingSnapshot: exec.BriefingSnapshot,
-		ArtifactID:       exec.DeliverableID,
 		Input:            JSONField[map[string]any]{Data: exec.Input},
 		Output:           JSONField[map[string]any]{Data: exec.Output},
 		ErrorMessage:     exec.ErrorMessage,
@@ -825,6 +667,9 @@ func runModelFromCore(exec *core.Run) *RunModel {
 		StartedAt:        exec.StartedAt,
 		FinishedAt:       exec.FinishedAt,
 		CreatedAt:        exec.CreatedAt,
+		ResultMarkdown:   exec.ResultMarkdown,
+		ResultMetadata:   JSONField[map[string]any]{Data: exec.ResultMetadata},
+		ResultAssets:     JSONField[[]core.Asset]{Data: exec.ResultAssets},
 	}
 }
 
@@ -840,7 +685,6 @@ func (m *RunModel) toCore() *core.Run {
 		AgentID:          m.AgentID,
 		AgentContextID:   m.AgentContextID,
 		BriefingSnapshot: m.BriefingSnapshot,
-		DeliverableID:    m.ArtifactID,
 		Input:            m.Input.Data,
 		Output:           m.Output.Data,
 		ErrorMessage:     m.ErrorMessage,
@@ -849,38 +693,9 @@ func (m *RunModel) toCore() *core.Run {
 		StartedAt:        m.StartedAt,
 		FinishedAt:       m.FinishedAt,
 		CreatedAt:        m.CreatedAt,
-	}
-}
-
-func deliverableModelFromCore(artifact *core.Deliverable) *DeliverableModel {
-	if artifact == nil {
-		return nil
-	}
-	return &DeliverableModel{
-		ID:             artifact.ID,
-		ExecutionID:    artifact.RunID,
-		StepID:         artifact.ActionID,
-		IssueID:        artifact.WorkItemID,
-		ResultMarkdown: artifact.ResultMarkdown,
-		Metadata:       JSONField[map[string]any]{Data: artifact.Metadata},
-		Assets:         JSONField[[]core.Asset]{Data: artifact.Assets},
-		CreatedAt:      artifact.CreatedAt,
-	}
-}
-
-func (m *DeliverableModel) toCore() *core.Deliverable {
-	if m == nil {
-		return nil
-	}
-	return &core.Deliverable{
-		ID:             m.ID,
-		RunID:          m.ExecutionID,
-		ActionID:       m.StepID,
-		WorkItemID:     m.IssueID,
-		ResultMarkdown: m.ResultMarkdown,
-		Metadata:       m.Metadata.Data,
-		Assets:         m.Assets.Data,
-		CreatedAt:      m.CreatedAt,
+		ResultMarkdown:   m.ResultMarkdown,
+		ResultMetadata:   m.ResultMetadata.Data,
+		ResultAssets:     m.ResultAssets.Data,
 	}
 }
 
@@ -926,9 +741,14 @@ func eventModelFromCore(event *core.Event) *EventModel {
 	if event == nil {
 		return nil
 	}
+	category := event.Category
+	if category == "" {
+		category = core.EventCategoryDomain
+	}
 	return &EventModel{
 		ID:        event.ID,
 		Type:      string(event.Type),
+		Category:  category,
 		IssueID:   int64PtrIfNonZero(event.WorkItemID),
 		StepID:    int64PtrIfNonZero(event.ActionID),
 		ExecID:    int64PtrIfNonZero(event.RunID),
@@ -944,6 +764,7 @@ func (m *EventModel) toCore() *core.Event {
 	event := &core.Event{
 		ID:        m.ID,
 		Type:      core.EventType(m.Type),
+		Category:  m.Category,
 		Data:      m.Data.Data,
 		Timestamp: m.Timestamp,
 	}
@@ -966,86 +787,6 @@ func int64PtrIfNonZero(v int64) *int64 {
 	return &v
 }
 
-func runProbeModelFromCore(probe *core.RunProbe) *RunProbeModel {
-	if probe == nil {
-		return nil
-	}
-	return &RunProbeModel{
-		ID:             probe.ID,
-		ExecutionID:    probe.RunID,
-		IssueID:        probe.WorkItemID,
-		StepID:         probe.ActionID,
-		AgentContextID: probe.AgentContextID,
-		SessionID:      probe.SessionID,
-		OwnerID:        probe.OwnerID,
-		TriggerSource:  string(probe.TriggerSource),
-		Question:       probe.Question,
-		Status:         string(probe.Status),
-		Verdict:        string(probe.Verdict),
-		ReplyText:      probe.ReplyText,
-		Error:          probe.Error,
-		SentAt:         probe.SentAt,
-		AnsweredAt:     probe.AnsweredAt,
-		CreatedAt:      probe.CreatedAt,
-	}
-}
-
-func (m *RunProbeModel) toCore() *core.RunProbe {
-	if m == nil {
-		return nil
-	}
-	return &core.RunProbe{
-		ID:             m.ID,
-		RunID:          m.ExecutionID,
-		WorkItemID:     m.IssueID,
-		ActionID:       m.StepID,
-		AgentContextID: m.AgentContextID,
-		SessionID:      m.SessionID,
-		OwnerID:        m.OwnerID,
-		TriggerSource:  core.RunProbeTriggerSource(m.TriggerSource),
-		Question:       m.Question,
-		Status:         core.RunProbeStatus(m.Status),
-		Verdict:        core.RunProbeVerdict(m.Verdict),
-		ReplyText:      m.ReplyText,
-		Error:          m.Error,
-		SentAt:         m.SentAt,
-		AnsweredAt:     m.AnsweredAt,
-		CreatedAt:      m.CreatedAt,
-	}
-}
-
-func agentDriverModelFromCore(d *core.AgentDriver) *AgentDriverModel {
-	if d == nil {
-		return nil
-	}
-	return &AgentDriverModel{
-		ID:            d.ID,
-		LaunchCommand: d.LaunchCommand,
-		LaunchArgs:    JSONField[[]string]{Data: d.LaunchArgs},
-		Env:           JSONField[map[string]string]{Data: d.Env},
-		CapFSRead:     d.CapabilitiesMax.FSRead,
-		CapFSWrite:    d.CapabilitiesMax.FSWrite,
-		CapTerminal:   d.CapabilitiesMax.Terminal,
-	}
-}
-
-func (m *AgentDriverModel) toCore() *core.AgentDriver {
-	if m == nil {
-		return nil
-	}
-	return &core.AgentDriver{
-		ID:            m.ID,
-		LaunchCommand: m.LaunchCommand,
-		LaunchArgs:    m.LaunchArgs.Data,
-		Env:           m.Env.Data,
-		CapabilitiesMax: core.DriverCapabilities{
-			FSRead:   m.CapFSRead,
-			FSWrite:  m.CapFSWrite,
-			Terminal: m.CapTerminal,
-		},
-	}
-}
-
 func agentProfileModelFromCore(p *core.AgentProfile) *AgentProfileModel {
 	if p == nil {
 		return nil
@@ -1053,7 +794,7 @@ func agentProfileModelFromCore(p *core.AgentProfile) *AgentProfileModel {
 	return &AgentProfileModel{
 		ID:               p.ID,
 		Name:             p.Name,
-		DriverID:         p.DriverID,
+		DriverConfig:     JSONField[core.DriverConfig]{Data: p.Driver},
 		Role:             string(p.Role),
 		Capabilities:     JSONField[[]string]{Data: p.Capabilities},
 		ActionsAllowed:   JSONField[[]core.AgentAction]{Data: p.ActionsAllowed},
@@ -1074,7 +815,7 @@ func (m *AgentProfileModel) toCore() *core.AgentProfile {
 	return &core.AgentProfile{
 		ID:             m.ID,
 		Name:           m.Name,
-		DriverID:       m.DriverID,
+		Driver:         m.DriverConfig.Data,
 		Role:           core.AgentRole(m.Role),
 		Capabilities:   m.Capabilities.Data,
 		ActionsAllowed: m.ActionsAllowed.Data,
@@ -1173,69 +914,6 @@ func (m *UsageRecordModel) toCore() *core.UsageRecord {
 		CreatedAt:        m.CreatedAt,
 	}
 }
-
-func toolCallAuditModelFromCore(a *core.ToolCallAudit) *ToolCallAuditModel {
-	if a == nil {
-		return nil
-	}
-	return &ToolCallAuditModel{
-		ID:             a.ID,
-		IssueID:        a.WorkItemID,
-		StepID:         a.ActionID,
-		ExecutionID:    a.RunID,
-		SessionID:      a.SessionID,
-		ToolCallID:     a.ToolCallID,
-		ToolName:       a.ToolName,
-		Status:         a.Status,
-		StartedAt:      a.StartedAt,
-		FinishedAt:     a.FinishedAt,
-		DurationMs:     a.DurationMs,
-		ExitCode:       a.ExitCode,
-		InputDigest:    a.InputDigest,
-		OutputDigest:   a.OutputDigest,
-		StdoutDigest:   a.StdoutDigest,
-		StderrDigest:   a.StderrDigest,
-		InputPreview:   a.InputPreview,
-		OutputPreview:  a.OutputPreview,
-		StdoutPreview:  a.StdoutPreview,
-		StderrPreview:  a.StderrPreview,
-		RedactionLevel: a.RedactionLevel,
-		CreatedAt:      a.CreatedAt,
-	}
-}
-
-func (m *ToolCallAuditModel) toCore() *core.ToolCallAudit {
-	if m == nil {
-		return nil
-	}
-	return &core.ToolCallAudit{
-		ID:             m.ID,
-		WorkItemID:     m.IssueID,
-		ActionID:       m.StepID,
-		RunID:          m.ExecutionID,
-		SessionID:      m.SessionID,
-		ToolCallID:     m.ToolCallID,
-		ToolName:       m.ToolName,
-		Status:         m.Status,
-		StartedAt:      m.StartedAt,
-		FinishedAt:     m.FinishedAt,
-		DurationMs:     m.DurationMs,
-		ExitCode:       m.ExitCode,
-		InputDigest:    m.InputDigest,
-		OutputDigest:   m.OutputDigest,
-		StdoutDigest:   m.StdoutDigest,
-		StderrDigest:   m.StderrDigest,
-		InputPreview:   m.InputPreview,
-		OutputPreview:  m.OutputPreview,
-		StdoutPreview:  m.StdoutPreview,
-		StderrPreview:  m.StderrPreview,
-		RedactionLevel: m.RedactionLevel,
-		CreatedAt:      m.CreatedAt,
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // ActionResource

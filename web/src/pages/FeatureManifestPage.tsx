@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
-import type { FeatureEntry, FeatureManifest, FeatureManifestSummary, FeatureStatus } from "@/types/apiV2";
+import type { FeatureEntry, FeatureManifestSummary, FeatureStatus } from "@/types/apiV2";
 
 const STATUS_OPTIONS: { value: FeatureStatus | "all"; labelKey: string }[] = [
   { value: "all", labelKey: "manifest.statusAll" },
@@ -50,13 +50,11 @@ export function FeatureManifestPage() {
   const { apiClient } = useWorkbench();
   const numProjectId = Number(projectId);
 
-  const [manifest, setManifest] = useState<FeatureManifest | null>(null);
   const [summary, setSummary] = useState<FeatureManifestSummary | null>(null);
   const [entries, setEntries] = useState<FeatureEntry[]>([]);
   const [statusFilter, setStatusFilter] = useState<FeatureStatus | "all">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [initing, setIniting] = useState(false);
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false);
@@ -71,12 +69,10 @@ export function FeatureManifestPage() {
     setLoading(true);
     setError(null);
     try {
-      const [m, s, e] = await Promise.all([
-        apiClient.getManifest(numProjectId).catch(() => null),
+      const [s, e] = await Promise.all([
         apiClient.getManifestSummary(numProjectId).catch(() => null),
         apiClient.listManifestEntries(numProjectId).catch(() => [] as FeatureEntry[]),
       ]);
-      setManifest(m);
       setSummary(s);
       setEntries(e);
     } catch (err) {
@@ -87,18 +83,6 @@ export function FeatureManifestPage() {
   }, [apiClient, numProjectId]);
 
   useEffect(() => { void loadData(); }, [loadData]);
-
-  const handleInit = async () => {
-    setIniting(true);
-    try {
-      await apiClient.getOrCreateManifest(numProjectId);
-      await loadData();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setIniting(false);
-    }
-  };
 
   const handleAddEntry = async () => {
     if (!newKey.trim()) return;
@@ -167,12 +151,10 @@ export function FeatureManifestPage() {
           <Button variant="outline" size="sm" onClick={() => void loadData()}>
             {t("common.refresh")}
           </Button>
-          {manifest && (
-            <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t("manifest.addEntry")}
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            {t("manifest.addEntry")}
+          </Button>
         </div>
       </div>
 
@@ -180,33 +162,16 @@ export function FeatureManifestPage() {
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
       )}
 
-      {/* No manifest */}
-      {!manifest && (
+      {/* Summary bar */}
+      {summary && (
         <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-12">
-            <p className="text-muted-foreground">{t("manifest.noManifest")}</p>
-            <Button onClick={() => void handleInit()} disabled={initing}>
-              {initing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t("manifest.initBtn")}
-            </Button>
+          <CardContent className="space-y-3 py-4">
+            <SummaryBar summary={summary} />
           </CardContent>
         </Card>
       )}
 
-      {manifest && (
-        <>
-          {/* Version + summary bar */}
-          <Card>
-            <CardContent className="space-y-3 py-4">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{t("manifest.version")} {manifest.version}</span>
-                {manifest.summary && <span>· {manifest.summary}</span>}
-              </div>
-              {summary && <SummaryBar summary={summary} />}
-            </CardContent>
-          </Card>
-
-          {/* Add form */}
+      {/* Add form */}
           {showAdd && (
             <Card className="border-dashed">
               <CardContent className="space-y-3 py-4">
@@ -318,8 +283,6 @@ export function FeatureManifestPage() {
               </table>
             </div>
           )}
-        </>
-      )}
     </div>
   );
 }

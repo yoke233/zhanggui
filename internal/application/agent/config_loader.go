@@ -8,40 +8,40 @@ import (
 // NewConfigRegistryFromConfig creates a ConfigRegistry populated from TOML configuration.
 func NewConfigRegistryFromConfig(cfg config.RuntimeAgentsConfig) *ConfigRegistry {
 	reg := NewConfigRegistry()
-	reg.LoadDrivers(convertDrivers(cfg.Drivers))
-	reg.LoadProfiles(convertProfiles(cfg.Profiles))
+	reg.LoadProfiles(convertProfilesFromConfig(cfg.Drivers, cfg.Profiles))
 	return reg
 }
 
-func convertDrivers(cfgs []config.RuntimeDriverConfig) []*core.AgentDriver {
-	out := make([]*core.AgentDriver, len(cfgs))
-	for i, c := range cfgs {
-		out[i] = &core.AgentDriver{
-			ID:            c.ID,
-			LaunchCommand: c.LaunchCommand,
-			LaunchArgs:    c.LaunchArgs,
-			Env:           c.Env,
-			CapabilitiesMax: core.DriverCapabilities{
-				FSRead:   c.CapabilitiesMax.FSRead,
-				FSWrite:  c.CapabilitiesMax.FSWrite,
-				Terminal: c.CapabilitiesMax.Terminal,
-			},
-		}
+func convertProfilesFromConfig(driverCfgs []config.RuntimeDriverConfig, profileCfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
+	// Build driver lookup map.
+	driverMap := make(map[string]config.RuntimeDriverConfig, len(driverCfgs))
+	for _, d := range driverCfgs {
+		driverMap[d.ID] = d
 	}
-	return out
-}
 
-func convertProfiles(cfgs []config.RuntimeProfileConfig) []*core.AgentProfile {
-	out := make([]*core.AgentProfile, len(cfgs))
-	for i, c := range cfgs {
+	out := make([]*core.AgentProfile, len(profileCfgs))
+	for i, c := range profileCfgs {
 		actions := make([]core.AgentAction, len(c.ActionsAllowed))
 		for j, a := range c.ActionsAllowed {
 			actions[j] = core.AgentAction(a)
 		}
+		var driverCfg core.DriverConfig
+		if d, ok := driverMap[c.Driver]; ok {
+			driverCfg = core.DriverConfig{
+				LaunchCommand:   d.LaunchCommand,
+				LaunchArgs:      d.LaunchArgs,
+				Env:             d.Env,
+				CapabilitiesMax: core.DriverCapabilities{
+					FSRead:   d.CapabilitiesMax.FSRead,
+					FSWrite:  d.CapabilitiesMax.FSWrite,
+					Terminal: d.CapabilitiesMax.Terminal,
+				},
+			}
+		}
 		out[i] = &core.AgentProfile{
 			ID:             c.ID,
 			Name:           c.Name,
-			DriverID:       c.Driver,
+			Driver:         driverCfg,
 			Role:           core.AgentRole(c.Role),
 			Capabilities:   c.Capabilities,
 			ActionsAllowed: actions,

@@ -57,28 +57,27 @@ func setupIntegration(t *testing.T, executor flowapp.ActionExecutor) *integratio
 		t.Fatalf("start persister: %v", err)
 	}
 
-	// Setup agent registry with a test driver + worker profile + gate profile.
+	// Setup agent registry with worker profile + gate profile.
 	registry := agentapp.NewConfigRegistry()
-	registry.LoadDrivers([]*core.AgentDriver{{
-		ID:            "test-driver",
+	testDriverCfg := core.DriverConfig{
 		LaunchCommand: "echo",
 		LaunchArgs:    []string{"test"},
 		CapabilitiesMax: core.DriverCapabilities{
 			FSRead: true, FSWrite: true, Terminal: true,
 		},
-	}})
+	}
 	registry.LoadProfiles([]*core.AgentProfile{
 		{
 			ID:           "test-worker",
 			Name:         "Test Worker",
-			DriverID:     "test-driver",
+			Driver:       testDriverCfg,
 			Role:         core.RoleWorker,
 			Capabilities: []string{"go", "backend"},
 		},
 		{
 			ID:           "test-gate",
 			Name:         "Test Gate",
-			DriverID:     "test-driver",
+			Driver:       testDriverCfg,
 			Role:         core.RoleGate,
 			Capabilities: []string{"review"},
 		},
@@ -664,40 +663,26 @@ func TestIntegration_ResourceBindingCRUD(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: Agent Driver + Profile CRUD via API
+// Test 9: Agent Profile CRUD via API
 // ---------------------------------------------------------------------------
 
-func TestIntegration_AgentDriverProfileCRUD(t *testing.T) {
+func TestIntegration_AgentProfileCRUD(t *testing.T) {
 	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
 		return nil
 	})
 	ts := env.server
 
-	// Create a limited driver (read-only, no write/terminal).
-	resp, _ := postJSON(ts, "/agents/drivers", map[string]any{
-		"id":             "api-driver",
-		"launch_command": "node",
-		"launch_args":    []string{"agent.js"},
-		"capabilities_max": map[string]bool{
-			"fs_read": true, "fs_write": false, "terminal": false,
+	// Create profile with support role — should succeed.
+	resp, _ := postJSON(ts, "/agents/profiles", map[string]any{
+		"id":   "api-support",
+		"name": "API Support",
+		"driver": map[string]any{
+			"launch_command": "node",
+			"launch_args":    []string{"agent.js"},
+			"capabilities_max": map[string]bool{
+				"fs_read": true, "fs_write": false, "terminal": false,
+			},
 		},
-	})
-	requireStatus(t, resp, http.StatusCreated)
-
-	// List drivers (should include both test-driver and api-driver).
-	resp, _ = getJSON(ts, "/agents/drivers")
-	requireStatus(t, resp, http.StatusOK)
-	var drivers []*core.AgentDriver
-	decodeJSON(resp, &drivers)
-	if len(drivers) < 2 {
-		t.Fatalf("expected at least 2 drivers, got %d", len(drivers))
-	}
-
-	// Create profile with support role (only needs fs_read) — should succeed.
-	resp, _ = postJSON(ts, "/agents/profiles", map[string]any{
-		"id":           "api-support",
-		"name":         "API Support",
-		"driver_id":    "api-driver",
 		"role":         "support",
 		"capabilities": []string{"javascript"},
 	})
@@ -708,32 +693,27 @@ func TestIntegration_AgentDriverProfileCRUD(t *testing.T) {
 	requireStatus(t, resp, http.StatusOK)
 	var profile core.AgentProfile
 	decodeJSON(resp, &profile)
-	if profile.DriverID != "api-driver" {
-		t.Fatalf("expected driver_id=api-driver, got %s", profile.DriverID)
+	if profile.Driver.LaunchCommand != "node" {
+		t.Fatalf("expected launch_command=node, got %s", profile.Driver.LaunchCommand)
 	}
 
-	// Capability overflow: worker role needs fs_write+terminal, but api-driver forbids them.
+	// Capability overflow: worker role needs fs_write+terminal, but driver forbids them.
 	resp, _ = postJSON(ts, "/agents/profiles", map[string]any{
-		"id":        "overflow-profile",
-		"driver_id": "api-driver",
-		"role":      "worker",
+		"id": "overflow-profile",
+		"driver": map[string]any{
+			"launch_command": "node",
+			"capabilities_max": map[string]bool{
+				"fs_read": true, "fs_write": false, "terminal": false,
+			},
+		},
+		"role": "worker",
 	})
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for capability overflow, got %d", resp.StatusCode)
 	}
 
-	// Delete profile, then driver.
+	// Delete profile.
 	resp, _ = deleteReq(ts, "/agents/profiles/api-support")
-	requireStatus(t, resp, http.StatusNoContent)
-
-	// Try to delete driver that's still in use by test-worker.
-	resp, _ = deleteReq(ts, "/agents/drivers/test-driver")
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409 for driver-in-use, got %d", resp.StatusCode)
-	}
-
-	// Delete api-driver (no longer referenced).
-	resp, _ = deleteReq(ts, "/agents/drivers/api-driver")
 	requireStatus(t, resp, http.StatusNoContent)
 }
 
@@ -992,17 +972,9 @@ func TestIntegration_GateRejectReworkApprove(t *testing.T) {
 				verdict = "pass"
 				reason = "all tests present, LGTM"
 			}
-			// Store gate verdict in artifact metadata (same path as real agents).
-			art := &core.Deliverable{
-				RunID:          exec.ID,
-				ActionID:       step.ID,
-				WorkItemID:     step.WorkItemID,
-				ResultMarkdown: fmt.Sprintf("Review round %d: %s", n, reason),
-				Metadata:       map[string]any{"verdict": verdict, "reason": reason},
-			}
-			if _, err := store.CreateDeliverable(ctx, art); err != nil {
-				return err
-			}
+			// Store gate verdict in run result fields (same path as real agents).
+			exec.ResultMarkdown = fmt.Sprintf("Review round %d: %s", n, reason)
+			exec.ResultMetadata = map[string]any{"verdict": verdict, "reason": reason}
 			exec.Output = map[string]any{"verdict": verdict, "reason": reason}
 			return nil
 		}
@@ -1113,16 +1085,8 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		if step.Type == core.ActionGate {
 			atomic.AddInt32(&gateRuns, 1)
-			art := &core.Deliverable{
-				RunID:          exec.ID,
-				ActionID:       step.ID,
-				WorkItemID:     step.WorkItemID,
-				ResultMarkdown: "Review: always reject",
-				Metadata:       map[string]any{"verdict": "reject", "reason": "merge conflict unresolvable"},
-			}
-			if _, err := store.CreateDeliverable(ctx, art); err != nil {
-				return err
-			}
+			exec.ResultMarkdown = "Review: always reject"
+			exec.ResultMetadata = map[string]any{"verdict": "reject", "reason": "merge conflict unresolvable"}
 			exec.Output = map[string]any{"verdict": "reject"}
 			return nil
 		}

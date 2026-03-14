@@ -23,10 +23,9 @@ func newThread(title string, status core.ThreadStatus) *core.Thread {
 
 func newProfile(id string, role core.AgentRole) *core.AgentProfile {
 	return &core.AgentProfile{
-		ID:       id,
-		Name:     id,
-		DriverID: "driver-1",
-		Role:     role,
+		ID:   id,
+		Name: id,
+		Role: role,
 	}
 }
 
@@ -41,8 +40,8 @@ func newMessage(senderID, role, content string) *core.ThreadMessage {
 	}
 }
 
-func newParticipant(userID, role string) *core.ThreadParticipant {
-	return &core.ThreadParticipant{
+func newParticipant(userID, role string) *core.ThreadMember {
+	return &core.ThreadMember{
 		ID:       1,
 		ThreadID: 1,
 		UserID:   userID,
@@ -68,7 +67,7 @@ func TestBuildBootPrompt_FullContext(t *testing.T) {
 			newMessage("alice", "human", "Please review the endpoint changes."),
 			newMessage("agent-worker-1", "agent", "I will look into the PR now."),
 		},
-		Participants: []*core.ThreadParticipant{
+		Participants: []*core.ThreadMember{
 			newParticipant("alice", "owner"),
 			newParticipant("agent-worker-1", "agent"),
 		},

@@ -17,27 +17,16 @@ var (
 )
 
 // ConfigRegistry is an in-memory AgentRegistry loaded from TOML config.
-// It supports full CRUD for drivers and profiles, and resolution for actions.
+// It supports full CRUD for profiles, and resolution for actions.
 type ConfigRegistry struct {
 	mu       sync.RWMutex
-	drivers  map[string]*core.AgentDriver
 	profiles map[string]*core.AgentProfile
 }
 
 // NewConfigRegistry creates an empty ConfigRegistry.
 func NewConfigRegistry() *ConfigRegistry {
 	return &ConfigRegistry{
-		drivers:  make(map[string]*core.AgentDriver),
 		profiles: make(map[string]*core.AgentProfile),
-	}
-}
-
-// LoadDrivers bulk-loads drivers, replacing any existing entries with the same ID.
-func (r *ConfigRegistry) LoadDrivers(drivers []*core.AgentDriver) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, d := range drivers {
-		r.drivers[d.ID] = cloneDriver(d)
 	}
 }
 
@@ -48,64 +37,6 @@ func (r *ConfigRegistry) LoadProfiles(profiles []*core.AgentProfile) {
 	for _, p := range profiles {
 		r.profiles[p.ID] = cloneProfile(p)
 	}
-}
-
-// ---------- Driver CRUD ----------
-
-func (r *ConfigRegistry) GetDriver(_ context.Context, id string) (*core.AgentDriver, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	d, ok := r.drivers[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", core.ErrDriverNotFound, id)
-	}
-	return cloneDriver(d), nil
-}
-
-func (r *ConfigRegistry) ListDrivers(_ context.Context) ([]*core.AgentDriver, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]*core.AgentDriver, 0, len(r.drivers))
-	for _, d := range r.drivers {
-		out = append(out, cloneDriver(d))
-	}
-	return out, nil
-}
-
-func (r *ConfigRegistry) CreateDriver(_ context.Context, d *core.AgentDriver) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.drivers[d.ID]; exists {
-		return fmt.Errorf("%w: %q", core.ErrDuplicateDriver, d.ID)
-	}
-	r.drivers[d.ID] = cloneDriver(d)
-	return nil
-}
-
-func (r *ConfigRegistry) UpdateDriver(_ context.Context, d *core.AgentDriver) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.drivers[d.ID]; !exists {
-		return fmt.Errorf("%w: %q", core.ErrDriverNotFound, d.ID)
-	}
-	r.drivers[d.ID] = cloneDriver(d)
-	return nil
-}
-
-func (r *ConfigRegistry) DeleteDriver(_ context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.drivers[id]; !exists {
-		return fmt.Errorf("%w: %q", core.ErrDriverNotFound, id)
-	}
-	// Prevent deletion if any profile references this driver.
-	for _, p := range r.profiles {
-		if p.DriverID == id {
-			return fmt.Errorf("%w: driver %q is used by profile %q", core.ErrDriverInUse, id, p.ID)
-		}
-	}
-	delete(r.drivers, id)
-	return nil
 }
 
 // ---------- Profile CRUD ----------
@@ -169,7 +100,7 @@ func (r *ConfigRegistry) DeleteProfile(_ context.Context, id string) error {
 // ---------- Resolution ----------
 
 // ResolveForAction picks the first profile matching the action's AgentRole + RequiredCapabilities.
-func (r *ConfigRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
+func (r *ConfigRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -181,34 +112,26 @@ func (r *ConfigRegistry) ResolveForAction(_ context.Context, action *core.Action
 		if !p.MatchesRequirements(action.RequiredCapabilities) {
 			continue
 		}
-		d, ok := r.drivers[p.DriverID]
-		if !ok {
-			continue // skip profiles with missing drivers
-		}
-		return cloneProfile(p), cloneDriver(d), nil
+		return cloneProfile(p), nil
 	}
-	return nil, nil, core.ErrNoMatchingAgent
+	return nil, core.ErrNoMatchingAgent
 }
 
-// ResolveByID returns a specific profile and its driver.
-func (r *ConfigRegistry) ResolveByID(_ context.Context, profileID string) (*core.AgentProfile, *core.AgentDriver, error) {
+// ResolveByID returns a specific profile.
+func (r *ConfigRegistry) ResolveByID(_ context.Context, profileID string) (*core.AgentProfile, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	p, ok := r.profiles[profileID]
 	if !ok {
-		return nil, nil, fmt.Errorf("%w: %q", core.ErrProfileNotFound, profileID)
+		return nil, fmt.Errorf("%w: %q", core.ErrProfileNotFound, profileID)
 	}
-	d, ok := r.drivers[p.DriverID]
-	if !ok {
-		return nil, nil, fmt.Errorf("%w: profile %q references driver %q", core.ErrDriverNotFound, profileID, p.DriverID)
-	}
-	return cloneProfile(p), cloneDriver(d), nil
+	return cloneProfile(p), nil
 }
 
 // Resolve implements the flow resolver interface.
 func (r *ConfigRegistry) Resolve(ctx context.Context, action *core.Action) (string, error) {
-	p, _, err := r.ResolveForAction(ctx, action)
+	p, err := r.ResolveForAction(ctx, action)
 	if err != nil {
 		return "", err
 	}
@@ -217,16 +140,12 @@ func (r *ConfigRegistry) Resolve(ctx context.Context, action *core.Action) (stri
 
 // ---------- validation ----------
 
-// validateProfileLocked checks that the profile references a valid driver and
-// its capabilities don't overflow the driver's max. Must be called with mu held.
+// validateProfileLocked checks that the profile's capabilities don't overflow
+// the driver's max. Must be called with mu held.
 func (r *ConfigRegistry) validateProfileLocked(p *core.AgentProfile) error {
-	d, ok := r.drivers[p.DriverID]
-	if !ok {
-		return fmt.Errorf("%w: profile %q references driver %q", core.ErrDriverNotFound, p.ID, p.DriverID)
-	}
 	profileCaps := p.EffectiveCapabilities()
-	if !d.CapabilitiesMax.Covers(profileCaps) {
-		return fmt.Errorf("%w: profile %q exceeds driver %q", core.ErrCapabilityOverflow, p.ID, d.ID)
+	if !p.Driver.CapabilitiesMax.Covers(profileCaps) {
+		return fmt.Errorf("%w: profile %q exceeds driver capabilities_max", core.ErrCapabilityOverflow, p.ID)
 	}
 	if err := skillset.ValidateProfileSkills(p.Skills); err != nil {
 		return err
@@ -235,20 +154,6 @@ func (r *ConfigRegistry) validateProfileLocked(p *core.AgentProfile) error {
 }
 
 // ---------- clone helpers ----------
-
-func cloneDriver(d *core.AgentDriver) *core.AgentDriver {
-	cp := *d
-	if d.LaunchArgs != nil {
-		cp.LaunchArgs = append([]string(nil), d.LaunchArgs...)
-	}
-	if d.Env != nil {
-		cp.Env = make(map[string]string, len(d.Env))
-		for k, v := range d.Env {
-			cp.Env[k] = v
-		}
-	}
-	return &cp
-}
 
 func cloneProfile(p *core.AgentProfile) *core.AgentProfile {
 	cp := *p
@@ -263,6 +168,15 @@ func cloneProfile(p *core.AgentProfile) *core.AgentProfile {
 	}
 	if p.MCP.Tools != nil {
 		cp.MCP.Tools = append([]string(nil), p.MCP.Tools...)
+	}
+	if p.Driver.LaunchArgs != nil {
+		cp.Driver.LaunchArgs = append([]string(nil), p.Driver.LaunchArgs...)
+	}
+	if p.Driver.Env != nil {
+		cp.Driver.Env = make(map[string]string, len(p.Driver.Env))
+		for k, v := range p.Driver.Env {
+			cp.Driver.Env[k] = v
+		}
 	}
 	return &cp
 }

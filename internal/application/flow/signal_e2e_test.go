@@ -23,17 +23,9 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 	})
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
-		// Simulate agent creating deliverable + calling action_complete MCP tool.
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: "implemented the feature",
-		})
-		if err != nil {
-			return err
-		}
-		_, err = store.CreateActionSignal(ctx, &core.ActionSignal{
+		// Simulate agent producing result + calling action_complete MCP tool.
+		run.ResultMarkdown = "implemented the feature"
+		_, err := store.CreateActionSignal(ctx, &core.ActionSignal{
 			ActionID:   action.ID,
 			WorkItemID: action.WorkItemID,
 			RunID:      run.ID,
@@ -69,16 +61,16 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 		t.Fatalf("expected done, got %s", action.Status)
 	}
 
-	// Deliverable metadata should contain agent-provided fields.
-	del, err := store.GetLatestDeliverableByAction(ctx, actionID)
+	// Run result metadata should contain agent-provided fields.
+	del, err := store.GetLatestRunWithResult(ctx, actionID)
 	if err != nil {
-		t.Fatalf("get deliverable: %v", err)
+		t.Fatalf("get run with result: %v", err)
 	}
-	if del.Metadata["summary"] != "added login page" {
-		t.Fatalf("expected agent summary in metadata, got %v", del.Metadata)
+	if del.ResultMetadata["summary"] != "added login page" {
+		t.Fatalf("expected agent summary in metadata, got %v", del.ResultMetadata)
 	}
-	if del.Metadata["signal_source"] != "agent" {
-		t.Fatalf("expected signal_source=agent, got %v", del.Metadata["signal_source"])
+	if del.ResultMetadata["signal_source"] != "agent" {
+		t.Fatalf("expected signal_source=agent, got %v", del.ResultMetadata["signal_source"])
 	}
 
 	// WorkItem should be done.
@@ -150,15 +142,10 @@ func TestGateSignalApprove_E2E(t *testing.T) {
 			})
 			return err
 		}
-		// Exec action: produce deliverable.
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: "implemented feature X",
-			Metadata:       map[string]any{"summary": "feature X done"},
-		})
-		return err
+		// Exec action: produce result.
+		run.ResultMarkdown = "implemented feature X"
+		run.ResultMetadata = map[string]any{"summary": "feature X done"}
+		return nil
 	}
 
 	eng := New(store, bus, executor, WithConcurrency(1))
@@ -225,14 +212,9 @@ func TestGateSignalReject_ReworkThenApprove_E2E(t *testing.T) {
 
 		// Exec action.
 		atomic.AddInt32(&execRuns, 1)
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: "implementation",
-			Metadata:       map[string]any{"summary": "done"},
-		})
-		return err
+		run.ResultMarkdown = "implementation"
+		run.ResultMetadata = map[string]any{"summary": "done"}
+		return nil
 	}
 
 	eng := New(store, bus, executor, WithConcurrency(1))
@@ -311,12 +293,7 @@ func TestSignalIdempotency(t *testing.T) {
 				CreatedAt:  time.Now().UTC(),
 			})
 		}
-		_, _ = store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: "result",
-		})
+		run.ResultMarkdown = "result"
 		return nil
 	}
 

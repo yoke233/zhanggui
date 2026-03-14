@@ -218,53 +218,53 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	}
 }
 
-// applySignalMetadata writes agent-provided metadata directly to the action's deliverable,
+// applySignalMetadata writes agent-provided metadata directly to the action's latest run result,
 // bypassing the LLM Collector.
 func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.Action, run *core.Run, payload map[string]any) {
-	del, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	r, err := e.store.GetLatestRunWithResult(ctx, action.ID)
 	if err != nil {
 		return
 	}
-	if del.Metadata == nil {
-		del.Metadata = map[string]any{}
+	if r.ResultMetadata == nil {
+		r.ResultMetadata = map[string]any{}
 	}
 	for k, v := range payload {
-		del.Metadata[k] = v
+		r.ResultMetadata[k] = v
 	}
-	del.Metadata["signal_source"] = "agent"
-	_ = e.store.UpdateDeliverable(ctx, del)
+	r.ResultMetadata["signal_source"] = "agent"
+	_ = e.store.UpdateRun(ctx, r)
 }
 
-// collectMetadata runs the Collector (if set) to extract structured metadata from the action's latest Deliverable.
+// collectMetadata runs the Collector (if set) to extract structured metadata from the action's latest Run result.
 func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Action) error {
 	if e.collector == nil {
 		return nil
 	}
-	del, err := e.store.GetLatestDeliverableByAction(ctx, action.ID)
+	r, err := e.store.GetLatestRunWithResult(ctx, action.ID)
 	if err != nil {
-		return nil // no deliverable to collect from
+		return nil // no result to collect from
 	}
-	if del.ResultMarkdown == "" {
+	if r.ResultMarkdown == "" {
 		return nil
 	}
 
-	metadata, err := e.collector.Extract(ctx, action.Type, del.ResultMarkdown)
+	metadata, err := e.collector.Extract(ctx, action.Type, r.ResultMarkdown)
 	if err != nil {
 		return fmt.Errorf("collect metadata for action %d: %w", action.ID, err)
 	}
 
 	// Merge extracted metadata into existing metadata (don't overwrite).
-	if del.Metadata == nil {
-		del.Metadata = metadata
+	if r.ResultMetadata == nil {
+		r.ResultMetadata = metadata
 	} else {
 		for k, v := range metadata {
-			if _, exists := del.Metadata[k]; !exists {
-				del.Metadata[k] = v
+			if _, exists := r.ResultMetadata[k]; !exists {
+				r.ResultMetadata[k] = v
 			}
 		}
 	}
 
-	return e.store.UpdateDeliverable(ctx, del)
+	return e.store.UpdateRun(ctx, r)
 }
 
 const (

@@ -12,7 +12,7 @@ import (
 type ThreadBootInput struct {
 	Thread         *core.Thread
 	RecentMessages []*core.ThreadMessage
-	Participants   []*core.ThreadParticipant
+	Participants   []*core.ThreadMember
 	WorkItems      []*core.WorkItem
 	AgentProfile   *core.AgentProfile
 	PriorSummary   string // progress_summary from a previous session (if resuming)

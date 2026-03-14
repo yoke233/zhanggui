@@ -6,6 +6,7 @@ import (
 
 	cronapp "github.com/yoke233/ai-workflow/internal/application/cron"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
@@ -13,9 +14,11 @@ import (
 )
 
 type bootstrapLifecycle struct {
-	runtimeWatchCancel context.CancelFunc
-	probeWatchCancel   context.CancelFunc
-	cronCancel         context.CancelFunc
+	runtimeWatchCancel   context.CancelFunc
+	probeWatchCancel     context.CancelFunc
+	cronCancel           context.CancelFunc
+	inspectionCancel     context.CancelFunc
+	inspectionEngine     *inspectionapp.Engine
 }
 
 func startBootstrapLifecycle(
@@ -28,8 +31,12 @@ func startBootstrapLifecycle(
 	startRuntimeWatcher(lifecycle, base.runtimeManager)
 	startProbeWatchdog(lifecycle, base.store, apiStack.probeSvc, bootstrapCfg)
 	startCronTrigger(lifecycle, base.store, base.bus, flow.scheduler, bootstrapCfg)
+	startInspectionScheduler(lifecycle, apiStack.inspectionEngine, base.bus, bootstrapCfg)
 
 	return func() {
+		if lifecycle.inspectionCancel != nil {
+			lifecycle.inspectionCancel()
+		}
 		if lifecycle.cronCancel != nil {
 			lifecycle.cronCancel()
 		}
@@ -108,4 +115,26 @@ func startCronTrigger(
 	ctx, cancel := context.WithCancel(context.Background())
 	lifecycle.cronCancel = cancel
 	go trigger.Start(ctx)
+}
+
+func startInspectionScheduler(
+	lifecycle *bootstrapLifecycle,
+	engine *inspectionapp.Engine,
+	bus core.EventBus,
+	bootstrapCfg *config.Config,
+) {
+	if bootstrapCfg == nil || !bootstrapCfg.Runtime.Inspection.Enabled || engine == nil {
+		return
+	}
+
+	lifecycle.inspectionEngine = engine
+
+	scheduler := inspectionapp.NewScheduler(engine, bus, inspectionapp.SchedulerConfig{
+		Enabled:   true,
+		Interval:  bootstrapCfg.Runtime.Inspection.Interval.Duration,
+		LookbackH: bootstrapCfg.Runtime.Inspection.LookbackH,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	lifecycle.inspectionCancel = cancel
+	go scheduler.Start(ctx)
 }

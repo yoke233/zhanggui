@@ -43,7 +43,7 @@ func TestThreadCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get participants: %v", err)
 	}
-	var participants []core.ThreadParticipant
+	var participants []core.ThreadMember
 	if err := decodeJSON(resp, &participants); err != nil {
 		t.Fatalf("decode participants: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestThreadParticipantCRUD(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
-	var p core.ThreadParticipant
+	var p core.ThreadMember
 	decodeJSON(resp, &p)
 	if p.UserID != "user-1" {
 		t.Fatalf("expected user_id 'user-1', got %q", p.UserID)
@@ -373,7 +373,7 @@ func TestThreadParticipantCRUD(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var participants []core.ThreadParticipant
+	var participants []core.ThreadMember
 	decodeJSON(resp, &participants)
 	if len(participants) != 1 {
 		t.Fatalf("expected 1 participant, got %d", len(participants))
@@ -511,14 +511,14 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
-	var sess core.ThreadAgentSession
+	var sess core.ThreadMember
 	decodeJSON(resp, &sess)
 	if sess.AgentProfileID != "worker-claude" || sess.Status != "active" {
 		t.Fatalf("unexpected session: %+v", sess)
 	}
 
 	resp, _ = get(ts, fmt.Sprintf("/threads/%d/participants", thread.ID))
-	var participants []core.ThreadParticipant
+	var participants []core.ThreadMember
 	decodeJSON(resp, &participants)
 	if len(participants) != 1 || participants[0].UserID != "worker-claude" || participants[0].Role != "agent" {
 		t.Fatalf("unexpected agent participants: %+v", participants)
@@ -529,7 +529,7 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var sessions []core.ThreadAgentSession
+	var sessions []core.ThreadMember
 	decodeJSON(resp, &sessions)
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
@@ -567,7 +567,7 @@ func TestThreadParticipantRemoveRejectsActiveAgentSession(t *testing.T) {
 	resp, _ = post(ts, fmt.Sprintf("/threads/%d/agents", thread.ID), map[string]any{
 		"agent_profile_id": "worker-claude",
 	})
-	var sess core.ThreadAgentSession
+	var sess core.ThreadMember
 	decodeJSON(resp, &sess)
 
 	req, _ := http.NewRequest(http.MethodDelete,
@@ -592,7 +592,7 @@ func TestThreadAgentSessionDeleteRejectsCrossThreadSession(t *testing.T) {
 	resp, _ = post(ts, fmt.Sprintf("/threads/%d/agents", threadB.ID), map[string]any{
 		"agent_profile_id": "worker-claude",
 	})
-	var sess core.ThreadAgentSession
+	var sess core.ThreadMember
 	decodeJSON(resp, &sess)
 
 	req, _ := http.NewRequest(http.MethodDelete,
@@ -603,7 +603,7 @@ func TestThreadAgentSessionDeleteRejectsCrossThreadSession(t *testing.T) {
 	}
 
 	resp, _ = get(ts, fmt.Sprintf("/threads/%d/agents", threadB.ID))
-	var sessions []core.ThreadAgentSession
+	var sessions []core.ThreadMember
 	decodeJSON(resp, &sessions)
 	if len(sessions) != 1 {
 		t.Fatalf("expected session to remain on original thread, got %d", len(sessions))

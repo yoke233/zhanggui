@@ -59,79 +59,131 @@ func NewThreadSessionPool(store core.Store, bus core.EventBus, registry core.Age
 	}
 }
 
-func updateThreadAgentStatus(sess *core.ThreadAgentSession, next core.ThreadAgentStatus) error {
-	if sess == nil {
-		return fmt.Errorf("thread agent session is nil")
+func updateThreadAgentStatus(m *core.ThreadMember, next core.ThreadAgentStatus) error {
+	if m == nil {
+		return fmt.Errorf("thread member is nil")
 	}
-	if !sess.Status.Valid() {
-		return fmt.Errorf("invalid current thread agent status %q", sess.Status)
+	if !m.Status.Valid() {
+		return fmt.Errorf("invalid current thread agent status %q", m.Status)
 	}
-	if !core.CanTransitionThreadAgentStatus(sess.Status, next) {
-		return fmt.Errorf("invalid thread agent status transition %q -> %q", sess.Status, next)
+	if !core.CanTransitionThreadAgentStatus(m.Status, next) {
+		return fmt.Errorf("invalid thread agent status transition %q -> %q", m.Status, next)
 	}
-	sess.Status = next
+	m.Status = next
 	return nil
+}
+
+// Helper functions to read/write AgentData fields on ThreadMember.
+
+func memberGetString(m *core.ThreadMember, key string) string {
+	if m.AgentData == nil {
+		return ""
+	}
+	v, _ := m.AgentData[key].(string)
+	return v
+}
+
+func memberGetInt(m *core.ThreadMember, key string) int {
+	if m.AgentData == nil {
+		return 0
+	}
+	switch v := m.AgentData[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return 0
+}
+
+func memberGetInt64(m *core.ThreadMember, key string) int64 {
+	if m.AgentData == nil {
+		return 0
+	}
+	switch v := m.AgentData[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	}
+	return 0
+}
+
+func memberSetAgentData(m *core.ThreadMember, key string, val any) {
+	if m.AgentData == nil {
+		m.AgentData = map[string]any{}
+	}
+	m.AgentData[key] = val
 }
 
 // InviteAgent starts an ACP session for the given profile in the given thread.
 // It creates a DB record, launches the ACP process, runs the boot sequence,
-// and returns the updated ThreadAgentSession.
-func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadAgentSession, error) {
+// and returns the updated ThreadMember.
+func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadMember, error) {
 	if p == nil {
 		return nil, fmt.Errorf("thread session pool is nil")
 	}
 
-	// Resolve profile + driver.
-	profile, driver, err := p.registry.ResolveByID(ctx, profileID)
+	// Resolve profile.
+	profile, err := p.registry.ResolveByID(ctx, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve profile %q: %w", profileID, err)
 	}
 
-	// Check for existing paused session (for resume with prior summary).
+	// Check for existing paused agent member (for resume with prior summary).
 	var priorSummary string
-	existingSessions, _ := p.store.ListThreadAgentSessions(ctx, threadID)
-	for _, s := range existingSessions {
-		if s.AgentProfileID == profileID && s.Status == core.ThreadAgentPaused {
-			priorSummary = s.ProgressSummary
-			// Update existing session to booting.
-			if err := updateThreadAgentStatus(s, core.ThreadAgentBooting); err != nil {
+	existingMembers, _ := p.store.ListThreadMembers(ctx, threadID)
+	for _, m := range existingMembers {
+		if m.Kind != "agent" || m.AgentProfileID != profileID {
+			continue
+		}
+		if m.Status == core.ThreadAgentPaused {
+			priorSummary = memberGetString(m, "progress_summary")
+			if err := updateThreadAgentStatus(m, core.ThreadAgentBooting); err != nil {
 				return nil, err
 			}
-			_ = p.store.UpdateThreadAgentSession(ctx, s)
-			return p.bootSession(ctx, s, profile, driver, priorSummary)
+			_ = p.store.UpdateThreadMember(ctx, m)
+			return p.bootSession(ctx, m, profile, priorSummary)
 		}
-		if s.AgentProfileID == profileID && (s.Status == core.ThreadAgentActive || s.Status == core.ThreadAgentBooting) {
-			return s, nil // already active
+		if m.Status == core.ThreadAgentActive || m.Status == core.ThreadAgentBooting {
+			return m, nil // already active
 		}
 	}
 
 	// Create new DB record.
-	sess := &core.ThreadAgentSession{
+	member := &core.ThreadMember{
 		ThreadID:       threadID,
+		Kind:           core.ThreadMemberKindAgent,
+		UserID:         profileID,
 		AgentProfileID: profileID,
+		Role:           core.ThreadMemberKindAgent,
 		Status:         core.ThreadAgentBooting,
 	}
-	id, err := p.store.CreateThreadAgentSession(ctx, sess)
+	id, err := p.store.AddThreadMember(ctx, member)
 	if err != nil {
-		return nil, fmt.Errorf("create thread agent session: %w", err)
+		return nil, fmt.Errorf("create thread agent member: %w", err)
 	}
-	sess.ID = id
+	member.ID = id
 
-	return p.bootSession(ctx, sess, profile, driver, priorSummary)
+	return p.bootSession(ctx, member, profile, priorSummary)
 }
 
-func (p *ThreadSessionPool) bootSession(ctx context.Context, sess *core.ThreadAgentSession, profile *core.AgentProfile, driver *core.AgentDriver, priorSummary string) (*core.ThreadAgentSession, error) {
-	key := threadSessionKey{threadID: sess.ThreadID, agentID: profile.ID}
+func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.ThreadMember, profile *core.AgentProfile, priorSummary string) (*core.ThreadMember, error) {
+	key := threadSessionKey{threadID: member.ThreadID, agentID: profile.ID}
 
 	// Launch ACP process.
 	launchCfg := acpclient.LaunchConfig{
-		Command: driver.LaunchCommand,
-		Args:    driver.LaunchArgs,
-		Env:     cloneStringMap(driver.Env),
+		Command: profile.Driver.LaunchCommand,
+		Args:    profile.Driver.LaunchArgs,
+		Env:     cloneStringMap(profile.Driver.Env),
 	}
 
 	bridge := eventbridge.New(p.bus, core.EventThreadAgentOutput, eventbridge.Scope{
-		SessionID: fmt.Sprintf("thread-%d-%s", sess.ThreadID, profile.ID),
+		SessionID: fmt.Sprintf("thread-%d-%s", member.ThreadID, profile.ID),
 	})
 	switcher := &switchingEventHandler{}
 	switcher.Set(bridge)
@@ -140,10 +192,10 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, sess *core.ThreadAg
 	handler.SetSuppressEvents(true)
 	client, err := acpclient.New(launchCfg, handler, acpclient.WithEventHandler(switcher))
 	if err != nil {
-		_ = updateThreadAgentStatus(sess, core.ThreadAgentFailed)
-		_ = p.store.UpdateThreadAgentSession(ctx, sess)
-		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, sess.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return sess, fmt.Errorf("launch ACP agent %q: %w", driver.ID, err)
+		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
+		_ = p.store.UpdateThreadMember(ctx, member)
+		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
+		return member, fmt.Errorf("launch ACP agent %q: %w", profile.ID, err)
 	}
 
 	caps := profile.EffectiveCapabilities()
@@ -155,25 +207,25 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, sess *core.ThreadAg
 		Terminal: caps.Terminal,
 	}); err != nil {
 		_ = client.Close(context.Background())
-		_ = updateThreadAgentStatus(sess, core.ThreadAgentFailed)
-		_ = p.store.UpdateThreadAgentSession(ctx, sess)
-		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, sess.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return sess, fmt.Errorf("initialize ACP agent %q: %w", driver.ID, err)
+		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
+		_ = p.store.UpdateThreadMember(ctx, member)
+		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
+		return member, fmt.Errorf("initialize ACP agent %q: %w", profile.ID, err)
 	}
 
 	acpSessionID, err := client.NewSession(initCtx, acpproto.NewSessionRequest{})
 	if err != nil {
 		_ = client.Close(context.Background())
-		_ = updateThreadAgentStatus(sess, core.ThreadAgentFailed)
-		_ = p.store.UpdateThreadAgentSession(ctx, sess)
-		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, sess.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return sess, fmt.Errorf("create ACP session: %w", err)
+		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
+		_ = p.store.UpdateThreadMember(ctx, member)
+		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
+		return member, fmt.Errorf("create ACP session: %w", err)
 	}
 
-	sess.ACPSessionID = string(acpSessionID)
+	memberSetAgentData(member, "acp_session_id", string(acpSessionID))
 
 	// Build boot prompt.
-	bootPrompt, err := p.buildBootPrompt(ctx, sess.ThreadID, profile, priorSummary)
+	bootPrompt, err := p.buildBootPrompt(ctx, member.ThreadID, profile, priorSummary)
 	if err != nil {
 		slog.Warn("thread pool: build boot prompt failed, proceeding without", "error", err)
 	}
@@ -188,7 +240,7 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, sess *core.ThreadAg
 		})
 		bridge.FlushPending(ctx)
 		if err != nil {
-			slog.Warn("thread pool: boot prompt failed", "thread_id", sess.ThreadID, "profile", profile.ID, "error", err)
+			slog.Warn("thread pool: boot prompt failed", "thread_id", member.ThreadID, "profile", profile.ID, "error", err)
 		}
 	}
 
@@ -205,16 +257,16 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, sess *core.ThreadAg
 	p.mu.Unlock()
 
 	// Update DB to active.
-	if err := updateThreadAgentStatus(sess, core.ThreadAgentActive); err != nil {
+	if err := updateThreadAgentStatus(member, core.ThreadAgentActive); err != nil {
 		return nil, err
 	}
-	_ = p.store.UpdateThreadAgentSession(ctx, sess)
+	_ = p.store.UpdateThreadMember(ctx, member)
 
-	p.publishThreadEvent(ctx, core.EventThreadAgentBooted, sess.ThreadID, profile.ID, nil)
-	p.publishThreadEvent(ctx, core.EventThreadAgentJoined, sess.ThreadID, profile.ID, nil)
+	p.publishThreadEvent(ctx, core.EventThreadAgentBooted, member.ThreadID, profile.ID, nil)
+	p.publishThreadEvent(ctx, core.EventThreadAgentJoined, member.ThreadID, profile.ID, nil)
 
-	slog.Info("thread pool: agent joined", "thread_id", sess.ThreadID, "profile", profile.ID, "session_id", string(acpSessionID))
-	return sess, nil
+	slog.Info("thread pool: agent joined", "thread_id", member.ThreadID, "profile", profile.ID, "session_id", string(acpSessionID))
+	return member, nil
 }
 
 func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64, profile *core.AgentProfile, priorSummary string) (string, error) {
@@ -224,7 +276,7 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 	}
 
 	msgs, _ := p.store.ListThreadMessages(ctx, threadID, 20, 0)
-	parts, _ := p.store.ListThreadParticipants(ctx, threadID)
+	parts, _ := p.store.ListThreadMembers(ctx, threadID)
 
 	// Resolve linked work items.
 	var workItems []*core.WorkItem
@@ -331,12 +383,12 @@ func (p *ThreadSessionPool) RemoveAgent(ctx context.Context, threadID int64, age
 		return fmt.Errorf("thread session pool is nil")
 	}
 
-	sess, err := p.store.GetThreadAgentSession(ctx, agentSessionID)
+	member, err := p.store.GetThreadMember(ctx, agentSessionID)
 	if err != nil {
 		return err
 	}
 
-	key := threadSessionKey{threadID: sess.ThreadID, agentID: sess.AgentProfileID}
+	key := threadSessionKey{threadID: member.ThreadID, agentID: member.AgentProfileID}
 
 	p.mu.Lock()
 	pooled := p.sessions[key]
@@ -350,22 +402,22 @@ func (p *ThreadSessionPool) RemoveAgent(ctx context.Context, threadID int64, age
 		// Request progress summary before closing (graceful leave).
 		summary := p.requestProgressSummaryLocked(ctx, pooled)
 		if strings.TrimSpace(summary) != "" {
-			sess.ProgressSummary = summary
-			if err := updateThreadAgentStatus(sess, core.ThreadAgentPaused); err != nil {
+			memberSetAgentData(member, "progress_summary", summary)
+			if err := updateThreadAgentStatus(member, core.ThreadAgentPaused); err != nil {
 				pooled.mu.Unlock()
 				return err
 			}
 		} else {
-			if err := updateThreadAgentStatus(sess, core.ThreadAgentLeft); err != nil {
+			if err := updateThreadAgentStatus(member, core.ThreadAgentLeft); err != nil {
 				pooled.mu.Unlock()
 				return err
 			}
 		}
 
 		// Persist final token usage.
-		sess.TurnCount = pooled.turns
-		sess.TotalInputTokens = pooled.inputTokens
-		sess.TotalOutputTokens = pooled.outputTokens
+		memberSetAgentData(member, "turn_count", pooled.turns)
+		memberSetAgentData(member, "total_input_tokens", pooled.inputTokens)
+		memberSetAgentData(member, "total_output_tokens", pooled.outputTokens)
 
 		// Close ACP.
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -373,16 +425,16 @@ func (p *ThreadSessionPool) RemoveAgent(ctx context.Context, threadID int64, age
 		cancel()
 		pooled.mu.Unlock()
 	} else {
-		if err := updateThreadAgentStatus(sess, core.ThreadAgentLeft); err != nil {
+		if err := updateThreadAgentStatus(member, core.ThreadAgentLeft); err != nil {
 			return err
 		}
 	}
 
-	_ = p.store.UpdateThreadAgentSession(ctx, sess)
+	_ = p.store.UpdateThreadMember(ctx, member)
 
-	p.publishThreadEvent(ctx, core.EventThreadAgentLeft, sess.ThreadID, sess.AgentProfileID, nil)
+	p.publishThreadEvent(ctx, core.EventThreadAgentLeft, member.ThreadID, member.AgentProfileID, nil)
 
-	slog.Info("thread pool: agent removed", "thread_id", sess.ThreadID, "profile", sess.AgentProfileID, "status", sess.Status)
+	slog.Info("thread pool: agent removed", "thread_id", member.ThreadID, "profile", member.AgentProfileID, "status", member.Status)
 	return nil
 }
 
@@ -494,16 +546,16 @@ func (p *ThreadSessionPool) ActiveAgentProfileIDs(threadID int64) []string {
 }
 
 func (p *ThreadSessionPool) persistTokenUsage(ctx context.Context, threadID int64, profileID string, pooled *threadPooledSession) {
-	sessions, err := p.store.ListThreadAgentSessions(ctx, threadID)
+	members, err := p.store.ListThreadMembers(ctx, threadID)
 	if err != nil {
 		return
 	}
-	for _, s := range sessions {
-		if s.AgentProfileID == profileID && (s.Status == core.ThreadAgentActive || s.Status == core.ThreadAgentBooting) {
-			s.TurnCount = pooled.turns
-			s.TotalInputTokens = pooled.inputTokens
-			s.TotalOutputTokens = pooled.outputTokens
-			_ = p.store.UpdateThreadAgentSession(ctx, s)
+	for _, m := range members {
+		if m.Kind == core.ThreadMemberKindAgent && m.AgentProfileID == profileID && (m.Status == core.ThreadAgentActive || m.Status == core.ThreadAgentBooting) {
+			memberSetAgentData(m, "turn_count", pooled.turns)
+			memberSetAgentData(m, "total_input_tokens", pooled.inputTokens)
+			memberSetAgentData(m, "total_output_tokens", pooled.outputTokens)
+			_ = p.store.UpdateThreadMember(ctx, m)
 			return
 		}
 	}
@@ -511,7 +563,7 @@ func (p *ThreadSessionPool) persistTokenUsage(ctx context.Context, threadID int6
 
 func (p *ThreadSessionPool) checkContextBudget(ctx context.Context, threadID int64, profileID string, pooled *threadPooledSession) {
 	// Look up the profile to check MaxContextTokens.
-	profile, _, err := p.registry.ResolveByID(ctx, profileID)
+	profile, err := p.registry.ResolveByID(ctx, profileID)
 	if err != nil || profile == nil {
 		return
 	}

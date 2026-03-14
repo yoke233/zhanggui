@@ -26,7 +26,6 @@ type Snapshot struct {
 	Version              int64
 	LoadedAt             time.Time
 	Config               *config.Config
-	Drivers              []*core.AgentDriver
 	Profiles             []*core.AgentProfile
 	MCPServersByID       map[string]MCPServer
 	MCPBindingsByProfile map[string][]MCPProfileBinding
@@ -445,7 +444,7 @@ func (m *Manager) buildSnapshotFromPaths(configPath string, secretsPath string) 
 	if err != nil {
 		return nil, fmt.Errorf("load secrets runtime: %w", err)
 	}
-	drivers, profiles := BuildAgents(cfg)
+	profiles := BuildAgents(cfg)
 	servers, err := buildMCPServers(cfg, secrets, profiles)
 	if err != nil {
 		return nil, err
@@ -456,7 +455,6 @@ func (m *Manager) buildSnapshotFromPaths(configPath string, secretsPath string) 
 		Version:              m.nextVersion.Add(1),
 		LoadedAt:             time.Now().UTC(),
 		Config:               cfg,
-		Drivers:              drivers,
 		Profiles:             profiles,
 		MCPServersByID:       servers,
 		MCPBindingsByProfile: bindings,

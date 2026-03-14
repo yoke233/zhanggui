@@ -10,7 +10,7 @@ import (
 type Store interface {
 	core.RunStore
 	core.EventStore
-	core.RunProbeStore
+	core.ActionSignalStore
 }
 
 // EventPublisher is the minimal outbound event port required by probe workflows.

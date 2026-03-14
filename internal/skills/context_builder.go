@@ -174,8 +174,8 @@ func (b *ActionContextBuilder) buildUpstreamMaterials(ctx context.Context, actio
 		if a.Position >= action.Position || a.ID == action.ID {
 			continue
 		}
-		del, err := b.store.GetLatestDeliverableByAction(ctx, a.ID)
-		if err != nil || del == nil || strings.TrimSpace(del.ResultMarkdown) == "" {
+		run, err := b.store.GetLatestRunWithResult(ctx, a.ID)
+		if err != nil || run == nil || strings.TrimSpace(run.ResultMarkdown) == "" {
 			continue
 		}
 
@@ -188,7 +188,7 @@ func (b *ActionContextBuilder) buildUpstreamMaterials(ctx context.Context, actio
 			Path:        "upstream/" + name + ".md",
 			Description: fmt.Sprintf("Full output of upstream action %q", a.Name),
 			Hint:        "When you need context from this predecessor action",
-			Content:     del.ResultMarkdown,
+			Content:     run.ResultMarkdown,
 		})
 	}
 	return materials
@@ -253,24 +253,16 @@ func (b *ActionContextBuilder) buildManifestMaterial(ctx context.Context, wi *co
 		return nil
 	}
 
-	manifest, err := b.store.GetFeatureManifestByProject(ctx, *wi.ProjectID)
-	if err != nil || manifest == nil {
-		return nil
-	}
-
 	entries, err := b.store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: manifest.ID,
+		ProjectID: *wi.ProjectID,
 	})
-	if err != nil {
+	if err != nil || len(entries) == 0 {
 		return nil
 	}
 
 	data := map[string]any{
-		"manifest_id": manifest.ID,
-		"project_id":  manifest.ProjectID,
-		"version":     manifest.Version,
-		"summary":     manifest.Summary,
-		"entries":     entries,
+		"project_id": *wi.ProjectID,
+		"entries":    entries,
 	}
 
 	jsonBytes, err := json.MarshalIndent(data, "", "  ")

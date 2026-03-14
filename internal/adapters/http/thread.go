@@ -45,8 +45,7 @@ type inviteThreadAgentRequest struct {
 }
 
 type threadAggregateStore interface {
-	CreateThreadWithParticipants(ctx context.Context, thread *core.Thread, participants []*core.ThreadParticipant) error
-	CreateThreadAgentSessionWithParticipant(ctx context.Context, sess *core.ThreadAgentSession, participant *core.ThreadParticipant) error
+	CreateThreadWithParticipants(ctx context.Context, thread *core.Thread, participants []*core.ThreadMember) error
 }
 
 type createWorkItemFromThreadRequest struct {
@@ -371,13 +370,14 @@ func (h *Handler) addThreadParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := &core.ThreadParticipant{
+	p := &core.ThreadMember{
 		ThreadID: threadID,
+		Kind:     core.ThreadMemberKindHuman,
 		UserID:   strings.TrimSpace(req.UserID),
 		Role:     req.Role,
 	}
 
-	id, err := h.store.AddThreadParticipant(r.Context(), p)
+	id, err := h.store.AddThreadMember(r.Context(), p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "ADD_PARTICIPANT_FAILED")
 		return
@@ -393,15 +393,15 @@ func (h *Handler) listThreadParticipants(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	participants, err := h.store.ListThreadParticipants(r.Context(), threadID)
+	members, err := h.store.ListThreadMembers(r.Context(), threadID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if participants == nil {
-		participants = []*core.ThreadParticipant{}
+	if members == nil {
+		members = []*core.ThreadMember{}
 	}
-	writeJSON(w, http.StatusOK, participants)
+	writeJSON(w, http.StatusOK, members)
 }
 
 func (h *Handler) removeThreadParticipant(w http.ResponseWriter, r *http.Request) {
@@ -417,22 +417,22 @@ func (h *Handler) removeThreadParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sessions, err := h.store.ListThreadAgentSessions(r.Context(), threadID)
+	members, err := h.store.ListThreadMembers(r.Context(), threadID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	for _, sess := range sessions {
-		if sess == nil || sess.AgentProfileID != userID {
+	for _, m := range members {
+		if m == nil || m.UserID != userID {
 			continue
 		}
-		if threadAgentSessionIsActive(sess.Status) {
+		if m.Kind == core.ThreadMemberKindAgent && threadAgentSessionIsActive(m.Status) {
 			writeError(w, http.StatusConflict, "remove agent session before removing participant", "AGENT_SESSION_ACTIVE")
 			return
 		}
 	}
 
-	if err := h.store.RemoveThreadParticipant(r.Context(), threadID, userID); err != nil {
+	if err := h.store.RemoveThreadMemberByUser(r.Context(), threadID, userID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "participant not found", "PARTICIPANT_NOT_FOUND")
 			return
@@ -640,50 +640,31 @@ func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
 
 	// If runtime pool is available, delegate to it for real ACP session.
 	if h.threadPool != nil {
-		sess, err := h.threadPool.InviteAgent(r.Context(), threadID, profileID)
+		member, err := h.threadPool.InviteAgent(r.Context(), threadID, profileID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
 			return
 		}
-		if _, err := h.ensureThreadParticipant(r.Context(), threadID, profileID, "agent"); err != nil {
-			_ = h.threadPool.RemoveAgent(r.Context(), threadID, sess.ID)
-			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
-			return
-		}
-		writeJSON(w, http.StatusCreated, sess)
+		writeJSON(w, http.StatusCreated, member)
 		return
 	}
 
 	// Fallback: pure DB CRUD (no ACP runtime).
-	sess := &core.ThreadAgentSession{
+	member := &core.ThreadMember{
 		ThreadID:       threadID,
+		Kind:           core.ThreadMemberKindAgent,
+		UserID:         profileID,
 		AgentProfileID: profileID,
+		Role:           core.ThreadMemberKindAgent,
 		Status:         core.ThreadAgentActive,
 	}
-	if txStore, ok := h.store.(threadAggregateStore); ok {
-		participant := &core.ThreadParticipant{
-			ThreadID: threadID,
-			UserID:   profileID,
-			Role:     "agent",
-		}
-		if err := txStore.CreateThreadAgentSessionWithParticipant(r.Context(), sess, participant); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
-			return
-		}
-	} else {
-		id, err := h.store.CreateThreadAgentSession(r.Context(), sess)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
-			return
-		}
-		sess.ID = id
-		if _, err := h.ensureThreadParticipant(r.Context(), threadID, profileID, "agent"); err != nil {
-			_ = h.store.DeleteThreadAgentSession(r.Context(), sess.ID)
-			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
-			return
-		}
+	id, err := h.store.AddThreadMember(r.Context(), member)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+		return
 	}
-	writeJSON(w, http.StatusCreated, sess)
+	member.ID = id
+	writeJSON(w, http.StatusCreated, member)
 }
 
 func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
@@ -693,15 +674,18 @@ func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions, err := h.store.ListThreadAgentSessions(r.Context(), threadID)
+	allMembers, err := h.store.ListThreadMembers(r.Context(), threadID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if sessions == nil {
-		sessions = []*core.ThreadAgentSession{}
+	agents := make([]*core.ThreadMember, 0)
+	for _, m := range allMembers {
+		if m != nil && m.Kind == core.ThreadMemberKindAgent {
+			agents = append(agents, m)
+		}
 	}
-	writeJSON(w, http.StatusOK, sessions)
+	writeJSON(w, http.StatusOK, agents)
 }
 
 func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
@@ -730,7 +714,7 @@ func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.store.GetThreadAgentSession(r.Context(), agentSessionID)
+	member, err := h.store.GetThreadMember(r.Context(), agentSessionID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
@@ -739,13 +723,13 @@ func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if sess.ThreadID != threadID {
+	if member.ThreadID != threadID {
 		writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
 		return
 	}
 
 	// Fallback: pure DB delete.
-	if err := h.store.DeleteThreadAgentSession(r.Context(), agentSessionID); err != nil {
+	if err := h.store.RemoveThreadMember(r.Context(), agentSessionID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
 			return

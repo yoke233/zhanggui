@@ -81,19 +81,19 @@ func (w *RunProbeWatchdog) shouldProbeRun(ctx context.Context, now time.Time, ru
 		return false
 	}
 
-	if active, err := w.store.GetActiveRunProbe(ctx, runRec.ID); err == nil && active != nil {
+	if active, err := w.store.GetActiveProbeSignal(ctx, runRec.ID); err == nil && active != nil {
 		return false
 	} else if err != nil && err != core.ErrNotFound {
 		slog.Warn("run probe watchdog: read active probe failed", "run_id", runRec.ID, "error", err)
 		return false
 	}
 
-	probes, err := w.store.ListRunProbesByRun(ctx, runRec.ID)
+	signals, err := w.store.ListProbeSignalsByRun(ctx, runRec.ID)
 	if err != nil {
 		slog.Warn("run probe watchdog: list probes failed", "run_id", runRec.ID, "error", err)
 		return false
 	}
-	if w.cfg.MaxAttempts > 0 && len(probes) >= w.cfg.MaxAttempts {
+	if w.cfg.MaxAttempts > 0 && len(signals) >= w.cfg.MaxAttempts {
 		return false
 	}
 

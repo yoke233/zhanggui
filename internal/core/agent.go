@@ -29,13 +29,21 @@ const (
 	AgentActionExpandFlow  AgentAction = "expand_flow"
 )
 
+// DriverConfig holds process-level launch configuration for an agent profile.
+type DriverConfig struct {
+	LaunchCommand   string             `json:"launch_command"`
+	LaunchArgs      []string           `json:"launch_args,omitempty"`
+	Env             map[string]string  `json:"env,omitempty"`
+	CapabilitiesMax DriverCapabilities `json:"capabilities_max"`
+}
+
 // AgentProfile defines an agent's identity, role, capabilities, and constraints.
-// It references an AgentDriver by DriverID for process launch configuration.
+// Driver configuration is embedded directly via the Driver field.
 type AgentProfile struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name,omitempty"`
-	DriverID       string    `json:"driver_id"`
-	Role           AgentRole `json:"role"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name,omitempty"`
+	Driver         DriverConfig `json:"driver"`
+	Role           AgentRole    `json:"role"`
 	Capabilities   []string  `json:"capabilities,omitempty"`    // capability tags (backend, qa, review, ...)
 	ActionsAllowed []AgentAction `json:"actions_allowed,omitempty"` // permitted actions
 	PromptTemplate string    `json:"prompt_template,omitempty"`

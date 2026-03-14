@@ -23,19 +23,10 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 		return fmt.Errorf("storeBuiltinArtifact: step/exec is nil")
 	}
 
-	art := &core.Deliverable{
-		RunID:          execRec.ID,
-		ActionID:       step.ID,
-		WorkItemID:     step.WorkItemID,
-		ResultMarkdown: strings.TrimSpace(markdown),
-		Metadata:       metadata,
-	}
-	artID, err := store.CreateDeliverable(ctx, art)
-	if err != nil {
-		return fmt.Errorf("storeBuiltinArtifact: create artifact: %w", err)
-	}
-	execRec.DeliverableID = &artID
-	execRec.Output = map[string]any{"text": art.ResultMarkdown, "stop_reason": "builtin"}
+	trimmed := strings.TrimSpace(markdown)
+	execRec.ResultMarkdown = trimmed
+	execRec.ResultMetadata = metadata
+	execRec.Output = map[string]any{"text": trimmed, "stop_reason": "builtin"}
 
 	now := time.Now().UTC()
 	if bus != nil {
@@ -47,7 +38,7 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 			Timestamp: now,
 			Data: map[string]any{
 				"type":    "done",
-				"content": art.ResultMarkdown,
+				"content": trimmed,
 			},
 		})
 	}

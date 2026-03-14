@@ -142,8 +142,9 @@ func TestRunProbeService_RequestRunProbeAnsweredBlocked(t *testing.T) {
 func TestRunProbeService_RejectsConcurrentActiveProbe(t *testing.T) {
 	store := setupProbeStore(t)
 	runRec, agentCtx := seedRunningRun(t, store)
-	now := time.Now().UTC()
-	if _, err := store.CreateRunProbe(context.Background(), &core.RunProbe{
+
+	// Seed an active probe as a probe_request signal with status=sent.
+	activeProbe := &core.RunProbe{
 		RunID:          runRec.ID,
 		WorkItemID:     runRec.WorkItemID,
 		ActionID:       runRec.ActionID,
@@ -154,9 +155,12 @@ func TestRunProbeService_RejectsConcurrentActiveProbe(t *testing.T) {
 		Question:       "probe",
 		Status:         core.RunProbeSent,
 		Verdict:        core.RunProbeUnknown,
-		SentAt:         &now,
-	}); err != nil {
-		t.Fatalf("CreateRunProbe: %v", err)
+	}
+	now := time.Now().UTC()
+	activeProbe.SentAt = &now
+	reqSig := core.NewProbeRequestSignal(activeProbe)
+	if _, err := store.CreateActionSignal(context.Background(), reqSig); err != nil {
+		t.Fatalf("CreateActionSignal: %v", err)
 	}
 
 	service := NewRunProbeService(RunProbeServiceConfig{

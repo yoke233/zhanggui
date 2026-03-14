@@ -44,11 +44,11 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 		launch.Env = map[string]string{}
 	}
 
-	if in.Profile == nil || in.Driver == nil {
+	if in.Profile == nil {
 		return launch, nil
 	}
 
-	homeKey, baseHome, kind, err := detectHome(in.Driver.ID, in.Driver.Env, launch.Env)
+	homeKey, baseHome, kind, err := detectHome(in.Profile.ID, in.Profile.Driver.Env, launch.Env)
 	if err != nil {
 		return launch, err
 	}

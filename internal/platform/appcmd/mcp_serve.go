@@ -130,15 +130,15 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	var upstreamArtifacts []map[string]any
 	for _, s := range allSteps {
 		if s.Position < step.Position {
-			art, err := h.store.GetLatestDeliverableByAction(ctx, s.ID)
-			if err != nil || art == nil {
+			run, err := h.store.GetLatestRunWithResult(ctx, s.ID)
+			if err != nil || run == nil {
 				continue
 			}
 			upstreamArtifacts = append(upstreamArtifacts, map[string]any{
 				"step_id":   s.ID,
 				"step_name": s.Name,
-				"summary":   art.Metadata["summary"],
-				"metadata":  art.Metadata,
+				"summary":   run.ResultMetadata["summary"],
+				"metadata":  run.ResultMetadata,
 			})
 		}
 	}

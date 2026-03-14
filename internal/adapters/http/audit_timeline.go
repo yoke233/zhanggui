@@ -50,10 +50,14 @@ func (h *Handler) getExecutionAuditTimeline(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, err.Error(), "EVENT_LIST_ERROR")
 		return
 	}
-	probes, err := h.store.ListRunProbesByRun(r.Context(), execID)
+	probeSigs, err := h.store.ListProbeSignalsByRun(r.Context(), execID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "PROBE_LIST_ERROR")
 		return
+	}
+	probes := make([]*core.RunProbe, 0, len(probeSigs))
+	for _, sig := range probeSigs {
+		probes = append(probes, core.ProbeFromSignal(sig))
 	}
 	toolCalls, err := h.store.ListToolCallAuditsByRun(r.Context(), execID)
 	if err != nil {

@@ -25,7 +25,7 @@ type stubThreadSendCall struct {
 	message   string
 }
 
-func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*core.ThreadAgentSession, error) {
+func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*core.ThreadMember, error) {
 	return nil, nil
 }
 

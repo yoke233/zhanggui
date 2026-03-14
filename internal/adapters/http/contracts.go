@@ -17,18 +17,15 @@ type Store interface {
 	core.ThreadStore
 	core.ActionStore
 	core.RunStore
-	core.DeliverableStore
 	core.AgentContextStore
 	core.EventStore
-	core.RunProbeStore
 	core.AnalyticsStore
 	core.DAGTemplateStore
 	core.UsageStore
-	core.ToolCallAuditStore
-	core.FeatureManifestStore
+	core.FeatureEntryStore
 	core.ActionSignalStore
-	core.WorkItemAttachmentStore
 	core.NotificationStore
+	core.InspectionStore
 	Close() error
 }
 
@@ -67,7 +64,7 @@ type TextCompleter interface {
 
 // ThreadAgentRuntime bridges Thread agent HTTP/WS endpoints to the ACP runtime.
 type ThreadAgentRuntime interface {
-	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadAgentSession, error)
+	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadMember, error)
 	SendMessage(ctx context.Context, threadID int64, profileID string, message string) error
 	RemoveAgent(ctx context.Context, threadID int64, agentSessionID int64) error
 	CleanupThread(ctx context.Context, threadID int64) error

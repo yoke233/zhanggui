@@ -15,8 +15,7 @@ type Store interface {
 	core.WorkItemStore
 	core.ActionStore
 	core.RunStore
-	core.DeliverableStore
-	core.FeatureManifestStore
+	core.FeatureEntryStore
 	core.ActionSignalStore
 }
 

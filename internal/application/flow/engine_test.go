@@ -195,14 +195,9 @@ func TestGateAutoPass(t *testing.T) {
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		if action.Type == core.ActionGate {
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "LGTM, all tests pass.",
-				Metadata:       map[string]any{"verdict": "pass"},
-			})
-			return err
+			run.ResultMarkdown = "LGTM, all tests pass."
+			run.ResultMetadata = map[string]any{"verdict": "pass"}
+			return nil
 		}
 		return nil
 	}
@@ -236,14 +231,9 @@ func TestGateAutoReject(t *testing.T) {
 			if n > 1 {
 				verdict = "pass"
 			}
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review result",
-				Metadata:       map[string]any{"verdict": verdict, "reason": "needs improvement"},
-			})
-			return err
+			run.ResultMarkdown = "Review result"
+			run.ResultMetadata = map[string]any{"verdict": verdict, "reason": "needs improvement"}
+			return nil
 		}
 		atomic.AddInt32(&execCount, 1)
 		return nil
@@ -409,14 +399,11 @@ func TestInputBuilder(t *testing.T) {
 		Config:             map[string]any{"objective": "Implement login endpoint"},
 	})
 
-	// A has a deliverable.
+	// A has a result.
 	rID, _ := store.CreateRun(ctx, &core.Run{ActionID: aID, WorkItemID: workItemID, Status: core.RunSucceeded, Attempt: 1})
-	store.CreateDeliverable(ctx, &core.Deliverable{
-		RunID:          rID,
-		ActionID:       aID,
-		WorkItemID:     workItemID,
-		ResultMarkdown: "## Design\nAPI design for login.",
-	})
+	aRun, _ := store.GetRun(ctx, rID)
+	aRun.ResultMarkdown = "## Design\nAPI design for login."
+	store.UpdateRun(ctx, aRun)
 
 	builder := NewInputBuilder(store)
 	actionB, _ := store.GetAction(ctx, bID)
@@ -449,14 +436,9 @@ func TestCollectorWiring(t *testing.T) {
 	})
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
-		// Simulate agent creating a deliverable.
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: "## Implementation\nDid the thing.",
-		})
-		return err
+		// Simulate agent producing a result.
+		run.ResultMarkdown = "## Implementation\nDid the thing."
+		return nil
 	}
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
@@ -468,12 +450,12 @@ func TestCollectorWiring(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	del, err := store.GetLatestDeliverableByAction(ctx, aID)
+	del, err := store.GetLatestRunWithResult(ctx, aID)
 	if err != nil {
-		t.Fatalf("get deliverable: %v", err)
+		t.Fatalf("get run with result: %v", err)
 	}
-	if del.Metadata["summary"] != "extracted from: exec" {
-		t.Fatalf("expected extracted metadata, got %v", del.Metadata)
+	if del.ResultMetadata["summary"] != "extracted from: exec" {
+		t.Fatalf("expected extracted metadata, got %v", del.ResultMetadata)
 	}
 }
 
@@ -762,14 +744,9 @@ func TestWorkItemE2E_ResolverInputCollector(t *testing.T) {
 		if action.Name == "implement" {
 			capturedInput = run.BriefingSnapshot
 		}
-		// Every action produces a deliverable.
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: fmt.Sprintf("## %s output\nDone.", action.Name),
-		})
-		return err
+		// Every action produces a result.
+		run.ResultMarkdown = fmt.Sprintf("## %s output\nDone.", action.Name)
+		return nil
 	}
 
 	eng := New(store, bus, executor,
@@ -817,15 +794,15 @@ func TestWorkItemE2E_ResolverInputCollector(t *testing.T) {
 		t.Fatalf("expected input snapshot to contain upstream deliverable content, got %q", capturedInput)
 	}
 
-	// Verify collector extracted metadata into both deliverables.
-	designDel, _ := store.GetLatestDeliverableByAction(ctx, designID)
-	if designDel.Metadata["collected"] != true {
-		t.Fatalf("design deliverable metadata not collected: %v", designDel.Metadata)
+	// Verify collector extracted metadata into both runs.
+	designRun, _ := store.GetLatestRunWithResult(ctx, designID)
+	if designRun.ResultMetadata["collected"] != true {
+		t.Fatalf("design run metadata not collected: %v", designRun.ResultMetadata)
 	}
 
-	implDel, _ := store.GetLatestDeliverableByAction(ctx, implID)
-	if implDel.Metadata["collected"] != true {
-		t.Fatalf("implement deliverable metadata not collected: %v", implDel.Metadata)
+	implRun, _ := store.GetLatestRunWithResult(ctx, implID)
+	if implRun.ResultMetadata["collected"] != true {
+		t.Fatalf("implement run metadata not collected: %v", implRun.ResultMetadata)
 	}
 }
 
@@ -849,27 +826,17 @@ func TestWorkItemE2E_GateRejectRetryWithCollector(t *testing.T) {
 			if n > 1 {
 				verdict = "pass"
 			}
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": verdict, "reason": "iteration " + fmt.Sprint(n)},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": verdict, "reason": "iteration " + fmt.Sprint(n)}
+			return nil
 		}
 		if action.Name == "impl" {
 			atomic.AddInt32(&implCount, 1)
 		} else if action.Name == "deploy" {
 			atomic.AddInt32(&deployCount, 1)
 		}
-		_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-			RunID:          run.ID,
-			ActionID:       action.ID,
-			WorkItemID:     action.WorkItemID,
-			ResultMarkdown: fmt.Sprintf("## %s output", action.Name),
-		})
-		return err
+		run.ResultMarkdown = fmt.Sprintf("## %s output", action.Name)
+		return nil
 	}
 
 	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
@@ -922,9 +889,9 @@ func TestWorkItemE2E_GateRejectRetryWithCollector(t *testing.T) {
 		t.Fatalf("expected deploy done, got %s", deployAction.Status)
 	}
 
-	deployDel, _ := store.GetLatestDeliverableByAction(ctx, deployID)
-	if deployDel.Metadata["action_type"] != "exec" {
-		t.Fatalf("deploy deliverable missing collected metadata: %v", deployDel.Metadata)
+	deployRun, _ := store.GetLatestRunWithResult(ctx, deployID)
+	if deployRun.ResultMetadata["action_type"] != "exec" {
+		t.Fatalf("deploy run missing collected metadata: %v", deployRun.ResultMetadata)
 	}
 }
 
@@ -937,14 +904,9 @@ func TestWorkItemE2E_CompositeWithGate(t *testing.T) {
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		callOrder = append(callOrder, action.Name)
 		if action.Type == core.ActionGate {
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Gate pass",
-				Metadata:       map[string]any{"verdict": "pass"},
-			})
-			return err
+			run.ResultMarkdown = "Gate pass"
+			run.ResultMetadata = map[string]any{"verdict": "pass"}
+			return nil
 		}
 		return nil
 	}
@@ -1037,14 +999,9 @@ func TestWorkItemE2E_TimeoutRetryGatePass(t *testing.T) {
 			return nil
 		}
 		if action.Type == core.ActionGate {
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID:          run.ID,
-				ActionID:       action.ID,
-				WorkItemID:     action.WorkItemID,
-				ResultMarkdown: "Approved",
-				Metadata:       map[string]any{"verdict": "pass"},
-			})
-			return err
+			run.ResultMarkdown = "Approved"
+			run.ResultMetadata = map[string]any{"verdict": "pass"}
+			return nil
 		}
 		return nil
 	}
@@ -1146,35 +1103,23 @@ func TestWorkItemE2E_FullOrchestration(t *testing.T) {
 		switch action.Name {
 		case "design":
 			atomic.AddInt32(&designCount, 1)
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID: run.ID, ActionID: action.ID, WorkItemID: action.WorkItemID,
-				ResultMarkdown: "## Architecture\nLogin API with JWT.",
-			})
-			return err
+			run.ResultMarkdown = "## Architecture\nLogin API with JWT."
+			return nil
 		case "code", "test":
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID: run.ID, ActionID: action.ID, WorkItemID: action.WorkItemID,
-				ResultMarkdown: fmt.Sprintf("## %s\nDone.", action.Name),
-			})
-			return err
+			run.ResultMarkdown = fmt.Sprintf("## %s\nDone.", action.Name)
+			return nil
 		case "review":
 			n := atomic.AddInt32(&gateCount, 1)
 			verdict := "reject"
 			if n > 1 {
 				verdict = "pass"
 			}
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID: run.ID, ActionID: action.ID, WorkItemID: action.WorkItemID,
-				ResultMarkdown: "Review feedback",
-				Metadata:       map[string]any{"verdict": verdict, "reason": "round " + fmt.Sprint(n)},
-			})
-			return err
+			run.ResultMarkdown = "Review feedback"
+			run.ResultMetadata = map[string]any{"verdict": verdict, "reason": "round " + fmt.Sprint(n)}
+			return nil
 		case "deploy":
-			_, err := store.CreateDeliverable(ctx, &core.Deliverable{
-				RunID: run.ID, ActionID: action.ID, WorkItemID: action.WorkItemID,
-				ResultMarkdown: "## Deploy\nDeployed to staging.",
-			})
-			return err
+			run.ResultMarkdown = "## Deploy\nDeployed to staging."
+			return nil
 		}
 		return nil
 	}
@@ -1260,13 +1205,13 @@ func TestWorkItemE2E_FullOrchestration(t *testing.T) {
 		t.Fatal("expected impl to have child_work_item_id")
 	}
 
-	// Collector should have enriched deploy deliverable.
-	deployDel, _ := store.GetLatestDeliverableByAction(ctx, deployID)
-	if deployDel == nil {
-		t.Fatal("expected deploy deliverable")
+	// Collector should have enriched deploy run result.
+	deployRun, _ := store.GetLatestRunWithResult(ctx, deployID)
+	if deployRun == nil {
+		t.Fatal("expected deploy run with result")
 	}
-	if deployDel.Metadata["collected"] != true {
-		t.Fatalf("expected collected metadata on deploy, got %v", deployDel.Metadata)
+	if deployRun.ResultMetadata["collected"] != true {
+		t.Fatalf("expected collected metadata on deploy, got %v", deployRun.ResultMetadata)
 	}
 
 	// Design should have run only once.

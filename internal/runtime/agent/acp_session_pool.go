@@ -152,7 +152,6 @@ func (p *ACPSessionPool) CleanupWorkItem(workItemID int64) {
 
 type acpSessionAcquireInput struct {
 	Profile *core.AgentProfile
-	Driver  *core.AgentDriver
 
 	Launch     acpclient.LaunchConfig
 	Caps       acpclient.ClientCapabilities
@@ -169,8 +168,8 @@ func (p *ACPSessionPool) Acquire(ctx context.Context, in acpSessionAcquireInput)
 	if p == nil {
 		return nil, nil, fmt.Errorf("nil session pool")
 	}
-	if in.Profile == nil || in.Driver == nil {
-		return nil, nil, fmt.Errorf("profile/driver required")
+	if in.Profile == nil {
+		return nil, nil, fmt.Errorf("profile required")
 	}
 
 	key := acpSessionKey{workItemID: in.WorkItemID, agentID: in.Profile.ID}
@@ -271,7 +270,7 @@ func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, i
 
 	// Create a new ACP process + session (or try to load a prior session id).
 	slog.Info("runtime acp pool: launching agent process",
-		"driver", in.Driver.ID, "command", in.Launch.Command,
+		"driver", in.Profile.ID, "command", in.Launch.Command,
 		"args", in.Launch.Args, "work_dir", in.WorkDir,
 		"workitem_id", in.WorkItemID, "action_id", in.ActionID)
 	switcher := &switchingEventHandler{}
@@ -279,23 +278,23 @@ func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, i
 	handler.SetSuppressEvents(true)
 	client, err := acpclient.New(in.Launch, handler, acpclient.WithEventHandler(switcher))
 	if err != nil {
-		return nil, ac, fmt.Errorf("launch ACP agent %q: %w", in.Driver.ID, err)
+		return nil, ac, fmt.Errorf("launch ACP agent %q: %w", in.Profile.ID, err)
 	}
 	slog.Info("runtime acp pool: agent process started, initializing",
-		"driver", in.Driver.ID, "caps", fmt.Sprintf("%+v", in.Caps))
+		"driver", in.Profile.ID, "caps", fmt.Sprintf("%+v", in.Caps))
 	if err := client.Initialize(ctx, in.Caps); err != nil {
 		_ = client.Close(context.Background())
-		return nil, ac, fmt.Errorf("initialize ACP agent %q: %w", in.Driver.ID, err)
+		return nil, ac, fmt.Errorf("initialize ACP agent %q: %w", in.Profile.ID, err)
 	}
 	slog.Info("runtime acp pool: agent initialized successfully",
-		"driver", in.Driver.ID, "supports_sse_mcp", client.SupportsSSEMCP())
+		"driver", in.Profile.ID, "supports_sse_mcp", client.SupportsSSEMCP())
 
 	var mcpServers []acpproto.McpServer
 	if in.MCPFactory != nil {
 		mcpServers = in.MCPFactory(client.SupportsSSEMCP())
 	}
 	slog.Info("runtime acp pool: creating session",
-		"driver", in.Driver.ID, "mcp_server_count", len(mcpServers),
+		"driver", in.Profile.ID, "mcp_server_count", len(mcpServers),
 		"work_dir", in.WorkDir)
 
 	var sessionID acpproto.SessionId
@@ -319,14 +318,14 @@ func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, i
 	}
 	if !loaded {
 		slog.Info("runtime acp pool: creating new session",
-			"driver", in.Driver.ID, "work_dir", in.WorkDir)
+			"driver", in.Profile.ID, "work_dir", in.WorkDir)
 		sid, nErr := client.NewSession(ctx, acpproto.NewSessionRequest{
 			Cwd:        in.WorkDir,
 			McpServers: mcpServers,
 		})
 		if nErr != nil {
 			slog.Error("runtime acp pool: session/new failed",
-				"driver", in.Driver.ID, "error", nErr,
+				"driver", in.Profile.ID, "error", nErr,
 				"work_dir", in.WorkDir, "mcp_count", len(mcpServers))
 			_ = client.Close(context.Background())
 			return nil, ac, fmt.Errorf("create ACP session: %w", nErr)

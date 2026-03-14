@@ -71,6 +71,22 @@ func (s *Store) UpdateResourceBinding(ctx context.Context, rb *core.ResourceBind
 	return nil
 }
 
+func (s *Store) ListResourceBindingsByIssue(ctx context.Context, issueID int64, kind string) ([]*core.ResourceBinding, error) {
+	var models []ResourceBindingModel
+	q := s.orm.WithContext(ctx).Where("issue_id = ?", issueID)
+	if kind != "" {
+		q = q.Where("kind = ?", kind)
+	}
+	if err := q.Order("id ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	out := make([]*core.ResourceBinding, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
 func (s *Store) DeleteResourceBinding(ctx context.Context, id int64) error {
 	result := s.orm.WithContext(ctx).Delete(&ResourceBindingModel{}, id)
 	if result.Error != nil {

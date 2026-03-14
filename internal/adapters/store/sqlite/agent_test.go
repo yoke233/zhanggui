@@ -39,11 +39,10 @@ func createTestSkill(t *testing.T, root string, name string) {
 	}
 }
 
-func testDriver(id string) *core.AgentDriver {
-	return &core.AgentDriver{
-		ID:            id,
+func testDriverConfig() core.DriverConfig {
+	return core.DriverConfig{
 		LaunchCommand: "npx",
-		LaunchArgs:    []string{"-y", "@test/" + id},
+		LaunchArgs:    []string{"-y", "@test/claude-acp"},
 		Env:           map[string]string{"KEY": "val"},
 		CapabilitiesMax: core.DriverCapabilities{
 			FSRead: true, FSWrite: true, Terminal: true,
@@ -51,11 +50,11 @@ func testDriver(id string) *core.AgentDriver {
 	}
 }
 
-func testProfile(id, driverID string, role core.AgentRole, caps ...string) *core.AgentProfile {
+func testProfile(id string, role core.AgentRole, caps ...string) *core.AgentProfile {
 	return &core.AgentProfile{
 		ID:             id,
 		Name:           id,
-		DriverID:       driverID,
+		Driver:         testDriverConfig(),
 		Role:           role,
 		Capabilities:   caps,
 		ActionsAllowed: []core.AgentAction{core.AgentActionReadContext, core.AgentActionFSWrite},
@@ -73,104 +72,11 @@ func testProfile(id, driverID string, role core.AgentRole, caps ...string) *core
 	}
 }
 
-func TestDriverCRUD(t *testing.T) {
-	s := newAgentTestStore(t)
-	ctx := context.Background()
-
-	d := testDriver("claude-acp")
-
-	// Create
-	if err := s.CreateDriver(ctx, d); err != nil {
-		t.Fatalf("CreateDriver: %v", err)
-	}
-
-	// Duplicate
-	if err := s.CreateDriver(ctx, d); !errors.Is(err, core.ErrDuplicateDriver) {
-		t.Fatalf("expected ErrDuplicateDriver, got %v", err)
-	}
-
-	// Get
-	got, err := s.GetDriver(ctx, "claude-acp")
-	if err != nil {
-		t.Fatalf("GetDriver: %v", err)
-	}
-	if got.LaunchCommand != "npx" {
-		t.Fatalf("expected npx, got %s", got.LaunchCommand)
-	}
-	if len(got.LaunchArgs) != 2 {
-		t.Fatalf("expected 2 args, got %d", len(got.LaunchArgs))
-	}
-	if got.Env["KEY"] != "val" {
-		t.Fatalf("expected env KEY=val, got %v", got.Env)
-	}
-	if !got.CapabilitiesMax.FSRead || !got.CapabilitiesMax.FSWrite || !got.CapabilitiesMax.Terminal {
-		t.Fatalf("expected all caps true, got %+v", got.CapabilitiesMax)
-	}
-
-	// List
-	list, err := s.ListDrivers(ctx)
-	if err != nil {
-		t.Fatalf("ListDrivers: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1, got %d", len(list))
-	}
-
-	// Update
-	d.LaunchCommand = "node"
-	d.CapabilitiesMax.Terminal = false
-	if err := s.UpdateDriver(ctx, d); err != nil {
-		t.Fatalf("UpdateDriver: %v", err)
-	}
-	got, _ = s.GetDriver(ctx, "claude-acp")
-	if got.LaunchCommand != "node" {
-		t.Fatalf("expected node, got %s", got.LaunchCommand)
-	}
-	if got.CapabilitiesMax.Terminal {
-		t.Fatal("expected terminal=false after update")
-	}
-
-	// Update nonexistent
-	if err := s.UpdateDriver(ctx, &core.AgentDriver{ID: "nope"}); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-
-	// Delete with profile referencing → should fail
-	p := testProfile("worker", "claude-acp", core.RoleWorker)
-	if err := s.CreateProfile(ctx, p); err != nil {
-		t.Fatalf("CreateProfile: %v", err)
-	}
-	if err := s.DeleteDriver(ctx, "claude-acp"); !errors.Is(err, core.ErrDriverInUse) {
-		t.Fatalf("expected ErrDriverInUse, got %v", err)
-	}
-
-	// Delete profile first, then driver
-	if err := s.DeleteProfile(ctx, "worker"); err != nil {
-		t.Fatalf("DeleteProfile: %v", err)
-	}
-	if err := s.DeleteDriver(ctx, "claude-acp"); err != nil {
-		t.Fatalf("DeleteDriver: %v", err)
-	}
-
-	// Get nonexistent
-	if _, err := s.GetDriver(ctx, "claude-acp"); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-
-	// Delete nonexistent
-	if err := s.DeleteDriver(ctx, "nope"); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
-	}
-}
-
 func TestProfileCRUD(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	d := testDriver("claude-acp")
-	s.CreateDriver(ctx, d)
-
-	p := testProfile("worker-1", "claude-acp", core.RoleWorker, "go", "backend")
+	p := testProfile("worker-1", core.RoleWorker, "go", "backend")
 
 	// Create
 	if err := s.CreateProfile(ctx, p); err != nil {
@@ -180,12 +86,6 @@ func TestProfileCRUD(t *testing.T) {
 	// Duplicate
 	if err := s.CreateProfile(ctx, p); !errors.Is(err, core.ErrDuplicateProfile) {
 		t.Fatalf("expected ErrDuplicateProfile, got %v", err)
-	}
-
-	// Create with missing driver
-	bad := testProfile("orphan", "nope", core.RoleWorker)
-	if err := s.CreateProfile(ctx, bad); !errors.Is(err, core.ErrDriverNotFound) {
-		t.Fatalf("expected ErrDriverNotFound, got %v", err)
 	}
 
 	// Get
@@ -217,6 +117,19 @@ func TestProfileCRUD(t *testing.T) {
 	if len(got.Skills) != 1 || got.Skills[0] != "strict-review" {
 		t.Fatalf("skills not preserved: %v", got.Skills)
 	}
+	// Verify embedded driver config round-trips.
+	if got.Driver.LaunchCommand != "npx" {
+		t.Fatalf("expected driver launch_command npx, got %s", got.Driver.LaunchCommand)
+	}
+	if len(got.Driver.LaunchArgs) != 2 {
+		t.Fatalf("expected 2 driver args, got %d", len(got.Driver.LaunchArgs))
+	}
+	if got.Driver.Env["KEY"] != "val" {
+		t.Fatalf("expected driver env KEY=val, got %v", got.Driver.Env)
+	}
+	if !got.Driver.CapabilitiesMax.FSRead || !got.Driver.CapabilitiesMax.FSWrite || !got.Driver.CapabilitiesMax.Terminal {
+		t.Fatalf("expected all driver caps true, got %+v", got.Driver.CapabilitiesMax)
+	}
 
 	// List
 	list, _ := s.ListProfiles(ctx)
@@ -243,7 +156,7 @@ func TestProfileCRUD(t *testing.T) {
 	}
 
 	// Update nonexistent
-	if err := s.UpdateProfile(ctx, &core.AgentProfile{ID: "nope", DriverID: "claude-acp", Role: core.RoleWorker}); !errors.Is(err, core.ErrProfileNotFound) {
+	if err := s.UpdateProfile(ctx, &core.AgentProfile{ID: "nope", Role: core.RoleWorker}); !errors.Is(err, core.ErrProfileNotFound) {
 		t.Fatalf("expected ErrProfileNotFound, got %v", err)
 	}
 
@@ -265,12 +178,13 @@ func TestResolveForAction(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	s.CreateDriver(ctx, testDriver("claude-acp"))
-	s.CreateDriver(ctx, testDriver("codex-acp"))
+	s.CreateProfile(ctx, testProfile("be-worker", core.RoleWorker, "go", "backend"))
 
-	s.CreateProfile(ctx, testProfile("be-worker", "claude-acp", core.RoleWorker, "go", "backend"))
-	s.CreateProfile(ctx, testProfile("fe-worker", "codex-acp", core.RoleWorker, "react", "frontend"))
-	s.CreateProfile(ctx, testProfile("reviewer", "claude-acp", core.RoleGate, "review"))
+	feProfile := testProfile("fe-worker", core.RoleWorker, "react", "frontend")
+	feProfile.Driver.LaunchCommand = "codex"
+	s.CreateProfile(ctx, feProfile)
+
+	s.CreateProfile(ctx, testProfile("reviewer", core.RoleGate, "review"))
 
 	tests := []struct {
 		name    string
@@ -302,7 +216,7 @@ func TestResolveForAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, d, err := s.ResolveForAction(ctx, tt.step)
+			p, err := s.ResolveForAction(ctx, tt.step)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -315,9 +229,6 @@ func TestResolveForAction(t *testing.T) {
 			if p.ID != tt.wantID {
 				t.Fatalf("expected profile %q, got %q", tt.wantID, p.ID)
 			}
-			if d == nil {
-				t.Fatal("expected driver, got nil")
-			}
 		})
 	}
 }
@@ -326,49 +237,20 @@ func TestResolveByID(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	s.CreateDriver(ctx, testDriver("claude-acp"))
-	s.CreateProfile(ctx, testProfile("worker", "claude-acp", core.RoleWorker, "go"))
+	s.CreateProfile(ctx, testProfile("worker", core.RoleWorker, "go"))
 
-	p, d, err := s.ResolveByID(ctx, "worker")
+	p, err := s.ResolveByID(ctx, "worker")
 	if err != nil {
 		t.Fatalf("ResolveByID: %v", err)
 	}
 	if p.ID != "worker" {
 		t.Fatalf("expected worker, got %s", p.ID)
 	}
-	if d.ID != "claude-acp" {
-		t.Fatalf("expected claude-acp driver, got %s", d.ID)
-	}
 
 	// Nonexistent
-	_, _, err = s.ResolveByID(ctx, "nope")
+	_, err = s.ResolveByID(ctx, "nope")
 	if err == nil {
 		t.Fatal("expected error for nonexistent profile")
-	}
-}
-
-func TestUpsertDriver(t *testing.T) {
-	s := newAgentTestStore(t)
-	ctx := context.Background()
-
-	d := testDriver("claude-acp")
-	// First upsert = insert
-	if err := s.UpsertDriver(ctx, d); err != nil {
-		t.Fatalf("UpsertDriver (insert): %v", err)
-	}
-	got, _ := s.GetDriver(ctx, "claude-acp")
-	if got.LaunchCommand != "npx" {
-		t.Fatalf("expected npx, got %s", got.LaunchCommand)
-	}
-
-	// Second upsert = update
-	d.LaunchCommand = "node"
-	if err := s.UpsertDriver(ctx, d); err != nil {
-		t.Fatalf("UpsertDriver (update): %v", err)
-	}
-	got, _ = s.GetDriver(ctx, "claude-acp")
-	if got.LaunchCommand != "node" {
-		t.Fatalf("expected node after upsert, got %s", got.LaunchCommand)
 	}
 }
 
@@ -376,9 +258,7 @@ func TestUpsertProfile(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	s.CreateDriver(ctx, testDriver("claude-acp"))
-
-	p := testProfile("worker", "claude-acp", core.RoleWorker, "go")
+	p := testProfile("worker", core.RoleWorker, "go")
 	// First upsert = insert
 	if err := s.UpsertProfile(ctx, p); err != nil {
 		t.Fatalf("UpsertProfile (insert): %v", err)
@@ -410,21 +290,16 @@ func TestCapabilityOverflow(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	// Driver with only FSRead
-	d := &core.AgentDriver{
-		ID:            "readonly",
-		LaunchCommand: "cat",
-		CapabilitiesMax: core.DriverCapabilities{
-			FSRead: true, FSWrite: false, Terminal: false,
-		},
-	}
-	s.CreateDriver(ctx, d)
-
-	// Profile that requires FSWrite → should fail
+	// Profile with driver that only has FSRead
 	p := &core.AgentProfile{
-		ID:             "writer",
-		DriverID:       "readonly",
-		Role:           core.RoleWorker,
+		ID:   "writer",
+		Role: core.RoleWorker,
+		Driver: core.DriverConfig{
+			LaunchCommand: "cat",
+			CapabilitiesMax: core.DriverCapabilities{
+				FSRead: true, FSWrite: false, Terminal: false,
+			},
+		},
 		ActionsAllowed: []core.AgentAction{core.AgentActionFSWrite}, // requires FSWrite
 	}
 	if err := s.CreateProfile(ctx, p); !errors.Is(err, core.ErrCapabilityOverflow) {
@@ -436,9 +311,7 @@ func TestProfileCRUDRejectsInvalidSkillReference(t *testing.T) {
 	s := newAgentTestStore(t)
 	ctx := context.Background()
 
-	s.CreateDriver(ctx, testDriver("claude-acp"))
-
-	p := testProfile("broken-worker", "claude-acp", core.RoleWorker, "go")
+	p := testProfile("broken-worker", core.RoleWorker, "go")
 	p.Skills = []string{"missing-skill"}
 	if err := s.CreateProfile(ctx, p); !errors.Is(err, core.ErrInvalidSkills) {
 		t.Fatalf("expected ErrInvalidSkills, got %v", err)

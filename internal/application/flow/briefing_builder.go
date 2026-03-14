@@ -160,9 +160,9 @@ func (b *DefaultInputBuilder) injectWorkItemContext(workItem *core.WorkItem, ref
 	})
 }
 
-// injectUpstreamContext adds upstream deliverables tiered by distance:
+// injectUpstreamContext adds upstream run results tiered by distance:
 //   - L2 (immediate predecessor): full ResultMarkdown
-//   - L0 (distant predecessors): Metadata["summary"] or first 300 chars fallback
+//   - L0 (distant predecessors): ResultMetadata["summary"] or first 300 chars fallback
 func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action *core.Action, refs []ContextRef) []ContextRef {
 	actions, err := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
 	if err != nil {
@@ -176,7 +176,7 @@ func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action 
 	}
 
 	for _, depID := range predecessorActionIDs(actions, action) {
-		deliverable, err := b.store.GetLatestDeliverableByAction(ctx, depID)
+		run, err := b.store.GetLatestRunWithResult(ctx, depID)
 		if err != nil {
 			continue
 		}
@@ -185,17 +185,17 @@ func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action 
 			// L2: immediate predecessor — full content.
 			refs = append(refs, ContextRef{
 				Type:   CtxUpstreamArtifact,
-				RefID:  deliverable.ID,
+				RefID:  run.ID,
 				Label:  fmt.Sprintf("upstream action %d output", depID),
-				Inline: deliverable.ResultMarkdown,
+				Inline: run.ResultMarkdown,
 			})
 		} else {
 			// L0: distant predecessor — summary only.
-			summary := extractDeliverableSummary(deliverable)
+			summary := extractRunResultSummary(run)
 			if summary != "" {
 				refs = append(refs, ContextRef{
 					Type:   CtxUpstreamArtifact,
-					RefID:  deliverable.ID,
+					RefID:  run.ID,
 					Label:  fmt.Sprintf("upstream action %d summary", depID),
 					Inline: summary,
 				})
@@ -207,16 +207,16 @@ func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action 
 
 const maxSummaryFallbackChars = 300
 
-// extractDeliverableSummary returns a compact summary of a Deliverable.
-// Prefers the Collector-extracted "summary" from Metadata; falls back to
+// extractRunResultSummary returns a compact summary of a Run's result.
+// Prefers the Collector-extracted "summary" from ResultMetadata; falls back to
 // the first 300 characters of ResultMarkdown.
-func extractDeliverableSummary(deliverable *core.Deliverable) string {
-	if deliverable.Metadata != nil {
-		if s, ok := deliverable.Metadata["summary"].(string); ok && strings.TrimSpace(s) != "" {
+func extractRunResultSummary(run *core.Run) string {
+	if run.ResultMetadata != nil {
+		if s, ok := run.ResultMetadata["summary"].(string); ok && strings.TrimSpace(s) != "" {
 			return strings.TrimSpace(s)
 		}
 	}
-	md := strings.TrimSpace(deliverable.ResultMarkdown)
+	md := strings.TrimSpace(run.ResultMarkdown)
 	if md == "" {
 		return ""
 	}
@@ -231,13 +231,9 @@ func (b *DefaultInputBuilder) injectManifestContext(ctx context.Context, workIte
 	if workItem == nil || workItem.ProjectID == nil {
 		return refs
 	}
-	manifest, err := b.store.GetFeatureManifestByProject(ctx, *workItem.ProjectID)
-	if err != nil {
-		return refs
-	}
 	entries, err := b.store.ListFeatureEntries(ctx, core.FeatureEntryFilter{
-		ManifestID: manifest.ID,
-		Limit:      500,
+		ProjectID: *workItem.ProjectID,
+		Limit:     500,
 	})
 	if err != nil || len(entries) == 0 {
 		return refs
@@ -266,7 +262,7 @@ func (b *DefaultInputBuilder) injectManifestContext(ctx context.Context, workIte
 	snapshot, _ := json.Marshal(compact)
 	return append(refs, ContextRef{
 		Type:   CtxFeatureManifest,
-		RefID:  manifest.ID,
+		RefID:  *workItem.ProjectID,
 		Label:  "feature manifest",
 		Inline: string(snapshot),
 	})
