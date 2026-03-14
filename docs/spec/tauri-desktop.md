@@ -1,7 +1,7 @@
 # Tauri 桌面版（Go 后端 + React 前端）
 
-> 状态：已实现
-> 更新时间：2026-03-13
+> 状态：现行
+> 最后按代码核对：2026-03-14
 
 本仓库的桌面版采用：
 
@@ -13,8 +13,8 @@
 
 - Tauri 启动时会拉起 Go sidecar，并在 Rust 侧提供 `desktop_bootstrap` 命令。
 - `desktop_bootstrap` 当前返回 `token`、`api_v1_base_url`、`api_base_url`、`ws_base_url`。
-- 前端当前主工作台统一消费 `api_base_url`；`api_v1_base_url` 与 `ws_base_url` 保留给兼容链路。
-- 当前桌面 WebSocket 兼容字段仍指向 legacy v1 endpoint，而不是新的 `/api` 命名空间。
+- 前端当前主工作台实际统一消费 `api_base_url` 作为 HTTP 与 WebSocket 基址。
+- `api_v1_base_url` 与 `ws_base_url` 目前仍作为兼容字段返回，但主工作台并未优先使用它们。
 
 ## 目录与关键文件
 
@@ -34,7 +34,7 @@
   - `api_v1_base_url = http://127.0.0.1:<port>/api/v1`
   - `api_base_url = http://127.0.0.1:<port>/api`
   - `ws_base_url = http://127.0.0.1:<port>/api/v1`
-- 前端当前主工作台统一使用 `api_base_url`；WebSocket 兼容字段仍沿用 v1 基址。
+- 但当前前端主工作台统一使用 `api_base_url`，`createWsClient()` 会自行拼接到 `${api_base_url}/ws`。
 
 ## 开发与构建
 

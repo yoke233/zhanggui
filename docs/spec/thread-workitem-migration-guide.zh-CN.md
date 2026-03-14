@@ -4,9 +4,9 @@
 >
 > 状态：历史
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
-> 当前实现状态：本文保留原迁移设计与落地偏差，用于解释“当时计划如何迁移，以及现在实际只落地了哪些部分”。现行命名治理请以 `naming-transition-thread-workitem.zh-CN.md` 为准。
+> 当前实现状态：本文保留原迁移设计与落地偏差，用于解释“当时计划如何迁移，以及后来代码实际如何继续演进”。当前 public surface 已比本文原始迁移目标更进一步：前端与后端对外主入口都已经切到 `/work-items`；现行命名治理请以 `README.md` 与 `naming-transition-thread-workitem.zh-CN.md` 为准。
 >
 > 重要说明：本文最初用于描述一次迁移目标。当前仓库只完成了其中一部分，不能把全文视为“全部已落地现状”。
 
@@ -15,7 +15,7 @@
 本次迁移引入两大变化：
 
 1. **Thread 独立领域实体**：多人（多 AI + 多 human）共享讨论容器，区别于 ChatSession（1:1 direct chat）
-2. **WorkItem 路由推广**：前端页面主入口切到 `/work-items`，后端 REST 仍保留 `/issues`
+2. **WorkItem 路由推广**：前后端对外主入口都切到 `/work-items`
 
 ## 新增数据库表
 
@@ -23,11 +23,10 @@
 |------|------|
 | `threads` | Thread 主表 |
 | `thread_messages` | Thread 消息 |
-| `thread_participants` | Thread 参与者 |
+| `thread_members` | Thread 成员（human + agent 统一模型） |
 | `thread_work_item_links` | Thread ↔ Issue 双向关联 |
-| `thread_agent_sessions` | Thread 内 Agent 会话 |
 
-当前实现不是通过 GORM AutoMigrate 自动创建，而是由 SQLite migration SQL 创建。
+当前实现通过 `internal/adapters/store/sqlite/schema.go` 中的 GORM `AutoMigrate` 创建。
 
 ## 后端 API 变更
 
@@ -42,6 +41,7 @@
 | DELETE | `/threads/{id}` | 删除 Thread |
 | POST | `/threads/{id}/messages` | 发送消息 |
 | GET | `/threads/{id}/messages` | 消息列表 |
+| GET | `/threads/{id}/events` | Thread 事件流 |
 | POST | `/threads/{id}/participants` | 添加参与者 |
 | GET | `/threads/{id}/participants` | 参与者列表 |
 | DELETE | `/threads/{id}/participants/{userID}` | 移除参与者 |
@@ -53,7 +53,7 @@
 | POST | `/threads/{id}/links/work-items` | 创建关联 |
 | GET | `/threads/{id}/work-items` | 按 Thread 查关联 |
 | DELETE | `/threads/{id}/links/work-items/{workItemID}` | 删除关联 |
-| GET | `/issues/{id}/threads` | 按 WorkItem 反查 Thread |
+| GET | `/work-items/{id}/threads` | 按 WorkItem 反查 Thread |
 | POST | `/threads/{id}/create-work-item` | 从 Thread 创建 WorkItem（自动关联） |
 
 补充说明（按 2026-03-13 当前代码）：
@@ -85,19 +85,19 @@
 |--------|--------|------|
 | `/issues` | `/work-items` | 前端路由重定向 |
 | `/issues/new` | `/work-items/new` | 前端路由重定向 |
-| `/issues/:id` | `/work-items` | 当前实现重定向到列表页，不保留详情 ID |
+| `/issues/:id` | `/work-items/:id` | 当前实现保留详情 ID |
 | `/flows` | `/work-items` | 前端路由重定向 |
-| `/flows/:id` | `/work-items` | 当前实现重定向到列表页，不保留详情 ID |
+| `/flows/:id` | `/work-items/:id` | 当前实现保留详情 ID |
 
-后端 `/issues` REST API 完整保留，不重定向。
+后端对外主 REST 已经切到 `/work-items`；`apiClient` 中仍保留 issue-named alias 方法作为兼容层。
 
 ## 前端变更
 
 ### 路由变更
 
-- `/work-items`、`/work-items/new`、`/work-items/:flowId` 为新主路由
+- `/work-items`、`/work-items/new`、`/work-items/:workItemId` 为新主路由
 - `/issues/*`、`/flows/*` 通过 `<Navigate>` 重定向到 `/work-items` 系列路由
-- 其中旧详情页当前会跳回 `/work-items` 列表，而不是映射到 `/work-items/:flowId`
+- 旧详情页当前会保留 ID 并跳到 `/work-items/:workItemId`
 - 侧边栏导航项从 "Issues" 更名为 "Work Items"
 
 ### 新增类型（`apiV2.ts`）
@@ -123,37 +123,38 @@ removeThreadAgent(threadId, sessionId)
 ### 页面更新
 
 - **ThreadDetailPage**: 新增 Linked Work Items 面板，支持创建/关联 WorkItem
-- **FlowDetailPage**: 新增 Linked Threads 面板，显示反向关联的 Thread
-- **FlowsPage**: 内部链接更新为 `/work-items/*`
+- **WorkItemDetailPage**: 新增 Linked Threads 面板，显示反向关联的 Thread
+- **WorkItemsPage**: 作为主工作台入口承载 `/work-items/*`
 
 ## 兼容性说明
 
 ### 不受影响
 
 - ChatSession（`/chat`）相关 API 和 WebSocket 完全不受影响
-- 后端 `/issues` REST API 保持完整可用
-- Go 内部 struct 名称（`Issue`、`Step`、`Execution`、`Artifact`）和数据库表名不变
+- 内部持久化表名仍保留 `issues` / `steps` / `executions`
+- 部分 handler/request struct 仍保留 `issue` 兼容命名
 - 现有数据无需迁移
 
 ### 注意事项
 
-- 当前代码没有在应用层显式清理 `thread_work_item_links` 和 `thread_agent_sessions`
-- 当前 SQLite 打开了 `PRAGMA foreign_keys=ON`，因此删除行为依赖数据库外键约束，而不是本文原始版本描述的“应用层先清理再删除”
+- Thread 删除前当前会显式调用 `CleanupThread(threadID)` 清理 ACP runtime
+- `thread_work_item_links` 的父对象删除清理当前仍未统一收口
+- `thread_members(kind=agent)` 已替代本文旧版中的 `thread_agent_sessions`
 - 如果未来切换存储实现，删除策略需要重新明确
 - `thread_work_item_links` 有 UNIQUE(thread_id, work_item_id) 约束
-- `thread_agent_sessions` 有 UNIQUE(thread_id, agent_profile_id) 约束
+- agent 成员的唯一性当前由 runtime / store 行为共同约束，不应再把 `thread_agent_sessions` 当成现行表结构
 
 ## 升级步骤
 
 1. **启动服务**：确认 SQLite migrations 已执行
 2. **验证前端**：访问 `/work-items` 确认页面路由正常；访问 `/threads` 确认 Thread 功能可用
-3. **验证后端**：继续使用 `/issues` 作为 WorkItem 的 REST 主入口
+3. **验证后端**：使用 `/work-items` 作为 WorkItem 的 REST 主入口
 4. **兼容旧书签**：旧 `/issues`、`/flows` 页面入口会跳转到 `/work-items`
 
 ## 当前实现与原迁移目标的差异
 
 - 已实现：Thread 相关后端 REST、WebSocket、前端页面、Thread-Agent runtime 基础能力
-- 已实现：前端主工作台入口切到 `/work-items`
-- 未实现：后端 `/work-items` REST alias
-- 已偏离原方案：旧详情页不再重定向到 `/work-items/:id`，而是直接回到 `/work-items`
-- 已偏离原方案：数据库建表方式为 migration SQL，不是 AutoMigrate
+- 已实现：前后端对外主工作台入口都切到 `/work-items`
+- 已偏离原方案：Thread agent 会话最终落在统一的 `thread_members` 模型，而不是独立 `thread_agent_sessions` 表
+- 已偏离原方案：旧详情页会保留 ID 跳到 `/work-items/:id`
+- 已偏离原方案：数据库建表由 GORM AutoMigrate 驱动

@@ -1,8 +1,8 @@
 # Issue-Centric Execution Model
 
-> 状态：部分实现
-> Updated: 2026-03-13
-> Current implementation status: the frontend primary route is `/work-items`; backend public REST still uses `/issues`; `/flows` only survives as a frontend compatibility redirect; the internal core model remains `Issue`.
+> 状态：历史
+> Updated: 2026-03-14
+> Current implementation status: this document preserves the design rationale from the `Issue` era. The current public surface has already moved to `/work-items`, and the core model has already moved to `WorkItem` / `Action` / `Run`; what still remains are persistence/table names such as `issues` / `steps` / `executions` and some backward-compatible helpers.
 
 > Design rationale for the unified Issue model that replaces the former Flow + Issue pair.
 
@@ -10,9 +10,9 @@
 
 This document describes the dominant direction of the codebase, but the rename is not fully complete.
 
-- The core domain already treats `Issue` as the unified work unit that replaces the former `Flow + Issue` pair.
+- The design intent described here has effectively been absorbed by the current `WorkItem` model.
 - The codebase still retains compatibility naming in several places, such as `FlowScheduler`, `PRFlow` prompts, and some `flow`-prefixed modules/errors.
-- The web app uses `/work-items` as the primary route, while legacy `/issues` and `/flows` routes redirect there for compatibility.
+- The web app and public REST both use `/work-items` as the primary route, while legacy `/issues` and `/flows` survive only as compatibility naming on the frontend or in internal symbols.
 
 Read this spec as "current architecture direction plus compatibility layer", not as "every Flow-era concept has been physically removed from the repository".
 

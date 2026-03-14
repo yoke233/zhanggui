@@ -2,30 +2,30 @@
 
 > 状态：现行
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
-> 当前实现状态：本文描述的是当前已落地的 Step briefing 组装主链。对外产品语义虽然逐步统一为 `Work Item`，但内部实现仍以 `IssueEngine`、`Issue`、`Step` 为主；后端 REST 现状仍是 `/issues/*`。
+> 当前实现状态：本文描述的是当前已落地的 briefing 组装主链。对外 Public REST 已使用 `/work-items/*`；应用层主执行器已是 `WorkItemEngine`，核心对象也已切到 `WorkItem` / `Action` / `Run`，但持久化表名与部分兼容 helper 仍保留 `issues` / `steps` / `executions` 旧命名。
 
 ## 概述
 
-Step 执行时，上下文通过 `IssueEngine` 的三阶段管道（Prepare → Execute → Finalize）逐层组装，最终以 Markdown 形式发送给 Agent。
+Action 执行时，上下文通过 `WorkItemEngine` 的三阶段管道（Prepare → Execute → Finalize）逐层组装，最终以 Markdown 形式发送给 Agent。
 
 ## 流程图
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Issue 层                              │
+│                     Work Item 层                             │
 │  Title, Body, Priority, Labels, ProjectID, ResourceBinding   │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                        Step 层                               │
+│                       Action 层                              │
 │  Name, Description, Config["objective"],                     │
 │  AcceptanceCriteria, AgentRole, RequiredCapabilities          │
 └──────────────────────────┬──────────────────────────────────┘
                            │
-          IssueEngine.Run() │  准备 Workspace (git worktree)
+      WorkItemEngine.Run() │  准备 Workspace (git worktree)
                            │  ctx = ContextWithWorkspace(ctx, ws)
                            ▼
 ┌═════════════════════════════════════════════════════════════┐
@@ -105,7 +105,7 @@ Step 执行时，上下文通过 `IssueEngine` 的三阶段管道（Prepare → 
 ║  │     profile + driver + MCP tools + workDir           │   ║
 ║  │     → ACP Session (新建 or 复用)                      │   ║
 ║  │                                                      │   ║
-║  │  ③ BuildExecutionInputForStep()                      │   ║
+║  │  ③ BuildRunInputForAction()                          │   ║
 ║  │     ┌───────────────────────────────────────────┐    │   ║
 ║  │     │ Gate 步骤?  → 总是完整 prompt              │    │   ║
 ║  │     │                                           │    │   ║
@@ -146,11 +146,11 @@ Step 执行时，上下文通过 `IssueEngine` 的三阶段管道（Prepare → 
 ║  │   pass → 步骤完成, 推进下一步                         │   ║
 ║  │                                                      │   ║
 ║  │   reject → recordGateRework():                       │   ║
-║  │     upstream.Config["last_gate_feedback"] = reason    │   ║
-║  │     upstream.Config["rework_history"] += entry        │   ║
-║  │     upstream.Status = pending (等待重新执行)           │   ║
-║  │              │                                        │   ║
-║  │              └──── 反馈回流 ──→ 下次 Prepare 时注入   │   ║
+║  │     Create ActionSignal(type=feedback)               │   ║
+║  │     summary/content = gate reason + metadata         │   ║
+║  │     upstream.Status = pending (等待重新执行)         │   ║
+║  │              │                                      │   ║
+║  │              └──── 反馈回流 ──→ 下次执行时读取信号   │   ║
 ║  └─────────────────────────────────────────────────────┘   ║
 ╚═════════════════════════════════════════════════════════════╝
 ```
@@ -165,12 +165,12 @@ Briefing 是结构化对象（Objective + ContextRefs + Constraints），经 `re
 
 | 来源 | 状态 | 说明 |
 |------|------|------|
-| Step 自身配置 | ✅ 已接入 | `Config["objective"]`, `AcceptanceCriteria` |
-| Issue 摘要 | ✅ 已接入 | `CtxIssueSummary` — Title + Body (≤500 字符) |
-| 上游 Artifact (L2) | ✅ 已接入 | 直接前置 Step 的完整 `ResultMarkdown` |
-| 上游 Artifact (L0) | ✅ 已接入 | 远处前置 Step 的 `Metadata["summary"]` 或前 300 字符 |
+| Action 自身配置 | ✅ 已接入 | `Config["objective"]`, `AcceptanceCriteria` |
+| WorkItem 摘要 | ✅ 已接入 | `CtxIssueSummary` — Title + Body (≤500 字符)，当前承载的是 WorkItem 摘要 |
+| 上游 Deliverable (L2) | ✅ 已接入 | 直接前置 Action 的完整 `ResultMarkdown` |
+| 上游 Deliverable (L0) | ✅ 已接入 | 远处前置 Action 的 `Metadata["summary"]` 或前 300 字符 |
 | 项目功能清单 | ✅ 已接入 | `FeatureManifest` (fail/pending 详细, pass/skipped 精简) |
-| Gate 反馈 | ✅ 已接入 | `last_gate_feedback` / `rework_history` |
+| Gate 反馈 | ✅ 已接入 | `ActionSignal(feedback/instruction)`，通过 `ResolveLatestFeedback()` 读取 |
 | 项目简报 | 🔲 预留 | `CtxProjectBrief` |
 | Agent 记忆 | 🔲 预留 | `CtxAgentMemory` |
 
@@ -186,9 +186,9 @@ Briefing 是结构化对象（Objective + ContextRefs + Constraints），经 `re
 
 ```
 Gate reject
-  → 写入 upstream Step.Config["last_gate_feedback"]
-    → 下次 Prepare 时 BriefingBuilder 自动拼入
-      → BuildExecutionInputForStep 检测到反馈
+  → recordGateRework() 写入 ActionSignal(type=feedback)
+    → 下次执行时 ResolveLatestFeedback() 读取最新反馈
+      → BuildRunInputForAction 检测到反馈
         → Agent 看到反馈并修正
 ```
 
@@ -215,15 +215,15 @@ Gate reject
 
 | 文件 | 职责 |
 |------|------|
-| `internal/core/briefing.go` | Briefing / ContextRef 领域模型 |
-| `internal/core/execution.go` | Execution 领域模型 (含 BriefingSnapshot) |
-| `internal/core/step.go` | Step 领域模型 (含 Config, AcceptanceCriteria) |
+| `internal/core/workitem.go` | WorkItem 领域模型 |
+| `internal/core/run.go` | Run 领域模型 (含 BriefingSnapshot 持久化字段) |
+| `internal/core/action.go` | Action 领域模型 (含 Config, AcceptanceCriteria) |
 | `internal/core/errors.go` | 领域错误 (含 ErrTokenBudgetExceeded) |
-| `internal/application/flow/briefing_builder.go` | BriefingBuilder — 上下文组装核心 (Issue 注入 + 分层 Artifact + Manifest) |
+| `internal/application/flow/briefing_builder.go` | BriefingBuilder — 上下文组装核心 (WorkItem 注入 + 分层 Artifact + Manifest) |
 | `internal/application/flow/briefing_builder_test.go` | BriefingBuilder 单元测试 (11 cases) |
 | `internal/application/flow/pipeline.go` | renderBriefingSnapshot + refBudget 按类型分配字符预算 |
-| `internal/application/flow/engine.go` | IssueEngine — 三阶段管道 (prepare/execute/finalize) |
-| `internal/application/flow/execution_input.go` | BuildExecutionInputForStep — prompt 变体选择 |
+| `internal/application/flow/engine.go` | WorkItemEngine — 三阶段管道 (prepare/execute/finalize) |
+| `internal/application/flow/execution_input.go` | BuildRunInputForAction — prompt 变体选择 |
 | `internal/application/flow/gate.go` | Gate 处理 + recordGateRework 反馈回流 |
 | `internal/application/flow/dag.go` | 前置步骤查询 (predecessorStepIDs / immediatePredecessorStepIDs) |
 | `internal/application/flow/workspace.go` | Workspace context 注入 |

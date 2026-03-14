@@ -2,7 +2,7 @@
 
 > 状态：部分实现
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
 > 对应实现：`internal/platform/appcmd/mcp_serve.go`、`internal/adapters/http/step_signal.go`、`internal/application/flow/signal_e2e_test.go`
 
@@ -10,10 +10,15 @@
 
 本文包含两类内容：
 
-- 已落地的后端能力：StepSignal、`mcp-serve` 工具注入、`/steps/{id}/decision`、`/steps/{id}/unblock`、`/pending-decisions`
-- 尚未完全落地的产品/UI 规划：FlowDetail 阻塞面板、统一信号时间线、Dashboard 待处理汇总
+- 已落地的后端能力：核心模型现已命名为 `ActionSignal`，并通过 `mcp-serve`、`/steps/{id}/decision`、`/steps/{id}/unblock`、`/pending-decisions` 暴露
+- 尚未完全落地的产品/UI 规划：WorkItem 详情阻塞面板、统一信号时间线、Dashboard 待处理汇总
 
 阅读时请不要把全文都当成“已上线现状”。
+
+补充说明：
+
+- 本文保留了 `StepSignal` / `step` 的产品与 HTTP 语义，因为对外接口当前仍是 `/steps/{id}/*`
+- 但应用层执行器真实类型已经是 `WorkItemEngine`，核心对象也已切到 `Action` / `Run`
 
 ## 问题：引擎猜 Agent 意图
 
@@ -313,39 +318,40 @@ case "exec":
 ### `handleSuccess` 改造（exec step）
 
 ```go
-func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *core.Execution) error {
-    exec.Status = core.ExecSucceeded
-    _ = e.store.UpdateExecution(ctx, exec)
+func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action, run *core.Run) error {
+    run.Status = core.RunSucceeded
+    _ = e.store.UpdateRun(ctx, run)
 
     // 1. 检查 agent 是否通过 MCP 工具声明了 need_help
-    helpSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalNeedHelp)
-    if helpSignal != nil && helpSignal.ExecID == exec.ID {
+    helpSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalNeedHelp)
+    if helpSignal != nil && helpSignal.RunID == run.ID {
         // Agent 明确表示需要帮助 → 不标记 Done
-        _ = e.transitionStep(ctx, step, core.StepBlocked)
+        _ = e.transitionAction(ctx, action, core.ActionBlocked)
         e.bus.Publish(ctx, core.Event{
-            Type:    core.EventStepNeedHelp,
-            IssueID: step.IssueID,
-            StepID:  step.ID,
-            Data:    helpSignal.Payload,
+            Type:       core.EventActionNeedHelp,
+            WorkItemID: action.WorkItemID,
+            ActionID:   action.ID,
+            RunID:      run.ID,
+            Data:       helpSignal.Payload,
         })
         return nil  // 非引擎错误，其他 step 继续
     }
 
     // 2. 检查 agent 是否通过 MCP 工具提交了结构化完成信号
-    completeSignal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalComplete)
-    if completeSignal != nil && completeSignal.ExecID == exec.ID {
+    completeSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalComplete)
+    if completeSignal != nil && completeSignal.RunID == run.ID {
         // Agent 提供了结构化 metadata → 直接写入 artifact，跳过 Collector
-        e.applySignalMetadata(ctx, step, completeSignal.Payload)
+        e.applySignalMetadata(ctx, action, run, completeSignal.Payload)
     } else {
         // 3. 降级：LLM Collector 提取（现有行为）
-        _ = e.collectMetadata(ctx, step)
+        _ = e.collectMetadata(ctx, action)
     }
 
-    switch step.Type {
-    case core.StepGate:
-        return e.finalizeGate(ctx, step)
+    switch action.Type {
+    case core.ActionGate:
+        return e.finalizeGate(ctx, action)
     default:
-        return e.transitionStep(ctx, step, core.StepDone)
+        return e.transitionAction(ctx, action, core.ActionDone)
     }
 }
 ```
@@ -366,25 +372,25 @@ type GateVerdict struct {
 }
 
 // GateEvaluator 评估函数签名
-type GateEvaluator func(ctx context.Context, step *core.Step) (GateVerdict, error)
+type GateEvaluator func(ctx context.Context, action *core.Action) (GateVerdict, error)
 
-func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
+func (e *WorkItemEngine) finalizeGate(ctx context.Context, action *core.Action) error {
     evaluators := e.gateEvaluators // 可通过 WithGateEvaluators() 注入自定义链
     if len(evaluators) == 0 {
         evaluators = []GateEvaluator{
             e.evalSignalVerdict,    // 1. StepSignal (MCP / HTTP)
             e.evalManifestCheck,    // 2. Feature manifest
-            e.evalArtifactMetadata, // 3. Artifact metadata (verdict field)
+            e.evalDeliverableMetadata, // 3. Deliverable metadata (verdict field)
         }
     }
     for _, eval := range evaluators {
-        v, err := eval(ctx, step)
+        v, err := eval(ctx, action)
         if err != nil { return err }
         if v.Decided {
-            return e.applyGateVerdict(ctx, step, v)
+            return e.applyGateVerdict(ctx, action, v)
         }
     }
-    return e.applyGatePass(ctx, step, GateVerdict{}) // 默认 pass
+    return e.applyGatePass(ctx, action, GateVerdict{}) // 默认 pass
 }
 ```
 
@@ -400,7 +406,7 @@ evalSignalVerdict — StepSignal (MCP tool / HTTP API)
 evalManifestCheck — Feature manifest entries
   │ Decided → applyGateVerdict
   │ 未决 ↓
-evalArtifactMetadata — Artifact metadata verdict field
+evalDeliverableMetadata — Deliverable metadata verdict field
   │ Decided → applyGateVerdict
   │ 未决 ↓
 默认行为 → applyGatePass (pass)

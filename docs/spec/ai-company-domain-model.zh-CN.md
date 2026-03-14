@@ -1,19 +1,19 @@
 # AI Company Domain Model（最小落地版）
 
 > 状态：草案
-> 更新时间：2026-03-13
+> 最后按代码核对：2026-03-14
 
-> 目标：从当前仓库已经稳定运行的 `project / issue / step / execution / artifact / chat session` 主线出发，逐步扩展为可覆盖产品、运营、财务、剪辑、销售、管理等场景的通用 AI Company 系统。
+> 目标：从当前仓库已经稳定运行的 `project / work item / action / run / deliverable / chat session / thread` 主线出发，逐步扩展为可覆盖产品、运营、财务、剪辑、销售、管理等场景的通用 AI Company 系统。
 
 ## 阅读方式
 
 - 本文主要是领域建模与演进方向讨论，不是现行 API 契约文档。
-- 当前代码已经有一部分 Thread 能力和 Thread <-> Issue 关联能力，但远未达到本文后半段定义的完整四层模型。
-- 当前前端主入口使用 `/work-items` 语义，后端主 REST 仍以 `/issues` 为核心对象；不要把文中的 `work_items` 主表/API 当成现状。
+- 当前代码已经有一部分 Thread 能力和 Thread <-> WorkItem 关联能力，但远未达到本文后半段定义的完整四层模型。
+- 当前前后端对外主入口都已经使用 `/work-items`；但持久化表名与部分兼容代码仍保留 `issues` 旧命名，不要把文中的通用 `work_items` 主表/API 设计直接等同于现状。
 
 ## 当前实现对照
 
-- 已稳定存在：`Project -> Issue -> Step -> Execution -> Artifact` 主链。
+- 已稳定存在：`Project -> WorkItem -> Action -> Run -> Deliverable` 主链。
 - 已落地基础 Thread：独立 `Thread` 实体、消息、参与者、agent 邀请，以及 Thread 与 WorkItem/Issue 的链接关系。
 - 仍并行存在：`ChatSession` 继续作为 direct chat 主线，和 Thread 不是同一个对象。
 - 尚未落地：本文定义的通用 `work_items` 主表、`decisions` 结构化治理层、完整的通用 `executions` / `artifacts` 新 API 面。
@@ -37,9 +37,9 @@
 
 所以“通用 AI Company”并不是从零开始，当前主线已经有一个跨工程/非工程的组织容器。
 
-### 2. Issue 是当前最稳定的工作对象
+### 2. WorkItem 是当前最稳定的工作对象
 
-当前系统里，`Issue` 不是 GitHub issue 的薄壳，而是已经吸收了执行语义的统一工作单元：
+当前系统里，`WorkItem` 已经是对外主语义；持久化层和少量兼容代码仍保留 `issue` 命名。它不是 GitHub issue 的薄壳，而是已经吸收了执行语义的统一工作单元：
 
 - 有标题、正文、优先级、标签
 - 有状态流转
@@ -49,33 +49,33 @@
 
 因此，如果要从当前系统出发，第一判断不是“先引入全新 WorkItem 替代一切”，而是：
 
-**当前 `Issue` 已经是系统里最接近通用 work item 的对象。**
+**当前 `WorkItem` 已经是系统里最接近通用 work item 的对象。**
 
-### 3. Step / Execution / Artifact 已经构成执行骨架
+### 3. Action / Run / Deliverable 已经构成执行骨架
 
 当前执行主线已经完整存在：
 
 ```text
-Issue
-  -> Step[]
-  -> Execution[]
-  -> Artifact[]
+WorkItem
+  -> Action[]
+  -> Run[]
+  -> Deliverable[]
 ```
 
 其中：
 
-- `Step` 是编排节点
-- `Execution` 是一次尝试
-- `Artifact` 是输出结果
+- `Action` 是编排节点
+- `Run` 是一次尝试
+- `Deliverable` / `Artifact` 是输出结果
 
 这意味着系统已经有“动作”和“产物”的稳定容器，不应该在第一阶段推翻重建。
 
-### 4. Chat 当前是独立于 Issue 的另一条主线
+### 4. Chat 当前仍是独立于 WorkItem 的 direct chat 主线，但已具备结晶入口
 
 当前前端和 API 已经把 direct chat 与执行工作台拆成两套入口：
 
-- 前端：`/chat` 与 `/work-items`（兼容 `/issues`）
-- 后端：`/api/chat/*` 与 `/api/issues/*`
+- 前端：`/chat` 与 `/work-items`（旧 `/issues` / `/flows` 仅页面 redirect）
+- 后端：`/api/chat/*` 与 `/api/work-items/*`
 
 而且当前 `chat session` 的定位明显更接近：
 
@@ -83,7 +83,11 @@ Issue
 - 持久化消息历史
 - 带 project / profile / driver / workdir 上下文
 
-它还不是多人协作 thread。
+它本身还不是多人协作 Thread，但当前代码已经提供：
+
+- `POST /api/chat/sessions/{sessionID}/crystallize-thread`
+- 可把 `ChatSession` 固化为独立 `Thread`
+- 并可选同时创建 `WorkItem`
 
 ### 5. 当前最大缺口不是“没有通用对象”，而是“讨论层和执行层还没接上”
 
@@ -94,7 +98,7 @@ Issue
 
 而是：
 
-**当前 `chat session` 和 `issue execution` 还是两条平行线。**
+**当前 `ChatSession -> Thread -> WorkItem` 已经出现最小闭环，但多人讨论、结构化决策、治理层仍未真正接上。**
 
 这才是第一步最该补的地方。
 
@@ -112,8 +116,8 @@ Issue
 
 当前更稳的做法是：
 
-- **保留 `Issue` 作为当前工作对象主线**
-- 先把它在语义上视作“当前版本的 work item”
+- **保留 `WorkItem` 作为当前工作对象主线**
+- 同时接受持久化层仍有 `issues` / `steps` / `executions` 等兼容命名
 - 等 thread 这一层接好后，再决定是否真的升格出 `work_items`
 
 ### 2. 现在最应该补的是 Thread，而不是先补 Work Item
@@ -122,21 +126,22 @@ Issue
 
 所以从现状出发的第一阶段应该是：
 
-- 把当前 `chat session` 升级为可关联业务对象的讨论容器
-- 让 `issue` 能拥有一个或多个讨论
+- 保持 `ChatSession` 作为 1:1 direct chat
+- 通过 `crystallize-thread` 把需要沉淀的 direct chat 固化成 `Thread`
+- 让 `WorkItem` 能拥有一个或多个讨论
 - 让讨论可以先存在，再补关联
 
 这一步补上以后，系统结构会从：
 
 ```text
-chat session        issue -> step -> execution -> artifact
-   (孤立)                         (孤立)
+chat session -> thread -> work item -> action -> run -> deliverable
+   (1:1)        (共享讨论)        (执行主线)
 ```
 
 变成：
 
 ```text
-discussion(session/thread) <-> issue -> step -> execution -> artifact
+discussion(chat/thread) <-> work item -> action -> run -> deliverable
 ```
 
 这才是当前系统最自然的第一刀。
@@ -227,7 +232,7 @@ discussion(session/thread) <-> issue -> step -> execution -> artifact
 ```text
 threads
 messages
-thread_participants
+thread_members
 thread_links
 ```
 
@@ -262,7 +267,7 @@ artifacts
 ```text
 Thread
   ├── Message[]
-  ├── Participant[]
+  ├── Member[]
   └── Link[] -> WorkItem / Decision / Artifact
 
 WorkItem
@@ -318,13 +323,17 @@ messages
 ```
 
 ```text
-thread_participants
+thread_members
 - id
 - thread_id
-- actor_type          // user | agent | external_contact
-- actor_id
+- kind                // human | agent
+- user_id
+- agent_profile_id
 - role                // owner | member | observer
+- status
+- agent_data_json
 - joined_at
+- last_active_at
 ```
 
 ```text
@@ -488,7 +497,7 @@ artifacts
 ## API 草案
 
 > 以下为目标 API 轮廓，不代表当前代码已经全部提供。
-> 当前现状是：后端主工作对象接口仍以 `/api/issues` 为主；Thread 已有一组 `/api/threads/*` 接口，但与下述草案并不完全一致。
+> 当前现状是：后端主工作对象接口已经使用 `/api/work-items`；Thread 也已有一组 `/api/threads/*` 接口，但与下述草案并不完全一致。
 
 ### Thread API
 
@@ -516,7 +525,7 @@ POST    /api/threads/{id}/agents
 POST    /api/threads/{id}/create-work-item
 POST    /api/threads/{id}/links/work-items
 GET     /api/threads/{id}/work-items
-GET     /api/issues/{issueID}/threads
+GET     /api/work-items/{issueID}/threads
 ```
 
 ### Work Item API
@@ -532,7 +541,7 @@ POST   /api/work-items/{id}/executions
 POST   /api/work-items/{id}/artifacts
 ```
 
-当前代码未提供这组 `/api/work-items/*` REST；现行后端仍主要使用 `/api/issues/*`。
+当前代码已经提供这组 `/api/work-items/*` REST，但 `Decision` / 通用治理层 API 仍未落地。
 
 ### Decision / Execution API
 
@@ -616,28 +625,29 @@ Chat Session
 
 - 新增独立 `Thread` 领域实体，用于多 AI + 多 human 的共享讨论
 - `ChatSession` 保留为 1 AI + 1 human 的 direct chat，不做 Thread 的别名或前身
-- `Thread` 具备独立存储（threads、thread_messages、thread_participants）
+- `Thread` 具备独立存储（threads、thread_messages、thread_members）
 - `Thread` 具备独立 API（`/threads`）与 WebSocket 协议（`thread.send`）
-- `Thread` 可先独立存在，后关联 Issue
+- `Thread` 可先独立存在，后关联 WorkItem
+- `ChatSession` 可在需要沉淀时通过 `crystallize-thread` 固化为 `Thread`
 
 此阶段：
 
-- 当前 `Issue` 继续是工作对象真相源
+- 当前 `WorkItem` 继续是工作对象真相源
 - 当前 `ChatSession` 保持现有 API、存储与 runtime 模型不变
 - 当前 PR bootstrap / gate 流程完全不变
 - `/chat` 与 `/threads` 是两个并列入口，产品边界明确
 
 说明：其中前两条在当前代码里已经基本成立；但后续章节中的 `WorkItem`、`Decision`、治理层 API 仍大多停留在目标设计。
 
-### Phase 2: 让 Thread 与 Issue 接通
+### Phase 2: 让 Thread 与 WorkItem 接通
 
 目标：
 
-- 建立 `Thread <-> Issue` 的显式关联层（`thread_work_item_links`）
-- 支持一个 Issue 关联多个 Thread
-- 支持从 Thread 创建或挂载 Issue
-- 在 Issue Detail 中展示关联 Thread
-- 在 Thread 页面展示关联 Issue
+- 建立 `Thread <-> WorkItem` 的显式关联层（`thread_work_item_links`）
+- 支持一个 WorkItem 关联多个 Thread
+- 支持从 Thread 创建或挂载 WorkItem
+- 在 WorkItem Detail 中展示关联 Thread
+- 在 Thread 页面展示关联 WorkItem
 
 此阶段：
 
@@ -698,35 +708,35 @@ Chat Session
 
 ### 5. 入口演进遵循实际产品语义
 
-当前前端已有两个入口：`/chat`（1:1 direct chat）和 `/work-items`（执行工作台，兼容 `/issues`）。
+当前前端已有两个入口：`/chat`（1:1 direct chat）和 `/work-items`（执行工作台，旧 `/issues` / `/flows` 仅 redirect）。
 
 演进后新增 `/threads` 作为多人共享讨论入口，三者并列：
 
 - `/chat` — 1:1 direct chat（保留现有 ChatSession 语义）
 - `/threads` — 多人/多 AI 共享讨论（独立 Thread 实体）
-- `/work-items`（兼容 `/issues`）— 执行工作台
+- `/work-items` — 执行工作台
 
-Thread 与 Issue 通过关联层连接，ChatSession 继续独立运行。
+Thread 与 WorkItem 通过关联层连接，ChatSession 继续独立运行。
 
 ## 一句话总结
 
 如果目标是通用 AI Company 系统，那么中心模型应从：
 
 ```text
-Chat Session + Issue
+Chat Session + WorkItem
 ```
 
 升级为：
 
 ```text
-Chat Session (1:1 direct) + Thread (多人共享讨论) + Issue (+ future WorkItem) + Decision + Execution + Artifact
+Chat Session (1:1 direct) + Thread (多人共享讨论) + WorkItem + Decision + Execution + Artifact
 ```
 
 其中：
 
 - `Chat Session` 保留为 1:1 direct chat
 - `Thread` 负责多人/多 AI 共享讨论，独立于 ChatSession
-- `Issue` 先负责当前业务真相，`WorkItem` 是后续抽象目标
+- `WorkItem` 先负责当前业务真相；持久化层仍可保留 `issue` 兼容命名
 - `Decision` 负责结构化结论
 - `Execution` 负责推进动作
 - `Artifact` 负责交付结果

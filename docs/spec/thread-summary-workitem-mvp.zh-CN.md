@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 创建日期：2026-03-13
+> 最后按代码核对：2026-03-14
 >
 > 上位规划：`thread-collaboration-to-dag-plan.zh-CN.md`
 >
@@ -28,8 +28,14 @@ P1 是后续多小组协同的基础。如果这一层做不好，P2 的“主 T
 3. `POST /threads/{id}/create-work-item` 已可从 Thread 创建单个 WorkItem
 4. `thread_work_item_links` 已支持 Thread 与 WorkItem 的显式链接
 5. Thread 详情页已展示 summary 与 linked work items
+6. `POST /chat/sessions/{sessionID}/crystallize-thread` 已可把 `ChatSession` 固化为 `Thread`，并可选同时创建 `WorkItem`
 
 也就是说，P1 不是从零开始，而是要把“已有但松散的能力”收敛成一个正式流程。
+
+补充说明：
+
+- `crystallize-thread` 不是对 `POST /threads/{id}/create-work-item` 的替代，而是给 direct chat 增加一个进入 Thread 收敛流的上游入口
+- 真正进入 P1 收敛闭环后，核心仍然是 `Thread.summary` 与 `Thread -> WorkItem` 显式关联
 
 ## 3. P1 的核心原则
 

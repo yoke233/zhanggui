@@ -2,7 +2,7 @@
 
 > 状态：部分实现
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
 > 对应实现：`internal/runtime/agent/thread_session_pool.go`、`internal/adapters/http/thread.go`、`internal/adapters/http/event.go`
 >
@@ -15,8 +15,8 @@ Thread 的多 agent 能力已基于现有 ACP session pool 基础设施落地，
 当前文档描述的是“现行行为 + 少量未来预留”，不是纯设计稿。需要注意：
 
 - Thread agent 的 CRUD、runtime 启停、事件广播已经实现
-- `thread.send` 当前不支持 `target_agent_id`
-- 当前 WebSocket 路由语义是“广播到该 Thread 下所有 active agent”，不是“默认只路由到主 agent”
+- `thread.send` 与 `POST /threads/{id}/messages` 当前都支持 `target_agent_id`
+- 当前默认路由语义不是广播，而是 `mention_only`；只有显式 `target_agent_id`、或 Thread `metadata.agent_routing_mode` 设置为 `broadcast` / `auto` 时，消息才会 fanout 给 agent
 
 ## 架构模型
 
@@ -37,23 +37,18 @@ ChatSession (独立)
 ## 数据模型
 
 ```sql
-CREATE TABLE thread_agent_sessions (
+CREATE TABLE thread_members (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id         INTEGER NOT NULL REFERENCES threads(id),
-    agent_profile_id  TEXT    NOT NULL,
-    acp_session_id    TEXT    NOT NULL DEFAULT '',
-    status            TEXT    NOT NULL DEFAULT 'joining',
-    turn_count        INTEGER NOT NULL DEFAULT 0,
-    total_input_tokens INTEGER NOT NULL DEFAULT 0,
-    total_output_tokens INTEGER NOT NULL DEFAULT 0,
-    progress_summary  TEXT    NOT NULL DEFAULT '',
-    metadata          TEXT,
+    thread_id         INTEGER NOT NULL,
+    kind              TEXT    NOT NULL,            -- human | agent
+    user_id           TEXT    NOT NULL DEFAULT '',
+    agent_profile_id  TEXT    NOT NULL DEFAULT '',
+    role              TEXT    NOT NULL DEFAULT 'member',
+    status            TEXT    NOT NULL DEFAULT '',
+    agent_data        TEXT,
     joined_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_active_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX idx_tas_thread ON thread_agent_sessions(thread_id);
-CREATE UNIQUE INDEX idx_tas_thread_profile ON thread_agent_sessions(thread_id, agent_profile_id);
 ```
 
 ### 字段说明
@@ -62,14 +57,10 @@ CREATE UNIQUE INDEX idx_tas_thread_profile ON thread_agent_sessions(thread_id, a
 |------|------|------|
 | `id` | int64 | 自增主键 |
 | `thread_id` | int64 | 关联的 Thread ID |
-| `agent_profile_id` | string | 引用 `agent_profiles` 中的 profile ID |
-| `acp_session_id` | string | 对应 ACP session pool 中的 session ID |
-| `status` | string | 生命周期状态 |
-| `turn_count` | int | 当前 session 已处理的回合数 |
-| `total_input_tokens` | int64 | 累计输入 token |
-| `total_output_tokens` | int64 | 累计输出 token |
-| `progress_summary` | string | agent 离开前沉淀的进度摘要 |
-| `metadata` | JSON | 运行时扩展字段 |
+| `kind` | string | 当前成员类型：`human` 或 `agent` |
+| `agent_profile_id` | string | agent 成员对应的 profile ID |
+| `status` | string | agent 生命周期状态；human 成员通常为空 |
+| `agent_data` | JSON | ACP session ID、turn_count、tokens、progress 等运行时数据 |
 | `joined_at` | datetime | agent 加入时间 |
 | `last_active_at` | datetime | 最后活跃时间 |
 
@@ -90,15 +81,21 @@ joining → booting → active → paused → active (恢复)
 
 ## 消息路由策略
 
-当前实现不是显式 `@mention` 定向路由，而是广播到所有 active agent：
+当前实现有三种路由模式：
 
-1. 用户发送 `thread.send`，payload 当前包含 `thread_id`、`message`、`sender_id`
-2. 服务端先把 human 消息写入 `thread_messages`
-3. 然后遍历该 Thread 下所有 active agent，异步调用 `SendMessage`
-4. Agent 回复统一写入 `thread_messages` 时间线，`role = "agent"`，`sender_id = agent_profile_id`
-5. 如果某个 agent 转发失败，会额外发布 `thread.agent_failed` 事件
+1. `mention_only`（默认）
+   - 没有 `target_agent_id` 时，只写入 `thread_messages`，不自动 fanout
+   - 有 `target_agent_id` 时，只投递给指定 active agent
+2. `broadcast`
+   - 投递给该 Thread 下所有 active agent
+3. `auto`
+   - 先按 profile capability / skill / name / role 评分自动选路
+   - 若没有命中，则回退到广播
 
-未来如果要支持 `target_agent_id` / `@mention`，应在此基础上新增显式定向路由规则，而不是假定现状已支持。
+当前实现还会把路由结果写回消息 metadata：
+
+- 定向消息：`target_agent_id`
+- 自动选路：`auto_routed_to`
 
 补充说明：
 
@@ -110,9 +107,9 @@ joining → booting → active → paused → active (恢复)
 
 1. **Thread 创建时**：不自动启动 agent session
 2. **邀请 agent 加入**：`POST /threads/{id}/agents`
-   - 创建 `thread_agent_sessions` 记录（status = joining）
+   - 创建 `thread_members(kind=agent)` 记录
    - 通过 ACP session pool 创建 session
-   - 更新 status = active 并记录 acp_session_id
+   - 更新 status / agent_data
 3. **移除 agent**：`DELETE /threads/{id}/agents/{agentSessionID}`
    - 释放对应 ACP session
    - 更新 status = left
@@ -120,8 +117,9 @@ joining → booting → active → paused → active (恢复)
 
 说明：
 
-- runtime pool 内部具备 `CleanupThread(threadID)` 能力，但当前 HTTP `DELETE /threads/{id}` 并未把它定义为显式的删除前协议
-- 因此“Thread 关闭时统一释放全部 session”目前仍属于建议的目标行为，不应被表述为现状
+- runtime pool 内部具备 `CleanupThread(threadID)` 能力
+- 当前 HTTP `DELETE /threads/{id}` 已经会先调用 `CleanupThread(threadID)`，再删除 Thread 记录
+- 但 `Thread` 与其关联 link 的删除一致性仍未形成完整契约，详见 `thread-workitem-linking.zh-CN.md`
 
 ## API 端点
 

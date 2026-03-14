@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
 > 重要说明：当前仓库已经有通用 skill 系统，但并未落地本文这套 `sys-*` Lead 动态技能体系。
 
@@ -13,7 +13,8 @@
 - 通用 skills 目录、`SKILL.md` 解析与校验
 - skills CRUD / GitHub import HTTP API
 - sandbox 内 skill linking
-- builtin skills，例如 `step-signal` 与 `step-context`
+- builtin skill 目前只有 `step-signal`
+- `step-context` 当前是运行期临时注入的 ephemeral skill，由 `ActionContextBuilder` 生成并挂载
 
 当前尚未落地的能力：
 
@@ -89,14 +90,14 @@ skills/
 
 | 脚本 | 功能 | 对应 API |
 |------|------|---------|
-| `create-issue.sh` | 创建 Issue（标题/描述/优先级/标签） | `POST /api/issues` |
-| `list-issues.sh` | 列出/搜索 Issues（按状态/项目/优先级过滤） | `GET /api/issues` |
-| `get-issue.sh` | 查看 Issue 详情 | `GET /api/issues/{id}` |
-| `update-issue.sh` | 更新 Issue（状态/优先级/描述） | `PUT /api/issues/{id}` |
-| `archive-issue.sh` | 归档 Issue | `POST /api/issues/{id}/archive` |
-| `run-issue.sh` | 触发 Issue 执行 | `POST /api/issues/{id}/run` |
-| `cancel-issue.sh` | 取消执行中的 Issue | `POST /api/issues/{id}/cancel` |
-| `generate-title.sh` | AI 生成 Issue 标题 | `POST /api/issues/generate-title` |
+| `create-issue.sh` | 创建 Work Item（标题/描述/优先级/标签） | `POST /api/work-items` |
+| `list-issues.sh` | 列出/搜索 Work Items（按状态/项目/优先级过滤） | `GET /api/work-items` |
+| `get-issue.sh` | 查看 Work Item 详情 | `GET /api/work-items/{id}` |
+| `update-issue.sh` | 更新 Work Item（状态/优先级/描述） | `PUT /api/work-items/{id}` |
+| `archive-issue.sh` | 归档 Work Item | `POST /api/work-items/{id}/archive` |
+| `run-issue.sh` | 触发 Work Item 执行 | `POST /api/work-items/{id}/run` |
+| `cancel-issue.sh` | 取消执行中的 Work Item | `POST /api/work-items/{id}/cancel` |
+| `generate-title.sh` | AI 生成 Work Item 标题 | `POST /api/work-items/generate-title` |
 
 **典型对话场景**：
 > "帮我创建一个 Issue，实现用户登录功能，优先级 high"
@@ -107,11 +108,11 @@ skills/
 
 | 脚本 | 功能 | 对应 API |
 |------|------|---------|
-| `create-step.sh` | 为 Issue 创建 Step | `POST /api/issues/{id}/steps` |
-| `list-steps.sh` | 查看 Issue 下的所有 Steps | `GET /api/issues/{id}/steps` |
+| `create-step.sh` | 为 Work Item 创建 Step | `POST /api/work-items/{id}/steps` |
+| `list-steps.sh` | 查看 Work Item 下的所有 Steps | `GET /api/work-items/{id}/steps` |
 | `get-step.sh` | 查看 Step 详情 | `GET /api/steps/{id}` |
 | `update-step.sh` | 更新 Step | `PUT /api/steps/{id}` |
-| `generate-steps.sh` | AI 自动分解 Issue 为 Steps | `POST /api/issues/{id}/generate-steps` |
+| `generate-steps.sh` | AI 自动分解 Work Item 为 Steps | `POST /api/work-items/{id}/generate-steps` |
 
 **典型对话场景**：
 > "帮我把 Issue #5 拆解成具体的执行步骤"
@@ -121,10 +122,10 @@ skills/
 
 | 脚本 | 功能 | 对应 API |
 |------|------|---------|
-| `issue-status.sh` | 查看 Issue 执行状态概览 | `GET /api/issues/{id}` + `GET /api/issues/{id}/steps` |
+| `issue-status.sh` | 查看 Work Item 执行状态概览 | `GET /api/work-items/{id}` + `GET /api/work-items/{id}/steps` |
 | `execution-detail.sh` | 查看具体执行详情 | `GET /api/executions/{id}` |
 | `recent-events.sh` | 获取近期系统事件 | `GET /api/events` |
-| `issue-events.sh` | 获取特定 Issue 的事件流 | `GET /api/issues/{id}/events` |
+| `issue-events.sh` | 获取特定 Work Item 的事件流 | `GET /api/work-items/{id}/events` |
 | `artifact-view.sh` | 查看执行产物 | `GET /api/artifacts/{id}` |
 | `probe-execution.sh` | 对运行中的 Execution 发送健康探测 | `POST /api/executions/{id}/probe` |
 
@@ -137,10 +138,10 @@ skills/
 
 | 脚本 | 功能 | 对应 API |
 |------|------|---------|
-| `setup-cron.sh` | 为 Issue 设置 Cron 定时执行 | `POST /api/issues/{id}/cron` |
-| `list-cron.sh` | 列出所有定时任务 | `GET /api/cron/issues` |
-| `get-cron.sh` | 查看特定 Issue 的 Cron 状态 | `GET /api/issues/{id}/cron` |
-| `disable-cron.sh` | 禁用定时任务 | `DELETE /api/issues/{id}/cron` |
+| `setup-cron.sh` | 为 Work Item 设置 Cron 定时执行 | `POST /api/work-items/{id}/cron` |
+| `list-cron.sh` | 列出所有定时任务 | `GET /api/work-items/cron` |
+| `get-cron.sh` | 查看特定 Work Item 的 Cron 状态 | `GET /api/work-items/{id}/cron` |
+| `disable-cron.sh` | 禁用定时任务 | `DELETE /api/work-items/{id}/cron` |
 
 **典型对话场景**：
 > "帮我设置 Issue #8 每天凌晨 2 点自动运行"
@@ -167,7 +168,7 @@ skills/
 |------|------|---------|
 | `list-templates.sh` | 列出 DAG 模板 | `GET /api/templates` |
 | `get-template.sh` | 查看模板详情 | `GET /api/templates/{id}` |
-| `save-as-template.sh` | 将 Issue 保存为模板 | `POST /api/issues/{id}/save-as-template` |
+| `save-as-template.sh` | 将 Work Item 保存为模板 | `POST /api/work-items/{id}/save-as-template` |
 | `create-from-template.sh` | 从模板创建 Issue | `POST /api/templates/{id}/create-issue` |
 
 **典型对话场景**：

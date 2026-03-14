@@ -2,9 +2,9 @@
 
 > 状态：部分实现
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
-> 当前实现状态：`thread_work_item_links` 表、Thread 侧关联 API 和按 WorkItem 反查 Thread 能力已存在；当前反查入口仍是 `/issues/{id}/threads`，还没有 `/api/work-items/*` alias；删除父对象时也还没有统一的应用层显式清理协议。
+> 当前实现状态：`thread_work_item_links` 表、Thread 侧关联 API 和按 WorkItem 反查 Thread 能力已存在；当前反查入口已经是 `/work-items/{id}/threads`。Store 层已提供按 Thread / WorkItem 清理关联的方法，但 handler 对父对象删除尚未形成统一清理协议；同时当前 GORM model 也没有把外键 / CASCADE 作为稳定契约显式声明。
 
 ## 概述
 
@@ -15,16 +15,13 @@ Thread（多人讨论容器）与 WorkItem（Issue，执行主线）之间通过
 ```sql
 CREATE TABLE thread_work_item_links (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id   INTEGER NOT NULL REFERENCES threads(id),
-    work_item_id INTEGER NOT NULL REFERENCES issues(id),
+    thread_id   INTEGER NOT NULL,
+    work_item_id INTEGER NOT NULL,
     relation_type TEXT NOT NULL DEFAULT 'related',  -- 'related' | 'drives' | 'blocks'
     is_primary  BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(thread_id, work_item_id)
 );
-
-CREATE INDEX idx_twil_thread ON thread_work_item_links(thread_id);
-CREATE INDEX idx_twil_work_item ON thread_work_item_links(work_item_id);
 ```
 
 ## 字段说明
@@ -46,17 +43,17 @@ CREATE INDEX idx_twil_work_item ON thread_work_item_links(work_item_id);
 
 ## 删除与一致性策略
 
-当前实现不是“应用层显式清理”，也不是 `ON DELETE CASCADE`：
+当前实现的真实情况更接近：
 
-1. SQLite 连接当前开启 `PRAGMA foreign_keys=ON`
-2. `thread_work_item_links` 的外键声明没有配置 `ON DELETE CASCADE`
-3. 截至 2026-03-13，仓库内没有统一的“先删 link 再删 Thread/Issue”的应用层协议
+1. Store 已提供 `DeleteThreadWorkItemLinksByThread()` 与 `DeleteThreadWorkItemLinksByWorkItem()`
+2. 但父对象删除 handler 当前没有统一调用它们
+3. 当前 model 级 schema 也没有把 `ON DELETE CASCADE` 声明成现行契约
 
 因此当前真实语义是：
 
-- 若父对象删除路径没有先移除关联，数据库会通过外键约束阻止删除，而不是静默级联删除
-- 本文不应把“应用层显式清理”写成现状
-- 如果未来要改成显式清理或 CASCADE，需要另开变更并同步更新测试与迁移说明
+- Thread / WorkItem 删除时的 link 清理还不是稳定契约
+- 不能把“数据库外键自动兜底”写成现状
+- 如果未来要收口为显式清理或 CASCADE，需要同步更新 store、handler、测试与本文
 
 ## API 端点
 
@@ -65,7 +62,7 @@ CREATE INDEX idx_twil_work_item ON thread_work_item_links(work_item_id);
 | `POST` | `/threads/{threadID}/links/work-items` | 创建 thread-workitem 关联 |
 | `GET` | `/threads/{threadID}/work-items` | 查询 thread 关联的 work items |
 | `DELETE` | `/threads/{threadID}/links/work-items/{workItemID}` | 删除指定关联 |
-| `GET` | `/issues/{issueID}/threads` | 查询 work item 关联的 threads |
+| `GET` | `/work-items/{issueID}/threads` | 查询 work item 关联的 threads |
 
 ## 约束
 

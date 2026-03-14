@@ -9,7 +9,7 @@
 > 相关现状：
 > - `Thread` 已独立建模并拥有 REST / WebSocket 协议
 > - `ThreadAgentSession` 已支持多 agent 加入同一 Thread
-> - `thread.send` 当前默认广播到该 Thread 下所有 active agent
+> - `thread.send` 当前默认是 `mention_only`；仅在显式指定 `target_agent_id` 或设置 `agent_routing_mode=broadcast/auto` 时才会 fanout
 > - `WorkItem + DAG` 仍是现行执行主线
 
 ## 1. 背景

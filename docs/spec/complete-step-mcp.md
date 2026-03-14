@@ -4,7 +4,7 @@
 >
 > 最后按代码核对：2026-03-13
 >
-> 说明：当前系统主路径不是本文的 `complete_step` 单工具方案，而是 `StepSignal + step_complete / step_need_help / gate_approve / gate_reject` 组合。
+> 说明：当前系统主路径不是本文的 `complete_step` 单工具方案，而是 `StepSignal + step_complete / step_need_help / gate_approve / gate_reject` 组合；主工作对象对外路由也已切到 `/api/work-items/*`。
 
 ## 背景
 

@@ -4,11 +4,11 @@
 >
 > 状态：现行
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-14
 >
-> 当前实现状态：本文中的命名治理规则已生效，但代码迁移仅部分完成。前端主入口是 `/work-items`；后端 REST 仍以 `/issues` 为主；`/api/work-items/*` 尚未落地；`/flows` 仅保留前端 redirect。
+> 当前实现状态：本文中的命名治理规则已基本生效。前端主入口与后端 Public REST 都已经切到 `/work-items`；`/flows` 仅保留前端 redirect；剩余兼容层主要存在于持久化表名（`issues` / `steps` / `executions`）和少量 `issue` 命名的 handler / request struct。
 >
-> 重要说明：当前迁移主要发生在前端 UI 路由与命名层；后端 REST API 仍以 `/issues` 为主，`/work-items` 尚未成为后端 alias。本文从现在开始补充“应该收口到哪里”的正式决策。
+> 重要说明：本文现在更适合作为“现行收口规则 + 剩余兼容层说明”阅读，而不是“未来迁移计划”。
 
 ## 决策摘要
 
@@ -33,8 +33,8 @@
 
 - 前端主页面路由：`/work-items`
 - 前端兼容路由：`/issues/*`、`/flows/*` 重定向到 `/work-items`
-- 后端主 REST 路由：`/issues/*`
-- 内部核心领域对象：`Issue`
+- 后端主 REST 路由：`/work-items/*`
+- 内部核心领域对象：`WorkItem` / `Action` / `Run`
 - Thread 已独立建模并拥有自己的 REST / WebSocket 协议
 
 ### 目标状态（本规范要求）
@@ -49,8 +49,8 @@
 | 层级 | 统一名称 | 当前实现 | 规则 |
 |------|----------|----------|------|
 | 产品/UI | `Work Item` | 已基本落地 | 新页面、新文案、新交互统一使用 `Work Item` |
-| Public REST API | `work-items` | 未落地 | 新增主接口应优先落在 `/api/work-items/*` |
-| 内部领域模型 | `Issue` | 已落地 | 短期不强制改 struct / 表 / store |
+| Public REST API | `work-items` | 已落地 | 新增主接口继续沿用 `/api/work-items/*` |
+| 内部领域模型 | `WorkItem` | 已落地 | 持久化表名与部分兼容代码仍保留旧命名 |
 | 执行流程语义 | `workflow` / `execution pipeline` | 部分混用 `flow` | 用于描述“步骤推进过程”，不是业务对象名 |
 | 历史兼容词 | `Flow` | 仍大量存在 | 不得在新功能和新 spec 中继续作为主对象名扩散 |
 
@@ -78,19 +78,20 @@
 
 当前现状分两层：
 
-- 前端页面主入口：`/work-items`
-- 后端 REST 主入口：`/issues`
+- 对外页面主入口：`/work-items`
+- 对外 REST 主入口：`/api/work-items/*`
+- 兼容层：前端 `/issues/*`、`/flows/*` redirect + 内部 `issue` 命名残留
 
 目标分层：
 
 - 对外主契约：`/api/work-items/*`
-- 兼容契约：`/api/issues/*`
+- 兼容契约：不再新增 `/api/issues/*`
 - 历史路由：`/flows/*` 仅前端 redirect 保留，不得再新增后端 `/flows` 契约
 
 ### 主规则
 
 1. 新增 API 能力应优先设计为 `/api/work-items/*`
-2. `/api/issues/*` 在兼容期内保留，但不再承载新的命名方向
+2. 不再新增 `/api/issues/*` 兼容路由
 3. 禁止新增 `/api/flows/*` 路由
 4. 任何新文档都不得把 `/flows` 写成现行工作对象入口
 
@@ -104,38 +105,34 @@
 | `PUT /threads/{id}` | 更新 Thread |
 | `DELETE /threads/{id}` | 删除 Thread |
 
-说明：截至 2026-03-13，后端并未提供 `/work-items` REST alias；Thread 路由本身已经稳定，不在本次命名收口中变更。
+说明：截至 2026-03-14，Thread 路由本身已经稳定，不在本次命名收口中变更。
 
-### 目标主路由（待落地）
+### 现行主路由
 
 | 路由 | 说明 |
 |------|------|
 | `GET /work-items` | Work Item 列表 |
 | `POST /work-items` | 创建 Work Item |
 | `GET /work-items/{id}` | Work Item 详情 |
-| `PATCH /work-items/{id}` | 更新 Work Item |
+| `PUT /work-items/{id}` | 更新 Work Item |
 | `DELETE /work-items/{id}` | 删除 Work Item |
-
-说明：
-
-- 这组路由是目标 Public REST 形态，不代表当前已经实现
-- 推荐做法是先把它们实现成 `/issues` 的同语义 alias，而不是先重构内部模型
 
 ### 保留路由（兼容期内继续可用）
 
 | 路由 | 说明 |
 |------|------|
 | `GET /chat/sessions` | ChatSession 列表（保留） |
-| `POST /chat` | 发送 chat 消息（保留） |
-| `GET /issues` | Issue 列表（保留） |
-| `GET /issues/{id}` | Issue 详情（保留） |
+| `POST /chat/sessions/{id}/crystallize-thread` | 将 ChatSession 固化为 Thread，并可选同步创建 WorkItem |
+| `POST /chat` | 已废弃；当前返回 `410 Gone`，发送消息应改用 `chat.send` WebSocket |
+| `/issues/*` | 前端旧页面入口 redirect（仅页面层） |
+| `/flows/*` | 前端旧页面入口 redirect（仅页面层） |
 
 ### 兼容周期
 
-- **Phase 1（当前）**：前端以 `/work-items` 为主，后端 REST 仍以 `/issues` 为准
-- **Phase 2（推荐下一步）**：增加 `/work-items` REST alias，API client 默认切主路由，`/issues` 保留兼容
-- **Phase 3（未来）**：`/issues` 返回 `Deprecation` header / 日志告警
-- **Phase 4（未来）**：视生态使用情况决定是否移除 `/issues`
+- **Phase 1（已完成）**：前端以 `/work-items` 为主
+- **Phase 2（已完成）**：后端 Public REST 切到 `/work-items`
+- **Phase 3（当前）**：继续清理内部 `issue` / `flow` 兼容命名，但不强行改动表名
+- **Phase 4（未来）**：视需要决定是否继续缩减 issue-named alias 方法与类型别名
 
 ## WebSocket 协议兼容策略
 
@@ -172,8 +169,7 @@
 
 当前策略：
 
-- `/issues` 继续返回现有字段结构，不额外增加 `work_item_id` alias
-- `/work-items` 未来如果落地，应尽量复用现有 JSON 结构，避免响应体再做一轮大迁移
+- `/work-items` 当前已经落地，并尽量复用现有 JSON 结构
 - `/threads` 主对象继续返回通用主键字段 `id`
 - Thread 子资源（如 message、participant、agent session、work item link）按现有模型返回 `id` 与 `thread_id`
 
@@ -288,11 +284,11 @@ export type WorkItem = Issue;
 - 新文档和新页面禁止继续扩散 `Flow`
 - spec 全部补状态头
 
-### Phase B：补 `/api/work-items` alias
+### Phase B：Public REST 已切主
 
-- 后端增加 `/api/work-items/*`
-- 复用现有 `/issues/*` 处理逻辑
-- 前端 API client 切主路由
+- 后端对外主路由已经是 `/api/work-items/*`
+- 前端 API client 已经以 `/work-items` 为默认路径
+- 现阶段重点不再是补 alias，而是说明兼容残留
 
 ### Phase C：前端与文案收口
 
