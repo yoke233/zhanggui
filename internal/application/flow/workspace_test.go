@@ -44,32 +44,44 @@ func TestLocalDirProvider_NoBinding(t *testing.T) {
 	}
 }
 
-func TestCompositeProvider_DevGitDispatch(t *testing.T) {
-	// CompositeProvider dispatches dev → LocalGitProvider, which will fail
-	// without a real git repo but we can verify the dispatch logic.
+func TestCompositeProvider_BindingKindDispatch(t *testing.T) {
+	// CompositeProvider routes by binding kind, not project kind.
 	cp := workspaceprovider.NewCompositeProvider()
 
-	// general → LocalDirProvider
+	// local_fs binding → LocalDirProvider (any project kind)
 	ws, err := cp.Prepare(context.Background(),
 		&core.Project{ID: 1, Kind: core.ProjectGeneral},
 		[]*core.ResourceBinding{{Kind: "local_fs", URI: "/tmp/test"}},
 		1,
 	)
 	if err != nil {
-		t.Fatalf("general prepare: %v", err)
+		t.Fatalf("local_fs prepare: %v", err)
 	}
 	if ws.Path != "/tmp/test" {
 		t.Fatalf("expected /tmp/test, got %s", ws.Path)
 	}
 
-	// unknown kind → error
-	_, err = cp.Prepare(context.Background(),
-		&core.Project{ID: 2, Kind: "finance"},
-		[]*core.ResourceBinding{{Kind: "local_fs", URI: "/tmp"}},
+	// dev project with local_fs binding still works
+	ws2, err := cp.Prepare(context.Background(),
+		&core.Project{ID: 2, Kind: core.ProjectDev},
+		[]*core.ResourceBinding{{Kind: "local_fs", URI: "/tmp/dev"}},
 		2,
 	)
+	if err != nil {
+		t.Fatalf("dev+local_fs prepare: %v", err)
+	}
+	if ws2.Path != "/tmp/dev" {
+		t.Fatalf("expected /tmp/dev, got %s", ws2.Path)
+	}
+
+	// unknown binding kind → error
+	_, err = cp.Prepare(context.Background(),
+		&core.Project{ID: 3, Kind: core.ProjectGeneral},
+		[]*core.ResourceBinding{{Kind: "unknown_kind", URI: "/tmp"}},
+		3,
+	)
 	if err == nil {
-		t.Fatal("expected error for unknown project kind")
+		t.Fatal("expected error for unknown binding kind")
 	}
 }
 

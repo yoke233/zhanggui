@@ -20,13 +20,13 @@ type ResourceResolver struct {
 // ResourceResolverStore is the persistence port for resource resolution.
 type ResourceResolverStore interface {
 	core.ActionResourceStore
-	core.ResourceLocatorStore
+	core.ResourceBindingStore
 }
 
 // ResourceProviderRegistry dispatches Fetch/Deposit to the correct provider.
 type ResourceProviderRegistry interface {
-	Fetch(ctx context.Context, locator *core.ResourceLocator, path string, destDir string) (string, error)
-	Deposit(ctx context.Context, locator *core.ResourceLocator, path string, localPath string) error
+	Fetch(ctx context.Context, binding *core.ResourceBinding, path string, destDir string) (string, error)
+	Deposit(ctx context.Context, binding *core.ResourceBinding, path string, localPath string) error
 }
 
 // NewResourceResolver creates a ResourceResolver.
@@ -52,15 +52,15 @@ func (r *ResourceResolver) FetchInputs(ctx context.Context, actionID int64, dest
 
 	var resolved []*core.ResolvedResource
 	for _, ar := range inputs {
-		locator, err := r.store.GetResourceLocator(ctx, ar.LocatorID)
+		binding, err := r.store.GetResourceBinding(ctx, ar.ResourceBindingID)
 		if err != nil {
 			if ar.Required {
-				return nil, fmt.Errorf("required input resource %d: locator %d not found: %w", ar.ID, ar.LocatorID, err)
+				return nil, fmt.Errorf("required input resource %d: binding %d not found: %w", ar.ID, ar.ResourceBindingID, err)
 			}
 			continue
 		}
 
-		localPath, err := r.registry.Fetch(ctx, locator, ar.Path, destDir)
+		localPath, err := r.registry.Fetch(ctx, binding, ar.Path, destDir)
 		if err != nil {
 			if ar.Required {
 				return nil, fmt.Errorf("required input resource %d (%s): fetch failed: %w", ar.ID, ar.Path, err)
@@ -72,7 +72,7 @@ func (r *ResourceResolver) FetchInputs(ctx context.Context, actionID int64, dest
 			ActionResourceID: ar.ID,
 			Direction:        core.ResourceInput,
 			LocalPath:        localPath,
-			RemoteURI:        locator.BaseURI + "/" + ar.Path,
+			RemoteURI:        binding.URI + "/" + ar.Path,
 			MediaType:        ar.MediaType,
 			Description:      ar.Description,
 		})
@@ -92,10 +92,10 @@ func (r *ResourceResolver) DepositOutputs(ctx context.Context, actionID int64, s
 	}
 
 	for _, ar := range outputs {
-		locator, err := r.store.GetResourceLocator(ctx, ar.LocatorID)
+		binding, err := r.store.GetResourceBinding(ctx, ar.ResourceBindingID)
 		if err != nil {
 			if ar.Required {
-				return fmt.Errorf("required output resource %d: locator %d not found: %w", ar.ID, ar.LocatorID, err)
+				return fmt.Errorf("required output resource %d: binding %d not found: %w", ar.ID, ar.ResourceBindingID, err)
 			}
 			continue
 		}
@@ -113,7 +113,7 @@ func (r *ResourceResolver) DepositOutputs(ctx context.Context, actionID int64, s
 			}
 		}
 
-		if err := r.registry.Deposit(ctx, locator, ar.Path, localPath); err != nil {
+		if err := r.registry.Deposit(ctx, binding, ar.Path, localPath); err != nil {
 			if ar.Required {
 				return fmt.Errorf("required output resource %d (%s): deposit failed: %w", ar.ID, ar.Path, err)
 			}

@@ -13,12 +13,12 @@ import (
 // LocalFSProvider handles resources on local/mounted filesystems.
 type LocalFSProvider struct{}
 
-func (p *LocalFSProvider) Kind() core.ResourceLocatorKind {
-	return core.LocatorLocalFS
+func (p *LocalFSProvider) Kind() string {
+	return core.ResourceKindLocalFS
 }
 
-func (p *LocalFSProvider) Fetch(_ context.Context, locator *core.ResourceLocator, path string, destDir string) (string, error) {
-	src := filepath.Join(locator.BaseURI, path)
+func (p *LocalFSProvider) Fetch(_ context.Context, binding *core.ResourceBinding, path string, destDir string) (string, error) {
+	src := filepath.Join(binding.URI, path)
 	if _, err := os.Stat(src); err != nil {
 		return "", fmt.Errorf("local_fs fetch: source %s: %w", src, err)
 	}
@@ -30,8 +30,8 @@ func (p *LocalFSProvider) Fetch(_ context.Context, locator *core.ResourceLocator
 	return destPath, nil
 }
 
-func (p *LocalFSProvider) Deposit(_ context.Context, locator *core.ResourceLocator, path string, localPath string) error {
-	dest := filepath.Join(locator.BaseURI, path)
+func (p *LocalFSProvider) Deposit(_ context.Context, binding *core.ResourceBinding, path string, localPath string) error {
+	dest := filepath.Join(binding.URI, path)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("local_fs deposit: mkdir %s: %w", filepath.Dir(dest), err)
 	}

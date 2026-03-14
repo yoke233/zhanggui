@@ -138,18 +138,12 @@ func (h *Handler) Register(r chi.Router) {
 	r.Put("/projects/{projectID}", h.updateProject)
 	r.Delete("/projects/{projectID}", h.deleteProject)
 
-	// Resource Bindings
+	// Resource Bindings (unified: workspace sources + I/O storage)
 	r.Post("/projects/{projectID}/resources", h.createResourceBinding)
 	r.Get("/projects/{projectID}/resources", h.listResourceBindings)
 	r.Get("/resources/{resourceID}", h.getResourceBinding)
+	r.Put("/resources/{resourceID}", h.updateResourceBinding)
 	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
-
-	// Resource Locators (external storage locations)
-	r.Post("/projects/{projectID}/locators", h.createResourceLocator)
-	r.Get("/projects/{projectID}/locators", h.listResourceLocators)
-	r.Get("/locators/{locatorID}", h.getResourceLocator)
-	r.Put("/locators/{locatorID}", h.updateResourceLocator)
-	r.Delete("/locators/{locatorID}", h.deleteResourceLocator)
 
 	// Action Resources (per-action input/output resource declarations)
 	r.Post("/actions/{actionID}/resources", h.createActionResource)

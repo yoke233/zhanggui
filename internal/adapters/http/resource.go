@@ -101,6 +101,54 @@ func (h *Handler) getResourceBinding(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rb)
 }
 
+type updateResourceRequest struct {
+	Kind   *string        `json:"kind,omitempty"`
+	URI    *string        `json:"uri,omitempty"`
+	Config map[string]any `json:"config,omitempty"`
+	Label  *string        `json:"label,omitempty"`
+}
+
+func (h *Handler) updateResourceBinding(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlParamInt64(r, "resourceID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid resource ID", "BAD_ID")
+		return
+	}
+	rb, err := h.store.GetResourceBinding(r.Context(), id)
+	if err == core.ErrNotFound {
+		writeError(w, http.StatusNotFound, "resource binding not found", "NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	var req updateResourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+	if req.Kind != nil {
+		rb.Kind = strings.TrimSpace(*req.Kind)
+	}
+	if req.URI != nil {
+		rb.URI = strings.TrimSpace(*req.URI)
+	}
+	if req.Label != nil {
+		rb.Label = strings.TrimSpace(*req.Label)
+	}
+	if req.Config != nil {
+		rb.Config = req.Config
+	}
+
+	if err := h.store.UpdateResourceBinding(r.Context(), rb); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	writeJSON(w, http.StatusOK, rb)
+}
+
 func (h *Handler) deleteResourceBinding(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "resourceID")
 	if !ok {

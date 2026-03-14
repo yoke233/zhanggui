@@ -8,15 +8,15 @@ import (
 )
 
 // Registry holds all registered ResourceProvider implementations and dispatches
-// Fetch/Deposit calls to the appropriate provider based on the locator's Kind.
+// Fetch/Deposit calls to the appropriate provider based on the binding's Kind.
 type Registry struct {
-	providers map[core.ResourceLocatorKind]core.ResourceProvider
+	providers map[string]core.ResourceProvider
 }
 
 // NewRegistry creates an empty provider registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		providers: make(map[core.ResourceLocatorKind]core.ResourceProvider),
+		providers: make(map[string]core.ResourceProvider),
 	}
 }
 
@@ -33,20 +33,20 @@ func (r *Registry) Register(p core.ResourceProvider) {
 	r.providers[p.Kind()] = p
 }
 
-// Fetch dispatches to the correct provider for the given locator.
-func (r *Registry) Fetch(ctx context.Context, locator *core.ResourceLocator, path string, destDir string) (string, error) {
-	p, ok := r.providers[locator.Kind]
+// Fetch dispatches to the correct provider for the given binding.
+func (r *Registry) Fetch(ctx context.Context, binding *core.ResourceBinding, path string, destDir string) (string, error) {
+	p, ok := r.providers[binding.Kind]
 	if !ok {
-		return "", fmt.Errorf("no resource provider registered for kind %q", locator.Kind)
+		return "", fmt.Errorf("no resource provider registered for kind %q", binding.Kind)
 	}
-	return p.Fetch(ctx, locator, path, destDir)
+	return p.Fetch(ctx, binding, path, destDir)
 }
 
-// Deposit dispatches to the correct provider for the given locator.
-func (r *Registry) Deposit(ctx context.Context, locator *core.ResourceLocator, path string, localPath string) error {
-	p, ok := r.providers[locator.Kind]
+// Deposit dispatches to the correct provider for the given binding.
+func (r *Registry) Deposit(ctx context.Context, binding *core.ResourceBinding, path string, localPath string) error {
+	p, ok := r.providers[binding.Kind]
 	if !ok {
-		return fmt.Errorf("no resource provider registered for kind %q", locator.Kind)
+		return fmt.Errorf("no resource provider registered for kind %q", binding.Kind)
 	}
-	return p.Deposit(ctx, locator, path, localPath)
+	return p.Deposit(ctx, binding, path, localPath)
 }

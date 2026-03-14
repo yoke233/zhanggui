@@ -19,8 +19,8 @@ type HTTPProvider struct {
 	Client *http.Client
 }
 
-func (p *HTTPProvider) Kind() core.ResourceLocatorKind {
-	return core.LocatorHTTP
+func (p *HTTPProvider) Kind() string {
+	return core.ResourceKindHTTP
 }
 
 func (p *HTTPProvider) httpClient() *http.Client {
@@ -30,8 +30,8 @@ func (p *HTTPProvider) httpClient() *http.Client {
 	return &http.Client{Timeout: 5 * time.Minute}
 }
 
-func (p *HTTPProvider) Fetch(ctx context.Context, locator *core.ResourceLocator, resourcePath string, destDir string) (string, error) {
-	url := locator.BaseURI + "/" + resourcePath
+func (p *HTTPProvider) Fetch(ctx context.Context, binding *core.ResourceBinding, resourcePath string, destDir string) (string, error) {
+	url := binding.URI + "/" + resourcePath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -39,10 +39,10 @@ func (p *HTTPProvider) Fetch(ctx context.Context, locator *core.ResourceLocator,
 	}
 
 	// Apply auth headers from config if present.
-	if token, ok := locator.Config["auth_token"].(string); ok && token != "" {
+	if token, ok := binding.Config["auth_token"].(string); ok && token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if headers, ok := locator.Config["headers"].(map[string]any); ok {
+	if headers, ok := binding.Config["headers"].(map[string]any); ok {
 		for k, v := range headers {
 			if s, ok := v.(string); ok {
 				req.Header.Set(k, s)
@@ -78,6 +78,6 @@ func (p *HTTPProvider) Fetch(ctx context.Context, locator *core.ResourceLocator,
 	return destPath, out.Close()
 }
 
-func (p *HTTPProvider) Deposit(_ context.Context, _ *core.ResourceLocator, _ string, _ string) error {
+func (p *HTTPProvider) Deposit(_ context.Context, _ *core.ResourceBinding, _ string, _ string) error {
 	return fmt.Errorf("http provider does not support deposit (read-only)")
 }

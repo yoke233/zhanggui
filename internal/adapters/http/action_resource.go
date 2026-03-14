@@ -11,13 +11,13 @@ import (
 // --- Action Resource endpoints ---
 
 type createActionResourceRequest struct {
-	LocatorID   int64          `json:"locator_id"`
-	Direction   string         `json:"direction"`
-	Path        string         `json:"path"`
-	MediaType   string         `json:"media_type,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Required    bool           `json:"required"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	ResourceBindingID int64          `json:"resource_binding_id"`
+	Direction         string         `json:"direction"`
+	Path              string         `json:"path"`
+	MediaType         string         `json:"media_type,omitempty"`
+	Description       string         `json:"description,omitempty"`
+	Required          bool           `json:"required"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
@@ -52,15 +52,15 @@ func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path is required", "MISSING_PATH")
 		return
 	}
-	if req.LocatorID <= 0 {
-		writeError(w, http.StatusBadRequest, "locator_id is required", "MISSING_LOCATOR_ID")
+	if req.ResourceBindingID <= 0 {
+		writeError(w, http.StatusBadRequest, "resource_binding_id is required", "MISSING_RESOURCE_BINDING_ID")
 		return
 	}
 
-	// Verify locator exists.
-	if _, err := h.store.GetResourceLocator(r.Context(), req.LocatorID); err != nil {
+	// Verify resource binding exists.
+	if _, err := h.store.GetResourceBinding(r.Context(), req.ResourceBindingID); err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "resource locator not found", "LOCATOR_NOT_FOUND")
+			writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
@@ -68,14 +68,14 @@ func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ar := &core.ActionResource{
-		ActionID:    actionID,
-		LocatorID:   req.LocatorID,
-		Direction:   core.ActionResourceDirection(direction),
-		Path:        path,
-		MediaType:   strings.TrimSpace(req.MediaType),
-		Description: strings.TrimSpace(req.Description),
-		Required:    req.Required,
-		Metadata:    req.Metadata,
+		ActionID:          actionID,
+		ResourceBindingID: req.ResourceBindingID,
+		Direction:         core.ActionResourceDirection(direction),
+		Path:              path,
+		MediaType:         strings.TrimSpace(req.MediaType),
+		Description:       strings.TrimSpace(req.Description),
+		Required:          req.Required,
+		Metadata:          req.Metadata,
 	}
 	id, err := h.store.CreateActionResource(r.Context(), ar)
 	if err != nil {

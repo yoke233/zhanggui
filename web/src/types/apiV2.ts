@@ -196,52 +196,31 @@ export interface UpdateProjectRequest {
   metadata?: Record<string, string>;
 }
 
+export type ResourceBindingKind = "git" | "local_fs" | "s3" | "http" | "webdav" | string;
+
 export interface ResourceBinding {
   id: number;
   project_id: number;
-  kind: string;
+  kind: ResourceBindingKind;
   uri: string;
   config?: Record<string, unknown>;
   label?: string;
-  created_at: string;
-}
-
-export interface CreateResourceBindingRequest {
-  kind: string;
-  uri: string;
-  config?: Record<string, unknown>;
-  label?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Resource Locators (external storage locations)
-// ---------------------------------------------------------------------------
-
-export type ResourceLocatorKind = "local_fs" | "s3" | "http" | "git" | "webdav" | string;
-
-export interface ResourceLocator {
-  id: number;
-  project_id: number;
-  kind: ResourceLocatorKind;
-  label: string;
-  base_uri: string;
-  config?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
-export interface CreateResourceLocatorRequest {
-  kind: ResourceLocatorKind;
-  label: string;
-  base_uri: string;
+export interface CreateResourceBindingRequest {
+  kind: ResourceBindingKind;
+  uri: string;
   config?: Record<string, unknown>;
+  label?: string;
 }
 
-export interface UpdateResourceLocatorRequest {
-  kind?: ResourceLocatorKind;
-  label?: string;
-  base_uri?: string;
+export interface UpdateResourceBindingRequest {
+  kind?: ResourceBindingKind;
+  uri?: string;
   config?: Record<string, unknown>;
+  label?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,7 +232,7 @@ export type ActionResourceDirection = "input" | "output";
 export interface ActionResource {
   id: number;
   action_id: number;
-  locator_id: number;
+  resource_binding_id: number;
   direction: ActionResourceDirection;
   path: string;
   media_type?: string;
@@ -264,7 +243,7 @@ export interface ActionResource {
 }
 
 export interface CreateActionResourceRequest {
-  locator_id: number;
+  resource_binding_id: number;
   direction: ActionResourceDirection;
   path: string;
   media_type?: string;
