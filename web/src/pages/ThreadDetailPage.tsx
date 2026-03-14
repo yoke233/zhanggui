@@ -155,6 +155,54 @@ function agentStatusColor(status: string): string {
   }
 }
 
+// Invite intent detection: match phrases like "把 XX 拉进来", "invite XX", "加个 XX" etc.
+const INVITE_PATTERNS = [
+  // Chinese patterns
+  /(?:把|让|请|叫|邀请)\s*(.+?)\s*(?:拉进来|加进来|拉入|加入|进来|进群|加到|拉到)/,
+  /(?:拉|加|邀请)\s*(?:个|一个|一位)?\s*(.+?)\s*(?:进来|进群|到群里|到线程|吧|$)/,
+  /(?:需要|想要|想)\s*(.+?)\s*(?:加入|参与|进来|帮忙)/,
+  // English patterns
+  /(?:invite|add|bring|pull)\s+(?:in\s+)?(.+?)(?:\s+(?:in|to\s+(?:the\s+)?(?:thread|chat|group))|\s*$)/i,
+  /(?:let's?\s+)?(?:get|bring)\s+(.+?)\s+(?:in|here|on\s+board)/i,
+];
+
+interface InviteIntentMatch {
+  query: string;
+  matchedProfiles: AgentProfile[];
+}
+
+function detectInviteIntent(message: string, inviteableProfiles: AgentProfile[]): InviteIntentMatch | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  for (const pattern of INVITE_PATTERNS) {
+    const match = trimmed.match(pattern);
+    if (!match || !match[1]) continue;
+
+    const query = match[1].trim().toLowerCase();
+    if (!query) continue;
+
+    // Match query against profile name, id, role, capabilities
+    const matched = inviteableProfiles.filter((profile) => {
+      const name = (profile.name ?? "").toLowerCase();
+      const id = profile.id.toLowerCase();
+      const role = (typeof profile.role === "string" ? profile.role : "").toLowerCase();
+      const caps = (profile.capabilities ?? []).map((c) => c.toLowerCase());
+
+      // Check if query contains or is contained by any field
+      return name.includes(query) || query.includes(name)
+        || id.includes(query) || query.includes(id)
+        || role.includes(query) || query.includes(role)
+        || caps.some((c) => c.includes(query) || query.includes(c));
+    });
+
+    if (matched.length > 0) {
+      return { query, matchedProfiles: matched };
+    }
+  }
+  return null;
+}
+
 type SidebarTab = "agents" | "details";
 
 export function ThreadDetailPage() {
@@ -192,6 +240,9 @@ export function ThreadDetailPage() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("agents");
   const [summaryCollapsed, setSummaryCollapsed] = useState(true);
   const [thinkingAgentIDs, setThinkingAgentIDs] = useState<Set<string>>(new Set());
+  const [invitePickerCandidates, setInvitePickerCandidates] = useState<AgentProfile[]>([]);
+  const [invitePickerSelected, setInvitePickerSelected] = useState<Set<string>>(new Set());
+  const [invitePickerBusy, setInvitePickerBusy] = useState(false);
   const pendingThreadRequestIdRef = useRef<string | null>(null);
   const syntheticMessageIDRef = useRef(-1);
   const messageInputRef = useRef<HTMLInputElement | null>(null);
@@ -507,6 +558,45 @@ export function ThreadDetailPage() {
 
   const handleSend = async () => {
     if (!newMessage.trim() || !id) return;
+
+    // Detect invite intent before sending as a regular message.
+    const inviteIntent = detectInviteIntent(newMessage, inviteableProfiles);
+    if (inviteIntent) {
+      if (inviteIntent.matchedProfiles.length === 1) {
+        // Single match → auto-invite directly.
+        const profile = inviteIntent.matchedProfiles[0];
+        setNewMessage("");
+        setInvitingAgent(true);
+        setError(null);
+        try {
+          await apiClient.inviteThreadAgent(id, { agent_profile_id: profile.id });
+          const sessions = await apiClient.listThreadAgents(id);
+          setAgentSessions(sessions);
+          // Inject a local system message to confirm.
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: syntheticMessageIDRef.current--,
+              thread_id: id,
+              sender_id: "system",
+              role: "system",
+              content: `已邀请 ${profile.name ?? profile.id} 加入对话`,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        } catch (e) {
+          setError(getErrorMessage(e));
+        } finally {
+          setInvitingAgent(false);
+        }
+        return;
+      }
+      // Multiple matches → show picker dialog.
+      setInvitePickerCandidates(inviteIntent.matchedProfiles);
+      setInvitePickerSelected(new Set());
+      return;
+    }
+
     const mention = parseMentionTarget(newMessage, activeAgentProfileIDs);
     if (mention.error) {
       setError(mention.error);
@@ -535,6 +625,43 @@ export function ThreadDetailPage() {
       if (!pendingThreadRequestIdRef.current) {
         setSending(false);
       }
+    }
+  };
+
+  const handleInvitePickerConfirm = async () => {
+    if (!id || invitePickerSelected.size === 0) return;
+    setInvitePickerBusy(true);
+    setError(null);
+    const ids = [...invitePickerSelected];
+    try {
+      for (const profileID of ids) {
+        await apiClient.inviteThreadAgent(id, { agent_profile_id: profileID });
+      }
+      const sessions = await apiClient.listThreadAgents(id);
+      setAgentSessions(sessions);
+      // Inject system message.
+      const names = ids.map((pid) => {
+        const p = invitePickerCandidates.find((c) => c.id === pid);
+        return p?.name ?? pid;
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: syntheticMessageIDRef.current--,
+          thread_id: id,
+          sender_id: "system",
+          role: "system",
+          content: `已邀请 ${names.join(", ")} 加入对话`,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      setNewMessage("");
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setInvitePickerBusy(false);
+      setInvitePickerCandidates([]);
+      setInvitePickerSelected(new Set());
     }
   };
 
@@ -854,6 +981,112 @@ export function ThreadDetailPage() {
         </div>
       ) : null}
 
+      {/* ── Invite picker dialog ── */}
+      {invitePickerCandidates.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-md rounded-2xl border bg-background shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-3.5">
+              <div>
+                <h3 className="text-sm font-semibold">{t("threads.invitePickerTitle", "Select agents to invite")}</h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {t("threads.invitePickerHint", "Multiple agents matched. Select the ones you want to invite.")}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => { setInvitePickerCandidates([]); setInvitePickerSelected(new Set()); }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto p-3">
+              <div className="space-y-1.5">
+                {invitePickerCandidates.map((profile) => {
+                  const isSelected = invitePickerSelected.has(profile.id);
+                  return (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all",
+                        isSelected
+                          ? "border-blue-300 bg-blue-50 shadow-sm"
+                          : "border-border/60 hover:border-border hover:bg-muted/30",
+                        invitePickerBusy && "pointer-events-none opacity-60",
+                      )}
+                      onClick={() => {
+                        setInvitePickerSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(profile.id)) next.delete(profile.id);
+                          else next.add(profile.id);
+                          return next;
+                        });
+                      }}
+                      disabled={invitePickerBusy}
+                    >
+                      <div className={cn(
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                        isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white",
+                      )}>
+                        {isSelected && <Check className="h-3 w-3" />}
+                      </div>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                        <Bot className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium">{profile.name ?? profile.id}</span>
+                          <Badge variant="outline" className="shrink-0 text-[9px]">{profile.role}</Badge>
+                        </div>
+                        {profile.name && (
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{profile.id}</p>
+                        )}
+                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                          {profile.driver_id}
+                          {profile.capabilities && profile.capabilities.length > 0 && (
+                            <> | {profile.capabilities.slice(0, 3).join(", ")}{profile.capabilities.length > 3 ? "..." : ""}</>
+                          )}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-center justify-between border-t px-5 py-3">
+              <span className="text-xs text-muted-foreground">
+                {invitePickerSelected.size > 0
+                  ? t("threads.invitePickerCount", { defaultValue: "{{count}} selected", count: invitePickerSelected.size })
+                  : t("threads.invitePickerNone", "None selected")}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setInvitePickerCandidates([]); setInvitePickerSelected(new Set()); }}
+                  disabled={invitePickerBusy}
+                >
+                  {t("common.cancel", "Cancel")}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleInvitePickerConfirm}
+                  disabled={invitePickerSelected.size === 0 || invitePickerBusy}
+                >
+                  {invitePickerBusy ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t("threads.invitePickerConfirm", "Invite")} {invitePickerSelected.size > 0 ? `(${invitePickerSelected.size})` : ""}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Main content: chat + sidebar ── */}
       <div className="flex min-h-0 flex-1">
         {/* ── Chat area ── */}
@@ -872,9 +1105,23 @@ export function ThreadDetailPage() {
               <div className="mx-auto max-w-3xl space-y-4">
                 {messages.map((msg) => {
                   const isAgent = msg.role === "agent";
+                  const isSystem = msg.role === "system";
                   const targetAgent = readTargetAgentID(msg.metadata);
                   const autoRoutedTo = readAutoRoutedTo(msg.metadata);
                   const profile = isAgent ? profileByID.get(msg.sender_id) : undefined;
+
+                  // System messages (e.g. invite confirmations)
+                  if (isSystem) {
+                    return (
+                      <div key={msg.id} className="flex justify-center">
+                        <div className="flex items-center gap-2 rounded-full border border-border/40 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
+                          <Bot className="h-3 w-3" />
+                          <span>{msg.content}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id} className={cn("flex gap-3", !isAgent && "flex-row-reverse")}>
                       {/* Avatar */}
