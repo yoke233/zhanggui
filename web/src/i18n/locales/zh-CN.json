@@ -42,6 +42,7 @@
   },
   "nav": {
     "navigation": "导航",
+    "home": "首页",
     "dashboard": "仪表盘",
     "threads": "讨论",
     "workItems": "工作项",
@@ -690,6 +691,10 @@
     "noDriverAvailable": "还没有可用的 Driver，请先到代理页面配置。",
     "inputPlaceholderActive": "输入消息，与 Lead Agent 对话...",
     "inputPlaceholderNew": "输入消息，使用 Lead · {{driver}} 在 {{project}} 下开始会话..."
+  },
+  "mobileHome": {
+    "inputPlaceholder": "输入消息，开始与 Lead 对话...",
+    "allProjects": "全部项目"
   },
   "workItems": {
     "title": "工作项",

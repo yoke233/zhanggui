@@ -42,6 +42,7 @@
   },
   "nav": {
     "navigation": "Navigation",
+    "home": "Home",
     "dashboard": "Dashboard",
     "threads": "Threads",
     "workItems": "Work Items",
@@ -690,6 +691,10 @@
     "noDriverAvailable": "No Driver available. Please configure one in the Agents page.",
     "inputPlaceholderActive": "Type a message to chat with Lead Agent...",
     "inputPlaceholderNew": "Type a message, using Lead · {{driver}} in {{project}} to start a session..."
+  },
+  "mobileHome": {
+    "inputPlaceholder": "Type a message to start chatting with Lead...",
+    "allProjects": "All projects"
   },
   "workItems": {
     "title": "Work Items",

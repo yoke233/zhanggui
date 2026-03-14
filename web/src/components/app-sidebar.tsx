@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { saveLanguage } from "@/i18n";
 import {
+  Home,
   LayoutDashboard,
   MessageSquare,
   MessagesSquare,
@@ -29,7 +30,8 @@ const navSections = [
   {
     labelKey: "nav.sectionWorkspace",
     items: [
-      { to: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
+      { to: "/", icon: Home, labelKey: "nav.home" },
+      { to: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard" },
       { to: "/threads", icon: MessagesSquare, labelKey: "nav.threads" },
       { to: "/work-items", icon: ClipboardList, labelKey: "nav.workItems" },
       { to: "/chat", icon: MessageSquare, labelKey: "nav.chat" },
