@@ -1,6 +1,8 @@
 # Test Scripts
 
-This folder stores reusable one-shot test scripts for current backend/frontend regression checks.
+This folder stores reusable one-shot test scripts for local backend/frontend regression checks.
+
+GitHub Actions now runs native `go` / `npm` commands directly. These PowerShell scripts remain as a Windows-friendly local smoke/regression layer and are no longer the CI source of truth.
 
 ## Safety Defaults
 

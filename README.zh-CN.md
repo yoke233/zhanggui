@@ -73,6 +73,33 @@ npm --prefix web run dev
 - 前端：`http://localhost:5173`
 - API：`http://localhost:8080/api`
 
+## 质量门禁
+
+本地推荐直接使用原生 `go` / `npm` 命令，和 GitHub Actions 保持一致：
+
+```bash
+gofmt -w $(git ls-files '*.go')
+go vet ./...
+go test -p 4 -timeout 20m ./...
+npm --prefix web ci
+npm --prefix web run lint
+npm --prefix web run test
+npm --prefix web run build
+CGO_ENABLED=0 go build -tags webdist -o ./dist/ai-flow ./cmd/ai-flow
+```
+
+`scripts/test/` 下的 PowerShell 脚本仍可用于 Windows 本地冒烟和手动回归，但 CI 已不再依赖它们。
+
+## CI/CD
+
+现在仓库的 GitHub Actions 已覆盖前后端主流水线：
+
+| 工作流 | 作用 | 触发条件 |
+|--------|------|----------|
+| `CI` | 后端 `gofmt` / `go vet` / `go test`，前端 `lint` / `test` / `build`，以及内嵌前端发布包校验 | Pull Request、推送到 `main` |
+| `Docker` | 在 PR 上校验 Docker 构建；在 `main` 和版本标签上发布多架构 GHCR 镜像 | Pull Request、推送到 `main`、标签 `v*` |
+| `Release` | 构建带内嵌前端的多平台二进制，并发布 GitHub Release 附件 | 标签 `v*`、手动触发 |
+
 ## 配置说明
 
 运行时配置位于 `.ai-workflow/config.toml`（首次启动自动创建）。可通过环境变量 `AI_WORKFLOW_DATA_DIR` 覆盖数据目录。

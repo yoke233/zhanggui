@@ -73,6 +73,33 @@ npm --prefix web run dev
 - Frontend: `http://localhost:5173`
 - API: `http://localhost:8080/api`
 
+## Quality Gates
+
+Preferred local validation uses native `go` / `npm` commands, matching GitHub Actions:
+
+```bash
+gofmt -w $(git ls-files '*.go')
+go vet ./...
+go test -p 4 -timeout 20m ./...
+npm --prefix web ci
+npm --prefix web run lint
+npm --prefix web run test
+npm --prefix web run build
+CGO_ENABLED=0 go build -tags webdist -o ./dist/ai-flow ./cmd/ai-flow
+```
+
+PowerShell scripts under `scripts/test/` remain available for local Windows smoke and manual regression, but CI no longer depends on them.
+
+## CI/CD
+
+GitHub Actions now covers the full frontend/backend pipeline:
+
+| Workflow | Purpose | Trigger |
+|---------|---------|---------|
+| `CI` | Backend `gofmt`/`go vet`/`go test`, frontend `lint`/`test`/`build`, plus embedded release build verification | Pull requests, pushes to `main` |
+| `Docker` | Validate Docker image on PRs; publish multi-arch images to `ghcr.io/<owner>/<repo>` on `main` and version tags | Pull requests, pushes to `main`, tags `v*` |
+| `Release` | Build cross-platform binaries with embedded frontend and publish GitHub Release assets | Tags `v*`, manual dispatch |
+
 ## Configuration
 
 Runtime config lives in `.ai-workflow/config.toml` (created automatically on first run). You can override the data directory with the `AI_WORKFLOW_DATA_DIR` environment variable.

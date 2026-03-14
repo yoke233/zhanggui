@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  GOFLAGS: -buildvcs=false
+
+jobs:
+  backend:
+    name: Backend Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify gofmt
+        shell: bash
+        run: |
+          files="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$files" ]; then
+            echo "The following files are not formatted with gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run backend tests
+        env:
+          GOMAXPROCS: "4"
+        run: go test -p 4 -timeout 20m ./...
+
+      - name: Build backend CLI
+        run: go build ./cmd/ai-flow
+
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Run frontend tests
+        run: npm run test
+
+      - name: Build frontend
+        run: npm run build
+
+  package:
+    name: Embedded Release Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - backend
+      - frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend bundle
+        working-directory: web
+        run: npm run build
+
+      - name: Verify webdist embed tests
+        run: go test -tags webdist ./web
+
+      - name: Build release binary with embedded frontend
+        shell: bash
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 go build -tags webdist -trimpath -ldflags="-s -w" -o dist/ai-flow ./cmd/ai-flow
+
+      - name: Upload embedded CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-flow-linux-amd64-ci
+          path: dist/ai-flow
+          if-no-files-found: error
