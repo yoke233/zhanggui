@@ -1,0 +1,330 @@
+package planning
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	"github.com/yoke233/ai-workflow/internal/core"
+)
+
+func TestValidateGeneratedDAG_Valid(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "parse", Type: "exec"},
+			{Name: "implement", Type: "exec", DependsOn: []string{"parse"}},
+			{Name: "review", Type: "gate", DependsOn: []string{"implement"}},
+			{Name: "deploy", Type: "exec", DependsOn: []string{"review"}},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err != nil {
+		t.Fatalf("expected valid DAG, got: %v", err)
+	}
+}
+
+func TestValidateGeneratedDAG_DuplicateName(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "build", Type: "exec"},
+			{Name: "build", Type: "exec"},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err == nil {
+		t.Fatal("expected error for duplicate name")
+	}
+}
+
+func TestValidateGeneratedDAG_MissingDependency(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "build", Type: "exec", DependsOn: []string{"nonexistent"}},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err == nil {
+		t.Fatal("expected error for missing dependency")
+	}
+}
+
+func TestValidateGeneratedDAG_InvalidType(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "build", Type: "unknown"},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err == nil {
+		t.Fatal("expected error for invalid type")
+	}
+}
+
+func TestValidateGeneratedDAG_EmptyName(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "", Type: "exec"},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestValidateGeneratedDAG_BackwardReference(t *testing.T) {
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "A", Type: "exec"},
+			{Name: "B", Type: "exec", DependsOn: []string{"C"}},
+			{Name: "C", Type: "exec", DependsOn: []string{"A"}},
+		},
+	}
+	if err := ValidateGeneratedDAG(dag); err == nil {
+		t.Fatal("expected error for backward reference")
+	}
+}
+
+func TestValidateCapabilityFit_Pass(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "be", Role: core.RoleWorker, Capabilities: []string{"go", "backend"}},
+		{ID: "gater", Role: core.RoleGate, Capabilities: []string{"review"}},
+	}
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "code", Type: "exec", AgentRole: "worker", RequiredCapabilities: []string{"go"}},
+			{Name: "review", Type: "gate", AgentRole: "gate", RequiredCapabilities: []string{"review"}},
+		},
+	}
+	if err := ValidateCapabilityFit(dag, profiles); err != nil {
+		t.Fatalf("expected pass, got: %v", err)
+	}
+}
+
+func TestValidateCapabilityFit_NoMatch(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "be", Role: core.RoleWorker, Capabilities: []string{"go"}},
+	}
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "frontend", Type: "exec", AgentRole: "worker", RequiredCapabilities: []string{"react"}},
+		},
+	}
+	if err := ValidateCapabilityFit(dag, profiles); err == nil {
+		t.Fatal("expected error for unmatched capability")
+	}
+}
+
+func TestValidateCapabilityFit_RoleMismatch(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "worker", Role: core.RoleWorker, Capabilities: []string{"go"}},
+	}
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "review", Type: "gate", AgentRole: "gate", RequiredCapabilities: []string{"go"}},
+		},
+	}
+	if err := ValidateCapabilityFit(dag, profiles); err == nil {
+		t.Fatal("expected error for role mismatch")
+	}
+}
+
+func TestValidateCapabilityFit_NoRoleFilter(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "any", Role: core.RoleWorker, Capabilities: []string{"go"}},
+	}
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "code", Type: "exec", RequiredCapabilities: []string{"go"}},
+		},
+	}
+	if err := ValidateCapabilityFit(dag, profiles); err != nil {
+		t.Fatalf("expected pass with no role filter, got: %v", err)
+	}
+}
+
+func TestService_Materialize(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	issueID, err := store.CreateWorkItem(ctx, &core.WorkItem{Title: "gen-test", Status: core.WorkItemOpen})
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "parse-requirements", Type: "exec", AgentRole: "worker",
+				Description:          "Parse the task requirements into actionable items",
+				RequiredCapabilities: []string{"backend"},
+				AcceptanceCriteria:   []string{"requirements parsed"}},
+			{Name: "implement-api", Type: "exec", AgentRole: "worker",
+				Description:          "Implement the REST API endpoints",
+				DependsOn:            []string{"parse-requirements"},
+				RequiredCapabilities: []string{"go", "backend"},
+				AcceptanceCriteria:   []string{"API endpoints implemented"}},
+			{Name: "code-review", Type: "gate", AgentRole: "gate",
+				Description:          "Review the implementation for quality",
+				DependsOn:            []string{"implement-api"},
+				RequiredCapabilities: []string{"review"},
+				AcceptanceCriteria:   []string{"code quality approved"}},
+			{Name: "deploy", Type: "exec", AgentRole: "worker",
+				Description:          "Deploy to staging environment",
+				DependsOn:            []string{"code-review"},
+				RequiredCapabilities: []string{"deploy"},
+				AcceptanceCriteria:   []string{"deployed to staging"}},
+		},
+	}
+
+	svc := &Service{}
+	steps, err := svc.Materialize(ctx, store, issueID, dag)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	if len(steps) != 4 {
+		t.Fatalf("expected 4 steps, got %d", len(steps))
+	}
+
+	names := make([]string, len(steps))
+	for i, s := range steps {
+		names[i] = s.Name
+	}
+	expected := []string{"parse-requirements", "implement-api", "code-review", "deploy"}
+	for i, name := range expected {
+		if names[i] != name {
+			t.Fatalf("step[%d] expected %q, got %q", i, name, names[i])
+		}
+	}
+
+	for i, step := range steps {
+		if step.Position != i {
+			t.Fatalf("step[%d] expected position %d, got %d", i, i, step.Position)
+		}
+	}
+
+	if steps[2].Type != core.ActionGate {
+		t.Fatalf("code-review expected gate, got %s", steps[2].Type)
+	}
+
+	if len(steps[0].AcceptanceCriteria) != 1 || steps[0].AcceptanceCriteria[0] != "requirements parsed" {
+		t.Fatalf("unexpected acceptance_criteria: %v", steps[0].AcceptanceCriteria)
+	}
+
+	if steps[0].Description != "Parse the task requirements into actionable items" {
+		t.Fatalf("description not mapped: %q", steps[0].Description)
+	}
+
+	if len(steps[1].RequiredCapabilities) != 2 || steps[1].RequiredCapabilities[0] != "go" {
+		t.Fatalf("required_capabilities not mapped: %v", steps[1].RequiredCapabilities)
+	}
+
+	stored, err := store.ListActionsByWorkItem(ctx, issueID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(stored) != 4 {
+		t.Fatalf("expected 4 stored steps, got %d", len(stored))
+	}
+
+	if stored[0].Description != "Parse the task requirements into actionable items" {
+		t.Fatalf("persisted description mismatch: %q", stored[0].Description)
+	}
+
+	if len(stored[1].RequiredCapabilities) != 2 {
+		t.Fatalf("persisted required_capabilities mismatch: %v", stored[1].RequiredCapabilities)
+	}
+}
+
+func TestService_Materialize_BadReference(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	issueID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "bad-ref", Status: core.WorkItemOpen})
+
+	dag := &GeneratedDAG{
+		Steps: []GeneratedStep{
+			{Name: "A", Type: "exec", DependsOn: []string{"nonexistent"}},
+		},
+	}
+
+	svc := &Service{}
+	_, err = svc.Materialize(ctx, store, issueID, dag)
+	if err == nil {
+		t.Fatal("expected error for unresolvable dependency")
+	}
+}
+
+func TestBuildDAGGenPrompt_WithProfiles(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "be-worker", Role: core.RoleWorker, Capabilities: []string{"go", "backend"}},
+		{ID: "reviewer", Role: core.RoleGate, Capabilities: []string{"review"}},
+	}
+	prompt := BuildDAGGenPrompt("build an API", profiles)
+
+	if !strings.Contains(prompt, "be-worker") {
+		t.Fatal("prompt should mention profile ID")
+	}
+	if !strings.Contains(prompt, "go, backend") {
+		t.Fatal("prompt should list capabilities")
+	}
+	if !strings.Contains(prompt, "ONLY capability tags") {
+		t.Fatal("prompt should instruct to use only known tags")
+	}
+}
+
+func TestBuildDAGGenPrompt_NoProfiles(t *testing.T) {
+	prompt := BuildDAGGenPrompt("build an API", nil)
+
+	if strings.Contains(prompt, "Available agent profiles") {
+		t.Fatal("prompt should not contain profiles section when none available")
+	}
+}
+
+func TestBuildDAGGenSchema_WithProfiles(t *testing.T) {
+	profiles := []*core.AgentProfile{
+		{ID: "w", Role: core.RoleWorker, Capabilities: []string{"go", "api"}},
+	}
+	tools := BuildDAGGenSchema(profiles)
+	if len(tools) == 0 {
+		t.Fatal("expected at least one tool")
+	}
+
+	schema := tools[0].InputSchema
+	props := schema["properties"].(map[string]any)
+	steps := props["steps"].(map[string]any)
+	items := steps["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+
+	if _, ok := itemProps["required_capabilities"]; !ok {
+		t.Fatal("schema should include required_capabilities")
+	}
+
+	rc := itemProps["required_capabilities"].(map[string]any)
+	capItems := rc["items"].(map[string]any)
+	if _, ok := capItems["enum"]; !ok {
+		t.Fatal("capability items should have enum constraint when profiles are provided")
+	}
+}
+
+func TestBuildDAGGenSchema_NoProfiles(t *testing.T) {
+	tools := BuildDAGGenSchema(nil)
+	schema := tools[0].InputSchema
+	props := schema["properties"].(map[string]any)
+	steps := props["steps"].(map[string]any)
+	items := steps["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+
+	rc := itemProps["required_capabilities"].(map[string]any)
+	capItems := rc["items"].(map[string]any)
+	if _, ok := capItems["enum"]; ok {
+		t.Fatal("capability items should NOT have enum constraint when no profiles")
+	}
+}

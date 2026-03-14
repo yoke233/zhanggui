@@ -6,6 +6,7 @@ import (
 	api "github.com/yoke233/ai-workflow/internal/adapters/http"
 	llmplanning "github.com/yoke233/ai-workflow/internal/adapters/planning/llm"
 	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
+	planningapp "github.com/yoke233/ai-workflow/internal/application/planning"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
@@ -39,7 +40,8 @@ func buildAPIStack(
 
 	var dagGen api.DAGGenerator
 	if flow.llmClient != nil {
-		dagGen = llmplanning.NewDAGGenerator(flow.llmClient, base.registry)
+		completer := llmplanning.NewCompleter(flow.llmClient)
+		dagGen = planningapp.NewService(completer, base.registry)
 	}
 
 	probeSvc := probeapp.NewRunProbeService(probeapp.RunProbeServiceConfig{
