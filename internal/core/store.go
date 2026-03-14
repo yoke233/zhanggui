@@ -85,6 +85,7 @@ type Store interface {
 	UsageStore
 	FeatureEntryStore
 	ActionSignalStore
+	JournalStore
 	NotificationStore
 	InspectionStore
 	Close() error

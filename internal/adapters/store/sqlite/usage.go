@@ -16,6 +16,11 @@ func (s *Store) CreateUsageRecord(ctx context.Context, r *core.UsageRecord) (int
 	}
 	r.ID = model.ID
 	r.CreatedAt = model.CreatedAt
+
+	// Dual-write to activity_journal.
+	if entry := core.UsageRecordToJournalEntry(r); entry != nil {
+		_, _ = s.AppendJournal(ctx, entry)
+	}
 	return model.ID, nil
 }
 

@@ -45,6 +45,13 @@ func (p *EventPersister) loop(ctx context.Context) {
 				slog.Warn("runtime event persister: store event failed",
 					"type", ev.Type, "work_item_id", ev.WorkItemID, "error", err)
 			}
+			// Dual-write to activity_journal.
+			if entry := core.EventToJournalEntry(&ev); entry != nil {
+				if _, err := p.store.AppendJournal(ctx, entry); err != nil {
+					slog.Warn("runtime event persister: journal event failed",
+						"type", ev.Type, "error", err)
+				}
+			}
 		}
 	}
 }

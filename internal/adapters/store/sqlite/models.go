@@ -427,6 +427,79 @@ func featureEntryModelFromCore(e *core.FeatureEntry) *FeatureEntryModel {
 	}
 }
 
+// ── ActivityJournal ──
+
+type JournalModel struct {
+	ID             int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	WorkItemID     *int64                    `gorm:"column:work_item_id"`
+	ActionID       *int64                    `gorm:"column:action_id"`
+	RunID          *int64                    `gorm:"column:run_id"`
+	Kind           string                    `gorm:"column:kind;not null"`
+	Source         string                    `gorm:"column:source;not null;default:system"`
+	Summary        string                    `gorm:"column:summary;not null;default:''"`
+	Payload        JSONField[map[string]any] `gorm:"column:payload;type:text"`
+	Ref            *string                   `gorm:"column:ref"`
+	Actor          string                    `gorm:"column:actor;not null;default:''"`
+	SourceActionID *int64                    `gorm:"column:source_action_id"`
+	CreatedAt      time.Time                 `gorm:"column:created_at"`
+}
+
+func (JournalModel) TableName() string { return "activity_journal" }
+
+func journalModelFromCore(e *core.JournalEntry) *JournalModel {
+	if e == nil {
+		return nil
+	}
+	m := &JournalModel{
+		ID:             e.ID,
+		WorkItemID:     int64PtrIfNonZero(e.WorkItemID),
+		ActionID:       int64PtrIfNonZero(e.ActionID),
+		RunID:          int64PtrIfNonZero(e.RunID),
+		Kind:           string(e.Kind),
+		Source:         string(e.Source),
+		Summary:        e.Summary,
+		Payload:        JSONField[map[string]any]{Data: e.Payload},
+		Actor:          e.Actor,
+		SourceActionID: int64PtrIfNonZero(e.SourceActionID),
+		CreatedAt:      e.CreatedAt,
+	}
+	if e.Ref != "" {
+		m.Ref = &e.Ref
+	}
+	return m
+}
+
+func (m *JournalModel) toCore() *core.JournalEntry {
+	if m == nil {
+		return nil
+	}
+	e := &core.JournalEntry{
+		ID:        m.ID,
+		Kind:      core.JournalKind(m.Kind),
+		Source:    core.JournalSource(m.Source),
+		Summary:  m.Summary,
+		Payload:  m.Payload.Data,
+		Actor:    m.Actor,
+		CreatedAt: m.CreatedAt,
+	}
+	if m.WorkItemID != nil {
+		e.WorkItemID = *m.WorkItemID
+	}
+	if m.ActionID != nil {
+		e.ActionID = *m.ActionID
+	}
+	if m.RunID != nil {
+		e.RunID = *m.RunID
+	}
+	if m.Ref != nil {
+		e.Ref = *m.Ref
+	}
+	if m.SourceActionID != nil {
+		e.SourceActionID = *m.SourceActionID
+	}
+	return e
+}
+
 // ── ActionSignal ──
 
 type ActionSignalModel struct {

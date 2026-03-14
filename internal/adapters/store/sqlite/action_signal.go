@@ -18,6 +18,11 @@ func (s *Store) CreateActionSignal(ctx context.Context, sig *core.ActionSignal) 
 	}
 	sig.ID = model.ID
 	sig.CreatedAt = now
+
+	// Dual-write to activity_journal.
+	if entry := core.ActionSignalToJournalEntry(sig); entry != nil {
+		_, _ = s.AppendJournal(ctx, entry)
+	}
 	return model.ID, nil
 }
 
