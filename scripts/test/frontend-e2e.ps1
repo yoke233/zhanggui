@@ -25,6 +25,7 @@ if ($Headed) {
 
 Write-Host "[e2e] running playwright project-admin flow..."
 Write-Host "[e2e] APP_URL=$env:APP_URL"
+Write-Host "[e2e] suite=frontend-e2e"
 
 & npx @args
 if ($LASTEXITCODE -ne 0) {

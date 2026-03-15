@@ -9,8 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Start server
 go run ./cmd/ai-flow server --port 8080
 
-# Run all backend tests
-pwsh -NoProfile -File ./scripts/test/backend-all.ps1
+# Run backend unit / integration / e2e suites
+pwsh -NoProfile -File ./scripts/test/backend-unit.ps1
+pwsh -NoProfile -File ./scripts/test/backend-integration.ps1
+pwsh -NoProfile -File ./scripts/test/backend-e2e.ps1
+pwsh -NoProfile -File ./scripts/test/backend-real.ps1
 
 # Run a single Go test package
 go test ./internal/engine/...
@@ -40,7 +43,7 @@ npm --prefix web run build
 
 ### Integration / Smoke Tests
 ```bash
-pwsh -NoProfile -File ./scripts/test/p3-integration.ps1   # Full integration
+pwsh -NoProfile -File ./scripts/test/suite-p3.ps1         # P3 regression suite
 pwsh -NoProfile -File ./scripts/test/frontend-build.ps1   # Frontend build verification
 ```
 

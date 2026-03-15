@@ -33,6 +33,21 @@ if (-not $SkipTerminologyGate) {
     }
 }
 
+Invoke-Step -Name "Test naming gate" -Command {
+    $legacyPattern = 'TestWorkItemE2E_|TestAPI_E2E_|Test.*_E2E\b|real_integration_test\.go|TODO.*integration|needs integration|补集成测试|后续补 E2E'
+    $hits = & rg -n --hidden -S $legacyPattern internal cmd web
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host $hits
+        throw "Legacy test naming or legacy test TODO markers found."
+    }
+    if ($LASTEXITCODE -gt 1) {
+        throw "Failed to run test naming gate with rg."
+    }
+
+    Write-Host "Test naming gate passed."
+}
+
 if (-not $SkipGoTests) {
     Invoke-Step -Name "Current backend build smoke" -CheckLastExitCode -Command {
         go build ./...

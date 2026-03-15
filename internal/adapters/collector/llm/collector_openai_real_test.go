@@ -15,7 +15,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
-func TestOpenAICollector_Real(t *testing.T) {
+func TestReal_OpenAICollector(t *testing.T) {
 	if os.Getenv("AI_WORKFLOW_REAL_OPENAI") == "" {
 		t.Skip("set AI_WORKFLOW_REAL_OPENAI=1 to run")
 	}
@@ -36,10 +36,10 @@ func TestOpenAICollector_Real(t *testing.T) {
 
 	llmEntry, ok := pickCollectorLLMConfig(cfg.Runtime.LLM)
 	if !ok {
-		t.Skip("runtime.llm has no usable openai-compatible config")
+		t.Skip("runtime.llm has no usable collector LLM config")
 	}
 
-	completer, err := NewOpenAICompleter(OpenAICompleterConfig{
+	completer, err := NewCompleter(CompleterConfig{
 		Provider:   llmEntry.Type,
 		BaseURL:    llmEntry.BaseURL,
 		APIKey:     llmEntry.APIKey,
@@ -127,7 +127,7 @@ func pickCollectorLLMConfig(cfg config.RuntimeLLMConfig) (config.RuntimeLLMEntry
 
 func isCollectorLLMTypeSupported(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "", "openai_response", "openai_chat_completion":
+	case "", ProviderOpenAIResponse, ProviderOpenAIChatCompletion, ProviderAnthropic:
 		return true
 	default:
 		return false

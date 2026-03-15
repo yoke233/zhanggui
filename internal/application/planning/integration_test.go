@@ -28,7 +28,7 @@ func newPlanningIntegrationStore(t *testing.T) core.Store {
 	return store
 }
 
-func TestPlanningGenerateAndMaterializeIntegration(t *testing.T) {
+func TestIntegration_PlanningGenerateAndMaterialize(t *testing.T) {
 	var capturedBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {

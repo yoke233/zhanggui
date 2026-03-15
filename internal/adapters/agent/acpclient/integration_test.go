@@ -10,7 +10,7 @@ import (
 	acpproto "github.com/coder/acp-go-sdk"
 )
 
-func TestFullLifecycleWithRoleMetadata(t *testing.T) {
+func TestIntegration_FullLifecycleWithRoleMetadata(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

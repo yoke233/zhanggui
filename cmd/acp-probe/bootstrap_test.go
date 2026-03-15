@@ -1,6 +1,6 @@
 //go:build probe
 
-// Bootstrap integration test: verifies the self_preflight → self_restart flow
+// Probe suite: verifies the self_preflight -> self_restart workflow
 // using a real codex-acp agent with our MCP server configured.
 //
 // Run manually:
@@ -85,8 +85,8 @@ func TestBootstrapGateBlock(t *testing.T) {
 	defer cancel()
 	defer closeClient(client)
 
-	// Step 1: Check preflight status — should say "no preflight".
-	t.Log("=== Step 1: Check preflight status ===")
+	// Phase 1: Check preflight status — should say "no preflight".
+	t.Log("=== Phase 1: Check preflight status ===")
 	result1, err := client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: sessionID,
 		Prompt: []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{
@@ -96,10 +96,10 @@ func TestBootstrapGateBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prompt 1: %v", err)
 	}
-	t.Logf("step 1: stopReason=%s events=%d", result1.StopReason, len(rec.Snapshot()))
+	t.Logf("phase 1: stopReason=%s events=%d", result1.StopReason, len(rec.Snapshot()))
 
-	// Step 2: Attempt self_restart — should be BLOCKED.
-	t.Log("=== Step 2: Attempt self_restart (should be blocked) ===")
+	// Phase 2: Attempt self_restart — should be blocked.
+	t.Log("=== Phase 2: Attempt self_restart (should be blocked) ===")
 	rec.Reset()
 	result2, err := client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: sessionID,
@@ -110,11 +110,11 @@ func TestBootstrapGateBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prompt 2: %v", err)
 	}
-	t.Logf("step 2: stopReason=%s events=%d", result2.StopReason, len(rec.Snapshot()))
+	t.Logf("phase 2: stopReason=%s events=%d", result2.StopReason, len(rec.Snapshot()))
 	t.Log("=== Gate block verified ===")
 }
 
-// TestBootstrapFullFlow runs the complete self_preflight → self_restart flow.
+// TestBootstrapFullFlow runs the complete self_preflight → self_restart workflow.
 // Slow test: ~5-8 minutes (includes running go vet + go test).
 // Run:  go test ./cmd/acp-probe/ -run TestBootstrapFullFlow -v -timeout 600s
 func TestBootstrapFullFlow(t *testing.T) {
@@ -126,8 +126,8 @@ func TestBootstrapFullFlow(t *testing.T) {
 	defer cancel()
 	defer closeClient(client)
 
-	// Step 1: Run self_preflight (skip frontend for speed).
-	t.Log("=== Step 1: Run self_preflight ===")
+	// Phase 1: Run self_preflight (skip frontend for speed).
+	t.Log("=== Phase 1: Run self_preflight ===")
 	result1, err := client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: sessionID,
 		Prompt: []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{
@@ -139,8 +139,8 @@ func TestBootstrapFullFlow(t *testing.T) {
 	}
 	t.Logf("preflight: stopReason=%s events=%d", result1.StopReason, len(rec.Snapshot()))
 
-	// Step 2: Check preflight status — should allow restart now.
-	t.Log("=== Step 2: Verify preflight status ===")
+	// Phase 2: Check preflight status — should allow restart now.
+	t.Log("=== Phase 2: Verify preflight status ===")
 	rec.Reset()
 	result2, err := client.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: sessionID,
@@ -153,7 +153,7 @@ func TestBootstrapFullFlow(t *testing.T) {
 	}
 	t.Logf("status: stopReason=%s events=%d", result2.StopReason, len(rec.Snapshot()))
 
-	t.Log("=== Full bootstrap flow verified ===")
+	t.Log("=== Full bootstrap workflow verified ===")
 }
 
 func logEvents(t *testing.T, rec *captureRecorder, label string) {
@@ -172,4 +172,3 @@ func logEvents(t *testing.T, rec *captureRecorder, label string) {
 		}
 	}
 }
-

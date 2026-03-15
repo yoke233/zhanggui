@@ -20,7 +20,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
-func TestPlanningGenerateAndMaterialize_RealLLM(t *testing.T) {
+func TestReal_PlanningGenerateAndMaterializeLLM(t *testing.T) {
 	if os.Getenv("AI_WORKFLOW_REAL_PLANNING") == "" {
 		t.Skip("set AI_WORKFLOW_REAL_PLANNING=1 to run")
 	}
@@ -44,7 +44,7 @@ func TestPlanningGenerateAndMaterialize_RealLLM(t *testing.T) {
 
 	llmEntry, ok := pickPlanningLLMConfig(cfg.Runtime.LLM)
 	if !ok {
-		t.Skip("runtime.llm has no usable openai-compatible config")
+		t.Skip("runtime.llm has no usable LLM config")
 	}
 
 	apiKey := strings.TrimSpace(os.Getenv("AI_WORKFLOW_REAL_PLANNING_API_KEY"))
@@ -186,7 +186,7 @@ func pickPlanningLLMConfig(cfg config.RuntimeLLMConfig) (config.RuntimeLLMEntryC
 
 func isPlanningLLMTypeSupported(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "", "openai_response", "openai_chat_completion":
+	case "", llmadapter.ProviderOpenAIResponse, llmadapter.ProviderOpenAIChatCompletion, llmadapter.ProviderAnthropic:
 		return true
 	default:
 		return false

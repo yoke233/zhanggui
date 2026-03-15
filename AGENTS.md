@@ -11,10 +11,14 @@
 - 后端启动：`go run ./cmd/ai-flow server --port 8080`
 - 前端安装依赖：`npm --prefix web install`
 - 前端开发：`npm --prefix web run dev -- --strictPort`
-- 后端全量测试：`pwsh -NoProfile -File .\scripts\test\backend-all.ps1`
+- 后端单测：`pwsh -NoProfile -File .\scripts\test\backend-unit.ps1`
+- 后端集成测试：`pwsh -NoProfile -File .\scripts\test\backend-integration.ps1`
+- 后端端到端测试：`pwsh -NoProfile -File .\scripts\test\backend-e2e.ps1`
+- 后端真实依赖测试：`pwsh -NoProfile -File .\scripts\test\backend-real.ps1`
 - 前端单测：`pwsh -NoProfile -File .\scripts\test\frontend-unit.ps1`
+- 前端 E2E：`pwsh -NoProfile -File .\scripts\test\frontend-e2e.ps1`
 - 前端构建验证：`pwsh -NoProfile -File .\scripts\test\frontend-build.ps1`
-- 端到端集成回归：`pwsh -NoProfile -File .\scripts\test\p3-integration.ps1`
+- P3 回归套件：`pwsh -NoProfile -File .\scripts\test\suite-p3.ps1`
 
 ## 编码风格与命名规范
 - Go 代码必须可通过 `gofmt`；包名使用小写短词，文件名沿用现有 `snake_case` 风格。
@@ -22,8 +26,10 @@
 - 新增 API/事件/模型时，优先在 `internal/core` 定义领域对象，再向 `engine`、`web`、`plugins` 扩展。
 
 ## 测试规范
-- Go 测试文件命名：`*_test.go`；前端测试命名：`*.test.ts` / `*.test.tsx`。
-- 修改后至少运行受影响模块测试；涉及跨层改动时运行 `p3-integration.ps1`。
+- Go 测试文件命名：`*_test.go`、`*_integration_test.go`、`*_e2e_test.go`、`*_real_test.go`；前端测试命名：`*.test.ts` / `*.test.tsx` / `*.e2e.spec.ts`。
+- Go 测试函数前缀统一使用 `TestIntegration_*`、`TestE2E_*`、`TestReal_*`。
+- 测试缺口标记统一使用 `TEST-TODO(type):`，例如 `TEST-TODO(integration): ...`。
+- 修改后至少运行受影响模块测试；涉及跨层改动时运行 `suite-p3.ps1`。
 - Web 交互改动建议补充组件测试（`web/src/**`）并覆盖关键状态分支。
 
 ## 提交与 Pull Request 规范
@@ -37,6 +43,6 @@
 
 ## 协作与提交流程建议
 - 开始改动前先检索：优先用 `rg -n 'pattern' internal web` 定位，再打开文件做最小修改。
-- 提交前建议执行最小闭环：后端改动跑 `backend-all.ps1`，前端改动跑 `frontend-unit.ps1` + `frontend-build.ps1`。
+- 提交前建议执行最小闭环：后端改动跑 `backend-unit.ps1` / `backend-integration.ps1` / `backend-e2e.ps1` 中受影响项，前端改动跑 `frontend-unit.ps1` + `frontend-build.ps1`。
 - 涉及接口或事件字段变更时，同步更新 `web/src/types` 与相关 handler 测试，避免前后端契约漂移。
 - 评审说明尽量使用“变更点 + 风险点 + 验证证据”三段式，便于快速合并与回归排查。

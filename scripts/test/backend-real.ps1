@@ -10,12 +10,9 @@ $repoRoot = Enter-RepoRoot -ScriptRoot $PSScriptRoot
 Set-SafeTestEnvironment
 
 Write-Host "RepoRoot: $repoRoot"
-Write-Host "Run mode: sequential, no background jobs, no loops."
+Write-Host "Backend real target: TestReal_* with -tags real"
 Write-Host "GOMAXPROCS=$env:GOMAXPROCS, GOTEST_TIMEOUT=$env:GOTEST_TIMEOUT"
 
-Invoke-Step -Name "Current smoke baseline" -Command {
-    & (Join-Path $PSScriptRoot "smoke.ps1")
+Invoke-Step -Name "Backend real suites" -CheckLastExitCode -Command {
+    go test -tags real -p 4 -count=1 -timeout $env:GOTEST_TIMEOUT ./... -run '^TestReal_'
 }
-
-Write-Host ""
-Write-Host "Integration baseline completed." -ForegroundColor Green

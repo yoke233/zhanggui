@@ -119,7 +119,7 @@ func (s *suppressingCounter) SetSuppress(v bool) {
 
 // --- Tests ---
 
-func TestFixtureNewSessionPromptEmitsExpectedEvents(t *testing.T) {
+func TestIntegration_FixtureNewSessionPromptEmitsExpectedEvents(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
@@ -173,7 +173,7 @@ func TestFixtureNewSessionPromptEmitsExpectedEvents(t *testing.T) {
 	}
 }
 
-func TestFixtureLoadSessionReplaysHistoricalEvents(t *testing.T) {
+func TestIntegration_FixtureLoadSessionReplaysHistoricalEvents(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
@@ -225,7 +225,7 @@ func TestFixtureLoadSessionReplaysHistoricalEvents(t *testing.T) {
 	}
 }
 
-func TestFixtureLoadSessionThenPrompt(t *testing.T) {
+func TestIntegration_FixtureLoadSessionThenPrompt(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
@@ -282,7 +282,7 @@ func TestFixtureLoadSessionThenPrompt(t *testing.T) {
 	}
 }
 
-func TestFixtureSuppressEventsBlocksLoadSessionReplay(t *testing.T) {
+func TestIntegration_FixtureSuppressEventsBlocksLoadSessionReplay(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "new_session_simple_prompt")
@@ -345,7 +345,7 @@ func TestFixtureSuppressEventsBlocksLoadSessionReplay(t *testing.T) {
 	}
 }
 
-func TestFixtureToolUseScenario(t *testing.T) {
+func TestIntegration_FixtureToolUseScenario(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "new_session_tool_use")
@@ -395,7 +395,7 @@ func TestFixtureToolUseScenario(t *testing.T) {
 	}
 }
 
-func TestFixtureCommandsAndConfigOptionsExtracted(t *testing.T) {
+func TestIntegration_FixtureCommandsAndConfigOptionsExtracted(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	cfg := fixtureAgentConfig(t, "commands_and_config")

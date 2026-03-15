@@ -8,7 +8,7 @@ import (
 	acpproto "github.com/coder/acp-go-sdk"
 )
 
-func TestSetConfigOptionCallsTransport(t *testing.T) {
+func TestIntegration_SetConfigOptionCallsTransport(t *testing.T) {
 	requireACPClientIntegration(t)
 
 	h := &recordingHandler{}

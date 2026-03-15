@@ -43,7 +43,7 @@ func (s *probeRuntimeStub) DrainActive(context.Context) error                   
 func (s *probeRuntimeStub) ActiveCount() int                                         { return 0 }
 func (s *probeRuntimeStub) Close()                                                   {}
 
-func TestAPI_ExecutionProbeLifecycle(t *testing.T) {
+func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "api-probe.db")
 	store, err := sqlite.New(dbPath)
 	if err != nil {
