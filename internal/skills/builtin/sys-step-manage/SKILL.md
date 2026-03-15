@@ -130,7 +130,7 @@ bash "$SKILL_HOME/scripts/generate-steps.sh" <work-item-id> '<description>'
 pwsh -NoProfile -File "$skillHome\scripts\generate-steps.ps1" <work-item-id> '<description>'
 ```
 
-This calls the `plan-core` planning service on the backend. Use it when you want a quick auto-decomposition. For more control, create steps manually.
+This calls the `plan-actions` planning service on the backend. Use it when you want a quick auto-decomposition. For more control, create steps manually.
 
 ## Step Design Guidelines
 

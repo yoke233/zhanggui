@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yoke233/ai-workflow/internal/application/planning"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -22,6 +23,7 @@ type memStore struct {
 	tasks     map[int64]*core.ThreadTask
 	workItems map[int64]*core.WorkItem
 	links     map[int64]*core.ThreadWorkItemLink
+	actions   map[int64]*core.Action
 	nextID    int64
 }
 
@@ -35,6 +37,7 @@ func newMemStore() *memStore {
 		tasks:     make(map[int64]*core.ThreadTask),
 		workItems: make(map[int64]*core.WorkItem),
 		links:     make(map[int64]*core.ThreadWorkItemLink),
+		actions:   make(map[int64]*core.Action),
 		nextID:    100,
 	}
 	return s
@@ -208,6 +211,30 @@ func (s *memStore) CreateThreadWorkItemLink(_ context.Context, link *core.Thread
 	cp := *link
 	s.links[id] = &cp
 	return id, nil
+}
+
+func (s *memStore) CreateAction(_ context.Context, a *core.Action) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.nextAutoID()
+	a.ID = id
+	cp := *a
+	cp.DependsOn = append([]int64(nil), a.DependsOn...)
+	cp.RequiredCapabilities = append([]string(nil), a.RequiredCapabilities...)
+	cp.AcceptanceCriteria = append([]string(nil), a.AcceptanceCriteria...)
+	s.actions[id] = &cp
+	return id, nil
+}
+
+func (s *memStore) UpdateActionDependsOn(_ context.Context, id int64, dependsOn []int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.actions[id]
+	if !ok {
+		return core.ErrNotFound
+	}
+	a.DependsOn = append([]int64(nil), dependsOn...)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -899,6 +926,189 @@ func TestMaterializeToWorkItem_WithReviewChain(t *testing.T) {
 	// Check metadata
 	if src, ok := wi.Metadata["source_type"]; !ok || src != "task_group_materialize" {
 		t.Fatalf("work item metadata source_type = %v", wi.Metadata["source_type"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DAG Materialize tests
+// ---------------------------------------------------------------------------
+
+// mockDAGGen implements ActionDAGGenerator for testing.
+type mockDAGGen struct {
+	dag *planning.GeneratedDAG
+	err error
+}
+
+func (m *mockDAGGen) Generate(_ context.Context, _ planning.GenerateInput) (*planning.GeneratedDAG, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.dag, nil
+}
+
+func TestMaterializeWithDAG(t *testing.T) {
+	store := newMemStore()
+	bus := &memBus{}
+
+	dagGen := &mockDAGGen{dag: &planning.GeneratedDAG{
+		Steps: []planning.GeneratedStep{
+			{Name: "design", Type: "exec", Description: "Design the API"},
+			{Name: "implement", Type: "exec", DependsOn: []string{"design"}, Description: "Implement the API"},
+		},
+	}}
+	materializer := NewDefaultMaterializer(store, WithDAGGenerator(dagGen))
+
+	svc := New(Config{
+		Store:        store,
+		Bus:          bus,
+		Materializer: materializer,
+		ContentReader: func(threadID int64, relativePath string) ([]byte, error) {
+			return []byte("some plan content"), nil
+		},
+	})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "planner", Type: "work", Instruction: "plan the work", OutputFileName: "plan.json"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	// Signal complete
+	err = svc.Signal(context.Background(), SignalInput{
+		TaskID: detail.Tasks[0].ID, Action: "complete", OutputFilePath: "outputs/plan.json",
+	})
+	if err != nil {
+		t.Fatalf("Signal: %v", err)
+	}
+
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupDone {
+		t.Fatalf("group status = %q, want done", group.Status)
+	}
+	if group.MaterializedWorkItemID == nil {
+		t.Fatal("expected MaterializedWorkItemID to be set")
+	}
+
+	// Should have created 2 actions
+	store.mu.Lock()
+	actionCount := len(store.actions)
+	store.mu.Unlock()
+	if actionCount != 2 {
+		t.Fatalf("expected 2 actions, got %d", actionCount)
+	}
+
+	// Verify DependsOn was resolved: "implement" should depend on "design"
+	store.mu.Lock()
+	var designID int64
+	var implementAction *core.Action
+	for _, a := range store.actions {
+		if a.Name == "design" {
+			designID = a.ID
+		}
+		if a.Name == "implement" {
+			cp := *a
+			implementAction = &cp
+		}
+	}
+	store.mu.Unlock()
+
+	if implementAction == nil {
+		t.Fatal("implement action not found")
+	}
+	if len(implementAction.DependsOn) != 1 || implementAction.DependsOn[0] != designID {
+		t.Fatalf("implement.DependsOn = %v, want [%d]", implementAction.DependsOn, designID)
+	}
+}
+
+func TestMaterializeDAGGenError_FallbackToWorkItemOnly(t *testing.T) {
+	store := newMemStore()
+
+	dagGen := &mockDAGGen{err: fmt.Errorf("LLM unavailable")}
+	materializer := NewDefaultMaterializer(store, WithDAGGenerator(dagGen))
+
+	svc := New(Config{
+		Store:        store,
+		Materializer: materializer,
+		ContentReader: func(threadID int64, relativePath string) ([]byte, error) {
+			return []byte("some content"), nil
+		},
+	})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "planner", Type: "work", Instruction: "plan", OutputFileName: "plan.json"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	_ = svc.Signal(context.Background(), SignalInput{
+		TaskID: detail.Tasks[0].ID, Action: "complete", OutputFilePath: "outputs/plan.json",
+	})
+
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupDone {
+		t.Fatalf("group status = %q, want done", group.Status)
+	}
+	// WorkItem should still be created
+	if group.MaterializedWorkItemID == nil {
+		t.Fatal("expected MaterializedWorkItemID even with DAG gen error")
+	}
+	// No actions should be created
+	store.mu.Lock()
+	actionCount := len(store.actions)
+	store.mu.Unlock()
+	if actionCount != 0 {
+		t.Fatalf("expected 0 actions for DAG gen error, got %d", actionCount)
+	}
+}
+
+func TestMaterializeNoContentReader(t *testing.T) {
+	store := newMemStore()
+	materializer := NewDefaultMaterializer(store)
+
+	// No ContentReader → no file contents → no Actions
+	svc := New(Config{
+		Store:        store,
+		Materializer: materializer,
+	})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "worker", Instruction: "do work", OutputFileName: "out.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	_ = svc.Signal(context.Background(), SignalInput{
+		TaskID: detail.Tasks[0].ID, Action: "complete", OutputFilePath: "outputs/out.md",
+	})
+
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.MaterializedWorkItemID == nil {
+		t.Fatal("expected MaterializedWorkItemID")
+	}
+
+	store.mu.Lock()
+	actionCount := len(store.actions)
+	store.mu.Unlock()
+	if actionCount != 0 {
+		t.Fatalf("expected 0 actions without ContentReader, got %d", actionCount)
 	}
 }
 

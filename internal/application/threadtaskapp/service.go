@@ -13,30 +13,33 @@ import (
 
 // Config holds all dependencies for the ThreadTask service.
 type Config struct {
-	Store        Store
-	Bus          EventPublisher
-	Notifier     NotificationSender
-	AgentPool    AgentDispatcher
-	Materializer WorkItemMaterializer
+	Store         Store
+	Bus           EventPublisher
+	Notifier      NotificationSender
+	AgentPool     AgentDispatcher
+	Materializer  WorkItemMaterializer
+	ContentReader ContentReader
 }
 
 // Service implements ThreadTask group lifecycle and scheduling.
 type Service struct {
-	store        Store
-	bus          EventPublisher
-	notifier     NotificationSender
-	agentPool    AgentDispatcher
-	materializer WorkItemMaterializer
+	store         Store
+	bus           EventPublisher
+	notifier      NotificationSender
+	agentPool     AgentDispatcher
+	materializer  WorkItemMaterializer
+	contentReader ContentReader
 }
 
 // New creates a ThreadTask service.
 func New(cfg Config) *Service {
 	return &Service{
-		store:        cfg.Store,
-		bus:          cfg.Bus,
-		notifier:     cfg.Notifier,
-		agentPool:    cfg.AgentPool,
-		materializer: cfg.Materializer,
+		store:         cfg.Store,
+		bus:           cfg.Bus,
+		notifier:      cfg.Notifier,
+		agentPool:     cfg.AgentPool,
+		materializer:  cfg.Materializer,
+		contentReader: cfg.ContentReader,
 	}
 }
 
@@ -642,12 +645,32 @@ func (s *Service) materializeWorkItem(ctx context.Context, group *core.ThreadTas
 		}
 	}
 
+	// Read all output files for DAG generation
+	var fileContents map[string]string
+	if s.contentReader != nil {
+		fileContents = make(map[string]string)
+		for _, f := range outputFiles {
+			data, err := s.contentReader(group.ThreadID, f)
+			if err != nil {
+				slog.Debug("read output file", "path", f, "error", err)
+				continue
+			}
+			if len(data) > 0 {
+				fileContents[f] = string(data)
+			}
+		}
+		if len(fileContents) == 0 {
+			fileContents = nil
+		}
+	}
+
 	result, err := s.materializer.MaterializeWorkItem(ctx, MaterializeInput{
-		ThreadID:    group.ThreadID,
-		GroupID:     group.ID,
-		Title:       title,
-		Body:        body.String(),
-		OutputFiles: outputFiles,
+		ThreadID:     group.ThreadID,
+		GroupID:      group.ID,
+		Title:        title,
+		Body:         body.String(),
+		OutputFiles:  outputFiles,
+		FileContents: fileContents,
 	})
 	if err != nil {
 		slog.Warn("materialize work item failed", "group_id", group.ID, "error", err)
@@ -661,28 +684,39 @@ func (s *Service) materializeWorkItem(ctx context.Context, group *core.ThreadTas
 	}
 
 	// Insert system message notifying the chat
+	msgMeta := map[string]any{
+		"type":          "task_group_materialized",
+		"task_group_id": group.ID,
+		"work_item_id":  result.WorkItemID,
+		"link_id":       result.LinkID,
+	}
+	if len(result.ActionIDs) > 0 {
+		msgMeta["action_ids"] = result.ActionIDs
+		msgMeta["action_count"] = len(result.ActionIDs)
+	}
+
 	matMsg := &core.ThreadMessage{
 		ThreadID: group.ThreadID,
 		SenderID: "system",
 		Role:     "system",
 		Content:  fmt.Sprintf("Task Group #%d 产出已转化为 WorkItem #%d", group.ID, result.WorkItemID),
-		Metadata: map[string]any{
-			"type":          "task_group_materialized",
-			"task_group_id": group.ID,
-			"work_item_id":  result.WorkItemID,
-			"link_id":       result.LinkID,
-		},
+		Metadata: msgMeta,
 	}
 	_, _ = s.store.CreateThreadMessage(ctx, matMsg)
 
 	// Publish event
-	s.publishEvent(ctx, core.EventThreadTaskGroupCompleted, map[string]any{
-		"thread_id":      group.ThreadID,
-		"task_group_id":  group.ID,
-		"action":         "materialized",
-		"work_item_id":   result.WorkItemID,
-		"link_id":        result.LinkID,
-	})
+	eventData := map[string]any{
+		"thread_id":     group.ThreadID,
+		"task_group_id": group.ID,
+		"action":        "materialized",
+		"work_item_id":  result.WorkItemID,
+		"link_id":       result.LinkID,
+	}
+	if len(result.ActionIDs) > 0 {
+		eventData["action_ids"] = result.ActionIDs
+		eventData["action_count"] = len(result.ActionIDs)
+	}
+	s.publishEvent(ctx, core.EventThreadTaskGroupCompleted, eventData)
 }
 
 func (s *Service) failGroup(ctx context.Context, groupID int64) {

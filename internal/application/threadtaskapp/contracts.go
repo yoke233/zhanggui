@@ -3,6 +3,7 @@ package threadtaskapp
 import (
 	"context"
 
+	"github.com/yoke233/ai-workflow/internal/application/planning"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -19,19 +20,29 @@ type WorkItemMaterializer interface {
 	MaterializeWorkItem(ctx context.Context, input MaterializeInput) (*MaterializeResult, error)
 }
 
+// ContentReader reads a task output file given thread ID and relative path.
+type ContentReader func(threadID int64, relativePath string) ([]byte, error)
+
+// ActionDAGGenerator generates a DAG from description and/or file contents.
+type ActionDAGGenerator interface {
+	Generate(ctx context.Context, input planning.GenerateInput) (*planning.GeneratedDAG, error)
+}
+
 // MaterializeInput describes the data needed to create a WorkItem from a task group.
 type MaterializeInput struct {
-	ThreadID    int64
-	GroupID     int64
-	Title       string
-	Body        string
-	OutputFiles []string
+	ThreadID     int64
+	GroupID      int64
+	Title        string
+	Body         string
+	OutputFiles  []string
+	FileContents map[string]string // filename → content for DAG generation
 }
 
 // MaterializeResult holds the IDs of the created WorkItem and link.
 type MaterializeResult struct {
 	WorkItemID int64
 	LinkID     int64
+	ActionIDs  []int64 // created Action IDs; nil when no DAG
 }
 
 // EventPublisher publishes domain events.

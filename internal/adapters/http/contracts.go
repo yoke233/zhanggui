@@ -68,7 +68,7 @@ type LeadChatService interface {
 
 // DAGGenerator is the planning contract required by the HTTP adapter.
 type DAGGenerator interface {
-	Generate(ctx context.Context, taskDescription string) (*planningapp.GeneratedDAG, error)
+	Generate(ctx context.Context, input planningapp.GenerateInput) (*planningapp.GeneratedDAG, error)
 	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Action, error)
 }
 

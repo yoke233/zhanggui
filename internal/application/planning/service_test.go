@@ -267,7 +267,7 @@ func TestBuildDAGGenPrompt_WithProfiles(t *testing.T) {
 		{ID: "be-worker", Role: core.RoleWorker, Capabilities: []string{"go", "backend"}},
 		{ID: "reviewer", Role: core.RoleGate, Capabilities: []string{"review"}},
 	}
-	prompt := BuildDAGGenPrompt("build an API", profiles)
+	prompt := BuildDAGGenPrompt(GenerateInput{Description: "build an API"}, profiles)
 
 	if !strings.Contains(prompt, "be-worker") {
 		t.Fatal("prompt should mention profile ID")
@@ -284,7 +284,7 @@ func TestBuildDAGGenPrompt_WithProfiles(t *testing.T) {
 }
 
 func TestBuildDAGGenPrompt_NoProfiles(t *testing.T) {
-	prompt := BuildDAGGenPrompt("build an API", nil)
+	prompt := BuildDAGGenPrompt(GenerateInput{Description: "build an API"}, nil)
 
 	if strings.Contains(prompt, "Available agent profiles") {
 		t.Fatal("prompt should not contain profiles section when none available")

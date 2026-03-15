@@ -291,6 +291,7 @@ export interface CreateActionRequest {
 
 export interface GenerateActionsRequest {
   description: string;
+  files?: Record<string, string>;
 }
 
 export interface UpdateActionRequest {

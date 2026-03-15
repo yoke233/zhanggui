@@ -4,7 +4,7 @@
 # Usage:
 #   pwsh -NoProfile -File generate-steps.ps1 <work-item-id> '<description>'
 #
-# The backend uses the plan-core planning service to generate a DAG
+# The backend uses the plan-actions planning service to generate a DAG
 # and materializes the steps into the work item.
 
 param(

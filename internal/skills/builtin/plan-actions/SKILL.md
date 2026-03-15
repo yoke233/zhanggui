@@ -1,9 +1,9 @@
 ---
-name: plan-core
+name: plan-actions
 description: A reusable planning playbook for turning a task description into an executable DAG of ai-workflow steps. Use this guidance when the goal is to decompose work, define dependencies, insert review gates, and map steps to agent roles and capabilities.
 ---
 
-# Plan Core
+# Plan Actions
 
 Use this skill when you need to convert an ambiguous request into an executable workflow.
 

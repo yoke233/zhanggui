@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 
+	planningapp "github.com/yoke233/ai-workflow/internal/application/planning"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 type generateStepsRequest struct {
-	Description string `json:"description"`
+	Description string            `json:"description"`
+	Files       map[string]string `json:"files,omitempty"`
 }
 
 // generateActions uses AI to decompose a task description into a DAG of steps
@@ -46,13 +48,16 @@ func (h *Handler) generateActions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	if req.Description == "" {
-		writeError(w, http.StatusBadRequest, "description is required", "MISSING_DESCRIPTION")
+	if req.Description == "" && len(req.Files) == 0 {
+		writeError(w, http.StatusBadRequest, "description or files is required", "MISSING_DESCRIPTION")
 		return
 	}
 
 	// Call LLM to generate DAG.
-	dag, err := h.dagGen.Generate(r.Context(), req.Description)
+	dag, err := h.dagGen.Generate(r.Context(), planningapp.GenerateInput{
+		Description: req.Description,
+		Files:       req.Files,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "DAG_GEN_ERROR")
 		return

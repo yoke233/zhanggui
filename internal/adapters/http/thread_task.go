@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/application/threadtaskapp"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/threadctx"
 )
 
 // ---------------------------------------------------------------------------
@@ -211,13 +214,27 @@ func (h *Handler) threadTaskService() *threadtaskapp.Service {
 	if h.threadPool != nil {
 		agentPool = h.threadPool
 	}
-	materializer := threadtaskapp.NewDefaultMaterializer(h.store)
+	var matOpts []threadtaskapp.MaterializerOption
+	if h.dagGen != nil {
+		matOpts = append(matOpts, threadtaskapp.WithDAGGenerator(h.dagGen))
+	}
+	materializer := threadtaskapp.NewDefaultMaterializer(h.store, matOpts...)
+
+	var cr threadtaskapp.ContentReader
+	if h.dataDir != "" {
+		cr = func(threadID int64, relativePath string) ([]byte, error) {
+			paths := threadctx.Paths(h.dataDir, threadID)
+			return os.ReadFile(filepath.Join(paths.ThreadDir, relativePath))
+		}
+	}
+
 	return threadtaskapp.New(threadtaskapp.Config{
-		Store:        h.store,
-		Bus:          h.bus,
-		Notifier:     notifier,
-		AgentPool:    agentPool,
-		Materializer: materializer,
+		Store:         h.store,
+		Bus:           h.bus,
+		Notifier:      notifier,
+		AgentPool:     agentPool,
+		Materializer:  materializer,
+		ContentReader: cr,
 	})
 }
 

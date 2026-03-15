@@ -107,42 +107,42 @@ func TestServiceGenerate(t *testing.T) {
 
 	t.Run("nil llm", func(t *testing.T) {
 		svc := NewService(nil, nil)
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "llm completer is nil") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "llm completer is nil") {
 			t.Fatalf("Generate(nil llm) error = %v", err)
 		}
 	})
 
 	t.Run("list profiles error", func(t *testing.T) {
 		svc := NewService(&planningLLMStub{}, &planningRegistryStub{err: errors.New("registry failed")})
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "list profiles") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "list profiles") {
 			t.Fatalf("Generate(list profiles error) = %v", err)
 		}
 	})
 
 	t.Run("llm error", func(t *testing.T) {
 		svc := NewService(&planningLLMStub{err: errors.New("upstream failed")}, nil)
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "llm call failed") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "llm call failed") {
 			t.Fatalf("Generate(llm error) = %v", err)
 		}
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
 		svc := NewService(&planningLLMStub{raw: json.RawMessage(`not-json`)}, nil)
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "parse llm output") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "parse llm output") {
 			t.Fatalf("Generate(invalid json) = %v", err)
 		}
 	})
 
 	t.Run("zero steps", func(t *testing.T) {
 		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"steps":[]}`)}, nil)
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "zero steps") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "zero steps") {
 			t.Fatalf("Generate(zero steps) = %v", err)
 		}
 	})
 
 	t.Run("invalid dag", func(t *testing.T) {
 		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"build","type":"weird"}]}`)}, nil)
-		if _, err := svc.Generate(ctx, "build api"); err == nil || !strings.Contains(err.Error(), "invalid type") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "invalid type") {
 			t.Fatalf("Generate(invalid dag) = %v", err)
 		}
 	})
@@ -152,7 +152,7 @@ func TestServiceGenerate(t *testing.T) {
 			&planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"frontend","type":"exec","agent_role":"worker","required_capabilities":["react"]}]}`)},
 			&planningRegistryStub{profiles: []*core.AgentProfile{{ID: "worker", Role: core.RoleWorker, Capabilities: []string{"go"}}}},
 		)
-		if _, err := svc.Generate(ctx, "build ui"); err == nil || !strings.Contains(err.Error(), "no matching agent profile") {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build ui"}); err == nil || !strings.Contains(err.Error(), "no matching agent profile") {
 			t.Fatalf("Generate(capability fit error) = %v", err)
 		}
 	})
@@ -163,7 +163,7 @@ func TestServiceGenerate(t *testing.T) {
 			{ID: "backend-worker", Role: core.RoleWorker, Capabilities: []string{"backend"}},
 		}})
 
-		dag, err := svc.Generate(ctx, "build api")
+		dag, err := svc.Generate(ctx, GenerateInput{Description: "build api"})
 		if err != nil {
 			t.Fatalf("Generate(success) error = %v", err)
 		}
@@ -183,12 +183,12 @@ func TestServiceGenerate(t *testing.T) {
 
 	t.Run("uses plan skill prompt when available", func(t *testing.T) {
 		skillsRoot := filepath.Join(t.TempDir(), "skills")
-		skillDir := filepath.Join(skillsRoot, "plan-core")
+		skillDir := filepath.Join(skillsRoot, "plan-actions")
 		if err := os.MkdirAll(skillDir, 0o755); err != nil {
 			t.Fatalf("mkdir skill dir: %v", err)
 		}
 		const skillBody = `---
-name: plan-core
+name: plan-actions
 description: custom planning guidance
 ---
 
@@ -207,7 +207,7 @@ Always identify the primary deliverable first.
 			WithPlanningSkillsRoot(skillsRoot),
 		)
 
-		if _, err := svc.Generate(ctx, "build api"); err != nil {
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err != nil {
 			t.Fatalf("Generate(skill prompt) error = %v", err)
 		}
 		if !strings.Contains(llm.prompt, "Custom Planning Guidance") {

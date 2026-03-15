@@ -88,7 +88,7 @@ func TestIntegration_PlanningGenerateAndMaterialize(t *testing.T) {
 	})
 
 	svc := planning.NewService(llmplanning.NewCompleter(client), registry)
-	dag, err := svc.Generate(context.Background(), "build a backend API with review")
+	dag, err := svc.Generate(context.Background(), planning.GenerateInput{Description: "build a backend API with review"})
 	if err != nil {
 		t.Fatalf("Generate(integration) error = %v", err)
 	}

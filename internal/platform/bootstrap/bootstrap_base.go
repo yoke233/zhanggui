@@ -53,7 +53,7 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 	}
 
 	// Extract embedded builtin skills BEFORE seeding registry / runtime manager,
-	// because profiles may reference builtin skills (e.g. plan-core).
+	// because profiles may reference builtin skills (e.g. plan-actions).
 	if dataDir != "" {
 		fmt.Println("[startup] init base: ensure builtin skills")
 		skillsRoot := filepath.Join(dataDir, "skills")

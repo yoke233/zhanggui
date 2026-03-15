@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultPlanningSkillName = "plan-core"
+	defaultPlanningSkillName = "plan-actions"
 	defaultPlanningFallback  = `# Planning Guidance
 
 Use this workflow to convert a task description into an executable DAG:
@@ -63,7 +63,7 @@ func NewPromptBuilder(opts ...PromptBuilderOption) *PromptBuilder {
 
 // BuildDAGGenPrompt constructs the prompt for DAG generation using either a planning skill
 // or the built-in fallback guidance when the skill is unavailable.
-func (b *PromptBuilder) BuildDAGGenPrompt(taskDescription string, profiles []*core.AgentProfile) string {
+func (b *PromptBuilder) BuildDAGGenPrompt(input GenerateInput, profiles []*core.AgentProfile) string {
 	var sb strings.Builder
 	sb.WriteString(`You are a software engineering workflow planner. Given a task description, decompose it into a DAG (directed acyclic graph) of execution steps.`)
 	sb.WriteString("\n\n")
@@ -76,7 +76,7 @@ func (b *PromptBuilder) BuildDAGGenPrompt(taskDescription string, profiles []*co
 			if len(p.Capabilities) > 0 {
 				caps = strings.Join(p.Capabilities, ", ")
 			}
-			sb.WriteString(fmt.Sprintf("- %q (role: %s, capabilities: [%s])\n", p.ID, p.Role, caps))
+			fmt.Fprintf(&sb, "- %q (role: %s, capabilities: [%s])\n", p.ID, p.Role, caps)
 		}
 		sb.WriteString(`
 When assigning agent_role and required_capabilities to a step:
@@ -92,14 +92,25 @@ When assigning agent_role:
 `)
 	}
 
-	sb.WriteString(fmt.Sprintf(`
+	if input.Description != "" {
+		fmt.Fprintf(&sb, `
 
 Task description:
 ---
 %s
 ---
+`, input.Description)
+	}
 
-Return a JSON object with a "steps" array. Steps MUST be ordered so that dependencies always appear before dependents (topological order).`, taskDescription))
+	if len(input.Files) > 0 {
+		sb.WriteString("\nReference materials:\n---\n")
+		for name, content := range input.Files {
+			fmt.Fprintf(&sb, "### %s\n%s\n\n", name, content)
+		}
+		sb.WriteString("---\n")
+	}
+
+	sb.WriteString("\nReturn a JSON object with a \"steps\" array. Steps MUST be ordered so that dependencies always appear before dependents (topological order).")
 
 	return sb.String()
 }

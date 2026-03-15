@@ -50,7 +50,7 @@ func NewService(llm LLMCompleter, registry core.AgentRegistry, opts ...Option) *
 }
 
 // Generate calls the LLM to decompose a task description into a DAG of Steps.
-func (s *Service) Generate(ctx context.Context, taskDescription string) (*GeneratedDAG, error) {
+func (s *Service) Generate(ctx context.Context, input GenerateInput) (*GeneratedDAG, error) {
 	if s.llm == nil {
 		return nil, fmt.Errorf("dag_gen: llm completer is nil")
 	}
@@ -60,7 +60,7 @@ func (s *Service) Generate(ctx context.Context, taskDescription string) (*Genera
 		return nil, fmt.Errorf("dag_gen: list profiles: %w", err)
 	}
 
-	prompt := s.promptBuilder.BuildDAGGenPrompt(taskDescription, profiles)
+	prompt := s.promptBuilder.BuildDAGGenPrompt(input, profiles)
 	tools := BuildDAGGenSchema(profiles)
 
 	raw, err := s.llm.Complete(ctx, prompt, tools)
@@ -91,9 +91,15 @@ func (s *Service) Generate(ctx context.Context, taskDescription string) (*Genera
 }
 
 // Materialize creates Actions in the store for a given work item from a GeneratedDAG.
+// It delegates to the package-level MaterializeDAG function.
+func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Action, error) {
+	return MaterializeDAG(ctx, store, issueID, dag)
+}
+
+// MaterializeDAG creates Actions in the store for a given work item from a GeneratedDAG.
 // Phase 1: create all Actions (position-ordered) and build a name→ID map.
 // Phase 2: resolve name-based DependsOn to action IDs and persist them.
-func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Action, error) {
+func MaterializeDAG(ctx context.Context, store ActionMaterializer, workItemID int64, dag *GeneratedDAG) ([]*core.Action, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("dag_gen: generated dag is nil")
 	}
@@ -112,7 +118,7 @@ func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int
 		}
 
 		step := &core.Action{
-			WorkItemID:           issueID,
+			WorkItemID:           workItemID,
 			Name:                 gs.Name,
 			Description:          gs.Description,
 			Type:                 stepType,
@@ -219,8 +225,8 @@ func ValidateCapabilityFit(dag *GeneratedDAG, profiles []*core.AgentProfile) err
 }
 
 // BuildDAGGenPrompt constructs the LLM prompt for DAG generation.
-func BuildDAGGenPrompt(taskDescription string, profiles []*core.AgentProfile) string {
-	return NewPromptBuilder().BuildDAGGenPrompt(taskDescription, profiles)
+func BuildDAGGenPrompt(input GenerateInput, profiles []*core.AgentProfile) string {
+	return NewPromptBuilder().BuildDAGGenPrompt(input, profiles)
 }
 
 // BuildDAGGenSchema returns the tool schema for structured LLM output.
