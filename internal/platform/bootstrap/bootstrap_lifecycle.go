@@ -14,11 +14,11 @@ import (
 )
 
 type bootstrapLifecycle struct {
-	runtimeWatchCancel   context.CancelFunc
-	probeWatchCancel     context.CancelFunc
-	cronCancel           context.CancelFunc
-	inspectionCancel     context.CancelFunc
-	inspectionEngine     *inspectionapp.Engine
+	runtimeWatchCancel context.CancelFunc
+	probeWatchCancel   context.CancelFunc
+	cronCancel         context.CancelFunc
+	inspectionCancel   context.CancelFunc
+	inspectionEngine   *inspectionapp.Engine
 }
 
 func startBootstrapLifecycle(

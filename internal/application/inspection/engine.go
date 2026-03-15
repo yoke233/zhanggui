@@ -216,11 +216,11 @@ func (e *Engine) detectFindings(ctx context.Context, report *core.InspectionRepo
 	// Finding 1: Blocked work items.
 	if snapshot.BlockedWorkItems > 0 {
 		findings = append(findings, core.InspectionFinding{
-			InspectionID: report.ID,
-			Category:     core.CategoryBlocker,
-			Severity:     core.SeverityHigh,
-			Title:        fmt.Sprintf("%d work items are blocked", snapshot.BlockedWorkItems),
-			Description:  "Blocked work items cannot make progress without human intervention or external dependency resolution.",
+			InspectionID:   report.ID,
+			Category:       core.CategoryBlocker,
+			Severity:       core.SeverityHigh,
+			Title:          fmt.Sprintf("%d work items are blocked", snapshot.BlockedWorkItems),
+			Description:    "Blocked work items cannot make progress without human intervention or external dependency resolution.",
 			Recommendation: "Review blocked items and resolve dependencies or provide manual unblock signals.",
 		})
 	}
@@ -230,12 +230,12 @@ func (e *Engine) detectFindings(ctx context.Context, report *core.InspectionRepo
 		failRate := float64(snapshot.FailedWorkItems) / float64(snapshot.TotalWorkItems)
 		if failRate > 0.3 {
 			findings = append(findings, core.InspectionFinding{
-				InspectionID: report.ID,
-				Category:     core.CategoryFailure,
-				Severity:     severityFromRate(failRate),
-				Title:        fmt.Sprintf("High failure rate: %.0f%% of work items failed", failRate*100),
-				Description:  fmt.Sprintf("%d out of %d work items failed in this period.", snapshot.FailedWorkItems, snapshot.TotalWorkItems),
-				Evidence:     fmt.Sprintf("failure_rate=%.2f, failed=%d, total=%d", failRate, snapshot.FailedWorkItems, snapshot.TotalWorkItems),
+				InspectionID:   report.ID,
+				Category:       core.CategoryFailure,
+				Severity:       severityFromRate(failRate),
+				Title:          fmt.Sprintf("High failure rate: %.0f%% of work items failed", failRate*100),
+				Description:    fmt.Sprintf("%d out of %d work items failed in this period.", snapshot.FailedWorkItems, snapshot.TotalWorkItems),
+				Evidence:       fmt.Sprintf("failure_rate=%.2f, failed=%d, total=%d", failRate, snapshot.FailedWorkItems, snapshot.TotalWorkItems),
 				Recommendation: "Analyze error patterns below and address the root causes. Consider adding retry logic or error-specific skills.",
 			})
 		}

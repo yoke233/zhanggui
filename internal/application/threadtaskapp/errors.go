@@ -3,19 +3,19 @@ package threadtaskapp
 import "errors"
 
 const (
-	CodeMissingThreadID  = "MISSING_THREAD_ID"
-	CodeMissingTasks     = "MISSING_TASKS"
-	CodeMissingAssignee  = "MISSING_ASSIGNEE"
+	CodeMissingThreadID    = "MISSING_THREAD_ID"
+	CodeMissingTasks       = "MISSING_TASKS"
+	CodeMissingAssignee    = "MISSING_ASSIGNEE"
 	CodeMissingInstruction = "MISSING_INSTRUCTION"
-	CodeInvalidTaskType  = "INVALID_TASK_TYPE"
-	CodeInvalidAction    = "INVALID_ACTION"
-	CodeInvalidState     = "INVALID_STATE"
-	CodeThreadNotFound   = "THREAD_NOT_FOUND"
-	CodeGroupNotFound    = "GROUP_NOT_FOUND"
-	CodeTaskNotFound     = "TASK_NOT_FOUND"
-	CodeRetryExhausted   = "RETRY_EXHAUSTED"
-	CodeDependencyCycle  = "DEPENDENCY_CYCLE"
-	CodeInvalidDependency = "INVALID_DEPENDENCY"
+	CodeInvalidTaskType    = "INVALID_TASK_TYPE"
+	CodeInvalidAction      = "INVALID_ACTION"
+	CodeInvalidState       = "INVALID_STATE"
+	CodeThreadNotFound     = "THREAD_NOT_FOUND"
+	CodeGroupNotFound      = "GROUP_NOT_FOUND"
+	CodeTaskNotFound       = "TASK_NOT_FOUND"
+	CodeRetryExhausted     = "RETRY_EXHAUSTED"
+	CodeDependencyCycle    = "DEPENDENCY_CYCLE"
+	CodeInvalidDependency  = "INVALID_DEPENDENCY"
 )
 
 type Error struct {

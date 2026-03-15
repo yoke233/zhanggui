@@ -582,7 +582,7 @@ func TestBuildTaskInput_ContainsEnvVars(t *testing.T) {
 	svc := New(Config{})
 	task := &core.ThreadTask{
 		ID:             42,
-		GroupID:         7,
+		GroupID:        7,
 		Type:           core.TaskTypeWork,
 		Instruction:    "do some work",
 		OutputFilePath: "outputs/result.md",

@@ -12,10 +12,10 @@ import (
 
 // Config holds all dependencies for the ThreadTask service.
 type Config struct {
-	Store        Store
-	Bus          EventPublisher
-	Notifier     NotificationSender
-	AgentPool    AgentDispatcher
+	Store     Store
+	Bus       EventPublisher
+	Notifier  NotificationSender
+	AgentPool AgentDispatcher
 }
 
 // Service implements ThreadTask group lifecycle and scheduling.
@@ -563,10 +563,10 @@ func (s *Service) completeGroup(ctx context.Context, groupID int64) {
 		Role:     "system",
 		Content:  fmt.Sprintf("Task Group #%d 已完成", groupID),
 		Metadata: map[string]any{
-			"type":           "task_group_completed",
-			"task_group_id":  groupID,
-			"final_status":   "done",
-			"output_files":   outputFiles,
+			"type":          "task_group_completed",
+			"task_group_id": groupID,
+			"final_status":  "done",
+			"output_files":  outputFiles,
 		},
 	}
 	_, _ = s.store.CreateThreadMessage(ctx, completionMsg)
@@ -617,9 +617,9 @@ func (s *Service) failGroup(ctx context.Context, groupID int64) {
 		Role:     "system",
 		Content:  fmt.Sprintf("Task Group #%d 执行失败", groupID),
 		Metadata: map[string]any{
-			"type":           "task_group_completed",
-			"task_group_id":  groupID,
-			"final_status":   "failed",
+			"type":          "task_group_completed",
+			"task_group_id": groupID,
+			"final_status":  "failed",
 		},
 	}
 	_, _ = s.store.CreateThreadMessage(ctx, failMsg)
@@ -746,12 +746,12 @@ func (s *Service) buildProgressCardMetadata(group *core.ThreadTaskGroup, tasks [
 	}
 
 	return map[string]any{
-		"type":           "task_group_progress",
-		"thread_id":      group.ThreadID,
-		"task_group_id":  group.ID,
-		"tasks":          taskSummaries,
-		"edges":          edges,
-		"group_status":   string(group.Status),
+		"type":          "task_group_progress",
+		"thread_id":     group.ThreadID,
+		"task_group_id": group.ID,
+		"tasks":         taskSummaries,
+		"edges":         edges,
+		"group_status":  string(group.Status),
 	}
 }
 

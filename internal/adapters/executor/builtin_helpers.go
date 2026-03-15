@@ -35,7 +35,7 @@ func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventB
 			WorkItemID: step.WorkItemID,
 			ActionID:   step.ID,
 			RunID:      execRec.ID,
-			Timestamp: now,
+			Timestamp:  now,
 			Data: map[string]any{
 				"type":    "done",
 				"content": trimmed,

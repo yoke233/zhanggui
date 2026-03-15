@@ -38,14 +38,14 @@ var catalog = map[Lang]map[string]string{
 
 		// agents
 		"MISSING_LAUNCH_COMMAND": "启动命令不能为空",
-		"MISSING_DRIVER_ID":     "驱动 ID 不能为空",
-		"DRIVER_NOT_FOUND":      "驱动未找到",
-		"PROFILE_NOT_FOUND":     "配置未找到",
-		"DUPLICATE_DRIVER":      "驱动 ID 已存在",
-		"DUPLICATE_PROFILE":     "配置 ID 已存在",
-		"CAP_OVERFLOW":          "配置能力超出驱动最大能力",
-		"DRIVER_IN_USE":         "驱动正被一个或多个配置引用",
-		"INVALID_SKILLS":       "配置引用了无效或不存在的技能",
+		"MISSING_DRIVER_ID":      "驱动 ID 不能为空",
+		"DRIVER_NOT_FOUND":       "驱动未找到",
+		"PROFILE_NOT_FOUND":      "配置未找到",
+		"DUPLICATE_DRIVER":       "驱动 ID 已存在",
+		"DUPLICATE_PROFILE":      "配置 ID 已存在",
+		"CAP_OVERFLOW":           "配置能力超出驱动最大能力",
+		"DRIVER_IN_USE":          "驱动正被一个或多个配置引用",
+		"INVALID_SKILLS":         "配置引用了无效或不存在的技能",
 
 		// skills
 		"SKILL_NOT_FOUND":  "技能未找到",

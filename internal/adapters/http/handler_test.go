@@ -1503,8 +1503,8 @@ func TestAPI_RunAuditTimelineRoute(t *testing.T) {
 	}
 
 	var got struct {
-		RunID       int64 `json:"run_id"`
-		Items       []struct {
+		RunID int64 `json:"run_id"`
+		Items []struct {
 			Source    string    `json:"source"`
 			Kind      string    `json:"kind"`
 			Timestamp time.Time `json:"timestamp"`

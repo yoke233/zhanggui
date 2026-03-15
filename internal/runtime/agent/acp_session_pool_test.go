@@ -31,7 +31,7 @@ func TestACPSessionPoolAcquireCoalescesConcurrentCreates(t *testing.T) {
 	}
 
 	input := acpSessionAcquireInput{
-		Profile: &core.AgentProfile{ID: "worker"},
+		Profile:    &core.AgentProfile{ID: "worker"},
 		WorkItemID: 101,
 	}
 

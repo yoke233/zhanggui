@@ -11,10 +11,10 @@ import (
 
 // SchedulerConfig configures the inspection scheduler.
 type SchedulerConfig struct {
-	Enabled    bool
-	Interval   time.Duration // how often to run inspections (default 24h)
+	Enabled   bool
+	Interval  time.Duration // how often to run inspections (default 24h)
 	LookbackH int           // hours of data to inspect (default 24)
-	ProjectID  *int64        // optional: scope to a specific project
+	ProjectID *int64        // optional: scope to a specific project
 }
 
 // Scheduler is a background service that periodically triggers inspection runs.

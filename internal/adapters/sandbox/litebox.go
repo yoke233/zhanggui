@@ -90,4 +90,3 @@ func normalizeLiteBoxRunnerArgs(args []string) []string {
 	}
 	return out
 }
-

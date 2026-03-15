@@ -40,8 +40,8 @@ type JournalEntry struct {
 	WorkItemID     int64          `json:"work_item_id,omitempty"`
 	ActionID       int64          `json:"action_id,omitempty"`
 	RunID          int64          `json:"run_id,omitempty"`
-	Kind           JournalKind   `json:"kind"`
-	Source         JournalSource `json:"source"`
+	Kind           JournalKind    `json:"kind"`
+	Source         JournalSource  `json:"source"`
 	Summary        string         `json:"summary,omitempty"`
 	Payload        map[string]any `json:"payload,omitempty"`
 	Ref            string         `json:"ref,omitempty"`
@@ -226,15 +226,15 @@ func UsageRecordToJournalEntry(r *UsageRecord) *JournalEntry {
 		Summary:    fmt.Sprintf("token usage: %d tokens", r.TotalTokens),
 		Payload: map[string]any{
 			"agent_id":           r.AgentID,
-			"profile_id":        r.ProfileID,
-			"model_id":          r.ModelID,
-			"input_tokens":      r.InputTokens,
-			"output_tokens":     r.OutputTokens,
-			"cache_read_tokens": r.CacheReadTokens,
+			"profile_id":         r.ProfileID,
+			"model_id":           r.ModelID,
+			"input_tokens":       r.InputTokens,
+			"output_tokens":      r.OutputTokens,
+			"cache_read_tokens":  r.CacheReadTokens,
 			"cache_write_tokens": r.CacheWriteTokens,
-			"reasoning_tokens":  r.ReasoningTokens,
-			"total_tokens":      r.TotalTokens,
-			"duration_ms":       r.DurationMs,
+			"reasoning_tokens":   r.ReasoningTokens,
+			"total_tokens":       r.TotalTokens,
+			"duration_ms":        r.DurationMs,
 		},
 		Actor:     r.AgentID,
 		CreatedAt: r.CreatedAt,

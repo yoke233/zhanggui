@@ -40,14 +40,14 @@ type DriverConfig struct {
 // AgentProfile defines an agent's identity, role, capabilities, and constraints.
 // Driver configuration is embedded directly via the Driver field.
 type AgentProfile struct {
-	ID             string       `json:"id"`
-	Name           string       `json:"name,omitempty"`
-	Driver         DriverConfig `json:"driver"`
-	Role           AgentRole    `json:"role"`
-	Capabilities   []string  `json:"capabilities,omitempty"`    // capability tags (backend, qa, review, ...)
+	ID             string        `json:"id"`
+	Name           string        `json:"name,omitempty"`
+	Driver         DriverConfig  `json:"driver"`
+	Role           AgentRole     `json:"role"`
+	Capabilities   []string      `json:"capabilities,omitempty"`    // capability tags (backend, qa, review, ...)
 	ActionsAllowed []AgentAction `json:"actions_allowed,omitempty"` // permitted actions
-	PromptTemplate string    `json:"prompt_template,omitempty"`
-	Skills         []string  `json:"skills,omitempty"` // skill folder names to enable for this profile
+	PromptTemplate string        `json:"prompt_template,omitempty"`
+	Skills         []string      `json:"skills,omitempty"` // skill folder names to enable for this profile
 
 	Session ProfileSession `json:"session,omitempty"`
 	MCP     ProfileMCP     `json:"mcp,omitempty"`
@@ -55,12 +55,12 @@ type AgentProfile struct {
 
 // ProfileSession configures session management for this profile.
 type ProfileSession struct {
-	Reuse             bool          `json:"reuse,omitempty"`
-	MaxTurns          int           `json:"max_turns,omitempty"`
-	IdleTTL           time.Duration `json:"idle_ttl,omitempty"`
-	ThreadBootTemplate string       `json:"thread_boot_template,omitempty"`
-	MaxContextTokens  int64         `json:"max_context_tokens,omitempty"`
-	ContextWarnRatio  float64       `json:"context_warn_ratio,omitempty"` // default 0.8
+	Reuse              bool          `json:"reuse,omitempty"`
+	MaxTurns           int           `json:"max_turns,omitempty"`
+	IdleTTL            time.Duration `json:"idle_ttl,omitempty"`
+	ThreadBootTemplate string        `json:"thread_boot_template,omitempty"`
+	MaxContextTokens   int64         `json:"max_context_tokens,omitempty"`
+	ContextWarnRatio   float64       `json:"context_warn_ratio,omitempty"` // default 0.8
 }
 
 // ProfileMCP configures MCP tool access for this profile.

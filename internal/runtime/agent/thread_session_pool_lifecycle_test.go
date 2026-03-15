@@ -160,7 +160,6 @@ func newTestProfile(id string) *core.AgentProfile {
 	}
 }
 
-
 // waitForAgentStatus polls until the member reaches the expected status.
 func waitForAgentStatus(t *testing.T, store core.Store, threadID int64, profileID string, want core.ThreadAgentStatus, timeout time.Duration) *core.ThreadMember {
 	t.Helper()

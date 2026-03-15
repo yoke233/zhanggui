@@ -42,4 +42,3 @@ func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, execs)
 }
-

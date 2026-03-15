@@ -19,10 +19,10 @@ const (
 type NotificationChannel string
 
 const (
-	ChannelBrowser NotificationChannel = "browser"  // Web Notification API (desktop + mobile PWA)
-	ChannelInApp   NotificationChannel = "in_app"    // In-app toast / notification center
-	ChannelWebhook NotificationChannel = "webhook"   // External webhook (Slack, Teams, etc.)
-	ChannelEmail   NotificationChannel = "email"     // Email delivery
+	ChannelBrowser NotificationChannel = "browser" // Web Notification API (desktop + mobile PWA)
+	ChannelInApp   NotificationChannel = "in_app"  // In-app toast / notification center
+	ChannelWebhook NotificationChannel = "webhook" // External webhook (Slack, Teams, etc.)
+	ChannelEmail   NotificationChannel = "email"   // Email delivery
 )
 
 // Notification is the core domain entity for user-facing notifications.
@@ -31,7 +31,7 @@ type Notification struct {
 	Level     NotificationLevel `json:"level"`
 	Title     string            `json:"title"`
 	Body      string            `json:"body,omitempty"`
-	Category  string            `json:"category,omitempty"`  // e.g. "issue", "exec", "chat", "system"
+	Category  string            `json:"category,omitempty"`   // e.g. "issue", "exec", "chat", "system"
 	ActionURL string            `json:"action_url,omitempty"` // deep-link into the UI
 
 	// Scope: which project/issue/exec triggered this notification.

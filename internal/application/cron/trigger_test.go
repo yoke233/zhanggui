@@ -13,10 +13,10 @@ import (
 // --- mock store ---
 
 type mockStore struct {
-	mu         sync.Mutex
-	workItems  map[int64]*core.WorkItem
-	actions    map[int64]*core.Action
-	nextID     int64
+	mu        sync.Mutex
+	workItems map[int64]*core.WorkItem
+	actions   map[int64]*core.Action
+	nextID    int64
 }
 
 func newMockStore() *mockStore {

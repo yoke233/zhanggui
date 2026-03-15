@@ -244,4 +244,3 @@ func captureNewSessionAndPrompt(
 	}
 	return client, sessionID
 }
-

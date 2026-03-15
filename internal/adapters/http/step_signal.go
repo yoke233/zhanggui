@@ -74,13 +74,13 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sig := &core.ActionSignal{
-		ActionID:  stepID,
+		ActionID:   stepID,
 		WorkItemID: step.WorkItemID,
-		Type:      sigType,
-		Source:    core.SignalSourceHuman,
-		Payload:   payload,
-		Actor:     "human",
-		CreatedAt: time.Now().UTC(),
+		Type:       sigType,
+		Source:     core.SignalSourceHuman,
+		Payload:    payload,
+		Actor:      "human",
+		CreatedAt:  time.Now().UTC(),
 	}
 	id, err := h.store.CreateActionSignal(r.Context(), sig)
 	if err != nil {
@@ -103,8 +103,8 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 
 // stepUnblockRequest is the request body for POST /steps/{stepID}/unblock.
 type stepUnblockRequest struct {
-	Reason       string `json:"reason"`                  // required
-	Instructions string `json:"instructions,omitempty"`   // optional: forwarded to agent as SignalInstruction
+	Reason       string `json:"reason"`                 // required
+	Instructions string `json:"instructions,omitempty"` // optional: forwarded to agent as SignalInstruction
 }
 
 func (h *Handler) actionUnblock(w http.ResponseWriter, r *http.Request) {
@@ -140,13 +140,13 @@ func (h *Handler) actionUnblock(w http.ResponseWriter, r *http.Request) {
 
 	// Create unblock signal.
 	sig := &core.ActionSignal{
-		ActionID:  stepID,
+		ActionID:   stepID,
 		WorkItemID: step.WorkItemID,
-		Type:      core.SignalUnblock,
-		Source:    core.SignalSourceHuman,
-		Payload:   map[string]any{"reason": req.Reason},
-		Actor:     "human",
-		CreatedAt: time.Now().UTC(),
+		Type:       core.SignalUnblock,
+		Source:     core.SignalSourceHuman,
+		Payload:    map[string]any{"reason": req.Reason},
+		Actor:      "human",
+		CreatedAt:  time.Now().UTC(),
 	}
 	sigID, err := h.store.CreateActionSignal(r.Context(), sig)
 	if err != nil {
@@ -159,15 +159,15 @@ func (h *Handler) actionUnblock(w http.ResponseWriter, r *http.Request) {
 	// that will be picked up by ResolveLatestFeedback and forwarded to the agent.
 	if strings.TrimSpace(req.Instructions) != "" {
 		instrSig := &core.ActionSignal{
-			ActionID:  stepID,
+			ActionID:   stepID,
 			WorkItemID: step.WorkItemID,
-			Type:      core.SignalInstruction,
-			Source:    core.SignalSourceHuman,
-			Summary:   "human instruction on unblock",
-			Content:   strings.TrimSpace(req.Instructions),
-			Payload:   map[string]any{"reason": req.Reason, "instructions": req.Instructions},
-			Actor:     "human",
-			CreatedAt: time.Now().UTC(),
+			Type:       core.SignalInstruction,
+			Source:     core.SignalSourceHuman,
+			Summary:    "human instruction on unblock",
+			Content:    strings.TrimSpace(req.Instructions),
+			Payload:    map[string]any{"reason": req.Reason, "instructions": req.Instructions},
+			Actor:      "human",
+			CreatedAt:  time.Now().UTC(),
 		}
 		_, _ = h.store.CreateActionSignal(r.Context(), instrSig)
 	}
@@ -196,8 +196,8 @@ func (h *Handler) actionUnblock(w http.ResponseWriter, r *http.Request) {
 
 // pendingDecisionItem wraps a step with its latest context signals for richer inbox display.
 type pendingDecisionItem struct {
-	Step          *core.Action        `json:"step"`
-	LatestContext *core.ActionSignal  `json:"latest_context,omitempty"`
+	Step          *core.Action         `json:"step"`
+	LatestContext *core.ActionSignal   `json:"latest_context,omitempty"`
 	Signals       []*core.ActionSignal `json:"signals,omitempty"`
 }
 

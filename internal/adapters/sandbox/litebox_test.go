@@ -98,4 +98,3 @@ func contains(args []string, want string) bool {
 	}
 	return false
 }
-

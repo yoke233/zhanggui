@@ -46,4 +46,3 @@ func (h *Handler) sendSystemEvent(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, systemEventResponse{Status: "ok"})
 }
-

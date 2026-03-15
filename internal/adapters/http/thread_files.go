@@ -10,14 +10,14 @@ import (
 
 // threadFileRef is a unified file reference returned by the file search API.
 type threadFileRef struct {
-	Source      string `json:"source"`                 // "attachment" | "project" | "workspace"
-	Name        string `json:"name"`                   // display name (file name or relative path)
-	Path        string `json:"path"`                   // relative path from thread cwd
+	Source      string `json:"source"` // "attachment" | "project" | "workspace"
+	Name        string `json:"name"`   // display name (file name or relative path)
+	Path        string `json:"path"`   // relative path from thread cwd
 	Size        int64  `json:"size,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	IsDirectory bool   `json:"is_directory,omitempty"`
-	Project     string `json:"project,omitempty"`       // project slug (for source=project)
-	Note        string `json:"note,omitempty"`          // attachment note
+	Project     string `json:"project,omitempty"` // project slug (for source=project)
+	Note        string `json:"note,omitempty"`    // attachment note
 }
 
 // listThreadFiles returns a unified file listing for the # trigger and file picker.

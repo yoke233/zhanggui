@@ -11,19 +11,19 @@ import (
 
 // NotificationModel is the GORM model for the notifications table.
 type NotificationModel struct {
-	ID        int64                                    `gorm:"column:id;primaryKey;autoIncrement"`
-	Level     string                                   `gorm:"column:level;not null"`
-	Title     string                                   `gorm:"column:title;not null"`
-	Body      string                                   `gorm:"column:body;not null;default:''"`
-	Category  string                                   `gorm:"column:category;not null;default:''"`
-	ActionURL string                                   `gorm:"column:action_url;not null;default:''"`
-	ProjectID *int64                                   `gorm:"column:project_id"`
-	IssueID   *int64                                   `gorm:"column:issue_id"`
-	ExecID    *int64                                   `gorm:"column:exec_id"`
-	Channels  JSONField[[]core.NotificationChannel]    `gorm:"column:channels;type:text"`
-	Read      bool                                     `gorm:"column:read;not null;default:false"`
-	ReadAt    *time.Time                               `gorm:"column:read_at"`
-	CreatedAt time.Time                                `gorm:"column:created_at"`
+	ID        int64                                 `gorm:"column:id;primaryKey;autoIncrement"`
+	Level     string                                `gorm:"column:level;not null"`
+	Title     string                                `gorm:"column:title;not null"`
+	Body      string                                `gorm:"column:body;not null;default:''"`
+	Category  string                                `gorm:"column:category;not null;default:''"`
+	ActionURL string                                `gorm:"column:action_url;not null;default:''"`
+	ProjectID *int64                                `gorm:"column:project_id"`
+	IssueID   *int64                                `gorm:"column:issue_id"`
+	ExecID    *int64                                `gorm:"column:exec_id"`
+	Channels  JSONField[[]core.NotificationChannel] `gorm:"column:channels;type:text"`
+	Read      bool                                  `gorm:"column:read;not null;default:false"`
+	ReadAt    *time.Time                            `gorm:"column:read_at"`
+	CreatedAt time.Time                             `gorm:"column:created_at"`
 }
 
 func (NotificationModel) TableName() string { return "notifications" }

@@ -29,9 +29,9 @@ func convertProfiles(driverCfgs []config.RuntimeDriverConfig, profileCfgs []conf
 		var driverCfg core.DriverConfig
 		if d, ok := driverMap[c.Driver]; ok {
 			driverCfg = core.DriverConfig{
-				LaunchCommand:   d.LaunchCommand,
-				LaunchArgs:      append([]string(nil), d.LaunchArgs...),
-				Env:             cloneStringMap(d.Env),
+				LaunchCommand: d.LaunchCommand,
+				LaunchArgs:    append([]string(nil), d.LaunchArgs...),
+				Env:           cloneStringMap(d.Env),
 				CapabilitiesMax: core.DriverCapabilities{
 					FSRead:   d.CapabilitiesMax.FSRead,
 					FSWrite:  d.CapabilitiesMax.FSWrite,

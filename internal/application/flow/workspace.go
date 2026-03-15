@@ -18,4 +18,3 @@ func WorkspaceFromContext(ctx context.Context) *core.Workspace {
 	ws, _ := ctx.Value(workspaceKey{}).(*core.Workspace)
 	return ws
 }
-

@@ -65,8 +65,8 @@ func (h *leadChatHandler) RequestPermission(ctx context.Context, req acpproto.Re
 
 	// Publish to event bus so the WS handler forwards it to the frontend.
 	h.bus.Publish(ctx, core.Event{
-		Type: core.EventChatPermissionRequest,
-		Data: payload,
+		Type:      core.EventChatPermissionRequest,
+		Data:      payload,
 		Timestamp: time.Now().UTC(),
 	})
 

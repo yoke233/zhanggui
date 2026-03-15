@@ -90,12 +90,12 @@ func (h *Handler) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	filter := parseAnalyticsFilter(r)
 
 	type summary struct {
-		ProjectErrors    []core.ProjectErrorRank `json:"project_errors"`
-		Bottlenecks      []core.ActionBottleneck   `json:"bottlenecks"`
-		DurationStats    []core.WorkItemDurationStat `json:"duration_stats"`
-		ErrorBreakdown   []core.ErrorKindCount   `json:"error_breakdown"`
-		RecentFailures   []core.FailureRecord    `json:"recent_failures"`
-		StatusDist       []core.StatusCount       `json:"status_distribution"`
+		ProjectErrors  []core.ProjectErrorRank     `json:"project_errors"`
+		Bottlenecks    []core.ActionBottleneck     `json:"bottlenecks"`
+		DurationStats  []core.WorkItemDurationStat `json:"duration_stats"`
+		ErrorBreakdown []core.ErrorKindCount       `json:"error_breakdown"`
+		RecentFailures []core.FailureRecord        `json:"recent_failures"`
+		StatusDist     []core.StatusCount          `json:"status_distribution"`
 	}
 
 	ctx := r.Context()

@@ -9,10 +9,10 @@ import (
 type InspectionStatus string
 
 const (
-	InspectionStatusPending    InspectionStatus = "pending"
-	InspectionStatusRunning    InspectionStatus = "running"
-	InspectionStatusCompleted  InspectionStatus = "completed"
-	InspectionStatusFailed     InspectionStatus = "failed"
+	InspectionStatusPending   InspectionStatus = "pending"
+	InspectionStatusRunning   InspectionStatus = "running"
+	InspectionStatusCompleted InspectionStatus = "completed"
+	InspectionStatusFailed    InspectionStatus = "failed"
 )
 
 // InspectionTrigger records how the inspection was initiated.
@@ -38,13 +38,13 @@ const (
 type FindingCategory string
 
 const (
-	CategoryBlocker    FindingCategory = "blocker"     // stuck/hung work items
-	CategoryFailure    FindingCategory = "failure"     // repeated failures
-	CategoryBottleneck FindingCategory = "bottleneck"  // slow actions
-	CategoryPattern    FindingCategory = "pattern"     // recurring error patterns
-	CategoryWaste      FindingCategory = "waste"       // token/resource waste
-	CategorySkillGap   FindingCategory = "skill_gap"   // missing skill opportunity
-	CategoryDrift      FindingCategory = "drift"       // deviation from expected behavior
+	CategoryBlocker    FindingCategory = "blocker"    // stuck/hung work items
+	CategoryFailure    FindingCategory = "failure"    // repeated failures
+	CategoryBottleneck FindingCategory = "bottleneck" // slow actions
+	CategoryPattern    FindingCategory = "pattern"    // recurring error patterns
+	CategoryWaste      FindingCategory = "waste"      // token/resource waste
+	CategorySkillGap   FindingCategory = "skill_gap"  // missing skill opportunity
+	CategoryDrift      FindingCategory = "drift"      // deviation from expected behavior
 )
 
 // InspectionReport is a single inspection run that aggregates system health data,
@@ -83,18 +83,18 @@ type InspectionReport struct {
 
 // InspectionSnapshot captures a quantitative picture of system state at inspection time.
 type InspectionSnapshot struct {
-	TotalWorkItems    int            `json:"total_work_items"`
-	ActiveWorkItems   int            `json:"active_work_items"`
-	FailedWorkItems   int            `json:"failed_work_items"`
-	BlockedWorkItems  int            `json:"blocked_work_items"`
-	SuccessRate       float64        `json:"success_rate"`
-	AvgDurationS      float64        `json:"avg_duration_s"`
-	TotalRuns         int            `json:"total_runs"`
-	FailedRuns        int            `json:"failed_runs"`
-	TotalTokens       int64          `json:"total_tokens"`
-	TopErrors         []ErrorKindCount `json:"top_errors,omitempty"`
-	TopBottlenecks    []ActionBottleneck `json:"top_bottlenecks,omitempty"`
-	StatusDistribution []StatusCount  `json:"status_distribution,omitempty"`
+	TotalWorkItems     int                `json:"total_work_items"`
+	ActiveWorkItems    int                `json:"active_work_items"`
+	FailedWorkItems    int                `json:"failed_work_items"`
+	BlockedWorkItems   int                `json:"blocked_work_items"`
+	SuccessRate        float64            `json:"success_rate"`
+	AvgDurationS       float64            `json:"avg_duration_s"`
+	TotalRuns          int                `json:"total_runs"`
+	FailedRuns         int                `json:"failed_runs"`
+	TotalTokens        int64              `json:"total_tokens"`
+	TopErrors          []ErrorKindCount   `json:"top_errors,omitempty"`
+	TopBottlenecks     []ActionBottleneck `json:"top_bottlenecks,omitempty"`
+	StatusDistribution []StatusCount      `json:"status_distribution,omitempty"`
 }
 
 // InspectionFinding is a single problem or observation discovered during inspection.
@@ -117,8 +117,8 @@ type InspectionFinding struct {
 	Recommendation string `json:"recommendation,omitempty"`
 
 	// Whether this finding is a recurrence of a previous one.
-	Recurring   bool  `json:"recurring"`
-	OccurrenceCount int `json:"occurrence_count"`
+	Recurring       bool `json:"recurring"`
+	OccurrenceCount int  `json:"occurrence_count"`
 
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -142,9 +142,9 @@ type InspectionInsight struct {
 
 // SuggestedSkill represents a skill that should be created based on recurring patterns.
 type SuggestedSkill struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Rationale   string `json:"rationale"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Rationale    string `json:"rationale"`
 	SkillMDDraft string `json:"skill_md_draft,omitempty"`
 }
 

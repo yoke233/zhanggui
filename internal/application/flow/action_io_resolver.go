@@ -124,8 +124,8 @@ func (r *ActionIOResolver) DepositOutputs(ctx context.Context, action *core.Acti
 			FileName:    filepath.Base(localPath),
 			MimeType:    decl.MediaType,
 			Metadata: map[string]any{
-				"action_id":   action.ID,
-				"io_decl_id":  decl.ID,
+				"action_id":     action.ID,
+				"io_decl_id":    decl.ID,
 				"declared_path": decl.Path,
 			},
 		}

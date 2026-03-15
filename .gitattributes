@@ -1,0 +1,19 @@
+# Enforce LF line endings for source files so CI (Linux) and local (Windows)
+# always see the same bytes.  This prevents gofmt / prettier diffs caused by
+# core.autocrlf on Windows.
+
+*.go      text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.json    text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.toml    text eol=lf
+*.sh      text eol=lf
+*.ps1     text eol=crlf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf

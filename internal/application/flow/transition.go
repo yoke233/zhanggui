@@ -19,7 +19,7 @@ var validActionTransitions = map[core.ActionStatus][]core.ActionStatus{
 	core.ActionWaitingGate: {core.ActionDone, core.ActionBlocked, core.ActionFailed, core.ActionPending, core.ActionCancelled},
 	core.ActionBlocked:     {core.ActionReady, core.ActionPending, core.ActionFailed, core.ActionCancelled},
 	core.ActionFailed:      {core.ActionPending, core.ActionCancelled}, // retry → back to pending
-	core.ActionDone:        {core.ActionPending},                      // gate reject → upstream retry
+	core.ActionDone:        {core.ActionPending},                       // gate reject → upstream retry
 }
 
 // validRunTransitions defines legal Run status transitions.

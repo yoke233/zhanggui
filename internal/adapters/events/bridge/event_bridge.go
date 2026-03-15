@@ -197,8 +197,8 @@ func (b *EventBridge) publish(ctx context.Context, data map[string]any) {
 		WorkItemID: b.scope.WorkItemID,
 		ActionID:   b.scope.ActionID,
 		RunID:      b.scope.RunID,
-		Data:      data,
-		Timestamp: time.Now().UTC(),
+		Data:       data,
+		Timestamp:  time.Now().UTC(),
 	}
 	if b.scope.SessionID != "" {
 		if ev.Data == nil {

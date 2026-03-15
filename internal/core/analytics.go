@@ -46,17 +46,17 @@ type ProjectErrorRank struct {
 
 // ActionBottleneck represents an action that is a bottleneck in work item execution.
 type ActionBottleneck struct {
-	ActionID     int64   `json:"action_id"`
-	ActionName   string  `json:"action_name"`
-	WorkItemID   int64   `json:"work_item_id"`
-	WorkItemTitle string `json:"work_item_title"`
-	ProjectID    *int64  `json:"project_id,omitempty"`
-	AvgDurationS float64 `json:"avg_duration_s"`
-	MaxDurationS float64 `json:"max_duration_s"`
-	RunCount     int     `json:"run_count"`
-	FailCount    int     `json:"fail_count"`
-	RetryCount   int     `json:"retry_count"`
-	FailRate     float64 `json:"fail_rate"`
+	ActionID      int64   `json:"action_id"`
+	ActionName    string  `json:"action_name"`
+	WorkItemID    int64   `json:"work_item_id"`
+	WorkItemTitle string  `json:"work_item_title"`
+	ProjectID     *int64  `json:"project_id,omitempty"`
+	AvgDurationS  float64 `json:"avg_duration_s"`
+	MaxDurationS  float64 `json:"max_duration_s"`
+	RunCount      int     `json:"run_count"`
+	FailCount     int     `json:"fail_count"`
+	RetryCount    int     `json:"retry_count"`
+	FailRate      float64 `json:"fail_rate"`
 }
 
 // WorkItemDurationStat provides duration statistics for a work item.

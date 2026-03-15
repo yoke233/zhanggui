@@ -236,5 +236,3 @@ func scopeMatches(userScopes []string, required string) bool {
 	}
 	return false
 }
-
-

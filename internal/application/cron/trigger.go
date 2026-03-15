@@ -15,11 +15,11 @@ import (
 // Metadata keys used in WorkItem.Metadata to define cron triggers.
 const (
 	MetaSchedule         = "cron_schedule"           // cron expression, e.g. "0 */6 * * *"
-	MetaEnabled          = "cron_enabled"             // "true" to activate
-	MetaTemplateID       = "cron_template"            // "true" marks this work item as a template (not submitted itself)
-	MetaMaxInstances     = "cron_max_instances"       // max concurrent instances from this template (default 1)
-	MetaSourceWorkItemID = "cron_source_workitem_id"  // set on cloned work items to trace origin
-	MetaLastTriggered    = "cron_last_triggered"      // ISO8601 timestamp of last trigger
+	MetaEnabled          = "cron_enabled"            // "true" to activate
+	MetaTemplateID       = "cron_template"           // "true" marks this work item as a template (not submitted itself)
+	MetaMaxInstances     = "cron_max_instances"      // max concurrent instances from this template (default 1)
+	MetaSourceWorkItemID = "cron_source_workitem_id" // set on cloned work items to trace origin
+	MetaLastTriggered    = "cron_last_triggered"     // ISO8601 timestamp of last trigger
 )
 
 // Store is the persistence port required by the cron trigger.

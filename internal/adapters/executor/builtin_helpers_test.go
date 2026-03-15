@@ -186,8 +186,8 @@ func (n *noopStore) UpdateWorkItemMetadata(context.Context, int64, map[string]an
 func (n *noopStore) PrepareWorkItemRun(context.Context, int64, core.WorkItemStatus) error {
 	panic("unused")
 }
-func (n *noopStore) SetWorkItemArchived(context.Context, int64, bool) error { panic("unused") }
-func (n *noopStore) DeleteWorkItem(context.Context, int64) error            { panic("unused") }
+func (n *noopStore) SetWorkItemArchived(context.Context, int64, bool) error    { panic("unused") }
+func (n *noopStore) DeleteWorkItem(context.Context, int64) error               { panic("unused") }
 func (n *noopStore) CreateThread(context.Context, *core.Thread) (int64, error) { panic("unused") }
 func (n *noopStore) GetThread(context.Context, int64) (*core.Thread, error)    { panic("unused") }
 func (n *noopStore) ListThreads(context.Context, core.ThreadFilter) ([]*core.Thread, error) {
@@ -487,7 +487,7 @@ func (n *noopStore) ListThreadTasksByGroup(context.Context, int64) ([]*core.Thre
 }
 func (n *noopStore) UpdateThreadTask(context.Context, *core.ThreadTask) error { panic("unused") }
 func (n *noopStore) DeleteThreadTasksByGroup(context.Context, int64) error    { panic("unused") }
-func (n *noopStore) Close() error                                            { return nil }
+func (n *noopStore) Close() error                                             { return nil }
 
 func assertErr(message string) error { return &errString{message: message} }
 

@@ -11,51 +11,51 @@ import (
 // -- GORM models --
 
 type InspectionReportModel struct {
-	ID          int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	ProjectID   *int64    `gorm:"column:project_id"`
-	Status      string    `gorm:"column:status;not null"`
-	Trigger     string    `gorm:"column:trigger_source;not null"`
-	PeriodStart time.Time `gorm:"column:period_start;not null"`
-	PeriodEnd   time.Time `gorm:"column:period_end;not null"`
-	Snapshot    JSONField[*core.InspectionSnapshot] `gorm:"column:snapshot;type:text"`
-	Summary     string    `gorm:"column:summary;not null;default:''"`
-	SuggestedSkills JSONField[[]core.SuggestedSkill] `gorm:"column:suggested_skills;type:text"`
-	ErrorMessage string   `gorm:"column:error_message;not null;default:''"`
-	CreatedAt   time.Time  `gorm:"column:created_at"`
-	FinishedAt  *time.Time `gorm:"column:finished_at"`
+	ID              int64                               `gorm:"column:id;primaryKey;autoIncrement"`
+	ProjectID       *int64                              `gorm:"column:project_id"`
+	Status          string                              `gorm:"column:status;not null"`
+	Trigger         string                              `gorm:"column:trigger_source;not null"`
+	PeriodStart     time.Time                           `gorm:"column:period_start;not null"`
+	PeriodEnd       time.Time                           `gorm:"column:period_end;not null"`
+	Snapshot        JSONField[*core.InspectionSnapshot] `gorm:"column:snapshot;type:text"`
+	Summary         string                              `gorm:"column:summary;not null;default:''"`
+	SuggestedSkills JSONField[[]core.SuggestedSkill]    `gorm:"column:suggested_skills;type:text"`
+	ErrorMessage    string                              `gorm:"column:error_message;not null;default:''"`
+	CreatedAt       time.Time                           `gorm:"column:created_at"`
+	FinishedAt      *time.Time                          `gorm:"column:finished_at"`
 }
 
 func (InspectionReportModel) TableName() string { return "inspection_reports" }
 
 type InspectionFindingModel struct {
-	ID              int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	InspectionID    int64  `gorm:"column:inspection_id;not null"`
-	Category        string `gorm:"column:category;not null"`
-	Severity        string `gorm:"column:severity;not null"`
-	Title           string `gorm:"column:title;not null"`
-	Description     string `gorm:"column:description;not null;default:''"`
-	Evidence        string `gorm:"column:evidence;not null;default:''"`
-	WorkItemID      *int64 `gorm:"column:work_item_id"`
-	ActionID        *int64 `gorm:"column:action_id"`
-	RunID           *int64 `gorm:"column:run_id"`
-	ProjectID       *int64 `gorm:"column:project_id"`
-	Recommendation  string `gorm:"column:recommendation;not null;default:''"`
-	Recurring       bool   `gorm:"column:recurring;not null;default:false"`
-	OccurrenceCount int    `gorm:"column:occurrence_count;not null;default:1"`
+	ID              int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	InspectionID    int64     `gorm:"column:inspection_id;not null"`
+	Category        string    `gorm:"column:category;not null"`
+	Severity        string    `gorm:"column:severity;not null"`
+	Title           string    `gorm:"column:title;not null"`
+	Description     string    `gorm:"column:description;not null;default:''"`
+	Evidence        string    `gorm:"column:evidence;not null;default:''"`
+	WorkItemID      *int64    `gorm:"column:work_item_id"`
+	ActionID        *int64    `gorm:"column:action_id"`
+	RunID           *int64    `gorm:"column:run_id"`
+	ProjectID       *int64    `gorm:"column:project_id"`
+	Recommendation  string    `gorm:"column:recommendation;not null;default:''"`
+	Recurring       bool      `gorm:"column:recurring;not null;default:false"`
+	OccurrenceCount int       `gorm:"column:occurrence_count;not null;default:1"`
 	CreatedAt       time.Time `gorm:"column:created_at"`
 }
 
 func (InspectionFindingModel) TableName() string { return "inspection_findings" }
 
 type InspectionInsightModel struct {
-	ID           int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	InspectionID int64  `gorm:"column:inspection_id;not null"`
-	Type         string `gorm:"column:type;not null"`
-	Title        string `gorm:"column:title;not null"`
-	Description  string `gorm:"column:description;not null;default:''"`
-	Trend        string `gorm:"column:trend;not null;default:''"`
+	ID           int64               `gorm:"column:id;primaryKey;autoIncrement"`
+	InspectionID int64               `gorm:"column:inspection_id;not null"`
+	Type         string              `gorm:"column:type;not null"`
+	Title        string              `gorm:"column:title;not null"`
+	Description  string              `gorm:"column:description;not null;default:''"`
+	Trend        string              `gorm:"column:trend;not null;default:''"`
 	ActionItems  JSONField[[]string] `gorm:"column:action_items;type:text"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
+	CreatedAt    time.Time           `gorm:"column:created_at"`
 }
 
 func (InspectionInsightModel) TableName() string { return "inspection_insights" }

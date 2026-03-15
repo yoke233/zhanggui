@@ -3,8 +3,8 @@ package sandbox
 import (
 	"context"
 
-	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 // Sandbox prepares a launch environment for an ACP agent process.
@@ -43,4 +43,3 @@ type NoopSandbox struct{}
 func (NoopSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.LaunchConfig, error) {
 	return in.Launch, nil
 }
-

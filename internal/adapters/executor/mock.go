@@ -33,7 +33,7 @@ func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionEx
 				WorkItemID: step.WorkItemID,
 				ActionID:   step.ID,
 				RunID:      exec.ID,
-				Timestamp: now,
+				Timestamp:  now,
 				Data: map[string]any{
 					"type":    "done",
 					"content": reply,

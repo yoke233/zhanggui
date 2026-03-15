@@ -93,8 +93,8 @@ type UsageTotalSummary struct {
 
 // UsageAnalyticsSummary is the composite response for the usage analytics endpoint.
 type UsageAnalyticsSummary struct {
-	Totals     *UsageTotalSummary    `json:"totals"`
-	ByProject  []ProjectUsageSummary `json:"by_project"`
-	ByAgent    []AgentUsageSummary   `json:"by_agent"`
-	ByProfile  []ProfileUsageSummary `json:"by_profile"`
+	Totals    *UsageTotalSummary    `json:"totals"`
+	ByProject []ProjectUsageSummary `json:"by_project"`
+	ByAgent   []AgentUsageSummary   `json:"by_agent"`
+	ByProfile []ProfileUsageSummary `json:"by_profile"`
 }
