@@ -23,8 +23,8 @@ func (b workItemAppBootstrapper) BootstrapPRWorkItem(ctx context.Context, workIt
 	case err == nil:
 		return nil
 	case errors.Is(err, errBootstrapPRIssueMissingProject),
-		errors.Is(err, errBootstrapPRIssueMissingBinding),
-		errors.Is(err, errBootstrapPRIssueAmbiguousBinding):
+		errors.Is(err, errBootstrapPRIssueMissingSpace),
+		errors.Is(err, errBootstrapPRIssueAmbiguousSpace):
 		return nil
 	default:
 		return err

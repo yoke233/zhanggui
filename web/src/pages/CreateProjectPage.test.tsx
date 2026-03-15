@@ -106,7 +106,7 @@ describe("CreateProjectPage", () => {
     await waitFor(() => {
       expect(apiClient.createProjectResource).toHaveBeenCalledWith(101, {
         kind: "git",
-        uri: "D:/project/alpha",
+        root_uri: "D:/project/alpha",
         label: "工作目录",
         config: {
           provider: "github",

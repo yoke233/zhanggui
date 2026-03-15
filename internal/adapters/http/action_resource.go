@@ -8,19 +8,19 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// --- Action Resource endpoints ---
+// --- Action IO declaration endpoints ---
 
-type createActionResourceRequest struct {
-	ResourceBindingID int64          `json:"resource_binding_id"`
-	Direction         string         `json:"direction"`
-	Path              string         `json:"path"`
-	MediaType         string         `json:"media_type,omitempty"`
-	Description       string         `json:"description,omitempty"`
-	Required          bool           `json:"required"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
+type createActionIODeclRequest struct {
+	SpaceID     *int64 `json:"space_id,omitempty"`
+	ResourceID  *int64 `json:"resource_id,omitempty"`
+	Direction   string `json:"direction"`
+	Path        string `json:"path"`
+	MediaType   string `json:"media_type,omitempty"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required"`
 }
 
-func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createActionIODecl(w http.ResponseWriter, r *http.Request) {
 	actionID, ok := urlParamInt64(r, "actionID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
@@ -37,7 +37,7 @@ func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req createActionResourceRequest
+	var req createActionIODeclRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
@@ -52,66 +52,76 @@ func (h *Handler) createActionResource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path is required", "MISSING_PATH")
 		return
 	}
-	if req.ResourceBindingID <= 0 {
-		writeError(w, http.StatusBadRequest, "resource_binding_id is required", "MISSING_RESOURCE_BINDING_ID")
+	if (req.SpaceID == nil) == (req.ResourceID == nil) {
+		writeError(w, http.StatusBadRequest, "exactly one of space_id or resource_id is required", "INVALID_REFERENCE")
 		return
 	}
-
-	// Verify resource binding exists.
-	if _, err := h.store.GetResourceBinding(r.Context(), req.ResourceBindingID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
+	if req.SpaceID != nil {
+		if _, err := h.store.GetResourceSpace(r.Context(), *req.SpaceID); err != nil {
+			if err == core.ErrNotFound {
+				writeError(w, http.StatusNotFound, "resource space not found", "RESOURCE_SPACE_NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
+	}
+	if req.ResourceID != nil {
+		if _, err := h.store.GetResource(r.Context(), *req.ResourceID); err != nil {
+			if err == core.ErrNotFound {
+				writeError(w, http.StatusNotFound, "resource not found", "RESOURCE_NOT_FOUND")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+			return
+		}
 	}
 
-	ar := &core.ActionResource{
-		ActionID:          actionID,
-		ResourceBindingID: req.ResourceBindingID,
-		Direction:         core.ActionResourceDirection(direction),
-		Path:              path,
-		MediaType:         strings.TrimSpace(req.MediaType),
-		Description:       strings.TrimSpace(req.Description),
-		Required:          req.Required,
-		Metadata:          req.Metadata,
+	decl := &core.ActionIODecl{
+		ActionID:    actionID,
+		SpaceID:     req.SpaceID,
+		ResourceID:  req.ResourceID,
+		Direction:   core.IODirection(direction),
+		Path:        path,
+		MediaType:   strings.TrimSpace(req.MediaType),
+		Description: strings.TrimSpace(req.Description),
+		Required:    req.Required,
 	}
-	id, err := h.store.CreateActionResource(r.Context(), ar)
+	id, err := h.store.CreateActionIODecl(r.Context(), decl)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		writeError(w, http.StatusBadRequest, err.Error(), "STORE_ERROR")
 		return
 	}
-	ar.ID = id
-	writeJSON(w, http.StatusCreated, ar)
+	decl.ID = id
+	writeJSON(w, http.StatusCreated, decl)
 }
 
-func (h *Handler) listActionResources(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listActionIODecls(w http.ResponseWriter, r *http.Request) {
 	actionID, ok := urlParamInt64(r, "actionID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
-	resources, err := h.store.ListActionResources(r.Context(), actionID)
+	decls, err := h.store.ListActionIODecls(r.Context(), actionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if resources == nil {
-		resources = []*core.ActionResource{}
+	if decls == nil {
+		decls = []*core.ActionIODecl{}
 	}
-	writeJSON(w, http.StatusOK, resources)
+	writeJSON(w, http.StatusOK, decls)
 }
 
-func (h *Handler) deleteActionResource(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "resourceID")
+func (h *Handler) deleteActionIODecl(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlParamInt64(r, "declID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid resource ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid decl ID", "BAD_ID")
 		return
 	}
-	if err := h.store.DeleteActionResource(r.Context(), id); err != nil {
+	if err := h.store.DeleteActionIODecl(r.Context(), id); err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "action resource not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "action io decl not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")

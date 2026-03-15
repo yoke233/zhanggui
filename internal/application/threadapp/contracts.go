@@ -26,6 +26,7 @@ type ThreadWriter interface {
 }
 
 type ThreadMessageWriter interface {
+	DeleteResourcesByThread(ctx context.Context, threadID int64) error
 	DeleteThreadMessagesByThread(ctx context.Context, threadID int64) error
 }
 
@@ -70,7 +71,7 @@ type Store interface {
 	ThreadLinkWriter
 	ThreadContextRefStore
 	WorkItemWriter
-	core.ResourceBindingStore
+	core.ResourceSpaceStore
 }
 
 type TxStore interface {

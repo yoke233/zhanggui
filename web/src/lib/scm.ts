@@ -1,4 +1,4 @@
-import type { ResourceBinding } from "@/types/apiV2";
+import type { ResourceSpace } from "@/types/apiV2";
 
 export type SupportedScmProvider = "github" | "codeup";
 
@@ -46,7 +46,9 @@ const normalizeBoolean = (value: unknown): boolean => {
   return false;
 };
 
-export const detectScmProviderFromBinding = (binding: Pick<ResourceBinding, "kind" | "uri" | "config">): SupportedScmProvider | null => {
+type ScmBinding = Pick<ResourceSpace, "kind" | "config"> & { uri?: string; root_uri?: string };
+
+export const detectScmProviderFromBinding = (binding: ScmBinding): SupportedScmProvider | null => {
   if (binding.kind.trim().toLowerCase() !== "git") {
     return null;
   }
@@ -56,7 +58,7 @@ export const detectScmProviderFromBinding = (binding: Pick<ResourceBinding, "kin
     return fromConfig;
   }
 
-  const host = parseHostFromUri(binding.uri);
+  const host = parseHostFromUri(binding.root_uri ?? binding.uri ?? "");
   if (host === "github.com") {
     return "github";
   }
@@ -67,7 +69,7 @@ export const detectScmProviderFromBinding = (binding: Pick<ResourceBinding, "kin
 };
 
 export const detectScmProviderFromBindings = (
-  bindings: Array<Pick<ResourceBinding, "kind" | "uri" | "config">>,
+  bindings: ScmBinding[],
 ): SupportedScmProvider | null => {
   for (const binding of bindings) {
     const provider = detectScmProviderFromBinding(binding);
@@ -78,7 +80,7 @@ export const detectScmProviderFromBindings = (
   return null;
 };
 
-export const isScmFlowEnabledBinding = (binding: Pick<ResourceBinding, "kind" | "uri" | "config">): boolean => {
+export const isScmFlowEnabledBinding = (binding: ScmBinding): boolean => {
   const provider = detectScmProviderFromBinding(binding);
   if (!provider) {
     return false;
@@ -87,7 +89,7 @@ export const isScmFlowEnabledBinding = (binding: Pick<ResourceBinding, "kind" | 
 };
 
 export const getScmFlowProviderFromBindings = (
-  bindings: Array<Pick<ResourceBinding, "kind" | "uri" | "config">>,
+  bindings: ScmBinding[],
 ): SupportedScmProvider | null => {
   for (const binding of bindings) {
     if (isScmFlowEnabledBinding(binding)) {

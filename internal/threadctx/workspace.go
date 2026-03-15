@@ -29,7 +29,7 @@ type Store interface {
 	GetProject(ctx context.Context, id int64) (*core.Project, error)
 	ListThreadMembers(ctx context.Context, threadID int64) ([]*core.ThreadMember, error)
 	ListThreadContextRefs(ctx context.Context, threadID int64) ([]*core.ThreadContextRef, error)
-	ListResourceBindings(ctx context.Context, projectID int64) ([]*core.ResourceBinding, error)
+	ListResourceSpaces(ctx context.Context, projectID int64) ([]*core.ResourceSpace, error)
 }
 
 type PathsInfo struct {
@@ -204,14 +204,14 @@ func ResolveMount(ctx context.Context, store Store, ref *core.ThreadContextRef) 
 	if err != nil {
 		return nil, err
 	}
-	bindings, err := store.ListResourceBindings(ctx, ref.ProjectID)
+	spaces, err := store.ListResourceSpaces(ctx, ref.ProjectID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetPath, checkCommands := resolveBindingTarget(bindings)
+	targetPath, checkCommands := resolveSpaceTarget(spaces)
 	if targetPath == "" {
-		return nil, fmt.Errorf("project %d has no resolvable workspace binding", ref.ProjectID)
+		return nil, fmt.Errorf("project %d has no resolvable workspace space", ref.ProjectID)
 	}
 	return &ResolvedMount{
 		Slug:          projectSlug(project),
@@ -222,36 +222,36 @@ func ResolveMount(ctx context.Context, store Store, ref *core.ThreadContextRef) 
 	}, nil
 }
 
-func resolveBindingTarget(bindings []*core.ResourceBinding) (string, []string) {
-	for _, binding := range bindings {
-		if binding == nil {
+func resolveSpaceTarget(spaces []*core.ResourceSpace) (string, []string) {
+	for _, space := range spaces {
+		if space == nil {
 			continue
 		}
-		switch binding.Kind {
+		switch space.Kind {
 		case core.ResourceKindLocalFS:
-			if path := strings.TrimSpace(binding.URI); path != "" {
-				return path, readCheckCommands(binding.Config)
+			if path := strings.TrimSpace(space.RootURI); path != "" {
+				return path, readCheckCommands(space.Config)
 			}
 		case core.ResourceKindGit:
-			if path := resolveGitBindingPath(binding); path != "" {
-				return path, readCheckCommands(binding.Config)
+			if path := resolveGitSpacePath(space); path != "" {
+				return path, readCheckCommands(space.Config)
 			}
 		}
 	}
 	return "", nil
 }
 
-func resolveGitBindingPath(binding *core.ResourceBinding) string {
-	if binding == nil {
+func resolveGitSpacePath(space *core.ResourceSpace) string {
+	if space == nil {
 		return ""
 	}
-	if uri := strings.TrimSpace(binding.URI); uri != "" && !looksLikeRemoteGitURI(uri) {
+	if uri := strings.TrimSpace(space.RootURI); uri != "" && !looksLikeRemoteGitURI(uri) {
 		return uri
 	}
-	if binding.Config == nil {
+	if space.Config == nil {
 		return ""
 	}
-	if cloneDir, ok := binding.Config["clone_dir"].(string); ok {
+	if cloneDir, ok := space.Config["clone_dir"].(string); ok {
 		return strings.TrimSpace(cloneDir)
 	}
 	return ""

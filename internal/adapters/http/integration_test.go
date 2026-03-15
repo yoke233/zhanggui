@@ -629,32 +629,32 @@ func TestIntegration_ResourceBindingCRUD(t *testing.T) {
 	})
 	p := decode[core.Project](t, resp)
 
-	// Create resource binding.
-	resp, _ = postJSON(ts, fmt.Sprintf("/projects/%d/resources", p.ID), map[string]any{
-		"kind":  "git",
-		"uri":   "https://github.com/example/repo.git",
-		"label": "main-repo",
+	// Create resource space.
+	resp, _ = postJSON(ts, fmt.Sprintf("/projects/%d/spaces", p.ID), map[string]any{
+		"kind":     "git",
+		"root_uri": "https://github.com/example/repo.git",
+		"label":    "main-repo",
 	})
 	requireStatus(t, resp, http.StatusCreated)
-	rb := decode[core.ResourceBinding](t, resp)
-	if rb.Kind != "git" || rb.URI != "https://github.com/example/repo.git" {
-		t.Fatalf("unexpected resource binding: %+v", rb)
+	rb := decode[core.ResourceSpace](t, resp)
+	if rb.Kind != "git" || rb.RootURI != "https://github.com/example/repo.git" {
+		t.Fatalf("unexpected resource space: %+v", rb)
 	}
 
 	// List.
-	resp, _ = getJSON(ts, fmt.Sprintf("/projects/%d/resources", p.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/projects/%d/spaces", p.ID))
 	requireStatus(t, resp, http.StatusOK)
-	bindings := decode[[]*core.ResourceBinding](t, resp)
+	bindings := decode[[]*core.ResourceSpace](t, resp)
 	if len(bindings) != 1 {
 		t.Fatalf("expected 1 binding, got %d", len(bindings))
 	}
 
 	// Get.
-	resp, _ = getJSON(ts, fmt.Sprintf("/resources/%d", rb.ID))
+	resp, _ = getJSON(ts, fmt.Sprintf("/spaces/%d", rb.ID))
 	requireStatus(t, resp, http.StatusOK)
 
 	// Delete.
-	resp, _ = deleteReq(ts, fmt.Sprintf("/resources/%d", rb.ID))
+	resp, _ = deleteReq(ts, fmt.Sprintf("/spaces/%d", rb.ID))
 	requireStatus(t, resp, http.StatusNoContent)
 
 	// Verify deleted.

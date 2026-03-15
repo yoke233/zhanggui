@@ -122,8 +122,8 @@ func TestSignalNeedHelp_BlocksAction(t *testing.T) {
 	}
 }
 
-// TestGateSignalApprove_E2E: exec → gate(SignalApprove) → work item done.
-func TestGateSignalApprove_E2E(t *testing.T) {
+// TestE2E_GateSignalApprove covers exec -> gate(SignalApprove) -> work item done.
+func TestE2E_GateSignalApprove(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -169,10 +169,8 @@ func TestGateSignalApprove_E2E(t *testing.T) {
 	}
 }
 
-// TestGateSignalReject_ReworkThenApprove_E2E:
-// exec → gate(reject) → exec reworks → gate(approve) → work item done.
-// This tests the full reject-rework-approve cycle via ActionSignal.
-func TestGateSignalReject_ReworkThenApprove_E2E(t *testing.T) {
+// TestE2E_GateSignalRejectReworkThenApprove covers reject -> rework -> approve via ActionSignal.
+func TestE2E_GateSignalRejectReworkThenApprove(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 

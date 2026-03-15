@@ -40,7 +40,7 @@ describe("ExecutionDetailPage", () => {
     cleanup();
   });
 
-  it("展示执行详情、artifact 与事件日志", async () => {
+  it("展示执行详情、运行结果资源与事件日志", async () => {
     const apiClient = {
       getRun: vi.fn().mockResolvedValue({
         id: 77,
@@ -51,6 +51,8 @@ describe("ExecutionDetailPage", () => {
         started_at: "2026-03-15T00:00:00Z",
         finished_at: null,
         agent_id: "agent-1",
+        result_markdown: "已提交补丁",
+        created_at: "2026-03-15T00:10:00Z",
       }),
       getAction: vi.fn().mockResolvedValue({
         id: 12,
@@ -65,11 +67,11 @@ describe("ExecutionDetailPage", () => {
         id: 42,
         title: "支付链路优化",
       }),
-      listDeliverablesByRun: vi.fn().mockResolvedValue([
+      listRunResources: vi.fn().mockResolvedValue([
         {
-          id: 5,
+          id: 9,
           run_id: 77,
-          result_markdown: "已提交补丁",
+          file_name: "patch.diff",
           created_at: "2026-03-15T00:10:00Z",
         },
       ]),
@@ -105,6 +107,7 @@ describe("ExecutionDetailPage", () => {
     expect(screen.getByText("实现支付重试")).toBeTruthy();
     expect(screen.getByText("支付链路优化")).toBeTruthy();
     expect(screen.getByText("已提交补丁")).toBeTruthy();
+    expect(screen.getByText("patch.diff")).toBeTruthy();
     expect(screen.getByText("支付重试可配置")).toBeTruthy();
     expect(screen.getByText("先看日志")).toBeTruthy();
     expect(screen.getByText("rg -n payment")).toBeTruthy();
@@ -117,7 +120,7 @@ describe("ExecutionDetailPage", () => {
       getRun: vi.fn().mockRejectedValue(new Error("execution unavailable")),
       getAction: vi.fn(),
       getWorkItem: vi.fn(),
-      listDeliverablesByRun: vi.fn(),
+      listRunResources: vi.fn(),
       listEvents: vi.fn(),
     };
 

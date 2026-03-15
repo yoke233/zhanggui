@@ -41,10 +41,10 @@ type bootstrapPRWorkItemResponse struct {
 }
 
 var (
-	errBootstrapPRIssueMissingProject   = errors.New("issue must belong to a project")
-	errBootstrapPRIssueMissingBinding   = errors.New("project does not have an enabled supported SCM git binding")
-	errBootstrapPRIssueAmbiguousBinding = errors.New("issue must select a resource binding when multiple SCM git bindings are enabled")
-	errBootstrapPRIssueHasSteps         = errors.New("issue already has steps")
+	errBootstrapPRIssueMissingProject = errors.New("issue must belong to a project")
+	errBootstrapPRIssueMissingSpace   = errors.New("project does not have an enabled supported SCM git space")
+	errBootstrapPRIssueAmbiguousSpace = errors.New("issue must select a resource space when multiple SCM git spaces are enabled")
+	errBootstrapPRIssueHasSteps       = errors.New("issue already has steps")
 )
 
 // bootstrapPRWorkItem creates a standard PR automation pipeline for an issue:
@@ -52,7 +52,7 @@ var (
 //
 // Requirements:
 // - Issue must belong to a project
-// - Project must have an enabled supported SCM git resource binding (GitHub / Codeup)
+// - Project must have an enabled supported SCM git resource space (GitHub / Codeup)
 func (h *Handler) bootstrapPRWorkItem(w http.ResponseWriter, r *http.Request) {
 	issueID, ok := urlParamInt64(r, "issueID")
 	if !ok {
@@ -73,9 +73,9 @@ func (h *Handler) bootstrapPRWorkItem(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.bootstrapPRWorkItemForIssue(r.Context(), issueID, req)
 	if err != nil {
 		switch {
-		case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingBinding):
+		case errors.Is(err, errBootstrapPRIssueMissingProject), errors.Is(err, errBootstrapPRIssueMissingSpace):
 			writeError(w, http.StatusBadRequest, err.Error(), "MISSING_SCM_BINDING")
-		case errors.Is(err, errBootstrapPRIssueAmbiguousBinding):
+		case errors.Is(err, errBootstrapPRIssueAmbiguousSpace):
 			writeError(w, http.StatusConflict, err.Error(), "AMBIGUOUS_SCM_BINDING")
 		case errors.Is(err, errBootstrapPRIssueHasSteps):
 			writeError(w, http.StatusConflict, err.Error(), "ISSUE_HAS_STEPS")
@@ -96,17 +96,17 @@ func (h *Handler) bootstrapPRWorkItemForIssue(ctx context.Context, issueID int64
 		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueMissingProject
 	}
 
-	bindings, err := h.store.ListResourceBindings(ctx, *issue.ProjectID)
+	spaces, err := h.store.ListResourceSpaces(ctx, *issue.ProjectID)
 	if err != nil {
 		return bootstrapPRWorkItemResponse{}, err
 	}
-	bindings, err = bindingsForIssue(issue, bindings)
+	spaces, err = spacesForIssue(issue, spaces)
 	if err != nil {
 		return bootstrapPRWorkItemResponse{}, err
 	}
-	bindingInfo, ok := resolveEnabledSCMRepoFromBindings(ctx, bindings)
+	bindingInfo, ok := resolveEnabledSCMRepoFromSpaces(ctx, spaces)
 	if !ok {
-		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueMissingBinding
+		return bootstrapPRWorkItemResponse{}, errBootstrapPRIssueMissingSpace
 	}
 
 	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
@@ -256,17 +256,17 @@ func defaultPRCommitMessage(issueID int64) string {
 	return fmt.Sprintf("chore(pr-issue): apply issue %d updates", issueID)
 }
 
-func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.ResourceBinding) (scmBindingInfo, bool) {
-	candidates := make([]scmBindingInfo, 0, len(bindings))
-	for _, b := range bindings {
-		if !bindingSCMFlowEnabled(b) {
+func resolveEnabledSCMRepoFromSpaces(ctx context.Context, spaces []*core.ResourceSpace) (scmBindingInfo, bool) {
+	candidates := make([]scmBindingInfo, 0, len(spaces))
+	for _, space := range spaces {
+		if !spaceSCMFlowEnabled(space) {
 			continue
 		}
-		repoPath := strings.TrimSpace(b.URI)
+		repoPath := resolveGitSpaceWorkDir(space)
 		if repoPath == "" {
 			continue
 		}
-		defaultBranch := bindingDefaultBranch(b)
+		defaultBranch := spaceDefaultBranch(space)
 		originURL, err := gitOriginURL(ctx, repoPath)
 		if err != nil {
 			continue
@@ -275,7 +275,7 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 		if err != nil {
 			continue
 		}
-		provider := bindingProvider(b, remote.Host)
+		provider := spaceProvider(space, remote.Host)
 		if provider == "" {
 			continue
 		}
@@ -283,7 +283,7 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 			Provider:      provider,
 			RepoPath:      repoPath,
 			DefaultBranch: defaultBranch,
-			MergeMethod:   bindingMergeMethod(b),
+			MergeMethod:   spaceMergeMethod(space),
 			RemoteHost:    strings.TrimSpace(remote.Host),
 			RemoteOwner:   strings.TrimSpace(remote.Owner),
 			RemoteRepo:    strings.TrimSpace(remote.Repo),
@@ -295,34 +295,34 @@ func resolveEnabledSCMRepoFromBindings(ctx context.Context, bindings []*core.Res
 	return candidates[0], true
 }
 
-func bindingsForIssue(issue *core.WorkItem, bindings []*core.ResourceBinding) ([]*core.ResourceBinding, error) {
+func spacesForIssue(issue *core.WorkItem, spaces []*core.ResourceSpace) ([]*core.ResourceSpace, error) {
 	if issue == nil {
 		return nil, errBootstrapPRIssueMissingProject
 	}
 	if issue.ResourceBindingID != nil {
-		for _, binding := range bindings {
-			if binding != nil && binding.ID == *issue.ResourceBindingID {
-				return []*core.ResourceBinding{binding}, nil
+		for _, space := range spaces {
+			if space != nil && space.ID == *issue.ResourceBindingID {
+				return []*core.ResourceSpace{space}, nil
 			}
 		}
-		return nil, errBootstrapPRIssueMissingBinding
+		return nil, errBootstrapPRIssueMissingSpace
 	}
 
-	enabledGitBindings := 0
-	for _, binding := range bindings {
-		if bindingSCMFlowEnabled(binding) {
-			enabledGitBindings++
+	enabledGitSpaces := 0
+	for _, space := range spaces {
+		if spaceSCMFlowEnabled(space) {
+			enabledGitSpaces++
 		}
 	}
-	if enabledGitBindings > 1 {
-		return nil, errBootstrapPRIssueAmbiguousBinding
+	if enabledGitSpaces > 1 {
+		return nil, errBootstrapPRIssueAmbiguousSpace
 	}
-	return bindings, nil
+	return spaces, nil
 }
 
-func bindingProvider(b *core.ResourceBinding, host string) string {
-	if b != nil && b.Config != nil {
-		if v, ok := b.Config["provider"].(string); ok && strings.TrimSpace(v) != "" {
+func spaceProvider(space *core.ResourceSpace, host string) string {
+	if space != nil && space.Config != nil {
+		if v, ok := space.Config["provider"].(string); ok && strings.TrimSpace(v) != "" {
 			return strings.ToLower(strings.TrimSpace(v))
 		}
 	}
@@ -337,11 +337,11 @@ func bindingProvider(b *core.ResourceBinding, host string) string {
 	}
 }
 
-func bindingSCMFlowEnabled(b *core.ResourceBinding) bool {
-	if b == nil || strings.TrimSpace(strings.ToLower(b.Kind)) != "git" || b.Config == nil {
+func spaceSCMFlowEnabled(space *core.ResourceSpace) bool {
+	if space == nil || strings.TrimSpace(strings.ToLower(space.Kind)) != core.ResourceKindGit || space.Config == nil {
 		return false
 	}
-	return bindingConfigBool(b.Config["enable_scm_flow"])
+	return bindingConfigBool(space.Config["enable_scm_flow"])
 }
 
 func bindingConfigBool(value any) bool {
@@ -360,10 +360,10 @@ func bindingConfigBool(value any) bool {
 	}
 }
 
-func bindingDefaultBranch(b *core.ResourceBinding) string {
-	if b != nil && b.Config != nil {
+func spaceDefaultBranch(space *core.ResourceSpace) string {
+	if space != nil && space.Config != nil {
 		for _, key := range []string{"base_branch", "default_branch"} {
-			if v, ok := b.Config[key].(string); ok && strings.TrimSpace(v) != "" {
+			if v, ok := space.Config[key].(string); ok && strings.TrimSpace(v) != "" {
 				return strings.TrimSpace(v)
 			}
 		}
@@ -371,9 +371,9 @@ func bindingDefaultBranch(b *core.ResourceBinding) string {
 	return "main"
 }
 
-func bindingMergeMethod(b *core.ResourceBinding) string {
-	if b != nil && b.Config != nil {
-		if v, ok := b.Config["merge_method"].(string); ok && strings.TrimSpace(v) != "" {
+func spaceMergeMethod(space *core.ResourceSpace) string {
+	if space != nil && space.Config != nil {
+		if v, ok := space.Config["merge_method"].(string); ok && strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
 		}
 	}

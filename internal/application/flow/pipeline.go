@@ -196,7 +196,7 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 		if ws != nil && ws.Path != "" {
 			sourceDir = ws.Path
 		}
-		if depositErr := e.preparation.resources.DepositOutputs(ctx, action.ID, sourceDir); depositErr != nil {
+		if depositErr := e.preparation.resources.DepositOutputs(ctx, action, run, sourceDir); depositErr != nil {
 			e.workflow.bus.Publish(ctx, core.Event{
 				Type:       core.EventRunFailed,
 				WorkItemID: action.WorkItemID,

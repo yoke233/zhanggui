@@ -3,8 +3,22 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 )
+
+func (s *Store) DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	subQuery := s.orm.WithContext(ctx).
+		Model(&ActionModel{}).
+		Select("id").
+		Where("issue_id = ?", workItemID)
+	return s.orm.WithContext(ctx).
+		Where("action_id IN (?)", subQuery).
+		Delete(&ActionIODeclModel{}).Error
+}
 
 func (s *Store) DeleteActionResourcesByWorkItem(ctx context.Context, workItemID int64) error {
 	if s == nil || s.orm == nil {
@@ -26,6 +40,31 @@ func (s *Store) DeleteRunsByWorkItem(ctx context.Context, workItemID int64) erro
 	return s.orm.WithContext(ctx).
 		Where("issue_id = ?", workItemID).
 		Delete(&RunModel{}).Error
+}
+
+func (s *Store) DeleteResourcesByWorkItem(ctx context.Context, workItemID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	runSubQuery := s.orm.WithContext(ctx).
+		Model(&RunModel{}).
+		Select("id").
+		Where("issue_id = ?", workItemID)
+
+	var models []ResourceModel
+	if err := s.orm.WithContext(ctx).
+		Where("work_item_id = ? OR run_id IN (?)", workItemID, runSubQuery).
+		Find(&models).Error; err != nil {
+		return err
+	}
+	for _, model := range models {
+		if model.StorageKind == "local" && model.URI != "" {
+			_ = os.Remove(model.URI)
+		}
+	}
+	return s.orm.WithContext(ctx).
+		Where("work_item_id = ? OR run_id IN (?)", workItemID, runSubQuery).
+		Delete(&ResourceModel{}).Error
 }
 
 func (s *Store) DeleteActionSignalsByWorkItem(ctx context.Context, workItemID int64) error {

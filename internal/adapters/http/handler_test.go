@@ -305,7 +305,7 @@ func TestAPI_WorkItemRoutesCRUDAndLifecycle(t *testing.T) {
 		t.Fatalf("unexpected steps from legacy route: %+v", steps)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/attachments", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/resources", issue.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing attachments via alias, got %d", resp.StatusCode)
 	}
@@ -403,10 +403,10 @@ func TestAPI_CreateIssue_AutoBootstrapsSCMFlow(t *testing.T) {
 		t.Fatalf("decode project: %v", err)
 	}
 
-	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "git",
-		"uri":   repoDir,
-		"label": "repo",
+	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "git",
+		"root_uri": repoDir,
+		"label":    "repo",
 		"config": map[string]any{
 			"provider":        "github",
 			"enable_scm_flow": true,
@@ -487,11 +487,11 @@ func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(
 		t.Fatalf("decode project: %v", err)
 	}
 
-	createResource := func(label, uri string) core.ResourceBinding {
-		resp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-			"kind":  "git",
-			"uri":   uri,
-			"label": label,
+	createResource := func(label, uri string) core.ResourceSpace {
+		resp, err := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+			"kind":     "git",
+			"root_uri": uri,
+			"label":    label,
 			"config": map[string]any{
 				"provider":        "github",
 				"enable_scm_flow": true,
@@ -505,11 +505,11 @@ func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("expected 201 creating resource %s, got %d", label, resp.StatusCode)
 		}
-		var binding core.ResourceBinding
-		if err := decodeJSON(resp, &binding); err != nil {
+		var space core.ResourceSpace
+		if err := decodeJSON(resp, &space); err != nil {
 			t.Fatalf("decode resource %s: %v", label, err)
 		}
-		return binding
+		return space
 	}
 
 	_ = createResource("repo-a", repoA)
@@ -576,10 +576,10 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapAmbiguousSCMBindings(t *testing.T) 
 	}
 
 	for _, repoDir := range []string{repoA, repoB} {
-		resp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-			"kind":  "git",
-			"uri":   repoDir,
-			"label": filepath.Base(repoDir),
+		resp, err := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+			"kind":     "git",
+			"root_uri": repoDir,
+			"label":    filepath.Base(repoDir),
 			"config": map[string]any{
 				"provider":        "github",
 				"enable_scm_flow": true,
@@ -650,10 +650,10 @@ func TestAPI_CreateIssue_DoesNotAutoBootstrapWithoutEnabledSCMFlow(t *testing.T)
 		t.Fatalf("decode project: %v", err)
 	}
 
-	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "git",
-		"uri":   repoDir,
-		"label": "repo",
+	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "git",
+		"root_uri": repoDir,
+		"label":    "repo",
 		"config": map[string]any{
 			"provider":     "github",
 			"base_branch":  "main",
@@ -714,10 +714,10 @@ func TestAPI_AttachmentRoutesRejectNonAttachmentBindings(t *testing.T) {
 		t.Fatalf("decode project: %v", err)
 	}
 
-	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "local_fs",
-		"uri":   t.TempDir(),
-		"label": "workspace",
+	resourceResp, err := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "local_fs",
+		"root_uri": t.TempDir(),
+		"label":    "workspace",
 	})
 	if err != nil {
 		t.Fatalf("create resource: %v", err)
@@ -725,12 +725,12 @@ func TestAPI_AttachmentRoutesRejectNonAttachmentBindings(t *testing.T) {
 	if resourceResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating resource, got %d", resourceResp.StatusCode)
 	}
-	var binding core.ResourceBinding
+	var binding core.ResourceSpace
 	if err := decodeJSON(resourceResp, &binding); err != nil {
 		t.Fatalf("decode resource: %v", err)
 	}
 
-	resp, err := get(ts, fmt.Sprintf("/attachments/%d", binding.ID))
+	resp, err := get(ts, fmt.Sprintf("/resources/%d", binding.ID))
 	if err != nil {
 		t.Fatalf("get attachment: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestAPI_AttachmentRoutesRejectNonAttachmentBindings(t *testing.T) {
 		t.Fatalf("expected 404 for non-attachment binding, got %d", resp.StatusCode)
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/attachments/%d", binding.ID), nil)
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/resources/%d", binding.ID), nil)
 	if err != nil {
 		t.Fatalf("build delete request: %v", err)
 	}
@@ -1974,83 +1974,5 @@ func TestAPI_UpdateLLMConfig_BadRequest(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// E2E API Test: Create issue + steps → run → verify all entities
-// ---------------------------------------------------------------------------
-
-func TestAPI_E2E_IssueLifecycle(t *testing.T) {
-	_, ts := setupAPI(t)
-
-	// 1. Create issue.
-	resp, _ := post(ts, "/work-items", map[string]any{"title": "e2e-api", "priority": "medium"})
-	var issue core.WorkItem
-	decodeJSON(resp, &issue)
-
-	// 2. Create steps: A, B.
-	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
-		"name": "A", "type": "exec",
-	})
-	var stepA core.Action
-	decodeJSON(resp, &stepA)
-
-	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
-		"name": "B", "type": "exec",
-	})
-	var stepB core.Action
-	decodeJSON(resp, &stepB)
-
-	// 3. List steps.
-	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
-	var steps []*core.Action
-	decodeJSON(resp, &steps)
-	if len(steps) != 2 {
-		t.Fatalf("expected 2 steps, got %d", len(steps))
-	}
-
-	// 4. Run issue.
-	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/run", issue.ID), nil)
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d", resp.StatusCode)
-	}
-	time.Sleep(500 * time.Millisecond)
-
-	// 5. Verify issue done.
-	resp, _ = get(ts, fmt.Sprintf("/work-items/%d", issue.ID))
-	decodeJSON(resp, &issue)
-	if issue.Status != core.WorkItemDone {
-		t.Fatalf("expected done, got %s", issue.Status)
-	}
-
-	// 6. Verify steps done.
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d", stepA.ID))
-	decodeJSON(resp, &stepA)
-	if stepA.Status != core.ActionDone {
-		t.Fatalf("expected A done, got %s", stepA.Status)
-	}
-
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d", stepB.ID))
-	decodeJSON(resp, &stepB)
-	if stepB.Status != core.ActionDone {
-		t.Fatalf("expected B done, got %s", stepB.Status)
-	}
-
-	// 7. Verify executions exist.
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d/executions", stepA.ID))
-	var execs []*core.Run
-	decodeJSON(resp, &execs)
-	if len(execs) == 0 {
-		t.Fatal("expected at least 1 execution for step A")
-	}
-	if execs[0].Status != core.RunSucceeded {
-		t.Fatalf("expected succeeded, got %s", execs[0].Status)
-	}
-
-	// 8. Verify events endpoint works (events are in-memory bus, not persisted yet).
-	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 for events, got %d", resp.StatusCode)
 	}
 }

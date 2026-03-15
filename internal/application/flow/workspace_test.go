@@ -10,13 +10,13 @@ import (
 
 func TestLocalDirProvider(t *testing.T) {
 	p := &workspaceprovider.LocalDirProvider{}
-	bindings := []*core.ResourceBinding{
-		{ID: 1, Kind: "git", URI: "/repo"},
-		{ID: 2, Kind: "local_fs", URI: "/data/marketing"},
+	spaces := []*core.ResourceSpace{
+		{ID: 1, Kind: "git", RootURI: "/repo"},
+		{ID: 2, Kind: "local_fs", RootURI: "/data/marketing"},
 	}
 	project := &core.Project{ID: 1, Kind: core.ProjectGeneral}
 
-	ws, err := p.Prepare(context.Background(), project, bindings, 100)
+	ws, err := p.Prepare(context.Background(), project, spaces, 100)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -35,23 +35,23 @@ func TestLocalDirProvider(t *testing.T) {
 
 func TestLocalDirProvider_NoBinding(t *testing.T) {
 	p := &workspaceprovider.LocalDirProvider{}
-	bindings := []*core.ResourceBinding{
-		{ID: 1, Kind: "git", URI: "/repo"},
+	spaces := []*core.ResourceSpace{
+		{ID: 1, Kind: "git", RootURI: "/repo"},
 	}
-	_, err := p.Prepare(context.Background(), nil, bindings, 1)
+	_, err := p.Prepare(context.Background(), nil, spaces, 1)
 	if err == nil {
-		t.Fatal("expected error for missing local_fs binding")
+		t.Fatal("expected error for missing local_fs space")
 	}
 }
 
-func TestCompositeProvider_BindingKindDispatch(t *testing.T) {
-	// CompositeProvider routes by binding kind, not project kind.
+func TestCompositeProvider_SpaceKindDispatch(t *testing.T) {
+	// CompositeProvider routes by space kind, not project kind.
 	cp := workspaceprovider.NewCompositeProvider()
 
-	// local_fs binding → LocalDirProvider (any project kind)
+	// local_fs space → LocalDirProvider (any project kind)
 	ws, err := cp.Prepare(context.Background(),
 		&core.Project{ID: 1, Kind: core.ProjectGeneral},
-		[]*core.ResourceBinding{{Kind: "local_fs", URI: "/tmp/test"}},
+		[]*core.ResourceSpace{{Kind: "local_fs", RootURI: "/tmp/test"}},
 		1,
 	)
 	if err != nil {
@@ -61,10 +61,10 @@ func TestCompositeProvider_BindingKindDispatch(t *testing.T) {
 		t.Fatalf("expected /tmp/test, got %s", ws.Path)
 	}
 
-	// dev project with local_fs binding still works
+	// dev project with local_fs space still works
 	ws2, err := cp.Prepare(context.Background(),
 		&core.Project{ID: 2, Kind: core.ProjectDev},
-		[]*core.ResourceBinding{{Kind: "local_fs", URI: "/tmp/dev"}},
+		[]*core.ResourceSpace{{Kind: "local_fs", RootURI: "/tmp/dev"}},
 		2,
 	)
 	if err != nil {
@@ -74,14 +74,14 @@ func TestCompositeProvider_BindingKindDispatch(t *testing.T) {
 		t.Fatalf("expected /tmp/dev, got %s", ws2.Path)
 	}
 
-	// unknown binding kind → error
+	// unknown space kind → error
 	_, err = cp.Prepare(context.Background(),
 		&core.Project{ID: 3, Kind: core.ProjectGeneral},
-		[]*core.ResourceBinding{{Kind: "unknown_kind", URI: "/tmp"}},
+		[]*core.ResourceSpace{{Kind: "unknown_kind", RootURI: "/tmp"}},
 		3,
 	)
 	if err == nil {
-		t.Fatal("expected error for unknown binding kind")
+		t.Fatal("expected error for unknown space kind")
 	}
 }
 
@@ -136,22 +136,22 @@ func TestCompositeProvider_Release(t *testing.T) {
 	}
 }
 
-func TestDefaultBranchFromBinding_PrefersBaseBranch(t *testing.T) {
-	binding := &core.ResourceBinding{
+func TestDefaultBranchFromSpace_PrefersBaseBranch(t *testing.T) {
+	space := &core.ResourceSpace{
 		Kind: "git",
 		Config: map[string]any{
 			"default_branch": "main",
 			"base_branch":    "release/2026.03",
 		},
 	}
-	if got := workspaceprovider.DefaultBranchFromBinding(binding); got != "release/2026.03" {
-		t.Fatalf("defaultBranchFromBinding = %q", got)
+	if got := workspaceprovider.DefaultBranchFromSpace(space); got != "release/2026.03" {
+		t.Fatalf("DefaultBranchFromSpace = %q", got)
 	}
 }
 
-func TestMergeSCMBindingMetadata_CopiesCodeupDefaults(t *testing.T) {
+func TestMergeSCMSpaceMetadata_CopiesCodeupDefaults(t *testing.T) {
 	dst := map[string]any{}
-	workspaceprovider.MergeSCMBindingMetadata(dst, map[string]any{
+	workspaceprovider.MergeSCMSpaceMetadata(dst, map[string]any{
 		"provider":             "codeup",
 		"organization_id":      "5f6ea0829cffa29cfdd39a7f",
 		"project_id":           2369234,

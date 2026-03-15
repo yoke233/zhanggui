@@ -10,8 +10,8 @@ type ProjectReader interface {
 	GetProject(ctx context.Context, id int64) (*core.Project, error)
 }
 
-type ResourceBindingReader interface {
-	GetResourceBinding(ctx context.Context, id int64) (*core.ResourceBinding, error)
+type ResourceSpaceReader interface {
+	GetResourceSpace(ctx context.Context, id int64) (*core.ResourceSpace, error)
 }
 
 type WorkItemReader interface {
@@ -32,21 +32,21 @@ type ActionReader interface {
 }
 
 type AggregateDeletionStore interface {
-	DeleteActionResourcesByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteResourcesByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteRunsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteActionSignalsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteAgentContextsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteEventsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteJournalByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
-	DeleteResourceBindingsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteActionsByWorkItem(ctx context.Context, workItemID int64) error
 	DetachFeatureEntriesByWorkItem(ctx context.Context, workItemID int64) error
 }
 
 type Store interface {
 	ProjectReader
-	ResourceBindingReader
+	ResourceSpaceReader
 	WorkItemReader
 	WorkItemWriter
 	ActionReader

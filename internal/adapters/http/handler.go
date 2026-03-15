@@ -151,25 +151,28 @@ func (h *Handler) Register(r chi.Router) {
 	r.Put("/projects/{projectID}", h.updateProject)
 	r.Delete("/projects/{projectID}", h.deleteProject)
 
-	// Resource Bindings (unified: workspace sources + I/O storage)
-	r.Post("/projects/{projectID}/resources", h.createResourceBinding)
-	r.Get("/projects/{projectID}/resources", h.listResourceBindings)
-	r.Get("/resources/{resourceID}", h.getResourceBinding)
-	r.Put("/resources/{resourceID}", h.updateResourceBinding)
-	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
+	// Resource Spaces (project-level path spaces)
+	r.Post("/projects/{projectID}/spaces", h.createResourceSpace)
+	r.Get("/projects/{projectID}/spaces", h.listResourceSpaces)
+	r.Get("/spaces/{spaceID}", h.getResourceSpace)
+	r.Put("/spaces/{spaceID}", h.updateResourceSpace)
+	r.Delete("/spaces/{spaceID}", h.deleteResourceSpace)
 
-	// Action Resources (per-action input/output resource declarations)
-	r.Post("/actions/{actionID}/resources", h.createActionResource)
-	r.Get("/actions/{actionID}/resources", h.listActionResources)
-	r.Delete("/action-resources/{resourceID}", h.deleteActionResource)
+	// Action IO declarations
+	r.Post("/actions/{actionID}/io-decls", h.createActionIODecl)
+	r.Get("/actions/{actionID}/io-decls", h.listActionIODecls)
+	r.Delete("/io-decls/{declID}", h.deleteActionIODecl)
 
 	// Work Item public routes.
 	h.registerWorkItemRoutes(r, "/work-items")
 
-	// Issue Attachments
-	r.Get("/attachments/{attachmentID}", h.getWorkItemAttachment)
-	r.Get("/attachments/{attachmentID}/download", h.downloadWorkItemAttachment)
-	r.Delete("/attachments/{attachmentID}", h.deleteWorkItemAttachment)
+	// Resources (files/objects)
+	r.Post("/messages/{messageID}/resources", h.uploadMessageResource)
+	r.Get("/messages/{messageID}/resources", h.listMessageResources)
+	r.Get("/runs/{runID}/resources", h.listRunResources)
+	r.Get("/resources/{resourceID}", h.getResource)
+	r.Get("/resources/{resourceID}/download", h.downloadResource)
+	r.Delete("/resources/{resourceID}", h.deleteResource)
 	r.Get("/steps/{stepID}", h.getAction)
 	r.Put("/steps/{stepID}", h.updateAction)
 	r.Delete("/steps/{stepID}", h.deleteAction)
@@ -191,11 +194,6 @@ func (h *Handler) Register(r chi.Router) {
 	// Executions
 	r.Get("/steps/{stepID}/executions", h.listRuns)
 	r.Get("/executions/{execID}", h.getRun)
-
-	// Artifacts
-	r.Get("/artifacts/{artifactID}", h.getDeliverable)
-	r.Get("/steps/{stepID}/artifact", h.getLatestDeliverable)
-	r.Get("/executions/{execID}/artifacts", h.listDeliverablesByRun)
 
 	// Events
 	r.Get("/events", h.listEvents)
@@ -243,6 +241,7 @@ func (h *Handler) Register(r chi.Router) {
 
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
+	registerWorkItemTrackRoutes(r, h)
 
 	// Notifications
 	registerNotificationRoutes(r, h)
@@ -287,8 +286,8 @@ func (h *Handler) registerWorkItemRoutes(r chi.Router, basePath string) {
 	r.Post(basePath+"/{issueID}/unarchive", h.unarchiveWorkItem)
 	r.Post(basePath+"/{issueID}/run", h.runWorkItem)
 	r.Post(basePath+"/{issueID}/cancel", h.cancelWorkItem)
-	r.Post(basePath+"/{issueID}/attachments", h.uploadWorkItemAttachment)
-	r.Get(basePath+"/{issueID}/attachments", h.listWorkItemAttachments)
+	r.Post(basePath+"/{issueID}/resources", h.uploadWorkItemResource)
+	r.Get(basePath+"/{issueID}/resources", h.listWorkItemResources)
 	r.Post(basePath+"/{issueID}/steps", h.createAction)
 	r.Get(basePath+"/{issueID}/steps", h.listActions)
 	r.Post(basePath+"/{issueID}/generate-steps", h.generateActions)

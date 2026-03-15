@@ -14,8 +14,6 @@ type ProjectStore interface {
 	DeleteProject(ctx context.Context, id int64) error
 }
 
-// ResourceBindingStore is declared in resource.go.
-
 // ActionStore persists Action aggregates.
 type ActionStore interface {
 	CreateAction(ctx context.Context, a *Action) (int64, error)
@@ -72,9 +70,11 @@ type DAGTemplateStore interface {
 // Store is the aggregate interface combining all sub-stores.
 type Store interface {
 	ProjectStore
-	ResourceBindingStore
-	ActionResourceStore
+	ResourceSpaceStore
+	ResourceStore
+	ActionIODeclStore
 	WorkItemStore
+	WorkItemTrackStore
 	ThreadStore
 	ActionStore
 	RunStore

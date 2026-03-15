@@ -32,15 +32,15 @@ func TestResolveMount(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 	projectDir := t.TempDir()
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       projectDir,
+		RootURI:   projectDir,
 		Config: map[string]any{
 			"check_commands": []string{"go test ./..."},
 		},
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 
 	mount, err := ResolveMount(ctx, store, &core.ThreadContextRef{
@@ -83,12 +83,12 @@ func TestBuildWorkspaceContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	if _, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 		ThreadID:  threadID,
@@ -171,15 +171,15 @@ func TestSyncContextFileAndLoadContextFileRoundTrip(t *testing.T) {
 	}
 
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Gamma", Kind: core.ProjectGeneral})
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 		Config: map[string]any{
 			"check_commands": []any{"go test ./...", "npm test"},
 		},
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	if _, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 		ThreadID:  threadID,
@@ -260,16 +260,16 @@ func TestResolveMountUsesGitCloneDirForRemoteBinding(t *testing.T) {
 
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Remote Repo", Kind: core.ProjectGeneral})
 	cloneDir := t.TempDir()
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindGit,
-		URI:       "https://github.com/acme/demo.git",
+		RootURI:   "https://github.com/acme/demo.git",
 		Config: map[string]any{
 			"clone_dir":      cloneDir,
 			"check_commands": []string{"go test ./..."},
 		},
 	}); err != nil {
-		t.Fatalf("create git resource binding: %v", err)
+		t.Fatalf("create git resource space: %v", err)
 	}
 
 	mount, err := ResolveMount(ctx, store, &core.ThreadContextRef{
@@ -290,10 +290,10 @@ type threadctxStoreStub struct {
 	getProjectErr        error
 	listMembers          []*core.ThreadMember
 	listThreadContextRef []*core.ThreadContextRef
-	listBindings         []*core.ResourceBinding
+	listSpaces           []*core.ResourceSpace
 	listMembersErr       error
 	listRefsErr          error
-	listBindingsErr      error
+	listSpacesErr        error
 	project              *core.Project
 }
 
@@ -322,8 +322,8 @@ func (s *threadctxStoreStub) ListThreadContextRefs(context.Context, int64) ([]*c
 	return s.listThreadContextRef, s.listRefsErr
 }
 
-func (s *threadctxStoreStub) ListResourceBindings(context.Context, int64) ([]*core.ResourceBinding, error) {
-	return s.listBindings, s.listBindingsErr
+func (s *threadctxStoreStub) ListResourceSpaces(context.Context, int64) ([]*core.ResourceSpace, error) {
+	return s.listSpaces, s.listSpacesErr
 }
 
 func TestPathsAndEnsureLayout(t *testing.T) {
@@ -476,8 +476,8 @@ func TestBuildWorkspaceContextSkipsBrokenMountsAndDeduplicatesMembers(t *testing
 			{ThreadID: 1, ProjectID: 7, Access: core.ContextAccessCheck},
 			{ThreadID: 1, ProjectID: 8, Access: core.ContextAccessRead},
 		},
-		listBindings: []*core.ResourceBinding{
-			{ProjectID: 7, Kind: core.ResourceKindLocalFS, URI: t.TempDir()},
+		listSpaces: []*core.ResourceSpace{
+			{ProjectID: 7, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()},
 		},
 	}
 
@@ -503,19 +503,19 @@ func TestResolveMountAndHelpersErrors(t *testing.T) {
 	}
 
 	store.project = &core.Project{ID: 3, Name: "Project"}
-	store.listBindings = []*core.ResourceBinding{{Kind: core.ResourceKindGit, URI: "https://example.com/repo.git"}}
+	store.listSpaces = []*core.ResourceSpace{{Kind: core.ResourceKindGit, RootURI: "https://example.com/repo.git"}}
 	if _, err := ResolveMount(context.Background(), store, &core.ThreadContextRef{ProjectID: 3, Access: core.ContextAccessRead}); err == nil {
 		t.Fatal("expected unresolved binding to fail")
 	}
 
-	if path, checks := resolveBindingTarget([]*core.ResourceBinding{
+	if path, checks := resolveSpaceTarget([]*core.ResourceSpace{
 		nil,
-		{Kind: core.ResourceKindGit, URI: "git@github.com:org/repo.git", Config: map[string]any{"clone_dir": "C:/repo", "check_commands": []any{"go test ./...", "  ", 123}}},
+		{Kind: core.ResourceKindGit, RootURI: "git@github.com:org/repo.git", Config: map[string]any{"clone_dir": "C:/repo", "check_commands": []any{"go test ./...", "  ", 123}}},
 	}); path != "C:/repo" || len(checks) != 1 || checks[0] != "go test ./..." {
-		t.Fatalf("unexpected resolveBindingTarget result: path=%q checks=%v", path, checks)
+		t.Fatalf("unexpected resolveSpaceTarget result: path=%q checks=%v", path, checks)
 	}
-	if path := resolveGitBindingPath(&core.ResourceBinding{Kind: core.ResourceKindGit, URI: "C:/repo"}); path != "C:/repo" {
-		t.Fatalf("resolveGitBindingPath(local) = %q", path)
+	if path := resolveGitSpacePath(&core.ResourceSpace{Kind: core.ResourceKindGit, RootURI: "C:/repo"}); path != "C:/repo" {
+		t.Fatalf("resolveGitSpacePath(local) = %q", path)
 	}
 	if !looksLikeRemoteGitURI("git@github.com:org/repo.git") || !looksLikeRemoteGitURI("https://github.com/org/repo.git") {
 		t.Fatal("expected remote git uris to be detected")
@@ -554,25 +554,25 @@ func TestSyncContextFileEmptyDataDirAndResolveMountErrors(t *testing.T) {
 	}
 
 	store = &threadctxStoreStub{
-		getProjectErr:   core.ErrNotFound,
-		listBindingsErr: errors.New("bindings failed"),
+		getProjectErr: core.ErrNotFound,
+		listSpacesErr: errors.New("bindings failed"),
 	}
 	if _, err := ResolveMount(context.Background(), store, &core.ThreadContextRef{ProjectID: 1}); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("expected project lookup error, got %v", err)
 	}
 
 	store = &threadctxStoreStub{
-		project:         &core.Project{ID: 1, Name: "Project"},
-		listBindingsErr: errors.New("bindings failed"),
+		project:       &core.Project{ID: 1, Name: "Project"},
+		listSpacesErr: errors.New("bindings failed"),
 	}
 	if _, err := ResolveMount(context.Background(), store, &core.ThreadContextRef{ProjectID: 1}); err == nil || err.Error() != "bindings failed" {
-		t.Fatalf("expected binding list error, got %v", err)
+		t.Fatalf("expected space list error, got %v", err)
 	}
 
-	if got := resolveGitBindingPath(&core.ResourceBinding{Kind: core.ResourceKindGit, URI: "https://example.com/repo.git"}); got != "" {
-		t.Fatalf("resolveGitBindingPath(remote without clone dir) = %q, want empty", got)
+	if got := resolveGitSpacePath(&core.ResourceSpace{Kind: core.ResourceKindGit, RootURI: "https://example.com/repo.git"}); got != "" {
+		t.Fatalf("resolveGitSpacePath(remote without clone dir) = %q, want empty", got)
 	}
-	if got := resolveGitBindingPath(nil); got != "" {
-		t.Fatalf("resolveGitBindingPath(nil) = %q, want empty", got)
+	if got := resolveGitSpacePath(nil); got != "" {
+		t.Fatalf("resolveGitSpacePath(nil) = %q, want empty", got)
 	}
 }

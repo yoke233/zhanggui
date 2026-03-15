@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
-import type { Deliverable, Event, Run, WorkItem, Action } from "@/types/apiV2";
+import type { Resource, Event, Run, WorkItem, Action } from "@/types/apiV2";
 
 interface LogLine {
   time: string;
@@ -66,7 +66,7 @@ export function ExecutionDetailPage() {
   const [step, setStep] = useState<Action | null>(null);
   const [workItem, setWorkItem] = useState<WorkItem | null>(null);
   const [briefing, setBriefing] = useState<{ objective: string; constraints?: string[]; context_refs?: unknown[] } | null>(null);
-  const [artifact, setArtifact] = useState<Deliverable | null>(null);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,14 +87,14 @@ export function ExecutionDetailPage() {
         }
         setExecution(execResp);
 
-        const [stepResp, workItemResp, briefingResp, artifactsResp, eventResp] = await Promise.all([
+        const [stepResp, workItemResp, briefingResp, runResources, eventResp] = await Promise.all([
           apiClient.getAction(execResp.action_id),
           apiClient.getWorkItem(execResp.work_item_id),
           apiClient.getAction(execResp.action_id).then((a) => ({
             objective: a.description ?? "",
             constraints: [] as string[],
           })).catch(() => null),
-          apiClient.listDeliverablesByRun(execResp.id),
+          apiClient.listRunResources(execResp.id),
           apiClient.listEvents({
             issue_id: execResp.work_item_id,
             step_id: execResp.action_id,
@@ -108,7 +108,7 @@ export function ExecutionDetailPage() {
         setStep(stepResp);
         setWorkItem(workItemResp);
         setBriefing(briefingResp);
-        setArtifact(artifactsResp[0] ?? null);
+        setResources(runResources);
         setEvents(eventResp);
       } catch (loadError) {
         if (!cancelled) {
@@ -220,12 +220,28 @@ export function ExecutionDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {artifact ? (
+              {execution?.result_markdown ? (
                 <div className="space-y-3">
                   <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    {artifact.result_markdown || t("execDetail.emptyResult")}
+                    {execution.result_markdown || t("execDetail.emptyResult")}
                   </div>
-                  <div className="text-xs text-muted-foreground">Artifact #{artifact.id} · {formatRelativeTime(artifact.created_at)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Run #{execution.id} · {formatRelativeTime(execution.created_at)}
+                  </div>
+                  {resources.length > 0 ? (
+                    <div className="rounded-lg border bg-background p-3">
+                      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        资源文件
+                      </div>
+                      <ul className="space-y-1 text-sm">
+                        {resources.map((resource) => (
+                          <li key={resource.id}>
+                            {resource.file_name}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="flex items-center gap-3 rounded-lg border border-dashed p-4">

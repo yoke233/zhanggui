@@ -47,7 +47,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, input CreateWorkItemInput)
 	if err := s.validateProject(ctx, input.ProjectID); err != nil {
 		return nil, err
 	}
-	if err := s.validateResourceBinding(ctx, input.ProjectID, input.ResourceBindingID); err != nil {
+	if err := s.validateResourceSpace(ctx, input.ProjectID, input.ResourceBindingID); err != nil {
 		return nil, err
 	}
 	if err := s.validateDependencies(ctx, 0, input.ProjectID, input.DependsOn); err != nil {
@@ -111,7 +111,7 @@ func (s *Service) UpdateWorkItem(ctx context.Context, input UpdateWorkItemInput)
 	}
 
 	if input.ResourceBindingID != nil {
-		if err := s.validateResourceBinding(ctx, targetProjectID, input.ResourceBindingID); err != nil {
+		if err := s.validateResourceSpace(ctx, targetProjectID, input.ResourceBindingID); err != nil {
 			return nil, err
 		}
 		workItem.ResourceBindingID = input.ResourceBindingID
@@ -288,13 +288,13 @@ func deleteAggregateData(ctx context.Context, store TxStore, workItemID int64) e
 	if err := store.DeleteRunsByWorkItem(ctx, workItemID); err != nil {
 		return err
 	}
-	if err := store.DeleteActionResourcesByWorkItem(ctx, workItemID); err != nil {
+	if err := store.DeleteResourcesByWorkItem(ctx, workItemID); err != nil {
+		return err
+	}
+	if err := store.DeleteActionIODeclsByWorkItem(ctx, workItemID); err != nil {
 		return err
 	}
 	if err := store.DeleteThreadWorkItemLinksByWorkItem(ctx, workItemID); err != nil {
-		return err
-	}
-	if err := store.DeleteResourceBindingsByWorkItem(ctx, workItemID); err != nil {
 		return err
 	}
 	if err := store.DeleteActionsByWorkItem(ctx, workItemID); err != nil {
@@ -322,22 +322,22 @@ func (s *Service) validateProject(ctx context.Context, projectID *int64) error {
 	return nil
 }
 
-func (s *Service) validateResourceBinding(ctx context.Context, projectID *int64, bindingID *int64) error {
-	if bindingID == nil {
+func (s *Service) validateResourceSpace(ctx context.Context, projectID *int64, spaceID *int64) error {
+	if spaceID == nil {
 		return nil
 	}
 	if projectID == nil {
-		return newError(CodeInvalidResourceBinding, "resource binding requires project_id", nil)
+		return newError(CodeInvalidResourceBinding, "resource space requires project_id", nil)
 	}
-	binding, err := s.store.GetResourceBinding(ctx, *bindingID)
+	space, err := s.store.GetResourceSpace(ctx, *spaceID)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
-			return newError(CodeResourceBindingNotFound, "resource binding not found", err)
+			return newError(CodeResourceBindingNotFound, "resource space not found", err)
 		}
 		return err
 	}
-	if binding.ProjectID != *projectID {
-		return newError(CodeInvalidResourceBinding, fmt.Sprintf("resource binding %d does not belong to project %d", *bindingID, *projectID), nil)
+	if space.ProjectID != *projectID {
+		return newError(CodeInvalidResourceBinding, fmt.Sprintf("resource space %d does not belong to project %d", *spaceID, *projectID), nil)
 	}
 	return nil
 }

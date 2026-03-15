@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 interface UploadedAttachment {
   id: number;
   file_name: string;
-  mime_type: string;
+  mime_type?: string;
 }
 
 interface AttachmentUploaderProps {
@@ -128,7 +128,7 @@ export function AttachmentUploader({
       {uploadedAttachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">
           {uploadedAttachments.map((att) => {
-            const isImage = att.mime_type.startsWith("image/");
+            const isImage = (att.mime_type ?? "").startsWith("image/");
             return (
               <div
                 key={`uploaded-${att.id}`}

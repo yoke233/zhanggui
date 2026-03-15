@@ -7,16 +7,16 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// Registry holds all registered ResourceProvider implementations and dispatches
-// Fetch/Deposit calls to the appropriate provider based on the binding's Kind.
+// Registry holds all registered SpaceProvider implementations and dispatches
+// Fetch/Deposit calls to the appropriate provider based on the space's Kind.
 type Registry struct {
-	providers map[string]core.ResourceProvider
+	providers map[string]core.SpaceProvider
 }
 
 // NewRegistry creates an empty provider registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		providers: make(map[string]core.ResourceProvider),
+		providers: make(map[string]core.SpaceProvider),
 	}
 }
 
@@ -29,24 +29,24 @@ func NewDefaultRegistry() *Registry {
 }
 
 // Register adds a provider to the registry.
-func (r *Registry) Register(p core.ResourceProvider) {
+func (r *Registry) Register(p core.SpaceProvider) {
 	r.providers[p.Kind()] = p
 }
 
-// Fetch dispatches to the correct provider for the given binding.
-func (r *Registry) Fetch(ctx context.Context, binding *core.ResourceBinding, path string, destDir string) (string, error) {
-	p, ok := r.providers[binding.Kind]
+// Fetch dispatches to the correct provider for the given space.
+func (r *Registry) Fetch(ctx context.Context, space *core.ResourceSpace, path string, destDir string) (string, error) {
+	p, ok := r.providers[space.Kind]
 	if !ok {
-		return "", fmt.Errorf("no resource provider registered for kind %q", binding.Kind)
+		return "", fmt.Errorf("no resource provider registered for kind %q", space.Kind)
 	}
-	return p.Fetch(ctx, binding, path, destDir)
+	return p.Fetch(ctx, space, path, destDir)
 }
 
-// Deposit dispatches to the correct provider for the given binding.
-func (r *Registry) Deposit(ctx context.Context, binding *core.ResourceBinding, path string, localPath string) error {
-	p, ok := r.providers[binding.Kind]
+// Deposit dispatches to the correct provider for the given space.
+func (r *Registry) Deposit(ctx context.Context, space *core.ResourceSpace, path string, localPath string) error {
+	p, ok := r.providers[space.Kind]
 	if !ok {
-		return fmt.Errorf("no resource provider registered for kind %q", binding.Kind)
+		return fmt.Errorf("no resource provider registered for kind %q", space.Kind)
 	}
-	return p.Deposit(ctx, binding, path, localPath)
+	return p.Deposit(ctx, space, path, localPath)
 }

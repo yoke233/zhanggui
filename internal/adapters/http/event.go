@@ -147,7 +147,14 @@ func isThreadEvent(t core.EventType) bool {
 		core.EventThreadAgentOutput,
 		core.EventThreadAgentBooted,
 		core.EventThreadAgentFailed,
-		core.EventThreadAgentThinking:
+		core.EventThreadAgentThinking,
+		core.EventThreadTrackCreated,
+		core.EventThreadTrackUpdated,
+		core.EventThreadTrackStateChanged,
+		core.EventThreadTrackReviewApproved,
+		core.EventThreadTrackReviewRejected,
+		core.EventThreadTrackMaterialized,
+		core.EventThreadTrackExecutionConfirmed:
 		return true
 	}
 	return false

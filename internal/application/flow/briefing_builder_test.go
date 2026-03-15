@@ -19,7 +19,7 @@ type stubInputStore struct {
 	actions   map[int64][]*core.Action // keyed by WorkItemID
 	runs      map[int64]*core.Run      // keyed by ActionID (latest run with result)
 	projects  map[int64]*core.Project
-	bindings  map[int64][]*core.ResourceBinding // keyed by ProjectID
+	spaces    map[int64][]*core.ResourceSpace // keyed by ProjectID
 }
 
 func newStubInputStore() *stubInputStore {
@@ -28,7 +28,7 @@ func newStubInputStore() *stubInputStore {
 		actions:   make(map[int64][]*core.Action),
 		runs:      make(map[int64]*core.Run),
 		projects:  make(map[int64]*core.Project),
-		bindings:  make(map[int64][]*core.ResourceBinding),
+		spaces:    make(map[int64][]*core.ResourceSpace),
 	}
 }
 
@@ -61,8 +61,8 @@ func (s *stubInputStore) GetProject(_ context.Context, id int64) (*core.Project,
 	return nil, core.ErrNotFound
 }
 
-func (s *stubInputStore) ListResourceBindings(_ context.Context, projectID int64) ([]*core.ResourceBinding, error) {
-	return s.bindings[projectID], nil
+func (s *stubInputStore) ListResourceSpaces(_ context.Context, projectID int64) ([]*core.ResourceSpace, error) {
+	return s.spaces[projectID], nil
 }
 
 // --- panicStore satisfies Store by panicking on any unimplemented method ---
@@ -83,36 +83,52 @@ func (panicStore) UpdateProject(context.Context, *core.Project) error {
 }
 func (panicStore) DeleteProject(context.Context, int64) error { panic("not implemented") }
 
-func (panicStore) CreateResourceBinding(context.Context, *core.ResourceBinding) (int64, error) {
+func (panicStore) CreateResourceSpace(context.Context, *core.ResourceSpace) (int64, error) {
 	panic("not implemented")
 }
-func (panicStore) GetResourceBinding(context.Context, int64) (*core.ResourceBinding, error) {
+func (panicStore) GetResourceSpace(context.Context, int64) (*core.ResourceSpace, error) {
 	panic("not implemented")
 }
-func (panicStore) ListResourceBindingsByIssue(context.Context, int64, string) ([]*core.ResourceBinding, error) {
+func (panicStore) ListResourceSpaces(context.Context, int64) ([]*core.ResourceSpace, error) {
 	panic("not implemented")
 }
-func (panicStore) ListResourceBindings(context.Context, int64) ([]*core.ResourceBinding, error) {
+func (panicStore) UpdateResourceSpace(context.Context, *core.ResourceSpace) error {
 	panic("not implemented")
 }
-func (panicStore) UpdateResourceBinding(context.Context, *core.ResourceBinding) error {
+func (panicStore) DeleteResourceSpace(context.Context, int64) error {
 	panic("not implemented")
 }
-func (panicStore) DeleteResourceBinding(context.Context, int64) error { panic("not implemented") }
 
-func (panicStore) CreateActionResource(context.Context, *core.ActionResource) (int64, error) {
+func (panicStore) CreateResource(context.Context, *core.Resource) (int64, error) {
 	panic("not implemented")
 }
-func (panicStore) GetActionResource(context.Context, int64) (*core.ActionResource, error) {
+func (panicStore) GetResource(context.Context, int64) (*core.Resource, error) {
 	panic("not implemented")
 }
-func (panicStore) ListActionResources(context.Context, int64) ([]*core.ActionResource, error) {
+func (panicStore) ListResourcesByWorkItem(context.Context, int64) ([]*core.Resource, error) {
 	panic("not implemented")
 }
-func (panicStore) ListActionResourcesByDirection(context.Context, int64, core.ActionResourceDirection) ([]*core.ActionResource, error) {
+func (panicStore) ListResourcesByRun(context.Context, int64) ([]*core.Resource, error) {
 	panic("not implemented")
 }
-func (panicStore) DeleteActionResource(context.Context, int64) error { panic("not implemented") }
+func (panicStore) ListResourcesByMessage(context.Context, int64) ([]*core.Resource, error) {
+	panic("not implemented")
+}
+func (panicStore) DeleteResource(context.Context, int64) error { panic("not implemented") }
+
+func (panicStore) CreateActionIODecl(context.Context, *core.ActionIODecl) (int64, error) {
+	panic("not implemented")
+}
+func (panicStore) GetActionIODecl(context.Context, int64) (*core.ActionIODecl, error) {
+	panic("not implemented")
+}
+func (panicStore) ListActionIODecls(context.Context, int64) ([]*core.ActionIODecl, error) {
+	panic("not implemented")
+}
+func (panicStore) ListActionIODeclsByDirection(context.Context, int64, core.IODirection) ([]*core.ActionIODecl, error) {
+	panic("not implemented")
+}
+func (panicStore) DeleteActionIODecl(context.Context, int64) error { panic("not implemented") }
 
 func (panicStore) CreateWorkItem(context.Context, *core.WorkItem) (int64, error) {
 	panic("not implemented")
@@ -483,8 +499,8 @@ func TestInputBuilder_InjectsProjectBrief(t *testing.T) {
 		Kind:        core.ProjectDev,
 		Description: "A sample application for testing.",
 	}
-	store.bindings[projID] = []*core.ResourceBinding{
-		{ID: 1, ProjectID: projID, Kind: "git", URI: "https://github.com/example/my-app", Label: "main repo"},
+	store.spaces[projID] = []*core.ResourceSpace{
+		{ID: 1, ProjectID: projID, Kind: "git", RootURI: "https://github.com/example/my-app", Role: "primary_repo", Label: "main repo"},
 	}
 	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task", ProjectID: &projID}
 	action := &core.Action{ID: 10, WorkItemID: 1, Name: "implement", Position: 0}
@@ -506,10 +522,13 @@ func TestInputBuilder_InjectsProjectBrief(t *testing.T) {
 		t.Errorf("expected project description in input, got: %q", input)
 	}
 	if !strings.Contains(input, "main repo") {
-		t.Errorf("expected resource binding label in input, got: %q", input)
+		t.Errorf("expected resource space label in input, got: %q", input)
 	}
 	if !strings.Contains(input, "github.com/example/my-app") {
-		t.Errorf("expected resource binding URI in input, got: %q", input)
+		t.Errorf("expected resource space root URI in input, got: %q", input)
+	}
+	if !strings.Contains(input, "[primary_repo]") {
+		t.Errorf("expected resource space role in input, got: %q", input)
 	}
 }
 

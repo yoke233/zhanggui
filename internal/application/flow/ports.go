@@ -10,8 +10,9 @@ import (
 // It intentionally exposes only the sub-stores used by the work item application layer.
 type Store interface {
 	core.ProjectStore
-	core.ResourceBindingStore
-	core.ActionResourceStore
+	core.ResourceSpaceStore
+	core.ResourceStore
+	core.ActionIODeclStore
 	core.WorkItemStore
 	core.ActionStore
 	core.RunStore
@@ -38,6 +39,6 @@ type EventBus interface {
 
 // WorkspaceProvider prepares and releases isolated workspaces for a work item run.
 type WorkspaceProvider interface {
-	Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, workItemID int64) (*core.Workspace, error)
+	Prepare(ctx context.Context, project *core.Project, spaces []*core.ResourceSpace, workItemID int64) (*core.Workspace, error)
 	Release(ctx context.Context, ws *core.Workspace) error
 }

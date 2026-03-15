@@ -415,6 +415,9 @@ func deleteThreadAggregateData(ctx context.Context, store TxStore, threadID int6
 	if err := store.DeleteThreadContextRefsByThread(ctx, threadID); err != nil {
 		return err
 	}
+	if err := store.DeleteResourcesByThread(ctx, threadID); err != nil {
+		return err
+	}
 	if err := store.DeleteThreadMessagesByThread(ctx, threadID); err != nil {
 		return err
 	}

@@ -417,6 +417,111 @@ func threadContextRefModelFromCore(ref *core.ThreadContextRef) *ThreadContextRef
 	}
 }
 
+type WorkItemTrackModel struct {
+	ID                       int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	Title                    string                    `gorm:"column:title;not null"`
+	Objective                string                    `gorm:"column:objective;not null;default:''"`
+	Status                   string                    `gorm:"column:status;not null"`
+	PrimaryThreadID          *int64                    `gorm:"column:primary_thread_id"`
+	WorkItemID               *int64                    `gorm:"column:work_item_id"`
+	PlannerStatus            string                    `gorm:"column:planner_status;not null;default:'idle'"`
+	ReviewerStatus           string                    `gorm:"column:reviewer_status;not null;default:'idle'"`
+	AwaitingUserConfirmation bool                      `gorm:"column:awaiting_user_confirmation;not null;default:false"`
+	LatestSummary            string                    `gorm:"column:latest_summary;not null;default:''"`
+	PlannerOutput            JSONField[map[string]any] `gorm:"column:planner_output_json;type:text"`
+	ReviewOutput             JSONField[map[string]any] `gorm:"column:review_output_json;type:text"`
+	Metadata                 JSONField[map[string]any] `gorm:"column:metadata_json;type:text"`
+	CreatedBy                string                    `gorm:"column:created_by;not null;default:''"`
+	CreatedAt                time.Time                 `gorm:"column:created_at"`
+	UpdatedAt                time.Time                 `gorm:"column:updated_at"`
+}
+
+func (WorkItemTrackModel) TableName() string { return "work_item_tracks" }
+
+func workItemTrackModelFromCore(track *core.WorkItemTrack) *WorkItemTrackModel {
+	if track == nil {
+		return nil
+	}
+	return &WorkItemTrackModel{
+		ID:                       track.ID,
+		Title:                    track.Title,
+		Objective:                track.Objective,
+		Status:                   string(track.Status),
+		PrimaryThreadID:          track.PrimaryThreadID,
+		WorkItemID:               track.WorkItemID,
+		PlannerStatus:            track.PlannerStatus,
+		ReviewerStatus:           track.ReviewerStatus,
+		AwaitingUserConfirmation: track.AwaitingUserConfirmation,
+		LatestSummary:            track.LatestSummary,
+		PlannerOutput:            JSONField[map[string]any]{Data: track.PlannerOutput},
+		ReviewOutput:             JSONField[map[string]any]{Data: track.ReviewOutput},
+		Metadata:                 JSONField[map[string]any]{Data: track.Metadata},
+		CreatedBy:                track.CreatedBy,
+		CreatedAt:                track.CreatedAt,
+		UpdatedAt:                track.UpdatedAt,
+	}
+}
+
+func (m *WorkItemTrackModel) toCore() *core.WorkItemTrack {
+	if m == nil {
+		return nil
+	}
+	return &core.WorkItemTrack{
+		ID:                       m.ID,
+		Title:                    m.Title,
+		Objective:                m.Objective,
+		Status:                   core.WorkItemTrackStatus(m.Status),
+		PrimaryThreadID:          m.PrimaryThreadID,
+		WorkItemID:               m.WorkItemID,
+		PlannerStatus:            m.PlannerStatus,
+		ReviewerStatus:           m.ReviewerStatus,
+		AwaitingUserConfirmation: m.AwaitingUserConfirmation,
+		LatestSummary:            m.LatestSummary,
+		PlannerOutput:            m.PlannerOutput.Data,
+		ReviewOutput:             m.ReviewOutput.Data,
+		Metadata:                 m.Metadata.Data,
+		CreatedBy:                m.CreatedBy,
+		CreatedAt:                m.CreatedAt,
+		UpdatedAt:                m.UpdatedAt,
+	}
+}
+
+type WorkItemTrackThreadModel struct {
+	ID           int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	TrackID      int64     `gorm:"column:track_id;not null;uniqueIndex:idx_work_item_track_threads_unique"`
+	ThreadID     int64     `gorm:"column:thread_id;not null;uniqueIndex:idx_work_item_track_threads_unique"`
+	RelationType string    `gorm:"column:relation_type;not null;default:'source'"`
+	CreatedAt    time.Time `gorm:"column:created_at"`
+}
+
+func (WorkItemTrackThreadModel) TableName() string { return "work_item_track_threads" }
+
+func workItemTrackThreadModelFromCore(link *core.WorkItemTrackThread) *WorkItemTrackThreadModel {
+	if link == nil {
+		return nil
+	}
+	return &WorkItemTrackThreadModel{
+		ID:           link.ID,
+		TrackID:      link.TrackID,
+		ThreadID:     link.ThreadID,
+		RelationType: string(link.RelationType),
+		CreatedAt:    link.CreatedAt,
+	}
+}
+
+func (m *WorkItemTrackThreadModel) toCore() *core.WorkItemTrackThread {
+	if m == nil {
+		return nil
+	}
+	return &core.WorkItemTrackThread{
+		ID:           m.ID,
+		TrackID:      m.TrackID,
+		ThreadID:     m.ThreadID,
+		RelationType: core.WorkItemTrackThreadRelation(m.RelationType),
+		CreatedAt:    m.CreatedAt,
+	}
+}
+
 // FeatureEntryModel is the GORM model for feature_entries table.
 type FeatureEntryModel struct {
 	ID          int64                     `gorm:"column:id;primaryKey;autoIncrement"`
@@ -789,7 +894,6 @@ func runModelFromCore(exec *core.Run) *RunModel {
 		CreatedAt:        exec.CreatedAt,
 		ResultMarkdown:   exec.ResultMarkdown,
 		ResultMetadata:   JSONField[map[string]any]{Data: exec.ResultMetadata},
-		ResultAssets:     JSONField[[]core.Asset]{Data: exec.ResultAssets},
 	}
 }
 
@@ -815,7 +919,6 @@ func (m *RunModel) toCore() *core.Run {
 		CreatedAt:        m.CreatedAt,
 		ResultMarkdown:   m.ResultMarkdown,
 		ResultMetadata:   m.ResultMetadata.Data,
-		ResultAssets:     m.ResultAssets.Data,
 	}
 }
 

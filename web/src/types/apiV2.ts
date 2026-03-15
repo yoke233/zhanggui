@@ -125,7 +125,6 @@ export interface Run {
   created_at: string;
   result_markdown?: string;
   result_metadata?: Record<string, unknown>;
-  result_assets?: DeliverableAsset[];
 }
 
 export type EventType =
@@ -198,60 +197,84 @@ export interface UpdateProjectRequest {
   metadata?: Record<string, string>;
 }
 
-export type ResourceBindingKind = "git" | "local_fs" | "s3" | "http" | "webdav" | string;
+export type ResourceSpaceKind = "git" | "local_fs" | "s3" | "http" | "webdav" | string;
 
-export interface ResourceBinding {
+export interface ResourceSpace {
   id: number;
   project_id: number;
-  kind: ResourceBindingKind;
-  uri: string;
+  kind: ResourceSpaceKind;
+  root_uri: string;
+  role?: string;
   config?: Record<string, unknown>;
   label?: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface CreateResourceBindingRequest {
-  kind: ResourceBindingKind;
-  uri: string;
+export interface CreateResourceSpaceRequest {
+  kind: ResourceSpaceKind;
+  root_uri: string;
+  role?: string;
   config?: Record<string, unknown>;
   label?: string;
 }
 
-export interface UpdateResourceBindingRequest {
-  kind?: ResourceBindingKind;
-  uri?: string;
+export interface UpdateResourceSpaceRequest {
+  kind?: ResourceSpaceKind;
+  root_uri?: string;
+  role?: string;
   config?: Record<string, unknown>;
   label?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Action Resources (per-action input/output resource declarations)
+// Resources
 // ---------------------------------------------------------------------------
 
-export type ActionResourceDirection = "input" | "output";
-
-export interface ActionResource {
+export interface Resource {
   id: number;
-  action_id: number;
-  resource_binding_id: number;
-  direction: ActionResourceDirection;
-  path: string;
-  media_type?: string;
-  description?: string;
-  required: boolean;
+  project_id: number;
+  work_item_id?: number | null;
+  run_id?: number | null;
+  message_id?: number | null;
+  storage_kind: string;
+  uri: string;
+  role: string;
+  file_name: string;
+  mime_type?: string;
+  size_bytes?: number;
+  checksum?: string;
   metadata?: Record<string, unknown>;
   created_at: string;
 }
 
-export interface CreateActionResourceRequest {
-  resource_binding_id: number;
-  direction: ActionResourceDirection;
+// ---------------------------------------------------------------------------
+// Action IO declarations
+// ---------------------------------------------------------------------------
+
+export type IODirection = "input" | "output";
+
+export interface ActionIODecl {
+  id: number;
+  action_id: number;
+  space_id?: number | null;
+  resource_id?: number | null;
+  direction: IODirection;
+  path: string;
+  media_type?: string;
+  description?: string;
+  required: boolean;
+  created_at: string;
+}
+
+export interface CreateActionIODeclRequest {
+  space_id?: number;
+  resource_id?: number;
+  direction: IODirection;
   path: string;
   media_type?: string;
   description?: string;
   required?: boolean;
-  metadata?: Record<string, unknown>;
 }
 
 export interface CreateActionRequest {
@@ -482,20 +505,6 @@ export interface ChatStatusResponse {
   session_id: string;
   status: "not_found" | "alive" | "running" | string;
 }
-
-export interface DeliverableAsset {
-  name: string;
-  uri: string;
-  media_type?: string;
-}
-
-// Deliverable is a backward-compat view over Run result fields.
-export type Deliverable = Pick<Run, "id" | "action_id" | "work_item_id" | "created_at"> & {
-  run_id: number;
-  result_markdown: string;
-  metadata?: Record<string, unknown>;
-  assets?: DeliverableAsset[];
-};
 
 export interface StatsResponse {
   total_work_items: number;
@@ -896,6 +905,90 @@ export interface CreateThreadWorkItemLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Thread WorkItem Tracks
+// ---------------------------------------------------------------------------
+
+export type WorkItemTrackStatus =
+  | "draft"
+  | "planning"
+  | "reviewing"
+  | "awaiting_confirmation"
+  | "materialized"
+  | "executing"
+  | "done"
+  | "paused"
+  | "cancelled"
+  | "failed"
+  | string;
+
+export type WorkItemTrackThreadRelation =
+  | "primary"
+  | "source"
+  | "context"
+  | string;
+
+export interface WorkItemTrack {
+  id: number;
+  title: string;
+  objective: string;
+  status: WorkItemTrackStatus;
+  primary_thread_id?: number | null;
+  work_item_id?: number | null;
+  planner_status?: string;
+  reviewer_status?: string;
+  awaiting_user_confirmation: boolean;
+  latest_summary?: string;
+  planner_output_json?: Record<string, unknown>;
+  review_output_json?: Record<string, unknown>;
+  metadata_json?: Record<string, unknown>;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWorkItemTrackRequest {
+  title: string;
+  objective?: string;
+  created_by?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkItemTrackThread {
+  id: number;
+  track_id: number;
+  thread_id: number;
+  relation_type: WorkItemTrackThreadRelation;
+  created_at: string;
+}
+
+export interface AttachWorkItemTrackThreadRequest {
+  thread_id: number;
+  relation_type?: WorkItemTrackThreadRelation;
+}
+
+export interface MaterializeWorkItemTrackRequest {
+  project_id?: number;
+}
+
+export interface WorkItemTrackReviewRequest {
+  latest_summary?: string;
+  planner_output_json?: Record<string, unknown>;
+  review_output_json?: Record<string, unknown>;
+}
+
+export interface MaterializeWorkItemTrackResponse {
+  track: WorkItemTrack;
+  work_item: WorkItem;
+  links: ThreadWorkItemLink[];
+}
+
+export interface ConfirmExecutionTrackResponse {
+  track: WorkItemTrack;
+  work_item: WorkItem;
+  status: string;
+}
+
+// ---------------------------------------------------------------------------
 // Feature Manifest
 // ---------------------------------------------------------------------------
 
@@ -933,14 +1026,7 @@ export interface FeatureManifestSnapshot {
 // Work Item Attachments
 // ---------------------------------------------------------------------------
 
-export interface WorkItemAttachment {
-  id: number;
-  work_item_id: number;
-  file_name: string;
-  mime_type: string;
-  size: number;
-  created_at: string;
-}
+export type WorkItemAttachment = Resource;
 
 // ---------------------------------------------------------------------------
 // Notifications
@@ -1096,9 +1182,6 @@ export type GenerateStepsRequest = GenerateActionsRequest;
 export type Execution = Run;
 export type ExecutionStatus = RunStatus;
 export type ExecutionErrorKind = RunErrorKind;
-
-export type Artifact = Deliverable;
-export type ArtifactAsset = DeliverableAsset;
 
 export type StepBottleneck = ActionBottleneck;
 export type IssueDurationStat = WorkItemDurationStat;

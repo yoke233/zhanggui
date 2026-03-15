@@ -19,7 +19,7 @@ import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { getScmFlowProviderFromBindings } from "@/lib/scm";
 import { getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
-import type { Action, DAGTemplate, ResourceBinding, WorkItemAttachment } from "@/types/apiV2";
+import type { Action, DAGTemplate, ResourceSpace, WorkItemAttachment } from "@/types/apiV2";
 
 const stepColors: Record<string, { bg: string; text: string }> = {
   exec: { bg: "bg-blue-50", text: "text-blue-600" },
@@ -49,7 +49,7 @@ export function CreateWorkItemPage() {
   const [templates, setTemplates] = useState<DAGTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [projectResources, setProjectResources] = useState<ResourceBinding[]>([]);
+  const [projectResources, setProjectResources] = useState<ResourceSpace[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === projectId) ?? null,

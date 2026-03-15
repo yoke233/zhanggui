@@ -13,7 +13,6 @@ import type {
   CronStatus,
   SetupCronRequest,
   CreateSkillRequest,
-  Deliverable,
   StatsResponse,
   AdminSystemEventRequest,
   AdminSystemEventResponse,
@@ -24,7 +23,7 @@ import type {
   ChatStatusResponse,
   CrystallizeChatSessionThreadRequest,
   CrystallizeChatSessionThreadResponse,
-  CreateResourceBindingRequest,
+  CreateResourceSpaceRequest,
   CreateProjectRequest,
   CreateWorkItemRequest,
   UpdateWorkItemRequest,
@@ -36,7 +35,8 @@ import type {
   Run,
   ImportGitHubSkillRequest,
   Project,
-  ResourceBinding,
+  Resource,
+  ResourceSpace,
   RunWorkItemResponse,
   SchedulerStats,
   SkillDetail,
@@ -67,6 +67,14 @@ import type {
   AddThreadParticipantRequest,
   ThreadWorkItemLink,
   CreateThreadWorkItemLinkRequest,
+  WorkItemTrack,
+  CreateWorkItemTrackRequest,
+  WorkItemTrackThread,
+  AttachWorkItemTrackThreadRequest,
+  MaterializeWorkItemTrackRequest,
+  MaterializeWorkItemTrackResponse,
+  WorkItemTrackReviewRequest,
+  ConfirmExecutionTrackResponse,
   Notification,
   CreateNotificationRequest,
   UnreadCountResponse,
@@ -221,19 +229,13 @@ export interface ApiClient {
   updateProject(projectId: number, body: UpdateProjectRequest): Promise<Project>;
   deleteProject(projectId: number): Promise<void>;
 
-  listProjectResources(projectId: number): Promise<ResourceBinding[]>;
-  createProjectResource(projectId: number, body: CreateResourceBindingRequest): Promise<ResourceBinding>;
-  getResource(resourceId: number): Promise<ResourceBinding>;
-  deleteResource(resourceId: number): Promise<void>;
-
-  getDeliverable(deliverableId: number): Promise<Deliverable>;
-  getLatestDeliverable(actionId: number): Promise<Deliverable>;
-  listDeliverablesByRun(runId: number): Promise<Deliverable[]>;
-
-  // Backward compat aliases
-  getArtifact(artifactId: number): Promise<Deliverable>;
-  getLatestArtifact(stepId: number): Promise<Deliverable>;
-  listArtifactsByExecution(execId: number): Promise<Deliverable[]>;
+  listProjectResources(projectId: number): Promise<ResourceSpace[]>;
+  createProjectResource(projectId: number, body: CreateResourceSpaceRequest): Promise<ResourceSpace>;
+  getProjectResource(resourceId: number): Promise<ResourceSpace>;
+  deleteProjectResource(resourceId: number): Promise<void>;
+  getFileResource(resourceId: number): Promise<Resource>;
+  deleteFileResource(resourceId: number): Promise<void>;
+  listRunResources(runId: number): Promise<Resource[]>;
 
   chat(body: ChatRequest): Promise<ChatResponse>;
   listChatSessions(): Promise<ChatSessionSummary[]>;
@@ -392,6 +394,17 @@ export interface ApiClient {
   deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
   listThreadsByWorkItem(workItemId: number): Promise<ThreadWorkItemLink[]>;
   createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<WorkItem>;
+  listThreadTracks(threadId: number): Promise<WorkItemTrack[]>;
+  createThreadTrack(threadId: number, body: CreateWorkItemTrackRequest): Promise<WorkItemTrack>;
+  getTrack(trackId: number): Promise<WorkItemTrack>;
+  attachTrackThread(trackId: number, body: AttachWorkItemTrackThreadRequest): Promise<WorkItemTrackThread>;
+  materializeTrack(trackId: number, body?: MaterializeWorkItemTrackRequest): Promise<MaterializeWorkItemTrackResponse>;
+  submitTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
+  approveTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
+  rejectTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
+  pauseTrack(trackId: number): Promise<WorkItemTrack>;
+  cancelTrack(trackId: number): Promise<WorkItemTrack>;
+  confirmTrackExecution(trackId: number, body?: MaterializeWorkItemTrackRequest): Promise<ConfirmExecutionTrackResponse>;
 
   // Thread Agent Sessions
   inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadMember>;
@@ -618,20 +631,10 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       path: `/executions/${runId}`,
     });
 
-  // -- Deliverables (primary) --
-  const getDeliverable: ApiClient["getDeliverable"] = (deliverableId) =>
-    request<Deliverable>({
-      path: `/artifacts/${deliverableId}`,
-    });
-
-  const getLatestDeliverable: ApiClient["getLatestDeliverable"] = (actionId) =>
-    request<Deliverable>({
-      path: `/steps/${actionId}/artifact`,
-    });
-
-  const listDeliverablesByRun: ApiClient["listDeliverablesByRun"] = (runId) =>
-    request<Deliverable[]>({
-      path: `/executions/${runId}/artifacts`,
+  // -- Run resources --
+  const listRunResources: ApiClient["listRunResources"] = (runId) =>
+    request<Resource[]>({
+      path: `/runs/${runId}/resources`,
     }).then((items) => (Array.isArray(items) ? items : []));
 
   // -- Events --
@@ -721,7 +724,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
 
   // -- Work Item Attachments (primary) --
   const uploadWorkItemAttachment: ApiClient["uploadWorkItemAttachment"] = async (workItemId, file) => {
-    const url = buildUrl(baseUrl, `/work-items/${workItemId}/attachments`);
+    const url = buildUrl(baseUrl, `/work-items/${workItemId}/resources`);
     const formData = new FormData();
     formData.append("file", file);
     const headers: Record<string, string> = {};
@@ -743,17 +746,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
 
   const listWorkItemAttachments: ApiClient["listWorkItemAttachments"] = (workItemId) =>
     request<WorkItemAttachment[]>({
-      path: `/work-items/${workItemId}/attachments`,
+      path: `/work-items/${workItemId}/resources`,
     }).then((items) => (Array.isArray(items) ? items : []));
 
   const getWorkItemAttachment: ApiClient["getWorkItemAttachment"] = (attachmentId) =>
     request<WorkItemAttachment>({
-      path: `/attachments/${attachmentId}`,
+      path: `/resources/${attachmentId}`,
     });
 
   const deleteWorkItemAttachment: ApiClient["deleteWorkItemAttachment"] = (attachmentId) =>
     request<void>({
-      path: `/attachments/${attachmentId}`,
+      path: `/resources/${attachmentId}`,
       method: "DELETE",
     });
 
@@ -830,32 +833,34 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       }),
 
     listProjectResources: (projectId) =>
-      request<ResourceBinding[]>({
-        path: `/projects/${projectId}/resources`,
+      request<ResourceSpace[]>({
+        path: `/projects/${projectId}/spaces`,
       }).then((items) => (Array.isArray(items) ? items : [])),
     createProjectResource: (projectId, body) =>
-      request<ResourceBinding, CreateResourceBindingRequest>({
-        path: `/projects/${projectId}/resources`,
+      request<ResourceSpace, CreateResourceSpaceRequest>({
+        path: `/projects/${projectId}/spaces`,
         method: "POST",
         body,
       }),
-    getResource: (resourceId) =>
-      request<ResourceBinding>({
+    getProjectResource: (resourceId) =>
+      request<ResourceSpace>({
+        path: `/spaces/${resourceId}`,
+      }),
+    deleteProjectResource: (resourceId) =>
+      request<void>({
+        path: `/spaces/${resourceId}`,
+        method: "DELETE",
+      }),
+    getFileResource: (resourceId) =>
+      request<Resource>({
         path: `/resources/${resourceId}`,
       }),
-    deleteResource: (resourceId) =>
+    deleteFileResource: (resourceId) =>
       request<void>({
         path: `/resources/${resourceId}`,
         method: "DELETE",
       }),
-
-    // Deliverables (primary + compat)
-    getDeliverable,
-    getLatestDeliverable,
-    listDeliverablesByRun,
-    getArtifact: getDeliverable,
-    getLatestArtifact: getLatestDeliverable,
-    listArtifactsByExecution: listDeliverablesByRun,
+    listRunResources,
 
     chat: (body) =>
       request<ChatResponse, ChatRequest>({
@@ -1167,6 +1172,66 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
+    listThreadTracks: (threadId) =>
+      request<WorkItemTrack[]>({
+        path: `/threads/${threadId}/tracks`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createThreadTrack: (threadId, body) =>
+      request<WorkItemTrack, CreateWorkItemTrackRequest>({
+        path: `/threads/${threadId}/tracks`,
+        method: "POST",
+        body,
+      }),
+    getTrack: (trackId) =>
+      request<WorkItemTrack>({
+        path: `/tracks/${trackId}`,
+      }),
+    attachTrackThread: (trackId, body) =>
+      request<WorkItemTrackThread, AttachWorkItemTrackThreadRequest>({
+        path: `/tracks/${trackId}/threads`,
+        method: "POST",
+        body,
+      }),
+    materializeTrack: (trackId, body = {}) =>
+      request<MaterializeWorkItemTrackResponse, MaterializeWorkItemTrackRequest>({
+        path: `/tracks/${trackId}/materialize`,
+        method: "POST",
+        body,
+      }),
+    submitTrackReview: (trackId, body = {}) =>
+      request<WorkItemTrack, WorkItemTrackReviewRequest>({
+        path: `/tracks/${trackId}/submit-review`,
+        method: "POST",
+        body,
+      }),
+    approveTrackReview: (trackId, body = {}) =>
+      request<WorkItemTrack, WorkItemTrackReviewRequest>({
+        path: `/tracks/${trackId}/approve-review`,
+        method: "POST",
+        body,
+      }),
+    rejectTrackReview: (trackId, body = {}) =>
+      request<WorkItemTrack, WorkItemTrackReviewRequest>({
+        path: `/tracks/${trackId}/reject-review`,
+        method: "POST",
+        body,
+      }),
+    pauseTrack: (trackId) =>
+      request<WorkItemTrack>({
+        path: `/tracks/${trackId}/pause`,
+        method: "POST",
+      }),
+    cancelTrack: (trackId) =>
+      request<WorkItemTrack>({
+        path: `/tracks/${trackId}/cancel`,
+        method: "POST",
+      }),
+    confirmTrackExecution: (trackId, body = {}) =>
+      request<ConfirmExecutionTrackResponse, MaterializeWorkItemTrackRequest>({
+        path: `/tracks/${trackId}/confirm-execution`,
+        method: "POST",
+        body,
+      }),
     inviteThreadAgent: (threadId, body) =>
       request<ThreadMember, { agent_profile_id: string }>({
         path: `/threads/${threadId}/agents`,
@@ -1235,7 +1300,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     getIssueAttachment: getWorkItemAttachment,
     deleteIssueAttachment: deleteWorkItemAttachment,
     getAttachmentDownloadUrl: (attachmentId) =>
-      buildUrl(baseUrl, `/attachments/${attachmentId}/download`),
+      buildUrl(baseUrl, `/resources/${attachmentId}/download`),
 
     // Notifications
     listNotifications: (params) =>

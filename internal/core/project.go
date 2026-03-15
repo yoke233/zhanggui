@@ -11,7 +11,7 @@ const (
 )
 
 // Project is a pure organizational container for grouping Flows.
-// It does NOT store repo/workspace info — use ResourceBinding for that.
+// It does NOT store repo/workspace info — use ResourceSpace for that.
 type Project struct {
 	ID          int64             `json:"id"`
 	Name        string            `json:"name"`

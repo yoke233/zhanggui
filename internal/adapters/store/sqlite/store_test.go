@@ -386,7 +386,6 @@ func TestRunResultFields(t *testing.T) {
 	}
 	run.ResultMarkdown = "## Done\nImplemented login API."
 	run.ResultMetadata = map[string]any{"status": "completed", "deliverables": []any{map[string]any{"type": "branch", "ref": "feat/login"}}}
-	run.ResultAssets = []core.Asset{{Name: "screenshot.png", URI: "file:///tmp/screenshot.png", MediaType: "image/png"}}
 	if err := s.UpdateRun(ctx, run); err != nil {
 		t.Fatalf("update run with result: %v", err)
 	}
@@ -400,9 +399,6 @@ func TestRunResultFields(t *testing.T) {
 	}
 	if got.ResultMetadata["status"] != "completed" {
 		t.Fatalf("result_metadata not preserved: %v", got.ResultMetadata)
-	}
-	if len(got.ResultAssets) != 1 || got.ResultAssets[0].Name != "screenshot.png" {
-		t.Fatalf("result_assets not preserved: %v", got.ResultAssets)
 	}
 
 	// GetLatestRunWithResult

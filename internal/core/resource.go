@@ -5,18 +5,11 @@ import (
 	"time"
 )
 
-// Well-known ResourceBinding kinds.
-const (
-	ResourceKindGit        = "git"
-	ResourceKindLocalFS    = "local_fs"
-	ResourceKindS3         = "s3"
-	ResourceKindHTTP       = "http"
-	ResourceKindWebDAV     = "webdav"
-	ResourceKindAttachment = "attachment"
-)
-
-// ResourceBinding is the unified representation of an external resource
-// associated with a Project. It serves two roles:
+// ResourceBinding is the legacy pre-unification representation of an external resource
+// associated with a Project. It remains only for migration/compatibility paths.
+// New runtime code should use ResourceSpace / Resource / ActionIODecl instead.
+//
+// Historically it served two roles:
 //
 //  1. Workspace source — WorkspaceProvider uses it to prepare the agent's
 //     working directory (e.g. git worktree, local dir).
@@ -45,14 +38,6 @@ type ResourceBinding struct {
 // Action Resources — per-action input/output resource declarations
 // ---------------------------------------------------------------------------
 
-// ActionResourceDirection indicates whether an action reads or writes a resource.
-type ActionResourceDirection string
-
-const (
-	ResourceInput  ActionResourceDirection = "input"
-	ResourceOutput ActionResourceDirection = "output"
-)
-
 // ActionResource binds an Action to a ResourceBinding, declaring what file/object
 // the action should fetch (input) or deposit (output) during execution.
 //
@@ -64,34 +49,23 @@ const (
 //	Action "edit-video"     → input:  binding=shared-drive, path="scripts/video-script.md"
 //	                        → output: binding=s3-media,     path="videos/final.mp4"
 type ActionResource struct {
-	ID                int64                  `json:"id"`
-	ActionID          int64                  `json:"action_id"`
-	ResourceBindingID int64                  `json:"resource_binding_id"`
+	ID                int64                   `json:"id"`
+	ActionID          int64                   `json:"action_id"`
+	ResourceBindingID int64                   `json:"resource_binding_id"`
 	Direction         ActionResourceDirection `json:"direction"` // "input" | "output"
-	Path              string                 `json:"path"`       // relative path within the binding's URI
-	MediaType         string                 `json:"media_type,omitempty"`
-	Description       string                 `json:"description,omitempty"`
-	Required          bool                   `json:"required"` // if true, missing input causes action failure
-	Metadata          map[string]any         `json:"metadata,omitempty"`
-	CreatedAt         time.Time              `json:"created_at"`
-}
-
-// ResolvedResource is the materialized form of an ActionResource — the actual
-// local path or URL that the agent should use during execution.
-type ResolvedResource struct {
-	ActionResourceID int64                  `json:"action_resource_id"`
-	Direction        ActionResourceDirection `json:"direction"`
-	LocalPath        string                 `json:"local_path,omitempty"` // local file path (for inputs fetched to disk)
-	RemoteURI        string                 `json:"remote_uri"`           // full resolved URI
-	MediaType        string                 `json:"media_type,omitempty"`
-	Description      string                 `json:"description,omitempty"`
+	Path              string                  `json:"path"`      // relative path within the binding's URI
+	MediaType         string                  `json:"media_type,omitempty"`
+	Description       string                  `json:"description,omitempty"`
+	Required          bool                    `json:"required"` // if true, missing input causes action failure
+	Metadata          map[string]any          `json:"metadata,omitempty"`
+	CreatedAt         time.Time               `json:"created_at"`
 }
 
 // ---------------------------------------------------------------------------
 // Store interfaces
 // ---------------------------------------------------------------------------
 
-// ResourceBindingStore persists ResourceBinding records.
+// ResourceBindingStore persists legacy ResourceBinding records.
 type ResourceBindingStore interface {
 	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
 	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
@@ -101,7 +75,7 @@ type ResourceBindingStore interface {
 	DeleteResourceBinding(ctx context.Context, id int64) error
 }
 
-// ActionResourceStore persists ActionResource records.
+// ActionResourceStore persists legacy ActionResource records.
 type ActionResourceStore interface {
 	CreateActionResource(ctx context.Context, ar *ActionResource) (int64, error)
 	GetActionResource(ctx context.Context, id int64) (*ActionResource, error)
@@ -110,8 +84,7 @@ type ActionResourceStore interface {
 	DeleteActionResource(ctx context.Context, id int64) error
 }
 
-// ResourceProvider is the pluggable interface for fetching and depositing resources.
-// Each resource Kind has a corresponding ResourceProvider implementation.
+// ResourceProvider is the legacy binding-based provider contract.
 type ResourceProvider interface {
 	// Kind returns the resource kind this provider handles.
 	Kind() string

@@ -897,10 +897,10 @@ func TestThreadContextRefCRUDAndWorkspaceContextFile(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
-	resourceResp, _ := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "local_fs",
-		"uri":   projectDir,
-		"label": "workspace",
+	resourceResp, _ := post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "local_fs",
+		"root_uri": projectDir,
+		"label":    "workspace",
 		"config": map[string]any{
 			"check_commands": []string{"go test ./..."},
 		},
@@ -1032,10 +1032,10 @@ func TestThreadContextRefRejectsInvalidAccessAndDuplicate(t *testing.T) {
 	var project core.Project
 	decodeJSON(resp, &project)
 
-	resp, _ = post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "local_fs",
-		"uri":   t.TempDir(),
-		"label": "workspace",
+	resp, _ = post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "local_fs",
+		"root_uri": t.TempDir(),
+		"label":    "workspace",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating resource, got %d", resp.StatusCode)
@@ -1077,10 +1077,10 @@ func TestThreadContextRefPersistsGrantedByFromHeader(t *testing.T) {
 	var project core.Project
 	decodeJSON(resp, &project)
 
-	resp, _ = post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "local_fs",
-		"uri":   t.TempDir(),
-		"label": "workspace",
+	resp, _ = post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "local_fs",
+		"root_uri": t.TempDir(),
+		"label":    "workspace",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating resource, got %d", resp.StatusCode)
@@ -1122,10 +1122,10 @@ func TestThreadDeleteRemovesContextRefs(t *testing.T) {
 	var project core.Project
 	decodeJSON(resp, &project)
 
-	resp, _ = post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
-		"kind":  "local_fs",
-		"uri":   t.TempDir(),
-		"label": "workspace",
+	resp, _ = post(ts, fmt.Sprintf("/projects/%d/spaces", project.ID), map[string]any{
+		"kind":     "local_fs",
+		"root_uri": t.TempDir(),
+		"label":    "workspace",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 creating resource, got %d", resp.StatusCode)

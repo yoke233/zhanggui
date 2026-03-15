@@ -62,50 +62,50 @@ func TestCurrentPRFlowPrompts_UsesProviderOverrides(t *testing.T) {
 	}
 }
 
-func TestBindingDefaultBranch_PrefersBaseBranch(t *testing.T) {
-	binding := &core.ResourceBinding{
+func TestSpaceDefaultBranch_PrefersBaseBranch(t *testing.T) {
+	space := &core.ResourceSpace{
 		Kind: "git",
 		Config: map[string]any{
 			"default_branch": "main",
 			"base_branch":    "release/1.0",
 		},
 	}
-	if got := bindingDefaultBranch(binding); got != "release/1.0" {
-		t.Fatalf("bindingDefaultBranch = %q, want %q", got, "release/1.0")
+	if got := spaceDefaultBranch(space); got != "release/1.0" {
+		t.Fatalf("spaceDefaultBranch = %q, want %q", got, "release/1.0")
 	}
 }
 
-func TestBindingProvider_DetectsCodeup(t *testing.T) {
-	binding := &core.ResourceBinding{Kind: "git"}
-	if got := bindingProvider(binding, "codeup.aliyun.com"); got != "codeup" {
-		t.Fatalf("bindingProvider = %q, want codeup", got)
+func TestSpaceProvider_DetectsCodeup(t *testing.T) {
+	space := &core.ResourceSpace{Kind: "git"}
+	if got := spaceProvider(space, "codeup.aliyun.com"); got != "codeup" {
+		t.Fatalf("spaceProvider = %q, want codeup", got)
 	}
 }
 
-func TestBindingSCMFlowEnabled_RequiresExplicitOptIn(t *testing.T) {
-	binding := &core.ResourceBinding{
+func TestSpaceSCMFlowEnabled_RequiresExplicitOptIn(t *testing.T) {
+	space := &core.ResourceSpace{
 		Kind: "git",
 		Config: map[string]any{
 			"provider": "github",
 		},
 	}
-	if bindingSCMFlowEnabled(binding) {
-		t.Fatal("expected binding without enable_scm_flow to be disabled")
+	if spaceSCMFlowEnabled(space) {
+		t.Fatal("expected space without enable_scm_flow to be disabled")
 	}
-	binding.Config["enable_scm_flow"] = true
-	if !bindingSCMFlowEnabled(binding) {
-		t.Fatal("expected binding with enable_scm_flow to be enabled")
+	space.Config["enable_scm_flow"] = true
+	if !spaceSCMFlowEnabled(space) {
+		t.Fatal("expected space with enable_scm_flow to be enabled")
 	}
 }
 
-func TestResolveEnabledSCMRepoFromBindings_GitHub(t *testing.T) {
+func TestResolveEnabledSCMRepoFromSpaces_GitHub(t *testing.T) {
 	dir := t.TempDir()
 	runGit(t, dir, "init")
 	runGit(t, dir, "remote", "add", "origin", "https://github.com/acme/demo.git")
 
-	info, ok := resolveEnabledSCMRepoFromBindings(context.Background(), []*core.ResourceBinding{{
-		Kind: "git",
-		URI:  dir,
+	info, ok := resolveEnabledSCMRepoFromSpaces(context.Background(), []*core.ResourceSpace{{
+		Kind:    "git",
+		RootURI: dir,
 		Config: map[string]any{
 			"default_branch":  "main",
 			"enable_scm_flow": true,
@@ -122,23 +122,23 @@ func TestResolveEnabledSCMRepoFromBindings_GitHub(t *testing.T) {
 	}
 }
 
-func TestResolveEnabledSCMRepoFromBindings_RequiresEnabledFlow(t *testing.T) {
+func TestResolveEnabledSCMRepoFromSpaces_RequiresEnabledFlow(t *testing.T) {
 	dir := t.TempDir()
 	runGit(t, dir, "init")
 	runGit(t, dir, "remote", "add", "origin", "https://github.com/acme/demo.git")
 
-	if _, ok := resolveEnabledSCMRepoFromBindings(context.Background(), []*core.ResourceBinding{{
-		Kind: "git",
-		URI:  dir,
+	if _, ok := resolveEnabledSCMRepoFromSpaces(context.Background(), []*core.ResourceSpace{{
+		Kind:    "git",
+		RootURI: dir,
 		Config: map[string]any{
 			"default_branch": "main",
 		},
 	}}); ok {
-		t.Fatal("expected binding resolution to skip disabled scm flow binding")
+		t.Fatal("expected space resolution to skip disabled scm flow space")
 	}
 }
 
-func TestResolveEnabledSCMRepoFromBindings_RejectsAmbiguousBindings(t *testing.T) {
+func TestResolveEnabledSCMRepoFromSpaces_RejectsAmbiguousSpaces(t *testing.T) {
 	dirA := t.TempDir()
 	runGit(t, dirA, "init")
 	runGit(t, dirA, "remote", "add", "origin", "https://github.com/acme/demo-a.git")
@@ -147,25 +147,25 @@ func TestResolveEnabledSCMRepoFromBindings_RejectsAmbiguousBindings(t *testing.T
 	runGit(t, dirB, "init")
 	runGit(t, dirB, "remote", "add", "origin", "https://github.com/acme/demo-b.git")
 
-	if _, ok := resolveEnabledSCMRepoFromBindings(context.Background(), []*core.ResourceBinding{
+	if _, ok := resolveEnabledSCMRepoFromSpaces(context.Background(), []*core.ResourceSpace{
 		{
-			Kind: "git",
-			URI:  dirA,
+			Kind:    "git",
+			RootURI: dirA,
 			Config: map[string]any{
 				"default_branch":  "main",
 				"enable_scm_flow": true,
 			},
 		},
 		{
-			Kind: "git",
-			URI:  dirB,
+			Kind:    "git",
+			RootURI: dirB,
 			Config: map[string]any{
 				"default_branch":  "main",
 				"enable_scm_flow": true,
 			},
 		},
 	}); ok {
-		t.Fatal("expected binding resolution to reject ambiguous scm flow bindings")
+		t.Fatal("expected space resolution to reject ambiguous scm flow spaces")
 	}
 }
 
@@ -184,10 +184,10 @@ func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
 	}
 	project.ID = projectID
 
-	binding := &core.ResourceBinding{
+	space := &core.ResourceSpace{
 		ProjectID: project.ID,
 		Kind:      "git",
-		URI:       repoDir,
+		RootURI:   repoDir,
 		Label:     "repo",
 		Config: map[string]any{
 			"provider":        "github",
@@ -196,15 +196,15 @@ func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
 			"merge_method":    "squash",
 		},
 	}
-	bindingID, err := h.store.CreateResourceBinding(context.Background(), binding)
+	spaceID, err := h.store.CreateResourceSpace(context.Background(), space)
 	if err != nil {
-		t.Fatalf("create binding: %v", err)
+		t.Fatalf("create space: %v", err)
 	}
-	binding.ID = bindingID
+	space.ID = spaceID
 
 	issue := &core.WorkItem{
 		ProjectID:         &project.ID,
-		ResourceBindingID: &binding.ID,
+		ResourceBindingID: &space.ID,
 		Title:             "rollback issue",
 		Status:            core.WorkItemOpen,
 		Priority:          core.PriorityMedium,

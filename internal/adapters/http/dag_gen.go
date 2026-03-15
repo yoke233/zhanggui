@@ -59,7 +59,12 @@ func (h *Handler) generateActions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Materialize steps into the store.
-	steps, err := h.dagGen.Materialize(r.Context(), h.store, issueID, dag)
+	store, ok := any(h.store).(core.Store)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "handler store does not implement core.Store", "STORE_ERROR")
+		return
+	}
+	steps, err := h.dagGen.Materialize(r.Context(), store, issueID, dag)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "MATERIALIZE_ERROR")
 		return

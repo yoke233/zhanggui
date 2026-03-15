@@ -50,13 +50,20 @@ const (
 	EventChatPermissionRequest EventType = "chat.permission_request"
 
 	// Thread events for multi-participant discussion.
-	EventThreadMessage       EventType = "thread.message"
-	EventThreadAgentJoined   EventType = "thread.agent_joined"
-	EventThreadAgentLeft     EventType = "thread.agent_left"
-	EventThreadAgentOutput   EventType = "thread.agent_output"
-	EventThreadAgentBooted   EventType = "thread.agent_booted"
-	EventThreadAgentFailed   EventType = "thread.agent_failed"
-	EventThreadAgentThinking EventType = "thread.agent_thinking"
+	EventThreadMessage                 EventType = "thread.message"
+	EventThreadAgentJoined             EventType = "thread.agent_joined"
+	EventThreadAgentLeft               EventType = "thread.agent_left"
+	EventThreadAgentOutput             EventType = "thread.agent_output"
+	EventThreadAgentBooted             EventType = "thread.agent_booted"
+	EventThreadAgentFailed             EventType = "thread.agent_failed"
+	EventThreadAgentThinking           EventType = "thread.agent_thinking"
+	EventThreadTrackCreated            EventType = "thread.track.created"
+	EventThreadTrackUpdated            EventType = "thread.track.updated"
+	EventThreadTrackStateChanged       EventType = "thread.track.state_changed"
+	EventThreadTrackReviewApproved     EventType = "thread.track.review_approved"
+	EventThreadTrackReviewRejected     EventType = "thread.track.review_rejected"
+	EventThreadTrackMaterialized       EventType = "thread.track.materialized"
+	EventThreadTrackExecutionConfirmed EventType = "thread.track.execution_confirmed"
 
 	// Feature manifest events.
 	EventManifestEntryUpdated EventType = "manifest.entry_updated"
@@ -68,7 +75,7 @@ const (
 	EventNotificationAllRead EventType = "notification.all_read"
 
 	// Workspace events.
-	EventWorkspaceWarning     EventType = "workspace.warning"
+	EventWorkspaceWarning      EventType = "workspace.warning"
 	EventRuntimeConfigReloaded EventType = "runtime.config_reloaded"
 )
 

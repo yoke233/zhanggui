@@ -10,6 +10,7 @@ import (
 	llmcollector "github.com/yoke233/ai-workflow/internal/adapters/collector/llm"
 	executoradapter "github.com/yoke233/ai-workflow/internal/adapters/executor"
 	"github.com/yoke233/ai-workflow/internal/adapters/llm"
+	resourceprovider "github.com/yoke233/ai-workflow/internal/adapters/resource/provider"
 	scmadapter "github.com/yoke233/ai-workflow/internal/adapters/scm"
 	workspaceprovider "github.com/yoke233/ai-workflow/internal/adapters/workspace/provider"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
@@ -206,6 +207,7 @@ func buildWorkItemEngine(
 
 	opts := []flowapp.Option{
 		flowapp.WithWorkspaceProvider(workspaceprovider.NewCompositeProvider()),
+		flowapp.WithResourceResolver(flowapp.NewActionIOResolver(store, resourceprovider.NewDefaultRegistry())),
 		flowapp.WithSCMTokens(flowapp.SCMTokens{
 			GitHub: strings.TrimSpace(scmTokens.GitHub),
 			Codeup: strings.TrimSpace(scmTokens.Codeup),

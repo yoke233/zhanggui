@@ -42,17 +42,17 @@ type TextCompleter interface {
 type DriverResolver func(ctx context.Context, driverID string) (*core.DriverConfig, error)
 
 type LeadAgentConfig struct {
-	Registry             core.AgentRegistry
-	DriverResolver       DriverResolver
-	Bus                  core.EventBus
-	ResourceBindingStore core.ResourceBindingStore
-	LLM                  TextCompleter
-	ProfileID            string
-	Timeout              time.Duration
-	IdleTTL              time.Duration
-	Sandbox              v2sandbox.Sandbox
-	DataDir              string
-	NewClient            func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
+	Registry           core.AgentRegistry
+	DriverResolver     DriverResolver
+	Bus                core.EventBus
+	ResourceSpaceStore core.ResourceSpaceStore
+	LLM                TextCompleter
+	ProfileID          string
+	Timeout            time.Duration
+	IdleTTL            time.Duration
+	Sandbox            v2sandbox.Sandbox
+	DataDir            string
+	NewClient          func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
 }
 
 type LeadAgent struct {
@@ -1025,7 +1025,7 @@ func resolveLeadWorkDir(workDir string) (string, error) {
 // chat session.  It returns (workDir, isolation, repoPath, error).
 //
 //   - If the caller provides an explicit WorkDir, it is used as-is (isolation="").
-//   - If a project with a git ResourceBinding is selected, a git worktree is
+//   - If a project with a git ResourceSpace is selected, a git worktree is
 //     created so the agent never touches the default branch (isolation="worktree").
 //   - Otherwise a temporary sandbox directory is created under DataDir
 //     (isolation="sandbox").
@@ -1039,17 +1039,20 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 		return abs, "", "", "", nil
 	}
 
-	// Project with git binding → worktree isolation.
-	if req.ProjectID > 0 && l.cfg.ResourceBindingStore != nil {
-		bindings, err := l.cfg.ResourceBindingStore.ListResourceBindings(ctx, req.ProjectID)
+	// Project with git space → worktree isolation.
+	if req.ProjectID > 0 && l.cfg.ResourceSpaceStore != nil {
+		spaces, err := l.cfg.ResourceSpaceStore.ListResourceSpaces(ctx, req.ProjectID)
 		if err != nil {
-			slog.Warn("lead chat: list resource bindings failed", "project_id", req.ProjectID, "error", err)
+			slog.Warn("lead chat: list resource spaces failed", "project_id", req.ProjectID, "error", err)
 		}
-		for _, b := range bindings {
-			if b.Kind != "git" || strings.TrimSpace(b.URI) == "" {
+		for _, space := range spaces {
+			if space.Kind != core.ResourceKindGit {
 				continue
 			}
-			repoPath := b.URI
+			repoPath := resolveLeadGitSpacePath(space)
+			if repoPath == "" {
+				continue
+			}
 			slug := l.generateBranchSlug(ctx, req.Message)
 			branchName := fmt.Sprintf("ai-chat/%s", slug)
 			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+slug)
@@ -1070,6 +1073,31 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 		return "", "", "", "", err
 	}
 	return sandboxDir, "sandbox", "", "", nil
+}
+
+func resolveLeadGitSpacePath(space *core.ResourceSpace) string {
+	if space == nil {
+		return ""
+	}
+	if space.Config != nil {
+		for _, key := range []string{"work_dir", "local_path", "clone_dir"} {
+			if value, ok := space.Config[key].(string); ok && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	rootURI := strings.TrimSpace(space.RootURI)
+	if rootURI == "" || looksLikeRemoteLeadGitURI(rootURI) {
+		return ""
+	}
+	return rootURI
+}
+
+func looksLikeRemoteLeadGitURI(uri string) bool {
+	if strings.Contains(uri, "://") {
+		return true
+	}
+	return strings.HasPrefix(uri, "git@") && strings.Contains(uri, ":")
 }
 
 // createSandboxDir creates a temporary directory under DataDir for chat sessions

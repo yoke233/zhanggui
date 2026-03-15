@@ -39,13 +39,13 @@ func buildAPIStack(
 		}
 	}
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
-		Registry:             base.registry,
-		DriverResolver:       driverResolver,
-		Bus:                  base.bus,
-		ResourceBindingStore: base.store,
-		LLM:                  llmCompleter,
-		Sandbox:              sb,
-		DataDir:              base.dataDir,
+		Registry:           base.registry,
+		DriverResolver:     driverResolver,
+		Bus:                base.bus,
+		ResourceSpaceStore: base.store,
+		LLM:                llmCompleter,
+		Sandbox:            sb,
+		DataDir:            base.dataDir,
 	})
 
 	var dagGen api.DAGGenerator

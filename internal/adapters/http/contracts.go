@@ -11,9 +11,11 @@ import (
 // Store is the persistence contract required by the HTTP adapter.
 type Store interface {
 	core.ProjectStore
-	core.ResourceBindingStore
-	core.ActionResourceStore
+	core.ResourceSpaceStore
+	core.ResourceStore
+	core.ActionIODeclStore
 	core.WorkItemStore
+	core.WorkItemTrackStore
 	core.ThreadStore
 	core.ActionStore
 	core.RunStore
@@ -27,14 +29,16 @@ type Store interface {
 	core.JournalStore
 	core.NotificationStore
 	core.InspectionStore
-	DeleteActionResourcesByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteResourcesByThread(ctx context.Context, threadID int64) error
+	GetThreadMessage(ctx context.Context, id int64) (*core.ThreadMessage, error)
+	DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteResourcesByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteRunsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteActionSignalsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteAgentContextsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteEventsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteJournalByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
-	DeleteResourceBindingsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteActionsByWorkItem(ctx context.Context, workItemID int64) error
 	DetachFeatureEntriesByWorkItem(ctx context.Context, workItemID int64) error
 	Close() error

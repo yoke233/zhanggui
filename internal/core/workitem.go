@@ -34,8 +34,8 @@ const (
 // WorkItem is the unified work unit: it combines the planning intent (title, body,
 // priority, labels) with the execution context (status lifecycle, actions, workspace).
 //
-// A WorkItem optionally belongs to a Project and can be bound to a specific
-// ResourceBinding (repo) for workspace isolation.
+// A WorkItem optionally belongs to a Project and can point at a specific
+// ResourceSpace ID for workspace isolation.
 type WorkItem struct {
 	ID                int64  `json:"id"`
 	ProjectID         *int64 `json:"project_id,omitempty"`

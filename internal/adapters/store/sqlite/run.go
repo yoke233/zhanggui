@@ -85,7 +85,6 @@ func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
 			"finished_at":       model.FinishedAt,
 			"result_markdown":   model.ResultMarkdown,
 			"result_metadata":   model.ResultMetadata,
-			"result_assets":     model.ResultAssets,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("update execution: %w", result.Error)

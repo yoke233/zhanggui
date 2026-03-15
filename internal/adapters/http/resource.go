@@ -9,13 +9,14 @@ import (
 )
 
 type createResourceRequest struct {
-	Kind   string         `json:"kind"`
-	URI    string         `json:"uri"`
-	Config map[string]any `json:"config,omitempty"`
-	Label  string         `json:"label,omitempty"`
+	Kind    string         `json:"kind"`
+	RootURI string         `json:"root_uri"`
+	Role    string         `json:"role,omitempty"`
+	Config  map[string]any `json:"config,omitempty"`
+	Label   string         `json:"label,omitempty"`
 }
 
-func (h *Handler) createResourceBinding(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createResourceSpace(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := urlParamInt64(r, "projectID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid project ID", "BAD_ID")
@@ -38,85 +39,87 @@ func (h *Handler) createResourceBinding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	kind := strings.TrimSpace(req.Kind)
-	uri := strings.TrimSpace(req.URI)
+	rootURI := strings.TrimSpace(req.RootURI)
 	if kind == "" {
 		writeError(w, http.StatusBadRequest, "kind is required", "MISSING_KIND")
 		return
 	}
-	if uri == "" {
-		writeError(w, http.StatusBadRequest, "uri is required", "MISSING_URI")
+	if rootURI == "" {
+		writeError(w, http.StatusBadRequest, "root_uri is required", "MISSING_ROOT_URI")
 		return
 	}
 
-	rb := &core.ResourceBinding{
+	rs := &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      kind,
-		URI:       uri,
+		RootURI:   rootURI,
+		Role:      strings.TrimSpace(req.Role),
 		Config:    req.Config,
 		Label:     strings.TrimSpace(req.Label),
 	}
-	id, err := h.store.CreateResourceBinding(r.Context(), rb)
+	id, err := h.store.CreateResourceSpace(r.Context(), rs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	rb.ID = id
-	writeJSON(w, http.StatusCreated, rb)
+	rs.ID = id
+	writeJSON(w, http.StatusCreated, rs)
 }
 
-func (h *Handler) listResourceBindings(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listResourceSpaces(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := urlParamInt64(r, "projectID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid project ID", "BAD_ID")
 		return
 	}
 
-	bindings, err := h.store.ListResourceBindings(r.Context(), projectID)
+	spaces, err := h.store.ListResourceSpaces(r.Context(), projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if bindings == nil {
-		bindings = []*core.ResourceBinding{}
+	if spaces == nil {
+		spaces = []*core.ResourceSpace{}
 	}
-	writeJSON(w, http.StatusOK, bindings)
+	writeJSON(w, http.StatusOK, spaces)
 }
 
-func (h *Handler) getResourceBinding(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "resourceID")
+func (h *Handler) getResourceSpace(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlParamInt64(r, "spaceID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid resource ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid space ID", "BAD_ID")
 		return
 	}
 
-	rb, err := h.store.GetResourceBinding(r.Context(), id)
+	rs, err := h.store.GetResourceSpace(r.Context(), id)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "resource binding not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "resource space not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, rb)
+	writeJSON(w, http.StatusOK, rs)
 }
 
 type updateResourceRequest struct {
-	Kind   *string        `json:"kind,omitempty"`
-	URI    *string        `json:"uri,omitempty"`
-	Config map[string]any `json:"config,omitempty"`
-	Label  *string        `json:"label,omitempty"`
+	Kind    *string        `json:"kind,omitempty"`
+	RootURI *string        `json:"root_uri,omitempty"`
+	Role    *string        `json:"role,omitempty"`
+	Config  map[string]any `json:"config,omitempty"`
+	Label   *string        `json:"label,omitempty"`
 }
 
-func (h *Handler) updateResourceBinding(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "resourceID")
+func (h *Handler) updateResourceSpace(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlParamInt64(r, "spaceID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid resource ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid space ID", "BAD_ID")
 		return
 	}
-	rb, err := h.store.GetResourceBinding(r.Context(), id)
+	rs, err := h.store.GetResourceSpace(r.Context(), id)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "resource binding not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "resource space not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
@@ -130,35 +133,38 @@ func (h *Handler) updateResourceBinding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.Kind != nil {
-		rb.Kind = strings.TrimSpace(*req.Kind)
+		rs.Kind = strings.TrimSpace(*req.Kind)
 	}
-	if req.URI != nil {
-		rb.URI = strings.TrimSpace(*req.URI)
+	if req.RootURI != nil {
+		rs.RootURI = strings.TrimSpace(*req.RootURI)
+	}
+	if req.Role != nil {
+		rs.Role = strings.TrimSpace(*req.Role)
 	}
 	if req.Label != nil {
-		rb.Label = strings.TrimSpace(*req.Label)
+		rs.Label = strings.TrimSpace(*req.Label)
 	}
 	if req.Config != nil {
-		rb.Config = req.Config
+		rs.Config = req.Config
 	}
 
-	if err := h.store.UpdateResourceBinding(r.Context(), rb); err != nil {
+	if err := h.store.UpdateResourceSpace(r.Context(), rs); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, rb)
+	writeJSON(w, http.StatusOK, rs)
 }
 
-func (h *Handler) deleteResourceBinding(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "resourceID")
+func (h *Handler) deleteResourceSpace(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlParamInt64(r, "spaceID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid resource ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid space ID", "BAD_ID")
 		return
 	}
 
-	if err := h.store.DeleteResourceBinding(r.Context(), id); err != nil {
+	if err := h.store.DeleteResourceSpace(r.Context(), id); err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "resource binding not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "resource space not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
@@ -166,4 +172,3 @@ func (h *Handler) deleteResourceBinding(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-

@@ -14,6 +14,8 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 	if err := orm.WithContext(ctx).AutoMigrate(
 		&ProjectModel{},
 		&ResourceBindingModel{},
+		&ResourceSpaceModel{},
+		&ResourceModel{},
 		&WorkItemModel{},
 		&ActionModel{},
 		&RunModel{},
@@ -27,9 +29,12 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&ThreadMemberModel{},
 		&ThreadWorkItemLinkModel{},
 		&ThreadContextRefModel{},
+		&WorkItemTrackModel{},
+		&WorkItemTrackThreadModel{},
 		&FeatureEntryModel{},
 		&ActionSignalModel{},
 		&ActionResourceModel{},
+		&ActionIODeclModel{},
 		&InspectionReportModel{},
 		&InspectionFindingModel{},
 		&InspectionInsightModel{},
@@ -49,6 +54,9 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		if err := orm.WithContext(ctx).Exec(ddl).Error; err != nil {
 			return fmt.Errorf("create journal index: %w", err)
 		}
+	}
+	if err := migrateUnifiedResources(ctx, orm); err != nil {
+		return fmt.Errorf("migrate unified resources: %w", err)
 	}
 	return nil
 }

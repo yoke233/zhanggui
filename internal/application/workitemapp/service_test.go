@@ -297,13 +297,6 @@ func TestServiceDeleteWorkItemDeletesOwnedDataAndDetachesFeatureEntries(t *testi
 	if _, err := store.FindAgentContext(ctx, "codex", workItemID); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("expected agent context deleted, got %v", err)
 	}
-	bindings, err := store.ListResourceBindingsByIssue(ctx, workItemID, "")
-	if err != nil {
-		t.Fatalf("list resource bindings by work item: %v", err)
-	}
-	if len(bindings) != 0 {
-		t.Fatalf("expected work item resource bindings deleted, got %d", len(bindings))
-	}
 	links, err := store.ListThreadsByWorkItem(ctx, workItemID)
 	if err != nil {
 		t.Fatalf("list thread links: %v", err)

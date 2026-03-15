@@ -191,7 +191,7 @@ export function CreateProjectPage() {
           : undefined;
         await apiClient.createProjectResource(project.id, {
           kind: resource.kind.trim(),
-          uri: resource.uri.trim(),
+          root_uri: resource.uri.trim(),
           config: config && Object.keys(config).length > 0 ? config : undefined,
           label: resource.label.trim() || undefined,
         });

@@ -704,13 +704,13 @@ func TestServiceCreateThreadContextRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 		Label:     "workspace",
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 
 	ref, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
@@ -746,13 +746,13 @@ func TestServiceCreateThreadContextRefRollsBackWhenWorkspaceSyncFails(t *testing
 
 	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 		Label:     "workspace",
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 
 	_, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
@@ -780,13 +780,13 @@ func TestServiceCreateThreadContextRefRejectsDuplicate(t *testing.T) {
 
 	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 		Label:     "workspace",
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	if _, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
 		ThreadID:  threadID,
@@ -812,13 +812,13 @@ func TestServiceUpdateThreadContextRefRejectsInvalidAccess(t *testing.T) {
 
 	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 		Label:     "workspace",
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	refID, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 		ThreadID:  threadID,
@@ -846,12 +846,12 @@ func TestServiceDeleteThreadRemovesContextRefs(t *testing.T) {
 
 	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-cleanup"})
 	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       t.TempDir(),
+		RootURI:   t.TempDir(),
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	if _, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 		ThreadID:  threadID,
@@ -895,12 +895,12 @@ func TestServiceDeleteThreadContextRefReconcilesFocus(t *testing.T) {
 	projectA, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
 	projectB, _ := store.CreateProject(ctx, &core.Project{Name: "Project Beta", Kind: core.ProjectGeneral})
 	for _, projectID := range []int64{projectA, projectB} {
-		if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 			ProjectID: projectID,
 			Kind:      core.ResourceKindLocalFS,
-			URI:       t.TempDir(),
+			RootURI:   t.TempDir(),
 		}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+			t.Fatalf("create resource space: %v", err)
 		}
 	}
 
@@ -1064,12 +1064,12 @@ func TestServiceDeleteThreadAndContextRefBranches(t *testing.T) {
 		threadA, _ := store.CreateThread(ctx, &core.Thread{Title: "a"})
 		threadB, _ := store.CreateThread(ctx, &core.Thread{Title: "b"})
 		projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project", Kind: core.ProjectGeneral})
-		if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 			ProjectID: projectID,
 			Kind:      core.ResourceKindLocalFS,
-			URI:       t.TempDir(),
+			RootURI:   t.TempDir(),
 		}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+			t.Fatalf("create resource space: %v", err)
 		}
 		refID, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 			ThreadID:  threadA,
@@ -1095,12 +1095,12 @@ func TestServiceUpdateContextRefAndWorkItemHelpers(t *testing.T) {
 
 		threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
 		projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-		if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 			ProjectID: projectID,
 			Kind:      core.ResourceKindLocalFS,
-			URI:       t.TempDir(),
+			RootURI:   t.TempDir(),
 		}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+			t.Fatalf("create resource space: %v", err)
 		}
 		refID, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 			ThreadID:  threadID,
@@ -1222,8 +1222,8 @@ func TestServiceErrorAndAggregateFailureBranches(t *testing.T) {
 
 		threadID, _ := base.CreateThread(ctx, &core.Thread{Title: "thread"})
 		projectID, _ := base.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-		if _, err := base.CreateResourceBinding(ctx, &core.ResourceBinding{ProjectID: projectID, Kind: core.ResourceKindLocalFS, URI: t.TempDir()}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+		if _, err := base.CreateResourceSpace(ctx, &core.ResourceSpace{ProjectID: projectID, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}); err != nil {
+			t.Fatalf("create resource space: %v", err)
 		}
 		if _, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{ThreadID: threadID, ProjectID: projectID, Access: "bad"}); CodeOf(err) != CodeInvalidContextAccess {
 			t.Fatalf("expected %s, got %v", CodeInvalidContextAccess, err)
@@ -1243,8 +1243,8 @@ func TestServiceErrorAndAggregateFailureBranches(t *testing.T) {
 		threadA, _ := base.CreateThread(ctx, &core.Thread{Title: "a"})
 		threadB, _ := base.CreateThread(ctx, &core.Thread{Title: "b"})
 		projectID, _ := base.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-		if _, err := base.CreateResourceBinding(ctx, &core.ResourceBinding{ProjectID: projectID, Kind: core.ResourceKindLocalFS, URI: t.TempDir()}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+		if _, err := base.CreateResourceSpace(ctx, &core.ResourceSpace{ProjectID: projectID, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}); err != nil {
+			t.Fatalf("create resource space: %v", err)
 		}
 		refID, _ := base.CreateThreadContextRef(ctx, &core.ThreadContextRef{ThreadID: threadA, ProjectID: projectID, Access: core.ContextAccessRead})
 
@@ -1274,8 +1274,8 @@ func TestServiceErrorAndAggregateFailureBranches(t *testing.T) {
 		}
 
 		projectID, _ := base.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-		if _, err := base.CreateResourceBinding(ctx, &core.ResourceBinding{ProjectID: projectID, Kind: core.ResourceKindLocalFS, URI: t.TempDir()}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+		if _, err := base.CreateResourceSpace(ctx, &core.ResourceSpace{ProjectID: projectID, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}); err != nil {
+			t.Fatalf("create resource space: %v", err)
 		}
 		refID, _ := base.CreateThreadContextRef(ctx, &core.ThreadContextRef{ThreadID: threadID, ProjectID: projectID, Access: core.ContextAccessRead})
 		if err := svc.DeleteThreadContextRef(ctx, threadID, refID); err == nil || err.Error() != "sync failed" {
@@ -1287,12 +1287,12 @@ func TestServiceErrorAndAggregateFailureBranches(t *testing.T) {
 		base := newThreadAppTestStore(t)
 		threadID, _ := createThreadFixture(t, base, true, false)
 		projectID, _ := base.CreateProject(context.Background(), &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
-		if _, err := base.CreateResourceBinding(context.Background(), &core.ResourceBinding{
+		if _, err := base.CreateResourceSpace(context.Background(), &core.ResourceSpace{
 			ProjectID: projectID,
 			Kind:      core.ResourceKindLocalFS,
-			URI:       t.TempDir(),
+			RootURI:   t.TempDir(),
 		}); err != nil {
-			t.Fatalf("create resource binding: %v", err)
+			t.Fatalf("create resource space: %v", err)
 		}
 		if _, err := base.CreateThreadContextRef(context.Background(), &core.ThreadContextRef{
 			ThreadID:  threadID,

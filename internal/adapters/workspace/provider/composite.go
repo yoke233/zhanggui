@@ -8,8 +8,8 @@ import (
 )
 
 // CompositeProvider routes workspace preparation to the appropriate provider
-// based on the selected ResourceBinding's Kind. If the WorkItem has a specific
-// ResourceBindingID, that binding is used; otherwise the first binding is used.
+// based on the selected ResourceSpace's Kind. If the WorkItem has a specific
+// ResourceBindingID, that space is used; otherwise the first space is used.
 //
 // Routing:
 //
@@ -33,18 +33,18 @@ func (c *CompositeProvider) RegisterProvider(kind string, p core.WorkspaceProvid
 	c.providers[kind] = p
 }
 
-func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, workItemID int64) (*core.Workspace, error) {
-	if len(bindings) == 0 {
-		return nil, fmt.Errorf("no resource bindings available for workspace preparation")
+func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, spaces []*core.ResourceSpace, workItemID int64) (*core.Workspace, error) {
+	if len(spaces) == 0 {
+		return nil, fmt.Errorf("no resource spaces available for workspace preparation")
 	}
 
-	// Use the first binding to determine provider kind.
-	binding := bindings[0]
-	p, ok := c.providers[binding.Kind]
+	// Use the first space to determine provider kind.
+	space := spaces[0]
+	p, ok := c.providers[space.Kind]
 	if !ok {
-		return nil, fmt.Errorf("no workspace provider for resource kind %q", binding.Kind)
+		return nil, fmt.Errorf("no workspace provider for resource kind %q", space.Kind)
 	}
-	return p.Prepare(ctx, project, bindings, workItemID)
+	return p.Prepare(ctx, project, spaces, workItemID)
 }
 
 func (c *CompositeProvider) Release(ctx context.Context, ws *core.Workspace) error {

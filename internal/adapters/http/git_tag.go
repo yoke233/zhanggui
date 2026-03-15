@@ -71,34 +71,52 @@ type routeRegistrar interface {
 // --- helpers ---
 
 // resolveGitWorkDir finds a local git work directory for the project.
-// It checks resource bindings for kind=git with a config.work_dir or config.local_path,
-// falling back to the URI if it looks like a local path.
+// It checks resource spaces for kind=git with config.work_dir/local_path/clone_dir,
+// falling back to root_uri if it resolves to a local path.
 func (h *Handler) resolveGitWorkDir(ctx context.Context, projectID int64) (string, error) {
-	bindings, err := h.store.ListResourceBindings(ctx, projectID)
+	spaces, err := h.store.ListResourceSpaces(ctx, projectID)
 	if err != nil {
-		return "", fmt.Errorf("list resource bindings: %w", err)
+		return "", fmt.Errorf("list resource spaces: %w", err)
 	}
-	for _, b := range bindings {
-		if !strings.EqualFold(strings.TrimSpace(b.Kind), "git") {
+	for _, space := range spaces {
+		if !strings.EqualFold(strings.TrimSpace(space.Kind), core.ResourceKindGit) {
 			continue
 		}
-		if b.Config != nil {
-			if wd, ok := b.Config["work_dir"].(string); ok && strings.TrimSpace(wd) != "" {
-				return strings.TrimSpace(wd), nil
-			}
-			if lp, ok := b.Config["local_path"].(string); ok && strings.TrimSpace(lp) != "" {
-				return strings.TrimSpace(lp), nil
-			}
+		if workDir := resolveGitSpaceWorkDir(space); workDir != "" {
+			return workDir, nil
 		}
-		// If URI is a local absolute path, use it directly.
-		uri := strings.TrimSpace(b.URI)
-		if filepath.IsAbs(uri) {
-			if info, statErr := os.Stat(uri); statErr == nil && info.IsDir() {
-				return uri, nil
+	}
+	return "", fmt.Errorf("no git workspace found for project %d — add a git resource space with config.work_dir", projectID)
+}
+
+func resolveGitSpaceWorkDir(space *core.ResourceSpace) string {
+	if space == nil {
+		return ""
+	}
+	if space.Config != nil {
+		for _, key := range []string{"work_dir", "local_path", "clone_dir"} {
+			if value, ok := space.Config[key].(string); ok && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
 			}
 		}
 	}
-	return "", fmt.Errorf("no git workspace found for project %d — add a git resource binding with config.work_dir", projectID)
+	rootURI := strings.TrimSpace(space.RootURI)
+	if rootURI == "" || looksLikeRemoteGitRootURI(rootURI) {
+		return ""
+	}
+	if filepath.IsAbs(rootURI) {
+		if info, err := os.Stat(rootURI); err == nil && info.IsDir() {
+			return rootURI
+		}
+	}
+	return ""
+}
+
+func looksLikeRemoteGitRootURI(uri string) bool {
+	if strings.Contains(uri, "://") {
+		return true
+	}
+	return strings.HasPrefix(uri, "git@") && strings.Contains(uri, ":")
 }
 
 func gitCmd(ctx context.Context, dir string, extraEnv []string, args ...string) (string, error) {

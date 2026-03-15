@@ -11,6 +11,6 @@ type Workspace struct {
 
 // WorkspaceProvider prepares and releases execution workspaces for WorkItems.
 type WorkspaceProvider interface {
-	Prepare(ctx context.Context, project *Project, bindings []*ResourceBinding, workItemID int64) (*Workspace, error)
+	Prepare(ctx context.Context, project *Project, spaces []*ResourceSpace, workItemID int64) (*Workspace, error)
 	Release(ctx context.Context, ws *Workspace) error
 }

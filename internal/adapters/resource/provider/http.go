@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -30,8 +31,9 @@ func (p *HTTPProvider) httpClient() *http.Client {
 	return &http.Client{Timeout: 5 * time.Minute}
 }
 
-func (p *HTTPProvider) Fetch(ctx context.Context, binding *core.ResourceBinding, resourcePath string, destDir string) (string, error) {
-	url := binding.URI + "/" + resourcePath
+func (p *HTTPProvider) Fetch(ctx context.Context, space *core.ResourceSpace, resourcePath string, destDir string) (string, error) {
+	base := strings.TrimRight(space.RootURI, "/")
+	url := base + "/" + strings.TrimLeft(resourcePath, "/")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -39,10 +41,10 @@ func (p *HTTPProvider) Fetch(ctx context.Context, binding *core.ResourceBinding,
 	}
 
 	// Apply auth headers from config if present.
-	if token, ok := binding.Config["auth_token"].(string); ok && token != "" {
+	if token, ok := space.Config["auth_token"].(string); ok && token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if headers, ok := binding.Config["headers"].(map[string]any); ok {
+	if headers, ok := space.Config["headers"].(map[string]any); ok {
 		for k, v := range headers {
 			if s, ok := v.(string); ok {
 				req.Header.Set(k, s)
@@ -64,6 +66,9 @@ func (p *HTTPProvider) Fetch(ctx context.Context, binding *core.ResourceBinding,
 	if filename == "." || filename == "/" {
 		filename = "download"
 	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", fmt.Errorf("http fetch: mkdir %s: %w", destDir, err)
+	}
 	destPath := filepath.Join(destDir, filename)
 
 	out, err := os.Create(destPath)
@@ -78,6 +83,6 @@ func (p *HTTPProvider) Fetch(ctx context.Context, binding *core.ResourceBinding,
 	return destPath, out.Close()
 }
 
-func (p *HTTPProvider) Deposit(_ context.Context, _ *core.ResourceBinding, _ string, _ string) error {
+func (p *HTTPProvider) Deposit(_ context.Context, _ *core.ResourceSpace, _ string, _ string) error {
 	return fmt.Errorf("http provider does not support deposit (read-only)")
 }

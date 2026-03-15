@@ -17,12 +17,15 @@ func (p *LocalFSProvider) Kind() string {
 	return core.ResourceKindLocalFS
 }
 
-func (p *LocalFSProvider) Fetch(_ context.Context, binding *core.ResourceBinding, path string, destDir string) (string, error) {
-	src := filepath.Join(binding.URI, path)
+func (p *LocalFSProvider) Fetch(_ context.Context, space *core.ResourceSpace, path string, destDir string) (string, error) {
+	src := filepath.Join(space.RootURI, path)
 	if _, err := os.Stat(src); err != nil {
 		return "", fmt.Errorf("local_fs fetch: source %s: %w", src, err)
 	}
 
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", fmt.Errorf("local_fs fetch: mkdir %s: %w", destDir, err)
+	}
 	destPath := filepath.Join(destDir, filepath.Base(path))
 	if err := copyFile(src, destPath); err != nil {
 		return "", fmt.Errorf("local_fs fetch: copy %s → %s: %w", src, destPath, err)
@@ -30,8 +33,8 @@ func (p *LocalFSProvider) Fetch(_ context.Context, binding *core.ResourceBinding
 	return destPath, nil
 }
 
-func (p *LocalFSProvider) Deposit(_ context.Context, binding *core.ResourceBinding, path string, localPath string) error {
-	dest := filepath.Join(binding.URI, path)
+func (p *LocalFSProvider) Deposit(_ context.Context, space *core.ResourceSpace, path string, localPath string) error {
+	dest := filepath.Join(space.RootURI, path)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("local_fs deposit: mkdir %s: %w", filepath.Dir(dest), err)
 	}

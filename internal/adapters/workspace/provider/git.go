@@ -12,7 +12,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
-// GitProvider handles workspace preparation for git resource bindings.
+// GitProvider handles workspace preparation for git resource spaces.
 // It supports two URI modes:
 //
 //  1. Local path (e.g. "/home/user/my-repo") — creates a worktree directly.
@@ -20,7 +20,7 @@ import (
 //     local data directory first, then creates a worktree from the clone.
 //
 // The clone directory defaults to ".ai-workflow/repos/{owner}/{repo}" under
-// the current working directory, but can be overridden via the binding's
+// the current working directory, but can be overridden via the space's
 // Config["clone_dir"] field.
 type GitProvider struct {
 	// DataDir is the base directory for cloning remote repos.
@@ -28,31 +28,31 @@ type GitProvider struct {
 	DataDir string
 }
 
-func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, workItemID int64) (*core.Workspace, error) {
-	var gitBindings []*core.ResourceBinding
-	for _, b := range bindings {
-		if b == nil || b.Kind != core.ResourceKindGit {
+func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, spaces []*core.ResourceSpace, workItemID int64) (*core.Workspace, error) {
+	var gitSpaces []*core.ResourceSpace
+	for _, space := range spaces {
+		if space == nil || space.Kind != core.ResourceKindGit {
 			continue
 		}
-		gitBindings = append(gitBindings, b)
+		gitSpaces = append(gitSpaces, space)
 	}
-	if len(gitBindings) == 0 {
-		return nil, fmt.Errorf("no git resource binding found")
+	if len(gitSpaces) == 0 {
+		return nil, fmt.Errorf("no git resource space found")
 	}
-	if len(gitBindings) > 1 {
-		return nil, fmt.Errorf("multiple git resource bindings found; work item must select one binding explicitly")
+	if len(gitSpaces) > 1 {
+		return nil, fmt.Errorf("multiple git resource spaces found; work item must select one space explicitly")
 	}
 
-	b := gitBindings[0]
-	repoPath, err := p.resolveRepoPath(b)
+	space := gitSpaces[0]
+	repoPath, err := p.resolveRepoPath(space)
 	if err != nil {
-		return nil, fmt.Errorf("resolve git repo for binding %d: %w", b.ID, err)
+		return nil, fmt.Errorf("resolve git repo for space %d: %w", space.ID, err)
 	}
 
 	runner := workspacegit.NewRunner(repoPath)
 
 	// Determine the base branch for the new worktree.
-	baseBranch := DefaultBranchFromBinding(b)
+	baseBranch := DefaultBranchFromSpace(space)
 	if baseBranch == "" {
 		baseBranch = workspacegit.DetectDefaultBranch(repoPath)
 	}
@@ -106,7 +106,7 @@ func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*co
 	}
 
 	metadata := map[string]any{
-		"binding_id":     b.ID,
+		"space_id":       space.ID,
 		"kind":           core.ResourceKindGit,
 		"branch":         branchName,
 		"default_branch": baseBranch,
@@ -115,7 +115,7 @@ func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*co
 	if len(warnings) > 0 {
 		metadata["warnings"] = warnings
 	}
-	MergeSCMBindingMetadata(metadata, b.Config)
+	MergeSCMSpaceMetadata(metadata, space.Config)
 
 	return &core.Workspace{
 		Path:     worktreePath,
@@ -138,15 +138,15 @@ func (p *GitProvider) Release(_ context.Context, ws *core.Workspace) error {
 // resolveRepoPath returns the local path to the git repository.
 // For local paths it returns the URI directly.
 // For remote URLs it clones (or fetches) into the data directory.
-func (p *GitProvider) resolveRepoPath(b *core.ResourceBinding) (string, error) {
-	uri := strings.TrimSpace(b.URI)
+func (p *GitProvider) resolveRepoPath(space *core.ResourceSpace) (string, error) {
+	uri := strings.TrimSpace(space.RootURI)
 	if uri == "" {
-		return "", fmt.Errorf("git resource binding has empty URI")
+		return "", fmt.Errorf("git resource space has empty root_uri")
 	}
 
 	// Detect remote URL: contains "://" or starts with "git@".
 	if isRemoteGitURI(uri) {
-		return p.ensureClone(b, uri)
+		return p.ensureClone(space, uri)
 	}
 
 	// Local path — verify it exists and has .git.
@@ -165,11 +165,11 @@ func (p *GitProvider) resolveRepoPath(b *core.ResourceBinding) (string, error) {
 }
 
 // ensureClone clones a remote git repo or fetches updates if already cloned.
-func (p *GitProvider) ensureClone(b *core.ResourceBinding, remoteURL string) (string, error) {
+func (p *GitProvider) ensureClone(space *core.ResourceSpace, remoteURL string) (string, error) {
 	// Determine clone target directory.
 	cloneDir := ""
-	if b.Config != nil {
-		if d, ok := b.Config["clone_dir"].(string); ok && d != "" {
+	if space.Config != nil {
+		if d, ok := space.Config["clone_dir"].(string); ok && d != "" {
 			cloneDir = d
 		}
 	}
@@ -188,8 +188,8 @@ func (p *GitProvider) ensureClone(b *core.ResourceBinding, remoteURL string) (st
 
 	cloner := workspaceclone.New()
 	ref := ""
-	if b.Config != nil {
-		if r, ok := b.Config["ref"].(string); ok {
+	if space.Config != nil {
+		if r, ok := space.Config["ref"].(string); ok {
 			ref = r
 		}
 	}
@@ -217,19 +217,19 @@ func isRemoteGitURI(uri string) bool {
 	return false
 }
 
-func DefaultBranchFromBinding(b *core.ResourceBinding) string {
-	if b == nil || b.Config == nil {
+func DefaultBranchFromSpace(space *core.ResourceSpace) string {
+	if space == nil || space.Config == nil {
 		return "main"
 	}
 	for _, key := range []string{"base_branch", "default_branch"} {
-		if v, ok := b.Config[key].(string); ok && v != "" {
+		if v, ok := space.Config[key].(string); ok && v != "" {
 			return v
 		}
 	}
 	return "main"
 }
 
-func MergeSCMBindingMetadata(dst map[string]any, cfg map[string]any) {
+func MergeSCMSpaceMetadata(dst map[string]any, cfg map[string]any) {
 	if dst == nil || cfg == nil {
 		return
 	}

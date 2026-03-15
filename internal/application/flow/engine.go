@@ -166,31 +166,31 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 		return err
 	}
 
-	// Prepare workspace if project has resource bindings.
+	// Prepare workspace if project has resource spaces.
 	if workItem.ProjectID != nil && e.preparation.workspace != nil {
 		project, err := e.workflow.store.GetProject(ctx, *workItem.ProjectID)
 		if err != nil {
 			return fmt.Errorf("get project %d for workspace: %w", *workItem.ProjectID, err)
 		}
-		bindings, err := e.workflow.store.ListResourceBindings(ctx, *workItem.ProjectID)
+		spaces, err := e.workflow.store.ListResourceSpaces(ctx, *workItem.ProjectID)
 		if err != nil {
-			return fmt.Errorf("list resource bindings for project %d: %w", *workItem.ProjectID, err)
+			return fmt.Errorf("list resource spaces for project %d: %w", *workItem.ProjectID, err)
 		}
 		if workItem.ResourceBindingID != nil {
-			filtered := make([]*core.ResourceBinding, 0, 1)
-			for _, binding := range bindings {
-				if binding != nil && binding.ID == *workItem.ResourceBindingID {
-					filtered = append(filtered, binding)
+			filtered := make([]*core.ResourceSpace, 0, 1)
+			for _, space := range spaces {
+				if space != nil && space.ID == *workItem.ResourceBindingID {
+					filtered = append(filtered, space)
 					break
 				}
 			}
 			if len(filtered) == 0 {
-				return fmt.Errorf("resource binding %d not found in project %d", *workItem.ResourceBindingID, *workItem.ProjectID)
+				return fmt.Errorf("resource space %d not found in project %d", *workItem.ResourceBindingID, *workItem.ProjectID)
 			}
-			bindings = filtered
+			spaces = filtered
 		}
-		if len(bindings) > 0 {
-			ws, err := e.preparation.workspace.Prepare(ctx, project, bindings, workItemID)
+		if len(spaces) > 0 {
+			ws, err := e.preparation.workspace.Prepare(ctx, project, spaces, workItemID)
 			if err != nil {
 				return fmt.Errorf("prepare workspace for work item %d: %w", workItemID, err)
 			}

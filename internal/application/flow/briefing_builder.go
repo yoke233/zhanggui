@@ -331,7 +331,7 @@ func (b *DefaultInputBuilder) injectManifestContext(ctx context.Context, workIte
 	})
 }
 
-// injectProjectBriefContext adds the project name, kind, description and resource bindings
+// injectProjectBriefContext adds the project name, kind, description and resource spaces
 // as a CtxProjectBrief reference so the agent understands the project context.
 func (b *DefaultInputBuilder) injectProjectBriefContext(ctx context.Context, workItem *core.WorkItem, refs []ContextRef) []ContextRef {
 	if workItem == nil || workItem.ProjectID == nil {
@@ -356,18 +356,23 @@ func (b *DefaultInputBuilder) injectProjectBriefContext(ctx context.Context, wor
 		sb.WriteString(desc)
 	}
 
-	bindings, err := b.store.ListResourceBindings(ctx, project.ID)
-	if err == nil && len(bindings) > 0 {
+	spaces, err := b.store.ListResourceSpaces(ctx, project.ID)
+	if err == nil && len(spaces) > 0 {
 		sb.WriteString("\n\nResources:\n")
-		for _, rb := range bindings {
-			label := strings.TrimSpace(rb.Label)
+		for _, rs := range spaces {
+			label := strings.TrimSpace(rs.Label)
 			if label == "" {
-				label = rb.Kind
+				label = rs.Kind
 			}
 			sb.WriteString("- ")
 			sb.WriteString(label)
+			if role := strings.TrimSpace(rs.Role); role != "" {
+				sb.WriteString(" [")
+				sb.WriteString(role)
+				sb.WriteString("]")
+			}
 			sb.WriteString(": ")
-			sb.WriteString(rb.URI)
+			sb.WriteString(rs.RootURI)
 			sb.WriteString("\n")
 		}
 	}
