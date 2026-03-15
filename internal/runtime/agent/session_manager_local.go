@@ -10,7 +10,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
+	acphandler "github.com/yoke233/ai-workflow/internal/adapters/agent/acp"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	probeacp "github.com/yoke233/ai-workflow/internal/adapters/probe/acp"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
@@ -152,35 +152,28 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		switcher := &switchingEventHandler{}
 		handler := acphandler.NewACPHandler(in.WorkDir, "", nil)
 		handler.SetSuppressEvents(true)
-		client, err := acpclient.New(sandboxedLaunch, handler,
-			acpclient.WithEventHandler(switcher))
-		if err != nil {
-			return nil, fmt.Errorf("launch ACP agent %q: %w", localProfileID(in.Profile), err)
-		}
-		if err := client.Initialize(ctx, in.Caps); err != nil {
-			_ = client.Close(context.Background())
-			return nil, fmt.Errorf("initialize ACP agent %q: %w", localProfileID(in.Profile), err)
-		}
 
-		var mcpServers []acpproto.McpServer
-		if in.MCPFactory != nil {
-			mcpServers = in.MCPFactory(client.SupportsSSEMCP())
-		}
-
-		sid, err := client.NewSession(ctx, acpproto.NewSessionRequest{
-			Cwd:        in.WorkDir,
-			McpServers: mcpServers,
+		bootResult, err := acpclient.Bootstrap(ctx, acpclient.BootstrapConfig{
+			Profile:        in.Profile,
+			WorkDir:        in.WorkDir,
+			LaunchOverride: &sandboxedLaunch,
+			Handler:        handler,
+			EventHandler:   switcher,
+			Session: &acpclient.BootstrapSessionConfig{
+				MCPFactory: in.MCPFactory,
+			},
 		})
 		if err != nil {
-			_ = client.Close(context.Background())
-			return nil, fmt.Errorf("create ACP session: %w", err)
+			return nil, err
 		}
-		handler.SetSessionID(string(sid))
+		handler.SetSessionID(string(bootResult.Session.ID))
 
-		lh.standalone = client
-		lh.sessionID = sid
+		lh.standalone = bootResult.Client
+		lh.sessionID = bootResult.Session.ID
 		lh.events = switcher
-		lh.mcpServers = append([]acpproto.McpServer(nil), mcpServers...)
+		if in.MCPFactory != nil {
+			lh.mcpServers = in.MCPFactory(bootResult.SupportsSSEMCP)
+		}
 	}
 
 	handle := &runtimeapp.SessionHandle{ID: handleID}
@@ -289,12 +282,7 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 		}
 	}
 
-	result, err := client.Prompt(ctx, acpproto.PromptRequest{
-		SessionId: lh.sessionID,
-		Prompt: []acpproto.ContentBlock{
-			{Text: &acpproto.ContentBlockText{Text: text}},
-		},
-	})
+	result, err := client.PromptText(ctx, lh.sessionID, text)
 	if err != nil {
 		return nil, fmt.Errorf("ACP execution failed: %w", err)
 	}

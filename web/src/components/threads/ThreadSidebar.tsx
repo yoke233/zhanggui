@@ -9,7 +9,6 @@ import {
   ChevronRight,
   ClipboardList,
   File,
-  FolderOpen,
   Paperclip,
   Info,
   Link2,
@@ -33,7 +32,7 @@ import type {
   ThreadAgentSession,
   ThreadParticipant,
   ThreadWorkItemLink,
-  WorkItemTrack,
+  ThreadTaskGroup,
 } from "@/types/apiV2";
 
 /* ── Accordion section primitive ── */
@@ -44,7 +43,6 @@ function SidebarSection({
   label,
   count,
   badge,
-  defaultOpen = false,
   openSections,
   onToggle,
   children,
@@ -54,7 +52,6 @@ function SidebarSection({
   label: string;
   count?: number;
   badge?: ReactNode;
-  defaultOpen?: boolean;
   openSections: Set<string>;
   onToggle: (id: string) => void;
   children: ReactNode;
@@ -112,12 +109,12 @@ export interface ThreadSidebarProps {
   // Members: participants
   participants: ThreadParticipant[];
 
-  // Tasks: tracks
-  tracks: WorkItemTrack[];
-  tracksLoading: boolean;
-  startingTrack: boolean;
-  onStartTrack: () => void;
-  trackStatusTone: (status: string) => string;
+  // Tasks: task groups
+  taskGroups: ThreadTaskGroup[];
+  taskGroupsLoading: boolean;
+  taskGroupStatusTone: (status: string) => string;
+  onDeleteTaskGroup: (groupId: number) => void;
+  onRetryTaskGroup: (groupId: number) => void;
 
   // Tasks: work items
   workItemLinks: ThreadWorkItemLink[];
@@ -175,7 +172,7 @@ export function ThreadSidebar(props: ThreadSidebarProps) {
 
   const memberCount =
     props.agentSessionsWithProfileID.length + props.participants.length;
-  const taskCount = props.tracks.length + props.workItemLinks.length;
+  const taskCount = props.taskGroups.length + props.workItemLinks.length;
 
   return (
     <div className="flex h-full flex-col">
@@ -440,11 +437,11 @@ function readIssueSourceType(issue: Issue | undefined): string | null {
 }
 
 function TasksSection({
-  tracks,
-  tracksLoading,
-  startingTrack,
-  onStartTrack,
-  trackStatusTone,
+  taskGroups,
+  taskGroupsLoading,
+  taskGroupStatusTone,
+  onDeleteTaskGroup,
+  onRetryTaskGroup,
   workItemLinks,
   orderedWorkItemLinks,
   linkedIssues,
@@ -462,66 +459,70 @@ function TasksSection({
   onLinkWIIdChange,
   onLinkWorkItem,
   onResetCreateWorkItemDraft,
-  thread,
 }: ThreadSidebarProps) {
   const { t } = useTranslation();
-  const orderedTracks = [...tracks].sort((a, b) => b.id - a.id);
 
   return (
     <div className="space-y-3">
-      {/* Tracks sub-section */}
+      {/* Task Groups sub-section */}
       <div>
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Tracks
-            {tracksLoading && (
+            Task Groups
+            {taskGroupsLoading && (
               <Loader2 className="ml-1 inline h-3 w-3 animate-spin" />
             )}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px]"
-            onClick={onStartTrack}
-            disabled={startingTrack || !thread}
-          >
-            {startingTrack ? (
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="mr-1 h-3 w-3" />
-            )}
-            {t("threads.startTrack", "Incubate")}
-          </Button>
         </div>
-        {orderedTracks.length === 0 ? (
+        {taskGroups.length === 0 ? (
           <p className="mt-1 text-[11px] text-slate-400">
-            {t("threads.noTracks", "No tracks yet")}
+            {t("threads.noTaskGroups", "No task groups yet")}
           </p>
         ) : (
           <div className="mt-1.5 space-y-1.5">
-            {orderedTracks.map((track) => (
+            {taskGroups.map((group) => (
               <div
-                key={track.id}
+                key={group.id}
                 className="rounded-lg border border-border/50 p-2"
               >
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-1.5">
                   <span className="truncate text-[11px] font-medium">
-                    {track.title}
+                    Group #{group.id}
                   </span>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "shrink-0 text-[8px] normal-case",
-                      trackStatusTone(track.status),
+                  <div className="flex items-center gap-1">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "shrink-0 text-[8px] normal-case",
+                        taskGroupStatusTone(group.status),
+                      )}
+                    >
+                      {group.status}
+                    </Badge>
+                    {group.status === "failed" && (
+                      <button
+                        type="button"
+                        className="text-[10px] text-blue-500 hover:text-blue-700"
+                        onClick={() => onRetryTaskGroup(group.id)}
+                        title="Retry"
+                      >
+                        ↻
+                      </button>
                     )}
-                  >
-                    {track.status}
-                  </Badge>
+                    {(group.status === "pending" || group.status === "failed") && (
+                      <button
+                        type="button"
+                        className="text-[10px] text-rose-500 hover:text-rose-700"
+                        onClick={() => onDeleteTaskGroup(group.id)}
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="mt-0.5 line-clamp-1 text-[10px] text-slate-400">
-                  {track.latest_summary?.trim() ||
-                    track.objective?.trim() ||
-                    "—"}
+                <p className="mt-0.5 text-[10px] text-slate-400">
+                  {group.completed_at ? `Completed ${group.completed_at}` : `Created ${group.created_at}`}
                 </p>
               </div>
             ))}

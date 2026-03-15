@@ -468,108 +468,124 @@ func threadContextRefModelFromCore(ref *core.ThreadContextRef) *ThreadContextRef
 	}
 }
 
-type WorkItemTrackModel struct {
-	ID                       int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	Title                    string                    `gorm:"column:title;not null"`
-	Objective                string                    `gorm:"column:objective;not null;default:''"`
-	Status                   string                    `gorm:"column:status;not null"`
-	PrimaryThreadID          *int64                    `gorm:"column:primary_thread_id"`
-	WorkItemID               *int64                    `gorm:"column:work_item_id"`
-	PlannerStatus            string                    `gorm:"column:planner_status;not null;default:'idle'"`
-	ReviewerStatus           string                    `gorm:"column:reviewer_status;not null;default:'idle'"`
-	AwaitingUserConfirmation bool                      `gorm:"column:awaiting_user_confirmation;not null;default:false"`
-	LatestSummary            string                    `gorm:"column:latest_summary;not null;default:''"`
-	PlannerOutput            JSONField[map[string]any] `gorm:"column:planner_output_json;type:text"`
-	ReviewOutput             JSONField[map[string]any] `gorm:"column:review_output_json;type:text"`
-	Metadata                 JSONField[map[string]any] `gorm:"column:metadata_json;type:text"`
-	CreatedBy                string                    `gorm:"column:created_by;not null;default:''"`
-	CreatedAt                time.Time                 `gorm:"column:created_at"`
-	UpdatedAt                time.Time                 `gorm:"column:updated_at"`
+// ThreadTaskGroupModel is the GORM model for thread_task_groups table.
+type ThreadTaskGroupModel struct {
+	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID         int64      `gorm:"column:thread_id;not null;index:idx_thread_task_groups_thread"`
+	Status           string     `gorm:"column:status;not null;default:'pending'"`
+	SourceMessageID  *int64     `gorm:"column:source_message_id"`
+	StatusMessageID  *int64     `gorm:"column:status_message_id"`
+	NotifyOnComplete bool       `gorm:"column:notify_on_complete;not null;default:true"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	CompletedAt      *time.Time `gorm:"column:completed_at"`
 }
 
-func (WorkItemTrackModel) TableName() string { return "work_item_tracks" }
+func (ThreadTaskGroupModel) TableName() string { return "thread_task_groups" }
 
-func workItemTrackModelFromCore(track *core.WorkItemTrack) *WorkItemTrackModel {
-	if track == nil {
+func threadTaskGroupModelFromCore(g *core.ThreadTaskGroup) *ThreadTaskGroupModel {
+	if g == nil {
 		return nil
 	}
-	return &WorkItemTrackModel{
-		ID:                       track.ID,
-		Title:                    track.Title,
-		Objective:                track.Objective,
-		Status:                   string(track.Status),
-		PrimaryThreadID:          track.PrimaryThreadID,
-		WorkItemID:               track.WorkItemID,
-		PlannerStatus:            track.PlannerStatus,
-		ReviewerStatus:           track.ReviewerStatus,
-		AwaitingUserConfirmation: track.AwaitingUserConfirmation,
-		LatestSummary:            track.LatestSummary,
-		PlannerOutput:            JSONField[map[string]any]{Data: track.PlannerOutput},
-		ReviewOutput:             JSONField[map[string]any]{Data: track.ReviewOutput},
-		Metadata:                 JSONField[map[string]any]{Data: track.Metadata},
-		CreatedBy:                track.CreatedBy,
-		CreatedAt:                track.CreatedAt,
-		UpdatedAt:                track.UpdatedAt,
+	return &ThreadTaskGroupModel{
+		ID:               g.ID,
+		ThreadID:         g.ThreadID,
+		Status:           string(g.Status),
+		SourceMessageID:  g.SourceMessageID,
+		StatusMessageID:  g.StatusMessageID,
+		NotifyOnComplete: g.NotifyOnComplete,
+		CreatedAt:        g.CreatedAt,
+		CompletedAt:      g.CompletedAt,
 	}
 }
 
-func (m *WorkItemTrackModel) toCore() *core.WorkItemTrack {
+func (m *ThreadTaskGroupModel) toCore() *core.ThreadTaskGroup {
 	if m == nil {
 		return nil
 	}
-	return &core.WorkItemTrack{
-		ID:                       m.ID,
-		Title:                    m.Title,
-		Objective:                m.Objective,
-		Status:                   core.WorkItemTrackStatus(m.Status),
-		PrimaryThreadID:          m.PrimaryThreadID,
-		WorkItemID:               m.WorkItemID,
-		PlannerStatus:            m.PlannerStatus,
-		ReviewerStatus:           m.ReviewerStatus,
-		AwaitingUserConfirmation: m.AwaitingUserConfirmation,
-		LatestSummary:            m.LatestSummary,
-		PlannerOutput:            m.PlannerOutput.Data,
-		ReviewOutput:             m.ReviewOutput.Data,
-		Metadata:                 m.Metadata.Data,
-		CreatedBy:                m.CreatedBy,
-		CreatedAt:                m.CreatedAt,
-		UpdatedAt:                m.UpdatedAt,
+	return &core.ThreadTaskGroup{
+		ID:               m.ID,
+		ThreadID:         m.ThreadID,
+		Status:           core.TaskGroupStatus(m.Status),
+		SourceMessageID:  m.SourceMessageID,
+		StatusMessageID:  m.StatusMessageID,
+		NotifyOnComplete: m.NotifyOnComplete,
+		CreatedAt:        m.CreatedAt,
+		CompletedAt:      m.CompletedAt,
 	}
 }
 
-type WorkItemTrackThreadModel struct {
-	ID           int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	TrackID      int64     `gorm:"column:track_id;not null;uniqueIndex:idx_work_item_track_threads_unique"`
-	ThreadID     int64     `gorm:"column:thread_id;not null;uniqueIndex:idx_work_item_track_threads_unique"`
-	RelationType string    `gorm:"column:relation_type;not null;default:'source'"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
+// ThreadTaskModel is the GORM model for thread_tasks table.
+type ThreadTaskModel struct {
+	ID              int64              `gorm:"column:id;primaryKey;autoIncrement"`
+	GroupID         int64              `gorm:"column:group_id;not null;index:idx_thread_tasks_group"`
+	ThreadID        int64              `gorm:"column:thread_id;not null;index:idx_thread_tasks_thread"`
+	Assignee        string             `gorm:"column:assignee;not null"`
+	Type            string             `gorm:"column:type;not null;default:'work'"`
+	Instruction     string             `gorm:"column:instruction;not null"`
+	DependsOnJSON   JSONField[[]int64] `gorm:"column:depends_on_json;type:text"`
+	Status          string             `gorm:"column:status;not null;default:'pending'"`
+	OutputFilePath  string             `gorm:"column:output_file_path;not null;default:''"`
+	OutputMessageID *int64             `gorm:"column:output_message_id"`
+	ReviewFeedback  string             `gorm:"column:review_feedback;not null;default:''"`
+	MaxRetries      int                `gorm:"column:max_retries;not null;default:0"`
+	RetryCount      int                `gorm:"column:retry_count;not null;default:0"`
+	CreatedAt       time.Time          `gorm:"column:created_at"`
+	CompletedAt     *time.Time         `gorm:"column:completed_at"`
 }
 
-func (WorkItemTrackThreadModel) TableName() string { return "work_item_track_threads" }
+func (ThreadTaskModel) TableName() string { return "thread_tasks" }
 
-func workItemTrackThreadModelFromCore(link *core.WorkItemTrackThread) *WorkItemTrackThreadModel {
-	if link == nil {
+func threadTaskModelFromCore(t *core.ThreadTask) *ThreadTaskModel {
+	if t == nil {
 		return nil
 	}
-	return &WorkItemTrackThreadModel{
-		ID:           link.ID,
-		TrackID:      link.TrackID,
-		ThreadID:     link.ThreadID,
-		RelationType: string(link.RelationType),
-		CreatedAt:    link.CreatedAt,
+	deps := t.DependsOn
+	if deps == nil {
+		deps = []int64{}
+	}
+	return &ThreadTaskModel{
+		ID:              t.ID,
+		GroupID:         t.GroupID,
+		ThreadID:        t.ThreadID,
+		Assignee:        t.Assignee,
+		Type:            string(t.Type),
+		Instruction:     t.Instruction,
+		DependsOnJSON:   JSONField[[]int64]{Data: deps},
+		Status:          string(t.Status),
+		OutputFilePath:  t.OutputFilePath,
+		OutputMessageID: t.OutputMessageID,
+		ReviewFeedback:  t.ReviewFeedback,
+		MaxRetries:      t.MaxRetries,
+		RetryCount:      t.RetryCount,
+		CreatedAt:       t.CreatedAt,
+		CompletedAt:     t.CompletedAt,
 	}
 }
 
-func (m *WorkItemTrackThreadModel) toCore() *core.WorkItemTrackThread {
+func (m *ThreadTaskModel) toCore() *core.ThreadTask {
 	if m == nil {
 		return nil
 	}
-	return &core.WorkItemTrackThread{
-		ID:           m.ID,
-		TrackID:      m.TrackID,
-		ThreadID:     m.ThreadID,
-		RelationType: core.WorkItemTrackThreadRelation(m.RelationType),
-		CreatedAt:    m.CreatedAt,
+	deps := m.DependsOnJSON.Data
+	if deps == nil {
+		deps = []int64{}
+	}
+	return &core.ThreadTask{
+		ID:              m.ID,
+		GroupID:         m.GroupID,
+		ThreadID:        m.ThreadID,
+		Assignee:        m.Assignee,
+		Type:            core.TaskType(m.Type),
+		Instruction:     m.Instruction,
+		DependsOn:       deps,
+		Status:          core.ThreadTaskStatus(m.Status),
+		OutputFilePath:  m.OutputFilePath,
+		OutputMessageID: m.OutputMessageID,
+		ReviewFeedback:  m.ReviewFeedback,
+		MaxRetries:      m.MaxRetries,
+		RetryCount:      m.RetryCount,
+		CreatedAt:       m.CreatedAt,
+		CompletedAt:     m.CompletedAt,
 	}
 }
 

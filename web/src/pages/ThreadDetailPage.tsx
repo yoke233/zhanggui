@@ -12,7 +12,6 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ThreadSidebar } from "@/components/threads/ThreadSidebar";
 import { ThreadMessageList } from "@/components/threads/ThreadMessageList";
@@ -31,7 +30,7 @@ import type {
   ThreadAttachment,
   ThreadFileRef,
   MessageFileRef,
-  WorkItemTrack,
+  ThreadTaskGroup,
 } from "@/types/apiV2";
 import type { ThreadAckPayload, ThreadEventPayload } from "@/types/ws";
 
@@ -54,9 +53,14 @@ function readAutoRoutedTo(metadata: Record<string, unknown> | undefined): string
   return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim());
 }
 
-function readWorkItemTrackID(metadata: Record<string, unknown> | undefined): number | null {
-  const value = metadata?.work_item_track_id;
+function readTaskGroupID(metadata: Record<string, unknown> | undefined): number | null {
+  const value = metadata?.task_group_id;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readMetadataType(metadata: Record<string, unknown> | undefined): string | null {
+  const value = metadata?.type;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function parseMentionTarget(message: string, activeAgentProfileIDs: string[]): { targetAgentID: string | null; broadcast: boolean; error: string | null } {
@@ -151,12 +155,6 @@ function detectHashDraft(message: string, caretPosition: number | null): { start
   return { start, end, query: message.slice(start + 1, end) };
 }
 
-function replaceHashDraft(message: string, draft: { start: number; end: number }, fileName: string): { nextMessage: string; caretPosition: number } {
-  const replacement = `#${fileName} `;
-  const nextMessage = `${message.slice(0, draft.start)}${replacement}${message.slice(draft.end)}`;
-  return { nextMessage, caretPosition: draft.start + replacement.length };
-}
-
 function readCommittedMentionTarget(message: string, activeAgentProfileIDs: string[]): string | null {
   const trimmed = message.trimStart();
   const match = trimmed.match(/^@([A-Za-z0-9._:-]+)(?:\s|$)/);
@@ -225,37 +223,18 @@ function detectInviteIntent(message: string, inviteableProfiles: AgentProfile[])
   return null;
 }
 
-function trackStatusTone(status: string): string {
+function taskGroupStatusTone(status: string): string {
   switch (status) {
-    case "awaiting_confirmation":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "materialized":
     case "done":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "executing":
-    case "planning":
-    case "reviewing":
+    case "running":
       return "border-blue-200 bg-blue-50 text-blue-700";
     case "failed":
-    case "cancelled":
       return "border-rose-200 bg-rose-50 text-rose-700";
-    case "paused":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+    case "pending":
     default:
       return "border-border bg-muted/40 text-muted-foreground";
   }
-}
-
-function canMaterializeTrack(track: WorkItemTrack): boolean {
-  return track.status === "awaiting_confirmation" && !track.work_item_id;
-}
-
-function canSubmitTrackReview(track: WorkItemTrack): boolean {
-  return track.status === "draft" || track.status === "planning" || track.status === "paused";
-}
-
-function canConfirmTrackExecution(track: WorkItemTrack): boolean {
-  return track.status === "awaiting_confirmation" || track.status === "materialized";
 }
 
 type ThreadAgentSessionWithProfileID = ThreadAgentSession & { agent_profile_id: string };
@@ -271,11 +250,8 @@ export function ThreadDetailPage() {
   const [participants, setParticipants] = useState<ThreadParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tracks, setTracks] = useState<WorkItemTrack[]>([]);
-  const [tracksLoading, setTracksLoading] = useState(false);
-  const [startingTrack, setStartingTrack] = useState(false);
-  const [materializingTrackID, setMaterializingTrackID] = useState<number | null>(null);
-  const [trackActionBusyKey, setTrackActionBusyKey] = useState<string | null>(null);
+  const [taskGroups, setTaskGroups] = useState<ThreadTaskGroup[]>([]);
+  const [taskGroupsLoading, setTaskGroupsLoading] = useState(false);
   const [workItemLinks, setWorkItemLinks] = useState<ThreadWorkItemLink[]>([]);
   const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
@@ -358,7 +334,7 @@ export function ThreadDetailPage() {
     }
     return a.is_primary ? -1 : 1;
   });
-  const orderedTracks = [...tracks].sort((a, b) => b.id - a.id);
+  const orderedTaskGroups = [...taskGroups].sort((a, b) => b.id - a.id);
 
   /* ── auto-scroll to bottom on new messages ── */
   useEffect(() => {
@@ -371,15 +347,15 @@ export function ThreadDetailPage() {
 
     const load = async () => {
       setLoading(true);
-      setTracksLoading(true);
+      setTaskGroupsLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts, links, trackItems, agents, profiles, atts] = await Promise.all([
+        const [th, msgs, parts, links, tgItems, agents, profiles, atts] = await Promise.all([
           apiClient.getThread(id),
           apiClient.listThreadMessages(id, { limit: 100 }),
           apiClient.listThreadParticipants(id),
           apiClient.listWorkItemsByThread(id),
-          apiClient.listThreadTracks(id),
+          apiClient.listThreadTaskGroups(id),
           apiClient.listThreadAgents(id),
           apiClient.listProfiles(),
           apiClient.listThreadAttachments(id),
@@ -389,7 +365,7 @@ export function ThreadDetailPage() {
           setMessages(msgs);
           setParticipants(parts);
           setWorkItemLinks(links);
-          setTracks(trackItems);
+          setTaskGroups(tgItems);
           setAgentSessions(agents);
           setAvailableProfiles(profiles);
           setAttachments(atts);
@@ -405,7 +381,7 @@ export function ThreadDetailPage() {
       } catch (e) {
         if (!cancelled) setError(getErrorMessage(e));
       } finally {
-        if (!cancelled) setTracksLoading(false);
+        if (!cancelled) setTaskGroupsLoading(false);
         if (!cancelled) setLoading(false);
       }
     };
@@ -490,39 +466,18 @@ export function ThreadDetailPage() {
       }
     };
 
-    const syncTrackFromPayload = async (payload: ThreadEventPayload) => {
+    const syncTaskGroupFromPayload = async (payload: ThreadEventPayload) => {
       if (payload.thread_id !== id) return;
-
-      const rawTrack = payload.track;
-      const nextTrack = rawTrack && typeof rawTrack === "object"
-        ? rawTrack as unknown as WorkItemTrack
-        : null;
-
-      if (nextTrack) {
-        setTracks((prev) => [nextTrack, ...prev.filter((item) => item.id !== nextTrack.id)]);
-      } else if (typeof payload.track_id === "number") {
-        try {
-          const fetched = await apiClient.getTrack(payload.track_id);
-          setTracks((prev) => [fetched, ...prev.filter((item) => item.id !== fetched.id)]);
-        } catch {
-          // Ignore background refresh failures
-        }
-      }
-
-      if (typeof payload.work_item_id === "number") {
-        try {
-          const [links, issue] = await Promise.all([
-            apiClient.listWorkItemsByThread(id),
-            apiClient.getWorkItem(payload.work_item_id),
-          ]);
-          setWorkItemLinks(links);
-          setLinkedIssues((prev) => ({
-            ...prev,
-            [payload.work_item_id as number]: issue,
-          }));
-        } catch {
-          // Ignore background refresh failures
-        }
+      const groupId = payload.task_group_id;
+      if (typeof groupId !== "number") return;
+      try {
+        const detail = await apiClient.getThreadTaskGroup(groupId);
+        setTaskGroups((prev) => {
+          const filtered = prev.filter((g) => g.id !== groupId);
+          return [detail, ...filtered];
+        });
+      } catch {
+        // Ignore background refresh failures
       }
     };
 
@@ -605,35 +560,17 @@ export function ThreadDetailPage() {
         });
       }
     });
-    const unsubscribeTrackCreated = wsClient.subscribe<ThreadEventPayload>("thread.track.created", (payload) => {
-      void syncTrackFromPayload(payload);
+    const unsubscribeTaskGroupCreated = wsClient.subscribe<ThreadEventPayload>("thread.task_group.created", (payload) => {
+      void syncTaskGroupFromPayload(payload);
     });
-    const unsubscribeTrackUpdated = wsClient.subscribe<ThreadEventPayload>("thread.track.updated", (payload) => {
-      void syncTrackFromPayload(payload);
+    const unsubscribeTaskGroupCompleted = wsClient.subscribe<ThreadEventPayload>("thread.task_group.completed", (payload) => {
+      void syncTaskGroupFromPayload(payload);
     });
-    const unsubscribeTrackPlanningStarted = wsClient.subscribe<ThreadEventPayload>("thread.track.planning_started", (payload) => {
-      void syncTrackFromPayload(payload);
+    const unsubscribeTaskStarted = wsClient.subscribe<ThreadEventPayload>("thread.task.started", (payload) => {
+      void syncTaskGroupFromPayload(payload);
     });
-    const unsubscribeTrackPlanningCompleted = wsClient.subscribe<ThreadEventPayload>("thread.track.planning_completed", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackReviewStarted = wsClient.subscribe<ThreadEventPayload>("thread.track.review_started", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackStateChanged = wsClient.subscribe<ThreadEventPayload>("thread.track.state_changed", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackReviewApproved = wsClient.subscribe<ThreadEventPayload>("thread.track.review_approved", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackReviewRejected = wsClient.subscribe<ThreadEventPayload>("thread.track.review_rejected", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackMaterialized = wsClient.subscribe<ThreadEventPayload>("thread.track.materialized", (payload) => {
-      void syncTrackFromPayload(payload);
-    });
-    const unsubscribeTrackRunConfirmed = wsClient.subscribe<ThreadEventPayload>("thread.track.run_confirmed", (payload) => {
-      void syncTrackFromPayload(payload);
+    const unsubscribeTaskCompleted = wsClient.subscribe<ThreadEventPayload>("thread.task.completed", (payload) => {
+      void syncTaskGroupFromPayload(payload);
     });
     const unsubscribeStatus = wsClient.onStatusChange((status) => {
       if (status === "open") sendThreadSubscription("subscribe_thread");
@@ -653,16 +590,10 @@ export function ThreadDetailPage() {
       unsubscribeThreadAgentBooted();
       unsubscribeThreadAgentFailed();
       unsubscribeThreadAgentThinking();
-      unsubscribeTrackCreated();
-      unsubscribeTrackUpdated();
-      unsubscribeTrackPlanningStarted();
-      unsubscribeTrackPlanningCompleted();
-      unsubscribeTrackReviewStarted();
-      unsubscribeTrackStateChanged();
-      unsubscribeTrackReviewApproved();
-      unsubscribeTrackReviewRejected();
-      unsubscribeTrackMaterialized();
-      unsubscribeTrackRunConfirmed();
+      unsubscribeTaskGroupCreated();
+      unsubscribeTaskGroupCompleted();
+      unsubscribeTaskStarted();
+      unsubscribeTaskCompleted();
       unsubscribeStatus();
       pendingThreadRequestIdRef.current = null;
       setThinkingAgentIDs(new Set());
@@ -923,145 +854,43 @@ export function ThreadDetailPage() {
     }
   };
 
-  const handleStartTrack = async () => {
-    if (!id || !thread) return;
-    setStartingTrack(true);
+  const handleDeleteTaskGroup = async (groupId: number) => {
     setError(null);
     try {
-      const track = await apiClient.createThreadTrack(id, {
-        title: deriveWorkItemTitle(thread),
-        objective: thread.summary?.trim() || thread.title.trim(),
-        created_by: thread.owner_id ?? undefined,
-        metadata: {
-          source: "thread_detail_page",
-        },
+      await apiClient.deleteThreadTaskGroup(groupId);
+      setTaskGroups((prev) => prev.filter((g) => g.id !== groupId));
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
+  const handleRetryTaskGroup = async (groupId: number) => {
+    if (!id) return;
+    setError(null);
+    try {
+      const detail = await apiClient.getThreadTaskGroup(groupId);
+      if (!detail.tasks || detail.tasks.length === 0) return;
+
+      // Build ID → index mapping for dependency resolution
+      const idToIndex = new Map<number, number>();
+      detail.tasks.forEach((t, i) => { idToIndex.set(t.id, i); });
+
+      const newDetail = await apiClient.createThreadTaskGroup(id, {
+        tasks: detail.tasks.map((t) => ({
+          assignee: t.assignee,
+          type: t.type as "work" | "review",
+          instruction: t.instruction,
+          depends_on_index: (t.depends_on ?? [])
+            .map((depId) => idToIndex.get(depId))
+            .filter((idx): idx is number => idx !== undefined),
+          max_retries: t.max_retries,
+          output_file_name: t.output_file_path?.replace(/^outputs\//, ""),
+        })),
+        notify_on_complete: detail.notify_on_complete,
       });
-      setTracks((prev) => [track, ...prev.filter((item) => item.id !== track.id)]);
+      setTaskGroups((prev) => [newDetail, ...prev]);
     } catch (e) {
       setError(getErrorMessage(e));
-    } finally {
-      setStartingTrack(false);
-    }
-  };
-
-  const handleMaterializeTrack = async (track: WorkItemTrack) => {
-    setMaterializingTrackID(track.id);
-    setError(null);
-    try {
-      const result = await apiClient.materializeTrack(track.id);
-      setTracks((prev) => prev.map((item) => (item.id === track.id ? result.track : item)));
-      setWorkItemLinks(result.links);
-      setLinkedIssues((prev) => ({
-        ...prev,
-        [result.work_item.id]: result.work_item,
-      }));
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setMaterializingTrackID(null);
-    }
-  };
-
-  const handleOpenTrackWorkItem = (track: WorkItemTrack) => {
-    if (!track.work_item_id) return;
-    navigate(`/work-items/${track.work_item_id}`);
-  };
-
-  const replaceTrack = (nextTrack: WorkItemTrack) => {
-    setTracks((prev) => [nextTrack, ...prev.filter((item) => item.id !== nextTrack.id)]);
-  };
-
-  const handleSubmitTrackReview = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`submit-${track.id}`);
-    setError(null);
-    try {
-      const updated = await apiClient.submitTrackReview(track.id, {
-        latest_summary: track.latest_summary?.trim() || track.objective?.trim() || thread?.summary?.trim(),
-      });
-      replaceTrack(updated);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
-    }
-  };
-
-  const handleApproveTrackReview = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`approve-${track.id}`);
-    setError(null);
-    try {
-      const updated = await apiClient.approveTrackReview(track.id, {
-        latest_summary: track.latest_summary?.trim() || track.objective?.trim(),
-      });
-      replaceTrack(updated);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
-    }
-  };
-
-  const handleRejectTrackReview = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`reject-${track.id}`);
-    setError(null);
-    try {
-      const updated = await apiClient.rejectTrackReview(track.id, {
-        latest_summary: track.latest_summary?.trim() || track.objective?.trim(),
-      });
-      replaceTrack(updated);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
-    }
-  };
-
-  const handlePauseTrack = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`pause-${track.id}`);
-    setError(null);
-    try {
-      const updated = await apiClient.pauseTrack(track.id);
-      replaceTrack(updated);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
-    }
-  };
-
-  const handleCancelTrack = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`cancel-${track.id}`);
-    setError(null);
-    try {
-      const updated = await apiClient.cancelTrack(track.id);
-      replaceTrack(updated);
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
-    }
-  };
-
-  const handleConfirmTrackRun = async (track: WorkItemTrack) => {
-    setTrackActionBusyKey(`confirm-${track.id}`);
-    setError(null);
-    try {
-      const result = await apiClient.confirmTrackRun(track.id);
-      replaceTrack(result.track);
-      setLinkedIssues((prev) => ({
-        ...prev,
-        [result.work_item.id]: result.work_item,
-      }));
-      try {
-        const links = await apiClient.listWorkItemsByThread(id);
-        setWorkItemLinks(links);
-      } catch {
-        // Ignore follow-up refresh failures
-      }
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setTrackActionBusyKey(null);
     }
   };
 
@@ -1118,21 +947,27 @@ export function ThreadDetailPage() {
 
   const handleUploadAttachment = async (file: File) => {
     if (!id) return;
+    setAttachmentsLoading(true);
     try {
       const att = await apiClient.uploadThreadAttachment(id, file);
       setAttachments((prev) => [att, ...prev]);
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setAttachmentsLoading(false);
     }
   };
 
   const handleDeleteAttachment = async (attachmentId: number) => {
     if (!id) return;
+    setAttachmentsLoading(true);
     try {
       await apiClient.deleteThreadAttachment(id, attachmentId);
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setAttachmentsLoading(false);
     }
   };
 
@@ -1360,7 +1195,8 @@ export function ThreadDetailPage() {
               focusAgentProfile={focusAgentProfile}
               readTargetAgentID={readTargetAgentID}
               readAutoRoutedTo={readAutoRoutedTo}
-              readWorkItemTrackID={readWorkItemTrackID}
+              readTaskGroupID={readTaskGroupID}
+              readMetadataType={readMetadataType}
               formatRelativeTime={formatRelativeTime}
             />
           </div>
@@ -1648,11 +1484,11 @@ export function ThreadDetailPage() {
             onRemoveAgent={(id) => { void handleRemoveAgent(id); }}
             agentStatusColor={agentStatusColor}
             participants={participants}
-            tracks={tracks}
-            tracksLoading={tracksLoading}
-            startingTrack={startingTrack}
-            onStartTrack={() => { void handleStartTrack(); }}
-            trackStatusTone={trackStatusTone}
+            taskGroups={orderedTaskGroups}
+            taskGroupsLoading={taskGroupsLoading}
+            taskGroupStatusTone={taskGroupStatusTone}
+            onDeleteTaskGroup={(groupId) => { void handleDeleteTaskGroup(groupId); }}
+            onRetryTaskGroup={(groupId) => { void handleRetryTaskGroup(groupId); }}
             workItemLinks={workItemLinks}
             orderedWorkItemLinks={orderedWorkItemLinks}
             linkedIssues={linkedIssues}

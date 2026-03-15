@@ -349,6 +349,17 @@ func (c *Client) Prompt(ctx context.Context, req acpproto.PromptRequest) (*Promp
 	}, nil
 }
 
+// PromptText is a convenience wrapper around Prompt for the common case of
+// sending a single text message. It builds the ContentBlock internally.
+func (c *Client) PromptText(ctx context.Context, sessionID acpproto.SessionId, text string) (*PromptResult, error) {
+	return c.Prompt(ctx, acpproto.PromptRequest{
+		SessionId: sessionID,
+		Prompt: []acpproto.ContentBlock{
+			{Text: &acpproto.ContentBlockText{Text: text}},
+		},
+	})
+}
+
 func (c *Client) Cancel(_ context.Context, req acpproto.CancelNotification) error {
 	return c.transport.Notify("session/cancel", req)
 }

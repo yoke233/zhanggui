@@ -188,33 +188,6 @@ func (n *noopStore) PrepareWorkItemRun(context.Context, int64, core.WorkItemStat
 }
 func (n *noopStore) SetWorkItemArchived(context.Context, int64, bool) error { panic("unused") }
 func (n *noopStore) DeleteWorkItem(context.Context, int64) error            { panic("unused") }
-func (n *noopStore) CreateWorkItemTrack(context.Context, *core.WorkItemTrack) (int64, error) {
-	panic("unused")
-}
-func (n *noopStore) GetWorkItemTrack(context.Context, int64) (*core.WorkItemTrack, error) {
-	panic("unused")
-}
-func (n *noopStore) ListWorkItemTracks(context.Context, core.WorkItemTrackFilter) ([]*core.WorkItemTrack, error) {
-	panic("unused")
-}
-func (n *noopStore) UpdateWorkItemTrack(context.Context, *core.WorkItemTrack) error {
-	panic("unused")
-}
-func (n *noopStore) UpdateWorkItemTrackStatus(context.Context, int64, core.WorkItemTrackStatus) error {
-	panic("unused")
-}
-func (n *noopStore) AttachThreadToWorkItemTrack(context.Context, *core.WorkItemTrackThread) (int64, error) {
-	panic("unused")
-}
-func (n *noopStore) ListWorkItemTrackThreads(context.Context, int64) ([]*core.WorkItemTrackThread, error) {
-	panic("unused")
-}
-func (n *noopStore) ListWorkItemTracksByThread(context.Context, int64) ([]*core.WorkItemTrack, error) {
-	panic("unused")
-}
-func (n *noopStore) ListWorkItemTracksByWorkItem(context.Context, int64) ([]*core.WorkItemTrack, error) {
-	panic("unused")
-}
 func (n *noopStore) CreateThread(context.Context, *core.Thread) (int64, error) { panic("unused") }
 func (n *noopStore) GetThread(context.Context, int64) (*core.Thread, error)    { panic("unused") }
 func (n *noopStore) ListThreads(context.Context, core.ThreadFilter) ([]*core.Thread, error) {
@@ -490,7 +463,31 @@ func (n *noopStore) ListInsightsByInspection(context.Context, int64) ([]*core.In
 func (n *noopStore) GetFindingRecurrenceCount(context.Context, core.FindingCategory, *int64, *int64) (int, error) {
 	panic("unused")
 }
-func (n *noopStore) Close() error { return nil }
+func (n *noopStore) CreateThreadTaskGroup(context.Context, *core.ThreadTaskGroup) (int64, error) {
+	panic("unused")
+}
+func (n *noopStore) GetThreadTaskGroup(context.Context, int64) (*core.ThreadTaskGroup, error) {
+	panic("unused")
+}
+func (n *noopStore) ListThreadTaskGroups(context.Context, core.ThreadTaskGroupFilter) ([]*core.ThreadTaskGroup, error) {
+	panic("unused")
+}
+func (n *noopStore) UpdateThreadTaskGroup(context.Context, *core.ThreadTaskGroup) error {
+	panic("unused")
+}
+func (n *noopStore) DeleteThreadTaskGroup(context.Context, int64) error { panic("unused") }
+func (n *noopStore) CreateThreadTask(context.Context, *core.ThreadTask) (int64, error) {
+	panic("unused")
+}
+func (n *noopStore) GetThreadTask(context.Context, int64) (*core.ThreadTask, error) {
+	panic("unused")
+}
+func (n *noopStore) ListThreadTasksByGroup(context.Context, int64) ([]*core.ThreadTask, error) {
+	panic("unused")
+}
+func (n *noopStore) UpdateThreadTask(context.Context, *core.ThreadTask) error { panic("unused") }
+func (n *noopStore) DeleteThreadTasksByGroup(context.Context, int64) error    { panic("unused") }
+func (n *noopStore) Close() error                                            { return nil }
 
 func assertErr(message string) error { return &errString{message: message} }
 

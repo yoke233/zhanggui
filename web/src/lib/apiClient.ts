@@ -69,14 +69,10 @@ import type {
   ThreadFileRef,
   ThreadWorkItemLink,
   CreateThreadWorkItemLinkRequest,
-  WorkItemTrack,
-  CreateWorkItemTrackRequest,
-  WorkItemTrackThread,
-  AttachWorkItemTrackThreadRequest,
-  MaterializeWorkItemTrackRequest,
-  MaterializeWorkItemTrackResponse,
-  WorkItemTrackReviewRequest,
-  ConfirmRunTrackResponse,
+  ThreadTaskGroup,
+  ThreadTaskGroupDetail,
+  CreateTaskGroupRequest,
+  TaskSignalRequest,
   Notification,
   CreateNotificationRequest,
   UnreadCountResponse,
@@ -350,17 +346,12 @@ export interface ApiClient {
   deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
   listThreadsByWorkItem(workItemId: number): Promise<ThreadWorkItemLink[]>;
   createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<WorkItem>;
-  listThreadTracks(threadId: number): Promise<WorkItemTrack[]>;
-  createThreadTrack(threadId: number, body: CreateWorkItemTrackRequest): Promise<WorkItemTrack>;
-  getTrack(trackId: number): Promise<WorkItemTrack>;
-  attachTrackThread(trackId: number, body: AttachWorkItemTrackThreadRequest): Promise<WorkItemTrackThread>;
-  materializeTrack(trackId: number, body?: MaterializeWorkItemTrackRequest): Promise<MaterializeWorkItemTrackResponse>;
-  submitTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
-  approveTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
-  rejectTrackReview(trackId: number, body?: WorkItemTrackReviewRequest): Promise<WorkItemTrack>;
-  pauseTrack(trackId: number): Promise<WorkItemTrack>;
-  cancelTrack(trackId: number): Promise<WorkItemTrack>;
-  confirmTrackRun(trackId: number, body?: MaterializeWorkItemTrackRequest): Promise<ConfirmRunTrackResponse>;
+  // Thread Task Groups
+  listThreadTaskGroups(threadId: number, params?: { limit?: number; offset?: number }): Promise<ThreadTaskGroup[]>;
+  createThreadTaskGroup(threadId: number, body: CreateTaskGroupRequest): Promise<ThreadTaskGroupDetail>;
+  getThreadTaskGroup(groupId: number): Promise<ThreadTaskGroupDetail>;
+  deleteThreadTaskGroup(groupId: number): Promise<void>;
+  signalThreadTask(taskId: number, body: TaskSignalRequest): Promise<{ status: string }>;
 
   // Thread Agent Sessions
   inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadMember>;
@@ -1105,63 +1096,29 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
-    listThreadTracks: (threadId) =>
-      request<WorkItemTrack[]>({
-        path: `/threads/${threadId}/tracks`,
+    listThreadTaskGroups: (threadId, params) =>
+      request<ThreadTaskGroup[]>({
+        path: `/threads/${threadId}/task-groups`,
+        query: { limit: params?.limit, offset: params?.offset },
       }).then((items) => (Array.isArray(items) ? items : [])),
-    createThreadTrack: (threadId, body) =>
-      request<WorkItemTrack, CreateWorkItemTrackRequest>({
-        path: `/threads/${threadId}/tracks`,
+    createThreadTaskGroup: (threadId, body) =>
+      request<ThreadTaskGroupDetail, CreateTaskGroupRequest>({
+        path: `/threads/${threadId}/task-groups`,
         method: "POST",
         body,
       }),
-    getTrack: (trackId) =>
-      request<WorkItemTrack>({
-        path: `/tracks/${trackId}`,
+    getThreadTaskGroup: (groupId) =>
+      request<ThreadTaskGroupDetail>({
+        path: `/task-groups/${groupId}`,
       }),
-    attachTrackThread: (trackId, body) =>
-      request<WorkItemTrackThread, AttachWorkItemTrackThreadRequest>({
-        path: `/tracks/${trackId}/threads`,
-        method: "POST",
-        body,
+    deleteThreadTaskGroup: (groupId) =>
+      request<void>({
+        path: `/task-groups/${groupId}`,
+        method: "DELETE",
       }),
-    materializeTrack: (trackId, body = {}) =>
-      request<MaterializeWorkItemTrackResponse, MaterializeWorkItemTrackRequest>({
-        path: `/tracks/${trackId}/materialize`,
-        method: "POST",
-        body,
-      }),
-    submitTrackReview: (trackId, body = {}) =>
-      request<WorkItemTrack, WorkItemTrackReviewRequest>({
-        path: `/tracks/${trackId}/submit-review`,
-        method: "POST",
-        body,
-      }),
-    approveTrackReview: (trackId, body = {}) =>
-      request<WorkItemTrack, WorkItemTrackReviewRequest>({
-        path: `/tracks/${trackId}/approve-review`,
-        method: "POST",
-        body,
-      }),
-    rejectTrackReview: (trackId, body = {}) =>
-      request<WorkItemTrack, WorkItemTrackReviewRequest>({
-        path: `/tracks/${trackId}/reject-review`,
-        method: "POST",
-        body,
-      }),
-    pauseTrack: (trackId) =>
-      request<WorkItemTrack>({
-        path: `/tracks/${trackId}/pause`,
-        method: "POST",
-      }),
-    cancelTrack: (trackId) =>
-      request<WorkItemTrack>({
-        path: `/tracks/${trackId}/cancel`,
-        method: "POST",
-      }),
-    confirmTrackRun: (trackId, body = {}) =>
-      request<ConfirmRunTrackResponse, MaterializeWorkItemTrackRequest>({
-        path: `/tracks/${trackId}/confirm-run`,
+    signalThreadTask: (taskId, body) =>
+      request<{ status: string }, TaskSignalRequest>({
+        path: `/thread-tasks/${taskId}/signal`,
         method: "POST",
         body,
       }),

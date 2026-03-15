@@ -15,7 +15,6 @@ type Store interface {
 	core.ResourceStore
 	core.ActionIODeclStore
 	core.WorkItemStore
-	core.WorkItemTrackStore
 	core.ThreadStore
 	core.ActionStore
 	core.RunStore
@@ -29,6 +28,7 @@ type Store interface {
 	core.JournalStore
 	core.NotificationStore
 	core.InspectionStore
+	core.ThreadTaskStore
 	DeleteResourcesByThread(ctx context.Context, threadID int64) error
 	GetThreadMessage(ctx context.Context, id int64) (*core.ThreadMessage, error)
 	DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error
@@ -80,6 +80,7 @@ type TextCompleter interface {
 // ThreadAgentRuntime bridges Thread agent HTTP/WS endpoints to the ACP runtime.
 type ThreadAgentRuntime interface {
 	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadMember, error)
+	WaitAgentReady(ctx context.Context, threadID int64, profileID string) error
 	SendMessage(ctx context.Context, threadID int64, profileID string, message string) error
 	RemoveAgent(ctx context.Context, threadID int64, agentSessionID int64) error
 	CleanupThread(ctx context.Context, threadID int64) error

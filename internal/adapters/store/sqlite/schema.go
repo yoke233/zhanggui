@@ -30,8 +30,6 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&ThreadWorkItemLinkModel{},
 		&ThreadContextRefModel{},
 		&ThreadAttachmentModel{},
-		&WorkItemTrackModel{},
-		&WorkItemTrackThreadModel{},
 		&FeatureEntryModel{},
 		&ActionSignalModel{},
 		&ActionResourceModel{},
@@ -41,6 +39,8 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&InspectionInsightModel{},
 		&NotificationModel{},
 		&JournalModel{},
+		&ThreadTaskGroupModel{},
+		&ThreadTaskModel{},
 	); err != nil {
 		return err
 	}

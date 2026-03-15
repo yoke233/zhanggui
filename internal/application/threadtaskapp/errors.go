@@ -1,16 +1,21 @@
-package workitemtrackapp
+package threadtaskapp
 
 import "errors"
 
 const (
-	CodeInvalidRelationType  = "INVALID_RELATION_TYPE"
-	CodeInvalidState         = "INVALID_STATE"
-	CodeMissingThreadID      = "MISSING_THREAD_ID"
-	CodeMissingTitle         = "MISSING_TITLE"
-	CodeThreadNotFound       = "THREAD_NOT_FOUND"
-	CodeTrackNotFound        = "TRACK_NOT_FOUND"
-	CodeWorkItemNotFound     = "WORK_ITEM_NOT_FOUND"
-	CodeRunUnavailable = "RUN_UNAVAILABLE"
+	CodeMissingThreadID  = "MISSING_THREAD_ID"
+	CodeMissingTasks     = "MISSING_TASKS"
+	CodeMissingAssignee  = "MISSING_ASSIGNEE"
+	CodeMissingInstruction = "MISSING_INSTRUCTION"
+	CodeInvalidTaskType  = "INVALID_TASK_TYPE"
+	CodeInvalidAction    = "INVALID_ACTION"
+	CodeInvalidState     = "INVALID_STATE"
+	CodeThreadNotFound   = "THREAD_NOT_FOUND"
+	CodeGroupNotFound    = "GROUP_NOT_FOUND"
+	CodeTaskNotFound     = "TASK_NOT_FOUND"
+	CodeRetryExhausted   = "RETRY_EXHAUSTED"
+	CodeDependencyCycle  = "DEPENDENCY_CYCLE"
+	CodeInvalidDependency = "INVALID_DEPENDENCY"
 )
 
 type Error struct {

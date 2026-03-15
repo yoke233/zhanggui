@@ -789,11 +789,26 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		}
 	}
 
-	launchCfg := acpclient.LaunchConfig{
-		Command: profile.Driver.LaunchCommand,
-		Args:    profile.Driver.LaunchArgs,
+	// Build launch config: profile → env merge → sandbox.
+	launchCfg, err := acpclient.PrepareLaunch(ctx, acpclient.BootstrapConfig{
+		Profile: profile,
 		WorkDir: workDir,
-		Env:     cloneEnv(profile.Driver.Env),
+	})
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	sb := l.cfg.Sandbox
+	if sb == nil {
+		sb = v2sandbox.NoopSandbox{}
+	}
+	launchCfg, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
+		Profile: profile,
+		Launch:  launchCfg,
+		Scope:   scope,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", err)
 	}
 
 	bridge := eventbridge.New(l.cfg.Bus, core.EventChatOutput, eventbridge.Scope{
@@ -801,37 +816,16 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	})
 	events := &suppressibleEventHandler{inner: bridge}
 
-	sb := l.cfg.Sandbox
-	if sb == nil {
-		sb = v2sandbox.NoopSandbox{}
-	}
-	sandboxedLaunch, sbErr := sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile: profile,
-		Launch:  launchCfg,
-		Scope:   scope,
-	})
-	if sbErr != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", sbErr)
-	}
-	launchCfg = sandboxedLaunch
-
 	handler := newLeadChatHandler(workDir, l.cfg.Bus, l.broker)
 	client, err := l.cfg.NewClient(launchCfg, handler, acpclient.WithEventHandler(events))
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
 	}
 
-	caps := profile.EffectiveCapabilities()
-	initCaps := acpclient.ClientCapabilities{
-		FSRead:   caps.FSRead,
-		FSWrite:  caps.FSWrite,
-		Terminal: caps.Terminal,
-	}
-
 	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer initCancel()
 
-	if err := client.Initialize(initCtx, initCaps); err != nil {
+	if err := client.Initialize(initCtx, acpclient.InitCapabilities(profile)); err != nil {
 		_ = client.Close(context.Background())
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
 	}
@@ -993,17 +987,6 @@ func (s *leadSession) close() {
 	// up here.  The agent process is recycled but the workspace survives so
 	// the session can be resumed later.  Workspace cleanup only happens on
 	// explicit session deletion via DeleteSession.
-}
-
-func cloneEnv(in map[string]string) map[string]string {
-	if in == nil {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func resolveLeadWorkDir(workDir string) (string, error) {

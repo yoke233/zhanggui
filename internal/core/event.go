@@ -56,17 +56,13 @@ const (
 	EventThreadAgentOutput            EventType = "thread.agent_output"
 	EventThreadAgentBooted            EventType = "thread.agent_booted"
 	EventThreadAgentFailed            EventType = "thread.agent_failed"
-	EventThreadAgentThinking          EventType = "thread.agent_thinking"
-	EventThreadTrackCreated           EventType = "thread.track.created"
-	EventThreadTrackUpdated           EventType = "thread.track.updated"
-	EventThreadTrackPlanningStarted   EventType = "thread.track.planning_started"
-	EventThreadTrackPlanningCompleted EventType = "thread.track.planning_completed"
-	EventThreadTrackReviewStarted     EventType = "thread.track.review_started"
-	EventThreadTrackStateChanged      EventType = "thread.track.state_changed"
-	EventThreadTrackReviewApproved    EventType = "thread.track.review_approved"
-	EventThreadTrackReviewRejected    EventType = "thread.track.review_rejected"
-	EventThreadTrackMaterialized      EventType = "thread.track.materialized"
-	EventThreadTrackRunConfirmed      EventType = "thread.track.run_confirmed"
+	EventThreadAgentThinking EventType = "thread.agent_thinking"
+
+	// ThreadTask events for lightweight in-thread DAG execution.
+	EventThreadTaskGroupCreated   EventType = "thread.task_group.created"
+	EventThreadTaskGroupCompleted EventType = "thread.task_group.completed"
+	EventThreadTaskStarted        EventType = "thread.task.started"
+	EventThreadTaskCompleted      EventType = "thread.task.completed"
 
 	// Feature manifest events.
 	EventManifestEntryUpdated EventType = "manifest.entry_updated"

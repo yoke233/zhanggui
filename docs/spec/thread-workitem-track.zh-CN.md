@@ -1,6 +1,9 @@
 # Thread 内任务孵化与 WorkItemTrack 设计
 
-> 状态：第一阶段已完成，后续增强中
+> **⚠️ DEPRECATED** — 本文档已废弃。WorkItemTrack 已被 ThreadTask 替代。
+> 请参阅 `thread-task-dag.zh-CN.md`。
+>
+> 状态：已废弃
 >
 > 最后按代码核对：2026-03-15
 >

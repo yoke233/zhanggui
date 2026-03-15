@@ -1,6 +1,6 @@
 import type { RefObject, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Loader2, User } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, User, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentProfile, ThreadMessage } from "@/types/apiV2";
 
@@ -14,7 +14,8 @@ interface ThreadMessageListProps {
   focusAgentProfile: (profileID: string) => void;
   readTargetAgentID: (metadata: Record<string, unknown> | undefined) => string | null;
   readAutoRoutedTo: (metadata: Record<string, unknown> | undefined) => string[];
-  readWorkItemTrackID: (metadata: Record<string, unknown> | undefined) => number | null;
+  readTaskGroupID: (metadata: Record<string, unknown> | undefined) => number | null;
+  readMetadataType: (metadata: Record<string, unknown> | undefined) => string | null;
   formatRelativeTime: (value: string) => string;
 }
 
@@ -28,7 +29,8 @@ export function ThreadMessageList({
   focusAgentProfile,
   readTargetAgentID,
   readAutoRoutedTo,
-  readWorkItemTrackID,
+  readTaskGroupID,
+  readMetadataType,
   formatRelativeTime,
 }: ThreadMessageListProps) {
   const { t } = useTranslation();
@@ -49,16 +51,79 @@ export function ThreadMessageList({
         const isSystem = msg.role === "system";
         const targetAgent = readTargetAgentID(msg.metadata);
         const autoRoutedTo = readAutoRoutedTo(msg.metadata);
-        const workItemTrackID = readWorkItemTrackID(msg.metadata);
+        const taskGroupID = readTaskGroupID(msg.metadata);
+        const metaType = readMetadataType(msg.metadata);
         const profile = isAgent ? profileByID.get(msg.sender_id) : undefined;
+
+        // Render task group progress card
+        if (isSystem && metaType === "task_group_progress") {
+          return <TaskGroupProgressCard key={msg.id} msg={msg} />;
+        }
+
+        // Render task group completed card
+        if (isSystem && metaType === "task_group_completed") {
+          const finalStatus = (msg.metadata?.final_status as string) ?? "done";
+          const isFailed = finalStatus === "failed";
+          return (
+            <div key={msg.id} className="flex justify-center">
+              <div className={cn(
+                "flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs",
+                isFailed
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700",
+              )}>
+                {isFailed ? <XCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                <span>{msg.content || `Task Group #${taskGroupID} ${isFailed ? "failed" : "completed"}`}</span>
+              </div>
+            </div>
+          );
+        }
+
+        // Render task output / review cards
+        if (isAgent && (metaType === "task_output" || metaType === "task_review_approved" || metaType === "task_review_rejected")) {
+          const outputFile = (msg.metadata?.output_file as string) ?? "";
+          const isReject = metaType === "task_review_rejected";
+          const isApproved = metaType === "task_review_approved";
+          return (
+            <div key={msg.id} className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div className="max-w-[75%] min-w-0">
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground/70">{profile?.name ?? msg.sender_id}</span>
+                  {taskGroupID ? (
+                    <span className="rounded bg-purple-50 px-1 py-px text-[10px] text-purple-700">
+                      Group #{taskGroupID}
+                    </span>
+                  ) : null}
+                  <span>{formatRelativeTime(msg.created_at)}</span>
+                </div>
+                <div className={cn(
+                  "rounded-2xl rounded-tl-md px-4 py-2.5 text-sm leading-relaxed",
+                  isReject ? "border border-rose-200 bg-rose-50/50 text-foreground" :
+                  isApproved ? "border border-emerald-200 bg-emerald-50/50 text-foreground" :
+                  "bg-muted/80 text-foreground",
+                )}>
+                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  {outputFile && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      📄 {outputFile}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
 
         if (isSystem) {
           return (
             <div key={msg.id} className="flex justify-center">
               <div className="flex items-center gap-2 rounded-full border border-border/40 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
-                {workItemTrackID ? (
+                {taskGroupID ? (
                   <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-foreground/70">
-                    Track #{workItemTrackID}
+                    Group #{taskGroupID}
                   </span>
                 ) : null}
                 <Bot className="h-3 w-3" />
@@ -93,9 +158,9 @@ export function ThreadMessageList({
                     @{targetAgent}
                   </span>
                 ) : null}
-                {workItemTrackID ? (
-                  <span className="rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700">
-                    Track #{workItemTrackID}
+                {taskGroupID ? (
+                  <span className="rounded bg-purple-50 px-1 py-px text-[10px] text-purple-700">
+                    Group #{taskGroupID}
                   </span>
                 ) : null}
                 <span>{formatRelativeTime(msg.created_at)}</span>
@@ -166,6 +231,57 @@ export function ThreadMessageList({
       )}
 
       <div ref={messagesEndRef} />
+    </div>
+  );
+}
+
+/* ── Task Group Progress Card (inline DAG visualization) ── */
+
+function TaskGroupProgressCard({ msg }: { msg: ThreadMessage }) {
+  const tasks = (msg.metadata?.tasks as Array<Record<string, unknown>>) ?? [];
+  const groupStatus = (msg.metadata?.group_status as string) ?? "pending";
+  const groupId = msg.metadata?.task_group_id as number;
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "done": return "✅";
+      case "running": return "🔄";
+      case "ready": return "⏳";
+      case "failed": return "❌";
+      case "rejected": return "↩️";
+      default: return "○";
+    }
+  };
+
+  const doneCount = tasks.filter((t) => t.status === "done").length;
+
+  return (
+    <div className="flex justify-center">
+      <div className="w-full max-w-md rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-semibold text-foreground/80">
+            Task Group #{groupId}
+          </span>
+          <span className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-medium",
+            groupStatus === "done" ? "bg-emerald-100 text-emerald-700" :
+            groupStatus === "running" ? "bg-blue-100 text-blue-700" :
+            groupStatus === "failed" ? "bg-rose-100 text-rose-700" :
+            "bg-muted text-muted-foreground",
+          )}>
+            {groupStatus} · {doneCount}/{tasks.length}
+          </span>
+        </div>
+        <div className="space-y-1">
+          {tasks.map((task) => (
+            <div key={task.id as number} className="flex items-center gap-2 text-xs">
+              <span>{statusIcon(task.status as string)}</span>
+              <span className="font-medium text-foreground/70">{task.assignee as string}</span>
+              <span className="truncate text-muted-foreground">{task.instruction as string}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

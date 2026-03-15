@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +42,11 @@ type threadPooledSession struct {
 	outputTokens int64
 }
 
+// TokenGenerator creates scoped tokens for agent signal APIs.
+type TokenGenerator interface {
+	GenerateScopedToken(role string, scopes []string, submitter string) (string, error)
+}
+
 // ThreadSessionPool manages ACP sessions for agents participating in Threads.
 // Unlike ACPSessionPool (which is tied to Issue lifecycle), ThreadSessionPool
 // is driven by user invite/remove actions and has no Step/Execution concept.
@@ -47,8 +56,16 @@ type ThreadSessionPool struct {
 	registry core.AgentRegistry
 	dataDir  string
 
+	// Signal config: injected into agent launch env so skills like task-signal can call back.
+	serverAddr    string
+	tokenRegistry TokenGenerator
+
 	mu       sync.Mutex
 	sessions map[threadSessionKey]*threadPooledSession
+
+	// bootstrapFn overrides acpclient.Bootstrap for testing.
+	// When nil, acpclient.Bootstrap is used.
+	bootstrapFn func(context.Context, acpclient.BootstrapConfig) (*acpclient.BootstrapResult, error)
 }
 
 // NewThreadSessionPool creates a pool for managing Thread agent ACP sessions.
@@ -60,6 +77,15 @@ func NewThreadSessionPool(store core.Store, bus core.EventBus, registry core.Age
 		dataDir:  strings.TrimSpace(dataDir),
 		sessions: make(map[threadSessionKey]*threadPooledSession),
 	}
+}
+
+// SetSignalConfig configures the server address and token generator for agent signal injection.
+func (p *ThreadSessionPool) SetSignalConfig(serverAddr string, tokenRegistry TokenGenerator) {
+	if p == nil {
+		return
+	}
+	p.serverAddr = strings.TrimSpace(serverAddr)
+	p.tokenRegistry = tokenRegistry
 }
 
 func updateThreadAgentStatus(m *core.ThreadMember, next core.ThreadAgentStatus) error {
@@ -197,11 +223,24 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 		return member, fmt.Errorf("prepare thread workspace: %w", err)
 	}
 
-	// Launch ACP process.
-	launchCfg := acpclient.LaunchConfig{
-		Command: profile.Driver.LaunchCommand,
-		Args:    profile.Driver.LaunchArgs,
-		Env:     cloneStringMap(profile.Driver.Env),
+	// Install thread-scoped skills into workspace agent home directories.
+	p.ensureThreadSkills(workspaceDir, profile)
+
+	// Build extra env vars for signal callback.
+	extraEnv := map[string]string{}
+	if p.tokenRegistry != nil && p.serverAddr != "" {
+		scope := fmt.Sprintf("thread:%d:agent:%s", member.ThreadID, profile.ID)
+		tok, tokErr := p.tokenRegistry.GenerateScopedToken(
+			fmt.Sprintf("thread-agent-%d-%s", member.ThreadID, profile.ID),
+			[]string{scope},
+			fmt.Sprintf("thread/%d", member.ThreadID),
+		)
+		if tokErr != nil {
+			slog.Warn("thread pool: failed to generate signal token", "thread_id", member.ThreadID, "error", tokErr)
+		} else {
+			extraEnv["AI_WORKFLOW_SERVER_ADDR"] = p.serverAddr
+			extraEnv["AI_WORKFLOW_API_TOKEN"] = tok
+		}
 	}
 
 	bridge := eventbridge.New(p.bus, core.EventThreadAgentOutput, eventbridge.Scope{
@@ -213,37 +252,27 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 	handler := acphandler.NewACPHandler(workspaceDir, "", nil)
 	handler.SetThreadWorkspace(scopeCfg)
 	handler.SetSuppressEvents(true)
-	client, err := acpclient.New(launchCfg, handler, acpclient.WithEventHandler(switcher))
+
+	bootstrapFn := acpclient.Bootstrap
+	if p.bootstrapFn != nil {
+		bootstrapFn = p.bootstrapFn
+	}
+	bootResult, err := bootstrapFn(ctx, acpclient.BootstrapConfig{
+		Profile:      profile,
+		WorkDir:      workspaceDir,
+		ExtraEnv:     extraEnv,
+		Handler:      handler,
+		EventHandler: switcher,
+		Session:      &acpclient.BootstrapSessionConfig{},
+	})
 	if err != nil {
 		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
 		_ = p.store.UpdateThreadMember(ctx, member)
 		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return member, fmt.Errorf("launch ACP agent %q: %w", profile.ID, err)
+		return member, err
 	}
-
-	caps := profile.EffectiveCapabilities()
-	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer initCancel()
-	if err := client.Initialize(initCtx, acpclient.ClientCapabilities{
-		FSRead:   caps.FSRead,
-		FSWrite:  caps.FSWrite,
-		Terminal: caps.Terminal,
-	}); err != nil {
-		_ = client.Close(context.Background())
-		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
-		_ = p.store.UpdateThreadMember(ctx, member)
-		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return member, fmt.Errorf("initialize ACP agent %q: %w", profile.ID, err)
-	}
-
-	acpSessionID, err := client.NewSession(initCtx, acpproto.NewSessionRequest{})
-	if err != nil {
-		_ = client.Close(context.Background())
-		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
-		_ = p.store.UpdateThreadMember(ctx, member)
-		p.publishThreadEvent(ctx, core.EventThreadAgentFailed, member.ThreadID, profile.ID, map[string]any{"error": err.Error()})
-		return member, fmt.Errorf("create ACP session: %w", err)
-	}
+	client := bootResult.Client
+	acpSessionID := bootResult.Session.ID
 
 	memberSetAgentData(member, "acp_session_id", string(acpSessionID))
 
@@ -257,10 +286,7 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 	if strings.TrimSpace(bootPrompt) != "" {
 		bootCtx, bootCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer bootCancel()
-		_, err = client.Prompt(bootCtx, acpproto.PromptRequest{
-			SessionId: acpSessionID,
-			Prompt:    []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{Text: bootPrompt}}},
-		})
+		_, err = client.PromptText(bootCtx, acpSessionID, bootPrompt)
 		bridge.FlushPending(ctx)
 		if err != nil {
 			slog.Warn("thread pool: boot prompt failed", "thread_id", member.ThreadID, "profile", profile.ID, "error", err)
@@ -323,6 +349,34 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 	}), nil
 }
 
+// WaitAgentReady polls until the agent session is active or the context expires.
+// Returns nil when the session is ready, or an error if it failed/timed out.
+func (p *ThreadSessionPool) WaitAgentReady(ctx context.Context, threadID int64, profileID string) error {
+	key := threadSessionKey{threadID: threadID, agentID: profileID}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for agent %q in thread %d", profileID, threadID)
+		case <-ticker.C:
+			p.mu.Lock()
+			pooled := p.sessions[key]
+			p.mu.Unlock()
+			if pooled != nil {
+				return nil // session is ready
+			}
+			// Check if the member has failed.
+			members, _ := p.store.ListThreadMembers(context.Background(), threadID)
+			for _, m := range members {
+				if m.AgentProfileID == profileID && m.Status == core.ThreadAgentFailed {
+					return fmt.Errorf("agent %q failed to boot in thread %d", profileID, threadID)
+				}
+			}
+		}
+	}
+}
+
 // SendMessage routes a human message to all active agents in a thread and
 // saves the agent responses as ThreadMessages.
 func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, profileID string, message string) error {
@@ -349,10 +403,7 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 	promptCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	result, err := pooled.client.Prompt(promptCtx, acpproto.PromptRequest{
-		SessionId: pooled.sessionID,
-		Prompt:    []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{Text: message}}},
-	})
+	result, err := pooled.client.PromptText(promptCtx, pooled.sessionID, message)
 	pooled.bridge.FlushPending(ctx)
 
 	if err != nil {
@@ -492,12 +543,8 @@ func (p *ThreadSessionPool) requestProgressSummaryLocked(ctx context.Context, po
 		return ""
 	}
 
-	result, err := pooled.client.Prompt(ctx, acpproto.PromptRequest{
-		SessionId: pooled.sessionID,
-		Prompt: []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{
-			Text: "You are about to leave this thread. Please provide a brief summary of your progress, key decisions made, and any pending items. Keep it concise (under 500 words).",
-		}}},
-	})
+	result, err := pooled.client.PromptText(ctx, pooled.sessionID,
+		"You are about to leave this thread. Please provide a brief summary of your progress, key decisions made, and any pending items. Keep it concise (under 500 words).")
 	pooled.bridge.FlushPending(ctx)
 
 	if err != nil {
@@ -644,17 +691,6 @@ func (p *ThreadSessionPool) publishThreadEvent(ctx context.Context, eventType co
 	})
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
 func (p *ThreadSessionPool) prepareThreadWorkspace(ctx context.Context, threadID int64) (string, acphandler.ThreadWorkspaceConfig, error) {
 	if strings.TrimSpace(p.dataDir) == "" {
 		return "", acphandler.ThreadWorkspaceConfig{}, fmt.Errorf("thread data dir is not configured")
@@ -688,4 +724,89 @@ func (p *ThreadSessionPool) prepareThreadWorkspace(ctx context.Context, threadID
 		}
 	}
 	return paths.ThreadDir, cfg, nil
+}
+
+// threadScopedSkills lists skills that should be auto-installed into every thread agent workspace.
+var threadScopedSkills = []string{"task-signal"}
+
+// ensureThreadSkills creates .codex/skills/ and .claude/skills/ inside the thread workspace
+// and symlinks each thread-scoped skill from the global skills root. This makes ACP agents
+// auto-discover the skills when CODEX_HOME or CLAUDE_CONFIG_DIR points at the workspace subdir.
+func (p *ThreadSessionPool) ensureThreadSkills(workspaceDir string, profile *core.AgentProfile) {
+	if workspaceDir == "" {
+		return
+	}
+	skillsRoot, err := resolveGlobalSkillsRoot(p.dataDir)
+	if err != nil {
+		slog.Warn("thread pool: cannot resolve skills root", "error", err)
+		return
+	}
+
+	// Determine home directory names based on driver type.
+	homeDirs := inferAgentHomeDirs(profile)
+
+	for _, homeDir := range homeDirs {
+		targetSkillsDir := filepath.Join(workspaceDir, homeDir, "skills")
+		if err := os.MkdirAll(targetSkillsDir, 0o755); err != nil {
+			slog.Warn("thread pool: create skills dir failed", "dir", targetSkillsDir, "error", err)
+			continue
+		}
+		for _, skillName := range threadScopedSkills {
+			src := filepath.Join(skillsRoot, skillName)
+			if _, err := os.Stat(src); err != nil {
+				continue // skill not extracted yet
+			}
+			dst := filepath.Join(targetSkillsDir, skillName)
+			if _, err := os.Lstat(dst); err == nil {
+				continue // already present
+			}
+			if linkErr := linkDirBestEffort(dst, src); linkErr != nil {
+				slog.Warn("thread pool: link skill failed", "skill", skillName, "dst", dst, "error", linkErr)
+			}
+		}
+	}
+}
+
+// inferAgentHomeDirs returns workspace-relative home dir names for the agent.
+// Always produces both .codex and .claude so skills are available regardless of runtime.
+func inferAgentHomeDirs(profile *core.AgentProfile) []string {
+	if profile == nil {
+		return []string{".codex", ".claude"}
+	}
+	cmd := strings.ToLower(strings.TrimSpace(profile.Driver.LaunchCommand))
+	id := strings.ToLower(strings.TrimSpace(profile.ID))
+	if strings.Contains(cmd, "codex") || strings.Contains(id, "codex") {
+		return []string{".codex"}
+	}
+	if strings.Contains(cmd, "claude") || strings.Contains(id, "claude") {
+		return []string{".claude"}
+	}
+	return []string{".codex", ".claude"}
+}
+
+func resolveGlobalSkillsRoot(dataDir string) (string, error) {
+	if strings.TrimSpace(dataDir) != "" {
+		return filepath.Join(strings.TrimSpace(dataDir), "skills"), nil
+	}
+	// Fallback: use appdata default.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ai-workflow", "skills"), nil
+}
+
+func linkDirBestEffort(dst, src string) error {
+	if err := os.Symlink(src, dst); err == nil {
+		return nil
+	}
+	// Windows fallback: junction.
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("cmd", "/c", "mklink", "/J", dst, src).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("mklink /J: %s: %w", strings.TrimSpace(string(out)), err)
+		}
+		return nil
+	}
+	return fmt.Errorf("symlink %s -> %s failed", dst, src)
 }

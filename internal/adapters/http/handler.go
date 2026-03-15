@@ -240,7 +240,7 @@ func (h *Handler) Register(r chi.Router) {
 
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
-	registerWorkItemTrackRoutes(r, h)
+	registerThreadTaskRoutes(r, h)
 
 	// Notifications
 	registerNotificationRoutes(r, h)

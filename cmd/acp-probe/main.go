@@ -145,12 +145,7 @@ func main() {
 
 	prompt := "在当前目录创建一个文件 hello.txt，内容写上 Hello from ACP probe test，然后读取确认内容正确。"
 	fmt.Printf(">>> sending prompt: %s\n", prompt)
-	result, err := client.Prompt(ctx, acpproto.PromptRequest{
-		SessionId: sessionID,
-		Prompt: []acpproto.ContentBlock{
-			{Text: &acpproto.ContentBlockText{Text: prompt}},
-		},
-	})
+	result, err := client.PromptText(ctx, sessionID, prompt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "prompt failed: %v\n", err)
 		os.Exit(1)

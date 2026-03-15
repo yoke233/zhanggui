@@ -79,12 +79,7 @@ func Run(ctx context.Context, target Target) (*probeapp.RunProbeRuntimeResult, e
 	}
 	handler.SetSessionID(string(loadedSessionID))
 
-	result, err := client.Prompt(probeCtx, acpproto.PromptRequest{
-		SessionId: loadedSessionID,
-		Prompt: []acpproto.ContentBlock{
-			{Text: &acpproto.ContentBlockText{Text: target.Question}},
-		},
-	})
+	result, err := client.PromptText(probeCtx, loadedSessionID, target.Question)
 	observedAt := time.Now().UTC()
 	if err != nil {
 		if probeCtx.Err() == context.DeadlineExceeded || ctx.Err() == context.DeadlineExceeded {

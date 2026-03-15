@@ -63,16 +63,10 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			workDir = v
 		}
 
-		launchCfg := acpclient.LaunchConfig{
-			Command: profile.Driver.LaunchCommand,
-			Args:    profile.Driver.LaunchArgs,
-			WorkDir: workDir,
-			Env:     cloneEnv(profile.Driver.Env),
-		}
-
-		// Generate scoped token and inject step-signal env vars for the agent process.
+		// Generate scoped token and build extra env vars for the agent process.
 		var hasSignalSkill bool
 		var scopedToken string
+		extraEnv := map[string]string{}
 		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" &&
 			(step.Type == core.ActionExec || step.Type == core.ActionGate) {
 			scope := fmt.Sprintf("step:%d", step.ID)
@@ -87,16 +81,25 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 				scopedToken = tok
 				hasSignalSkill = true
 				// Inject env vars — agent reads $AI_WORKFLOW_* in SKILL.md
-				launchCfg.Env["AI_WORKFLOW_API_TOKEN"] = tok
-				launchCfg.Env["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
-				launchCfg.Env["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
-				launchCfg.Env["AI_WORKFLOW_WORK_ITEM_ID"] = fmt.Sprintf("%d", step.WorkItemID)
-				launchCfg.Env["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.WorkItemID)
-				launchCfg.Env["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
-				launchCfg.Env["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
+				extraEnv["AI_WORKFLOW_API_TOKEN"] = tok
+				extraEnv["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
+				extraEnv["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
+				extraEnv["AI_WORKFLOW_WORK_ITEM_ID"] = fmt.Sprintf("%d", step.WorkItemID)
+				extraEnv["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.WorkItemID)
+				extraEnv["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
+				extraEnv["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
 				slog.Info("step-signal: env vars injected",
 					"step_id", step.ID, "step_type", step.Type)
 			}
+		}
+
+		launchCfg, err := acpclient.PrepareLaunch(ctx, acpclient.BootstrapConfig{
+			Profile:  profile,
+			WorkDir:  workDir,
+			ExtraEnv: extraEnv,
+		})
+		if err != nil {
+			return fmt.Errorf("prepare launch config: %w", err)
 		}
 
 		var extraSkills []string
@@ -145,12 +148,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		}
 		sink := newMultiSink(bridge, auditSink)
 
-		caps := profile.EffectiveCapabilities()
-		acpCaps := acpclient.ClientCapabilities{
-			FSRead:   caps.FSRead,
-			FSWrite:  caps.FSWrite,
-			Terminal: caps.Terminal,
-		}
+		acpCaps := acpclient.InitCapabilities(profile)
 
 		reuse := profile.Session.Reuse
 		mcpFactory := buildStepMCPFactory(step, profile, exec.ID, cfg.MCPResolver)
@@ -413,17 +411,6 @@ func extractGateMetadata(markdown string) map[string]any {
 	}
 	parsed["verdict"] = verdict
 	return parsed
-}
-
-func cloneEnv(in map[string]string) map[string]string {
-	if in == nil {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func publishRunAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.Logger, step *core.Action, exec *core.Run, kind string, status string, data map[string]any) {

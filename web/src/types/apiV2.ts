@@ -940,87 +940,73 @@ export interface CreateThreadWorkItemLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Thread WorkItem Tracks
+// Thread Task Groups (lightweight DAG within Thread)
 // ---------------------------------------------------------------------------
 
-export type WorkItemTrackStatus =
-  | "draft"
-  | "planning"
-  | "reviewing"
-  | "awaiting_confirmation"
-  | "materialized"
-  | "executing"
+export type TaskGroupStatus = "pending" | "running" | "done" | "failed";
+
+export type TaskType = "work" | "review";
+
+export type ThreadTaskStatus =
+  | "pending"
+  | "ready"
+  | "running"
   | "done"
-  | "paused"
-  | "cancelled"
-  | "failed"
-  | string;
+  | "rejected"
+  | "failed";
 
-export type WorkItemTrackThreadRelation =
-  | "primary"
-  | "source"
-  | "context"
-  | string;
-
-export interface WorkItemTrack {
+export interface ThreadTaskGroup {
   id: number;
-  title: string;
-  objective: string;
-  status: WorkItemTrackStatus;
-  primary_thread_id?: number | null;
-  work_item_id?: number | null;
-  planner_status?: string;
-  reviewer_status?: string;
-  awaiting_user_confirmation: boolean;
-  latest_summary?: string;
-  planner_output_json?: Record<string, unknown>;
-  review_output_json?: Record<string, unknown>;
-  metadata_json?: Record<string, unknown>;
-  created_by?: string;
+  thread_id: number;
+  status: TaskGroupStatus;
+  source_message_id?: number | null;
+  status_message_id?: number | null;
+  notify_on_complete: boolean;
   created_at: string;
-  updated_at: string;
+  completed_at?: string | null;
 }
 
-export interface CreateWorkItemTrackRequest {
-  title: string;
-  objective?: string;
-  created_by?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface WorkItemTrackThread {
+export interface ThreadTask {
   id: number;
-  track_id: number;
+  group_id: number;
   thread_id: number;
-  relation_type: WorkItemTrackThreadRelation;
+  assignee: string;
+  type: TaskType;
+  instruction: string;
+  depends_on: number[];
+  status: ThreadTaskStatus;
+  output_file_path?: string;
+  output_message_id?: number | null;
+  review_feedback?: string;
+  max_retries: number;
+  retry_count: number;
   created_at: string;
+  completed_at?: string | null;
 }
 
-export interface AttachWorkItemTrackThreadRequest {
-  thread_id: number;
-  relation_type?: WorkItemTrackThreadRelation;
+export interface ThreadTaskGroupDetail extends ThreadTaskGroup {
+  tasks: ThreadTask[];
 }
 
-export interface MaterializeWorkItemTrackRequest {
-  project_id?: number;
+export interface CreateTaskGroupRequest {
+  tasks: CreateTaskInput[];
+  source_message_id?: number;
+  notify_on_complete?: boolean;
 }
 
-export interface WorkItemTrackReviewRequest {
-  latest_summary?: string;
-  planner_output_json?: Record<string, unknown>;
-  review_output_json?: Record<string, unknown>;
+export interface CreateTaskInput {
+  assignee: string;
+  type?: TaskType;
+  instruction: string;
+  depends_on_index?: number[];
+  max_retries?: number;
+  output_file_name?: string;
 }
 
-export interface MaterializeWorkItemTrackResponse {
-  track: WorkItemTrack;
-  work_item: WorkItem;
-  links: ThreadWorkItemLink[];
-}
-
-export interface ConfirmRunTrackResponse {
-  track: WorkItemTrack;
-  work_item: WorkItem;
-  status: string;
+export interface TaskSignalRequest {
+  action: "complete" | "reject";
+  output_file_path?: string;
+  feedback?: string;
 }
 
 // ---------------------------------------------------------------------------

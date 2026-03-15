@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Check, ChevronDown, Loader2, Plus, User, X } from "lucide-react";
+import { Bot, Check, Loader2, Plus, User, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

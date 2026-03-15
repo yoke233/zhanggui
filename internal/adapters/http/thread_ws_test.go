@@ -29,6 +29,10 @@ func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*c
 	return nil, nil
 }
 
+func (s *stubThreadAgentRuntime) WaitAgentReady(context.Context, int64, string) error {
+	return nil
+}
+
 func (s *stubThreadAgentRuntime) SendMessage(_ context.Context, threadID int64, profileID string, message string) error {
 	if s.sendErr != nil {
 		return s.sendErr
