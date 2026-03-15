@@ -15,23 +15,27 @@ import (
 // ---------------------------------------------------------------------------
 
 type memStore struct {
-	mu       sync.Mutex
-	threads  map[int64]*core.Thread
-	messages []*core.ThreadMessage
-	groups   map[int64]*core.ThreadTaskGroup
-	tasks    map[int64]*core.ThreadTask
-	nextID   int64
+	mu        sync.Mutex
+	threads   map[int64]*core.Thread
+	messages  []*core.ThreadMessage
+	groups    map[int64]*core.ThreadTaskGroup
+	tasks     map[int64]*core.ThreadTask
+	workItems map[int64]*core.WorkItem
+	links     map[int64]*core.ThreadWorkItemLink
+	nextID    int64
 }
 
 func newMemStore() *memStore {
 	s := &memStore{
 		threads: map[int64]*core.Thread{
-			1: {ID: 1, Title: "Test Thread", Status: core.ThreadActive},
+			1: {ID: 1, Title: "Test Thread", Status: core.ThreadActive, Metadata: map[string]any{}},
 		},
-		messages: nil,
-		groups:   make(map[int64]*core.ThreadTaskGroup),
-		tasks:    make(map[int64]*core.ThreadTask),
-		nextID:   100,
+		messages:  nil,
+		groups:    make(map[int64]*core.ThreadTaskGroup),
+		tasks:     make(map[int64]*core.ThreadTask),
+		workItems: make(map[int64]*core.WorkItem),
+		links:     make(map[int64]*core.ThreadWorkItemLink),
+		nextID:    100,
 	}
 	return s
 }
@@ -184,6 +188,26 @@ func (s *memStore) DeleteThreadTasksByGroup(_ context.Context, groupID int64) er
 		}
 	}
 	return nil
+}
+
+func (s *memStore) CreateWorkItem(_ context.Context, w *core.WorkItem) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.nextAutoID()
+	w.ID = id
+	cp := *w
+	s.workItems[id] = &cp
+	return id, nil
+}
+
+func (s *memStore) CreateThreadWorkItemLink(_ context.Context, link *core.ThreadWorkItemLink) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.nextAutoID()
+	link.ID = id
+	cp := *link
+	s.links[id] = &cp
+	return id, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +705,201 @@ func (p *failingAgentPool) WaitAgentReady(_ context.Context, _ int64, _ string) 
 
 func (p *failingAgentPool) SendMessage(_ context.Context, _ int64, _ string, _ string) error {
 	return p.sendErr
+}
+
+// ---------------------------------------------------------------------------
+// Materialize tests
+// ---------------------------------------------------------------------------
+
+func TestMaterializeToWorkItem_OnGroupComplete(t *testing.T) {
+	store := newMemStore()
+	bus := &memBus{}
+	materializer := NewDefaultMaterializer(store)
+	svc := New(Config{Store: store, Bus: bus, Materializer: materializer})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "worker", Instruction: "write report", OutputFileName: "report.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	taskID := detail.Tasks[0].ID
+
+	// Signal complete
+	err = svc.Signal(context.Background(), SignalInput{
+		TaskID: taskID, Action: "complete", OutputFilePath: "outputs/report.md",
+	})
+	if err != nil {
+		t.Fatalf("Signal: %v", err)
+	}
+
+	// Group should be done
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupDone {
+		t.Fatalf("group status = %q, want done", group.Status)
+	}
+
+	// Should have materialized work item
+	if group.MaterializedWorkItemID == nil {
+		t.Fatal("expected MaterializedWorkItemID to be set")
+	}
+
+	store.mu.Lock()
+	wi, ok := store.workItems[*group.MaterializedWorkItemID]
+	linkCount := len(store.links)
+	store.mu.Unlock()
+
+	if !ok {
+		t.Fatalf("work item %d not found in store", *group.MaterializedWorkItemID)
+	}
+	if wi.Status != core.WorkItemOpen {
+		t.Fatalf("work item status = %q, want open", wi.Status)
+	}
+	if linkCount == 0 {
+		t.Fatal("expected at least one ThreadWorkItemLink")
+	}
+}
+
+func TestMaterializeToWorkItem_SkippedWhenFalse(t *testing.T) {
+	store := newMemStore()
+	materializer := NewDefaultMaterializer(store)
+	svc := New(Config{Store: store, Materializer: materializer})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: false,
+		Tasks: []CreateTaskInput{
+			{Assignee: "worker", Instruction: "do work", OutputFileName: "out.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	_ = svc.Signal(context.Background(), SignalInput{
+		TaskID: detail.Tasks[0].ID, Action: "complete", OutputFilePath: "outputs/out.md",
+	})
+
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupDone {
+		t.Fatalf("group status = %q, want done", group.Status)
+	}
+	if group.MaterializedWorkItemID != nil {
+		t.Fatalf("expected no materialized work item, got %d", *group.MaterializedWorkItemID)
+	}
+
+	store.mu.Lock()
+	wiCount := len(store.workItems)
+	store.mu.Unlock()
+	if wiCount != 0 {
+		t.Fatalf("expected 0 work items, got %d", wiCount)
+	}
+}
+
+func TestMaterializeToWorkItem_SkippedOnGroupFailure(t *testing.T) {
+	store := newMemStore()
+	materializer := NewDefaultMaterializer(store)
+	failPool := &failingAgentPool{inviteErr: fmt.Errorf("boom")}
+	svc := New(Config{Store: store, Materializer: materializer, AgentPool: failPool})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "worker", Instruction: "do work"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	// Wait for goroutine to fail
+	time.Sleep(50 * time.Millisecond)
+
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupFailed {
+		t.Fatalf("group status = %q, want failed", group.Status)
+	}
+
+	// No materialized work item on failure
+	if group.MaterializedWorkItemID != nil {
+		t.Fatalf("expected no materialized work item on failure, got %d", *group.MaterializedWorkItemID)
+	}
+
+	store.mu.Lock()
+	wiCount := len(store.workItems)
+	store.mu.Unlock()
+	if wiCount != 0 {
+		t.Fatalf("expected 0 work items, got %d", wiCount)
+	}
+}
+
+func TestMaterializeToWorkItem_WithReviewChain(t *testing.T) {
+	store := newMemStore()
+	materializer := NewDefaultMaterializer(store)
+	svc := New(Config{Store: store, Materializer: materializer})
+
+	detail, err := svc.CreateTaskGroup(context.Background(), CreateTaskGroupInput{
+		ThreadID:              1,
+		NotifyOnComplete:      false,
+		MaterializeToWorkItem: true,
+		Tasks: []CreateTaskInput{
+			{Assignee: "writer", Type: "work", Instruction: "draft document", OutputFileName: "draft.md"},
+			{Assignee: "reviewer", Type: "review", Instruction: "review draft", DependsOnIndex: []int{0}, OutputFileName: "review.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskGroup: %v", err)
+	}
+
+	workTask := findTaskByAssignee(detail.Tasks, "writer")
+	reviewTask := findTaskByAssignee(detail.Tasks, "reviewer")
+
+	// Complete work
+	_ = svc.Signal(context.Background(), SignalInput{
+		TaskID: workTask.ID, Action: "complete", OutputFilePath: "outputs/draft.md",
+	})
+
+	// Complete review (approve)
+	reviewTask, _ = store.GetThreadTask(context.Background(), reviewTask.ID)
+	_ = svc.Signal(context.Background(), SignalInput{
+		TaskID: reviewTask.ID, Action: "complete", OutputFilePath: "outputs/review.md",
+	})
+
+	// Group should be done
+	group, _ := store.GetThreadTaskGroup(context.Background(), detail.ID)
+	if group.Status != core.TaskGroupDone {
+		t.Fatalf("group status = %q, want done", group.Status)
+	}
+
+	// Should have materialized
+	if group.MaterializedWorkItemID == nil {
+		t.Fatal("expected MaterializedWorkItemID to be set after review chain completion")
+	}
+
+	store.mu.Lock()
+	wi := store.workItems[*group.MaterializedWorkItemID]
+	store.mu.Unlock()
+
+	if wi == nil {
+		t.Fatal("materialized work item not found")
+	}
+	if wi.Status != core.WorkItemOpen {
+		t.Fatalf("work item status = %q, want open", wi.Status)
+	}
+
+	// Check metadata
+	if src, ok := wi.Metadata["source_type"]; !ok || src != "task_group_materialize" {
+		t.Fatalf("work item metadata source_type = %v", wi.Metadata["source_type"])
+	}
 }
 
 // ---------------------------------------------------------------------------

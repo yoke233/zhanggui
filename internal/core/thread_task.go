@@ -145,8 +145,14 @@ type ThreadTaskGroup struct {
 	SourceMessageID  *int64          `json:"source_message_id,omitempty"`
 	StatusMessageID  *int64          `json:"status_message_id,omitempty"`
 	NotifyOnComplete bool            `json:"notify_on_complete"`
-	CreatedAt        time.Time       `json:"created_at"`
-	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+
+	// MaterializeToWorkItem controls whether a successful group completion
+	// automatically creates a WorkItem linked to the thread.
+	MaterializeToWorkItem  bool   `json:"materialize_to_workitem"`
+	MaterializedWorkItemID *int64 `json:"materialized_work_item_id,omitempty"`
+
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 // ThreadTask is a single node in a ThreadTaskGroup DAG.

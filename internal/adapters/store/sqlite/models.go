@@ -470,14 +470,16 @@ func threadContextRefModelFromCore(ref *core.ThreadContextRef) *ThreadContextRef
 
 // ThreadTaskGroupModel is the GORM model for thread_task_groups table.
 type ThreadTaskGroupModel struct {
-	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID         int64      `gorm:"column:thread_id;not null;index:idx_thread_task_groups_thread"`
-	Status           string     `gorm:"column:status;not null;default:'pending'"`
-	SourceMessageID  *int64     `gorm:"column:source_message_id"`
-	StatusMessageID  *int64     `gorm:"column:status_message_id"`
-	NotifyOnComplete bool       `gorm:"column:notify_on_complete;not null;default:true"`
-	CreatedAt        time.Time  `gorm:"column:created_at"`
-	CompletedAt      *time.Time `gorm:"column:completed_at"`
+	ID                     int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID               int64      `gorm:"column:thread_id;not null;index:idx_thread_task_groups_thread"`
+	Status                 string     `gorm:"column:status;not null;default:'pending'"`
+	SourceMessageID        *int64     `gorm:"column:source_message_id"`
+	StatusMessageID        *int64     `gorm:"column:status_message_id"`
+	NotifyOnComplete       bool       `gorm:"column:notify_on_complete;not null;default:true"`
+	MaterializeToWorkItem  bool       `gorm:"column:materialize_to_workitem;not null;default:false"`
+	MaterializedWorkItemID *int64     `gorm:"column:materialized_work_item_id"`
+	CreatedAt              time.Time  `gorm:"column:created_at"`
+	CompletedAt            *time.Time `gorm:"column:completed_at"`
 }
 
 func (ThreadTaskGroupModel) TableName() string { return "thread_task_groups" }
@@ -487,14 +489,16 @@ func threadTaskGroupModelFromCore(g *core.ThreadTaskGroup) *ThreadTaskGroupModel
 		return nil
 	}
 	return &ThreadTaskGroupModel{
-		ID:               g.ID,
-		ThreadID:         g.ThreadID,
-		Status:           string(g.Status),
-		SourceMessageID:  g.SourceMessageID,
-		StatusMessageID:  g.StatusMessageID,
-		NotifyOnComplete: g.NotifyOnComplete,
-		CreatedAt:        g.CreatedAt,
-		CompletedAt:      g.CompletedAt,
+		ID:                     g.ID,
+		ThreadID:               g.ThreadID,
+		Status:                 string(g.Status),
+		SourceMessageID:        g.SourceMessageID,
+		StatusMessageID:        g.StatusMessageID,
+		NotifyOnComplete:       g.NotifyOnComplete,
+		MaterializeToWorkItem:  g.MaterializeToWorkItem,
+		MaterializedWorkItemID: g.MaterializedWorkItemID,
+		CreatedAt:              g.CreatedAt,
+		CompletedAt:            g.CompletedAt,
 	}
 }
 
@@ -503,14 +507,16 @@ func (m *ThreadTaskGroupModel) toCore() *core.ThreadTaskGroup {
 		return nil
 	}
 	return &core.ThreadTaskGroup{
-		ID:               m.ID,
-		ThreadID:         m.ThreadID,
-		Status:           core.TaskGroupStatus(m.Status),
-		SourceMessageID:  m.SourceMessageID,
-		StatusMessageID:  m.StatusMessageID,
-		NotifyOnComplete: m.NotifyOnComplete,
-		CreatedAt:        m.CreatedAt,
-		CompletedAt:      m.CompletedAt,
+		ID:                     m.ID,
+		ThreadID:               m.ThreadID,
+		Status:                 core.TaskGroupStatus(m.Status),
+		SourceMessageID:        m.SourceMessageID,
+		StatusMessageID:        m.StatusMessageID,
+		NotifyOnComplete:       m.NotifyOnComplete,
+		MaterializeToWorkItem:  m.MaterializeToWorkItem,
+		MaterializedWorkItemID: m.MaterializedWorkItemID,
+		CreatedAt:              m.CreatedAt,
+		CompletedAt:            m.CompletedAt,
 	}
 }
 

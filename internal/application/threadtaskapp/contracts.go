@@ -14,6 +14,26 @@ type Store interface {
 	CreateThreadMessage(ctx context.Context, msg *core.ThreadMessage) (int64, error)
 }
 
+// WorkItemMaterializer creates a WorkItem from a completed task group.
+type WorkItemMaterializer interface {
+	MaterializeWorkItem(ctx context.Context, input MaterializeInput) (*MaterializeResult, error)
+}
+
+// MaterializeInput describes the data needed to create a WorkItem from a task group.
+type MaterializeInput struct {
+	ThreadID    int64
+	GroupID     int64
+	Title       string
+	Body        string
+	OutputFiles []string
+}
+
+// MaterializeResult holds the IDs of the created WorkItem and link.
+type MaterializeResult struct {
+	WorkItemID int64
+	LinkID     int64
+}
+
 // EventPublisher publishes domain events.
 type EventPublisher interface {
 	Publish(ctx context.Context, event core.Event)
@@ -34,10 +54,11 @@ type AgentDispatcher interface {
 
 // CreateTaskGroupInput is the request for creating a new TaskGroup with tasks.
 type CreateTaskGroupInput struct {
-	ThreadID         int64
-	SourceMessageID  *int64
-	NotifyOnComplete bool
-	Tasks            []CreateTaskInput
+	ThreadID              int64
+	SourceMessageID       *int64
+	NotifyOnComplete      bool
+	MaterializeToWorkItem bool
+	Tasks                 []CreateTaskInput
 }
 
 // CreateTaskInput describes a single task within a CreateTaskGroupInput.

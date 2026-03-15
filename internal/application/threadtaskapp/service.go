@@ -8,31 +8,35 @@ import (
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/dagutil"
 )
 
 // Config holds all dependencies for the ThreadTask service.
 type Config struct {
-	Store     Store
-	Bus       EventPublisher
-	Notifier  NotificationSender
-	AgentPool AgentDispatcher
+	Store        Store
+	Bus          EventPublisher
+	Notifier     NotificationSender
+	AgentPool    AgentDispatcher
+	Materializer WorkItemMaterializer
 }
 
 // Service implements ThreadTask group lifecycle and scheduling.
 type Service struct {
-	store     Store
-	bus       EventPublisher
-	notifier  NotificationSender
-	agentPool AgentDispatcher
+	store        Store
+	bus          EventPublisher
+	notifier     NotificationSender
+	agentPool    AgentDispatcher
+	materializer WorkItemMaterializer
 }
 
 // New creates a ThreadTask service.
 func New(cfg Config) *Service {
 	return &Service{
-		store:     cfg.Store,
-		bus:       cfg.Bus,
-		notifier:  cfg.Notifier,
-		agentPool: cfg.AgentPool,
+		store:        cfg.Store,
+		bus:          cfg.Bus,
+		notifier:     cfg.Notifier,
+		agentPool:    cfg.AgentPool,
+		materializer: cfg.Materializer,
 	}
 }
 
@@ -79,10 +83,11 @@ func (s *Service) CreateTaskGroup(ctx context.Context, input CreateTaskGroupInpu
 
 	// Create group
 	group := &core.ThreadTaskGroup{
-		ThreadID:         input.ThreadID,
-		Status:           core.TaskGroupPending,
-		SourceMessageID:  input.SourceMessageID,
-		NotifyOnComplete: input.NotifyOnComplete,
+		ThreadID:              input.ThreadID,
+		Status:                core.TaskGroupPending,
+		SourceMessageID:       input.SourceMessageID,
+		NotifyOnComplete:      input.NotifyOnComplete,
+		MaterializeToWorkItem: input.MaterializeToWorkItem,
 	}
 	groupID, err := s.store.CreateThreadTaskGroup(ctx, group)
 	if err != nil {
@@ -363,35 +368,25 @@ func (s *Service) allDependsDone(task *core.ThreadTask, allTasks []*core.ThreadT
 	if len(task.DependsOn) == 0 {
 		return true
 	}
-	taskMap := make(map[int64]*core.ThreadTask, len(allTasks))
+	doneSet := make(map[int64]bool, len(allTasks))
 	for _, t := range allTasks {
-		taskMap[t.ID] = t
-	}
-	for _, depID := range task.DependsOn {
-		dep, ok := taskMap[depID]
-		if !ok || dep.Status != core.ThreadTaskDone {
-			return false
+		if t.Status == core.ThreadTaskDone {
+			doneSet[t.ID] = true
 		}
 	}
-	return true
+	return dagutil.AllDepsResolved(task.DependsOn, doneSet)
 }
 
 func (s *Service) allTasksTerminal(tasks []*core.ThreadTask) bool {
-	for _, t := range tasks {
-		if !t.Status.Terminal() {
-			return false
-		}
-	}
-	return len(tasks) > 0
+	return len(tasks) > 0 && dagutil.AllMatch(tasks, func(t *core.ThreadTask) bool {
+		return t.Status.Terminal()
+	})
 }
 
 func (s *Service) anyTaskFailed(tasks []*core.ThreadTask) bool {
-	for _, t := range tasks {
-		if t.Status == core.ThreadTaskFailed {
-			return true
-		}
-	}
-	return false
+	return dagutil.AnyMatch(tasks, func(t *core.ThreadTask) bool {
+		return t.Status == core.ThreadTaskFailed
+	})
 }
 
 func (s *Service) dispatch(ctx context.Context, task *core.ThreadTask, allTasks []*core.ThreadTask) {
@@ -418,26 +413,40 @@ func (s *Service) dispatch(ctx context.Context, task *core.ThreadTask, allTasks 
 
 	// Invite agent, wait for boot, then send message. On failure, mark task as failed.
 	go func() {
-		bgCtx := context.Background()
-		if _, err := s.agentPool.InviteAgent(bgCtx, task.ThreadID, task.Assignee); err != nil {
+		baseCtx := ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		} else {
+			baseCtx = context.WithoutCancel(baseCtx)
+		}
+
+		inviteCtx, inviteCancel := context.WithTimeout(baseCtx, 60*time.Second)
+		_, err := s.agentPool.InviteAgent(inviteCtx, task.ThreadID, task.Assignee)
+		inviteCancel()
+		if err != nil {
 			slog.Warn("task dispatch: invite agent failed",
 				"task_id", task.ID, "assignee", task.Assignee, "error", err)
-			s.markTaskFailed(bgCtx, task, fmt.Sprintf("agent invite failed: %v", err))
+			s.markTaskFailed(baseCtx, task, fmt.Sprintf("agent invite failed: %v", err))
 			return
 		}
+
 		// Wait for agent to finish booting (up to 60s).
-		waitCtx, waitCancel := context.WithTimeout(bgCtx, 60*time.Second)
+		waitCtx, waitCancel := context.WithTimeout(baseCtx, 60*time.Second)
 		defer waitCancel()
 		if err := s.agentPool.WaitAgentReady(waitCtx, task.ThreadID, task.Assignee); err != nil {
 			slog.Warn("task dispatch: agent boot failed",
 				"task_id", task.ID, "assignee", task.Assignee, "error", err)
-			s.markTaskFailed(bgCtx, task, fmt.Sprintf("agent boot failed: %v", err))
+			s.markTaskFailed(baseCtx, task, fmt.Sprintf("agent boot failed: %v", err))
 			return
 		}
-		if err := s.agentPool.SendMessage(bgCtx, task.ThreadID, task.Assignee, input); err != nil {
+
+		sendCtx, sendCancel := context.WithTimeout(baseCtx, 60*time.Second)
+		err = s.agentPool.SendMessage(sendCtx, task.ThreadID, task.Assignee, input)
+		sendCancel()
+		if err != nil {
 			slog.Warn("task dispatch: send message failed",
 				"task_id", task.ID, "assignee", task.Assignee, "error", err)
-			s.markTaskFailed(bgCtx, task, fmt.Sprintf("agent message failed: %v", err))
+			s.markTaskFailed(baseCtx, task, fmt.Sprintf("agent message failed: %v", err))
 			return
 		}
 	}()
@@ -595,6 +604,85 @@ func (s *Service) completeGroup(ctx context.Context, groupID int64) {
 			ActionURL: fmt.Sprintf("/threads/%d", group.ThreadID),
 		})
 	}
+
+	// Materialize to WorkItem if configured
+	if group.MaterializeToWorkItem && s.materializer != nil {
+		s.materializeWorkItem(ctx, group, tasks, outputFiles)
+	}
+}
+
+func (s *Service) materializeWorkItem(ctx context.Context, group *core.ThreadTaskGroup, tasks []*core.ThreadTask, outputFiles []string) {
+	// Idempotent: skip if already materialized
+	if group.MaterializedWorkItemID != nil {
+		return
+	}
+
+	// Build title from first work task instruction, truncated to 80 chars
+	title := fmt.Sprintf("Task Group #%d 产出", group.ID)
+	for _, t := range tasks {
+		if t.Type == core.TaskTypeWork && strings.TrimSpace(t.Instruction) != "" {
+			title = strings.TrimSpace(t.Instruction)
+			if len(title) > 80 {
+				title = title[:80]
+			}
+			break
+		}
+	}
+
+	// Build body from task list and output files
+	var body strings.Builder
+	body.WriteString("## 任务产出\n\n")
+	for _, t := range tasks {
+		body.WriteString(fmt.Sprintf("- [%s] %s (by %s): %s\n", t.Type, t.Instruction, t.Assignee, t.Status))
+	}
+	if len(outputFiles) > 0 {
+		body.WriteString("\n## 产出文件\n\n")
+		for _, f := range outputFiles {
+			body.WriteString(fmt.Sprintf("- %s\n", f))
+		}
+	}
+
+	result, err := s.materializer.MaterializeWorkItem(ctx, MaterializeInput{
+		ThreadID:    group.ThreadID,
+		GroupID:     group.ID,
+		Title:       title,
+		Body:        body.String(),
+		OutputFiles: outputFiles,
+	})
+	if err != nil {
+		slog.Warn("materialize work item failed", "group_id", group.ID, "error", err)
+		return
+	}
+
+	// Update group with materialized work item ID
+	group.MaterializedWorkItemID = &result.WorkItemID
+	if err := s.store.UpdateThreadTaskGroup(ctx, group); err != nil {
+		slog.Warn("update group materialized_work_item_id failed", "group_id", group.ID, "error", err)
+	}
+
+	// Insert system message notifying the chat
+	matMsg := &core.ThreadMessage{
+		ThreadID: group.ThreadID,
+		SenderID: "system",
+		Role:     "system",
+		Content:  fmt.Sprintf("Task Group #%d 产出已转化为 WorkItem #%d", group.ID, result.WorkItemID),
+		Metadata: map[string]any{
+			"type":          "task_group_materialized",
+			"task_group_id": group.ID,
+			"work_item_id":  result.WorkItemID,
+			"link_id":       result.LinkID,
+		},
+	}
+	_, _ = s.store.CreateThreadMessage(ctx, matMsg)
+
+	// Publish event
+	s.publishEvent(ctx, core.EventThreadTaskGroupCompleted, map[string]any{
+		"thread_id":      group.ThreadID,
+		"task_group_id":  group.ID,
+		"action":         "materialized",
+		"work_item_id":   result.WorkItemID,
+		"link_id":        result.LinkID,
+	})
 }
 
 func (s *Service) failGroup(ctx context.Context, groupID int64) {

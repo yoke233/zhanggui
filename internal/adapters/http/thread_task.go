@@ -15,9 +15,10 @@ import (
 // ---------------------------------------------------------------------------
 
 type createTaskGroupRequest struct {
-	Tasks            []createTaskRequest `json:"tasks"`
-	SourceMessageID  *int64              `json:"source_message_id,omitempty"`
-	NotifyOnComplete *bool               `json:"notify_on_complete,omitempty"`
+	Tasks                 []createTaskRequest `json:"tasks"`
+	SourceMessageID       *int64              `json:"source_message_id,omitempty"`
+	NotifyOnComplete      *bool               `json:"notify_on_complete,omitempty"`
+	MaterializeToWorkItem *bool               `json:"materialize_to_workitem,omitempty"`
 }
 
 type createTaskRequest struct {
@@ -74,6 +75,11 @@ func (h *Handler) createThreadTaskGroup(w http.ResponseWriter, r *http.Request) 
 		notifyOnComplete = *req.NotifyOnComplete
 	}
 
+	materializeToWorkItem := false
+	if req.MaterializeToWorkItem != nil {
+		materializeToWorkItem = *req.MaterializeToWorkItem
+	}
+
 	taskInputs := make([]threadtaskapp.CreateTaskInput, len(req.Tasks))
 	for i, t := range req.Tasks {
 		taskInputs[i] = threadtaskapp.CreateTaskInput{
@@ -88,10 +94,11 @@ func (h *Handler) createThreadTaskGroup(w http.ResponseWriter, r *http.Request) 
 
 	svc := h.threadTaskService()
 	result, err := svc.CreateTaskGroup(r.Context(), threadtaskapp.CreateTaskGroupInput{
-		ThreadID:         threadID,
-		SourceMessageID:  req.SourceMessageID,
-		NotifyOnComplete: notifyOnComplete,
-		Tasks:            taskInputs,
+		ThreadID:              threadID,
+		SourceMessageID:       req.SourceMessageID,
+		NotifyOnComplete:      notifyOnComplete,
+		MaterializeToWorkItem: materializeToWorkItem,
+		Tasks:                 taskInputs,
 	})
 	if err != nil {
 		writeThreadTaskAppFailure(w, err, "CREATE_TASK_GROUP_FAILED")
@@ -204,11 +211,13 @@ func (h *Handler) threadTaskService() *threadtaskapp.Service {
 	if h.threadPool != nil {
 		agentPool = h.threadPool
 	}
+	materializer := threadtaskapp.NewDefaultMaterializer(h.store)
 	return threadtaskapp.New(threadtaskapp.Config{
-		Store:     h.store,
-		Bus:       h.bus,
-		Notifier:  notifier,
-		AgentPool: agentPool,
+		Store:        h.store,
+		Bus:          h.bus,
+		Notifier:     notifier,
+		AgentPool:    agentPool,
+		Materializer: materializer,
 	})
 }
 
