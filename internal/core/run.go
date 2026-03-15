@@ -42,6 +42,8 @@ type Run struct {
 	// Inline result fields (formerly in Deliverable/artifacts table).
 	ResultMarkdown string         `json:"result_markdown,omitempty"`
 	ResultMetadata map[string]any `json:"result_metadata,omitempty"`
+	// ResultAssets is kept for compatibility with legacy SQLite result_assets data.
+	ResultAssets []Asset `json:"result_assets,omitempty"`
 }
 
 // HasResult returns true if this Run produced a non-empty result.

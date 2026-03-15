@@ -66,15 +66,15 @@ func TestPrepareThreadWorkspaceBuildsMountConfig(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 	projectDir := t.TempDir()
-	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
 		ProjectID: projectID,
 		Kind:      core.ResourceKindLocalFS,
-		URI:       projectDir,
+		RootURI:   projectDir,
 		Config: map[string]any{
 			"check_commands": []string{"go test ./..."},
 		},
 	}); err != nil {
-		t.Fatalf("create resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
 	if _, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
 		ThreadID:  threadID,

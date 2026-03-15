@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   Bot,
+  ExternalLink,
   Loader2,
   MessageSquare,
   Send,
@@ -21,7 +22,16 @@ import { InvitePickerDialog } from "@/components/threads/InvitePickerDialog";
 import { cn } from "@/lib/utils";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
-import type { AgentProfile, Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, ThreadAgentSession, Issue } from "@/types/apiV2";
+import type {
+  AgentProfile,
+  Thread,
+  ThreadMessage,
+  ThreadParticipant,
+  ThreadWorkItemLink,
+  ThreadAgentSession,
+  Issue,
+  WorkItemTrack,
+} from "@/types/apiV2";
 import type { ThreadAckPayload, ThreadEventPayload } from "@/types/ws";
 
 /* ── helper functions (unchanged) ── */
@@ -193,6 +203,39 @@ function detectInviteIntent(message: string, inviteableProfiles: AgentProfile[])
   return null;
 }
 
+function trackStatusTone(status: string): string {
+  switch (status) {
+    case "awaiting_confirmation":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "materialized":
+    case "done":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "executing":
+    case "planning":
+    case "reviewing":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "failed":
+    case "cancelled":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "paused":
+      return "border-slate-200 bg-slate-50 text-slate-700";
+    default:
+      return "border-border bg-muted/40 text-muted-foreground";
+  }
+}
+
+function canMaterializeTrack(track: WorkItemTrack): boolean {
+  return track.status === "awaiting_confirmation" && !track.work_item_id;
+}
+
+function canSubmitTrackReview(track: WorkItemTrack): boolean {
+  return track.status === "draft" || track.status === "planning" || track.status === "paused";
+}
+
+function canConfirmTrackExecution(track: WorkItemTrack): boolean {
+  return track.status === "awaiting_confirmation" || track.status === "materialized";
+}
+
 type SidebarTab = "agents" | "details";
 type ThreadAgentSessionWithProfileID = ThreadAgentSession & { agent_profile_id: string };
 
@@ -207,6 +250,11 @@ export function ThreadDetailPage() {
   const [participants, setParticipants] = useState<ThreadParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tracks, setTracks] = useState<WorkItemTrack[]>([]);
+  const [tracksLoading, setTracksLoading] = useState(false);
+  const [startingTrack, setStartingTrack] = useState(false);
+  const [materializingTrackID, setMaterializingTrackID] = useState<number | null>(null);
+  const [trackActionBusyKey, setTrackActionBusyKey] = useState<string | null>(null);
   const [workItemLinks, setWorkItemLinks] = useState<ThreadWorkItemLink[]>([]);
   const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
@@ -283,6 +331,7 @@ export function ThreadDetailPage() {
     }
     return a.is_primary ? -1 : 1;
   });
+  const orderedTracks = [...tracks].sort((a, b) => b.id - a.id);
 
   /* ── auto-scroll to bottom on new messages ── */
   useEffect(() => {
@@ -295,13 +344,15 @@ export function ThreadDetailPage() {
 
     const load = async () => {
       setLoading(true);
+      setTracksLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts, links, agents, profiles] = await Promise.all([
+        const [th, msgs, parts, links, trackItems, agents, profiles] = await Promise.all([
           apiClient.getThread(id),
           apiClient.listThreadMessages(id, { limit: 100 }),
           apiClient.listThreadParticipants(id),
           apiClient.listWorkItemsByThread(id),
+          apiClient.listThreadTracks(id),
           apiClient.listThreadAgents(id),
           apiClient.listProfiles(),
         ]);
@@ -311,6 +362,7 @@ export function ThreadDetailPage() {
           setMessages(msgs);
           setParticipants(parts);
           setWorkItemLinks(links);
+          setTracks(trackItems);
           setAgentSessions(agents);
           setAvailableProfiles(profiles);
           const issueMap: Record<number, Issue> = {};
@@ -325,6 +377,7 @@ export function ThreadDetailPage() {
       } catch (e) {
         if (!cancelled) setError(getErrorMessage(e));
       } finally {
+        if (!cancelled) setTracksLoading(false);
         if (!cancelled) setLoading(false);
       }
     };
@@ -403,6 +456,42 @@ export function ThreadDetailPage() {
         setAgentSessions(sessions);
       } catch {
         // Ignore background refresh failures
+      }
+    };
+
+    const syncTrackFromPayload = async (payload: ThreadEventPayload) => {
+      if (payload.thread_id !== id) return;
+
+      const rawTrack = payload.track;
+      const nextTrack = rawTrack && typeof rawTrack === "object"
+        ? rawTrack as unknown as WorkItemTrack
+        : null;
+
+      if (nextTrack) {
+        setTracks((prev) => [nextTrack, ...prev.filter((item) => item.id !== nextTrack.id)]);
+      } else if (typeof payload.track_id === "number") {
+        try {
+          const fetched = await apiClient.getTrack(payload.track_id);
+          setTracks((prev) => [fetched, ...prev.filter((item) => item.id !== fetched.id)]);
+        } catch {
+          // Ignore background refresh failures
+        }
+      }
+
+      if (typeof payload.work_item_id === "number") {
+        try {
+          const [links, issue] = await Promise.all([
+            apiClient.listWorkItemsByThread(id),
+            apiClient.getWorkItem(payload.work_item_id),
+          ]);
+          setWorkItemLinks(links);
+          setLinkedIssues((prev) => ({
+            ...prev,
+            [payload.work_item_id as number]: issue,
+          }));
+        } catch {
+          // Ignore background refresh failures
+        }
       }
     };
 
@@ -485,6 +574,27 @@ export function ThreadDetailPage() {
         });
       }
     });
+    const unsubscribeTrackCreated = wsClient.subscribe<ThreadEventPayload>("thread.track.created", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackUpdated = wsClient.subscribe<ThreadEventPayload>("thread.track.updated", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackStateChanged = wsClient.subscribe<ThreadEventPayload>("thread.track.state_changed", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackReviewApproved = wsClient.subscribe<ThreadEventPayload>("thread.track.review_approved", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackReviewRejected = wsClient.subscribe<ThreadEventPayload>("thread.track.review_rejected", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackMaterialized = wsClient.subscribe<ThreadEventPayload>("thread.track.materialized", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
+    const unsubscribeTrackExecutionConfirmed = wsClient.subscribe<ThreadEventPayload>("thread.track.execution_confirmed", (payload) => {
+      void syncTrackFromPayload(payload);
+    });
     const unsubscribeStatus = wsClient.onStatusChange((status) => {
       if (status === "open") sendThreadSubscription("subscribe_thread");
     });
@@ -503,6 +613,13 @@ export function ThreadDetailPage() {
       unsubscribeThreadAgentBooted();
       unsubscribeThreadAgentFailed();
       unsubscribeThreadAgentThinking();
+      unsubscribeTrackCreated();
+      unsubscribeTrackUpdated();
+      unsubscribeTrackStateChanged();
+      unsubscribeTrackReviewApproved();
+      unsubscribeTrackReviewRejected();
+      unsubscribeTrackMaterialized();
+      unsubscribeTrackExecutionConfirmed();
       unsubscribeStatus();
       pendingThreadRequestIdRef.current = null;
       setThinkingAgentIDs(new Set());
@@ -736,6 +853,148 @@ export function ThreadDetailPage() {
       setShowLinkWI(false);
     } catch (e) {
       setError(getErrorMessage(e));
+    }
+  };
+
+  const handleStartTrack = async () => {
+    if (!id || !thread) return;
+    setStartingTrack(true);
+    setError(null);
+    try {
+      const track = await apiClient.createThreadTrack(id, {
+        title: deriveWorkItemTitle(thread),
+        objective: summaryDraft.trim() || thread.summary?.trim() || thread.title.trim(),
+        created_by: thread.owner_id ?? undefined,
+        metadata: {
+          source: "thread_detail_page",
+        },
+      });
+      setTracks((prev) => [track, ...prev.filter((item) => item.id !== track.id)]);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setStartingTrack(false);
+    }
+  };
+
+  const handleMaterializeTrack = async (track: WorkItemTrack) => {
+    setMaterializingTrackID(track.id);
+    setError(null);
+    try {
+      const result = await apiClient.materializeTrack(track.id);
+      setTracks((prev) => prev.map((item) => (item.id === track.id ? result.track : item)));
+      setWorkItemLinks(result.links);
+      setLinkedIssues((prev) => ({
+        ...prev,
+        [result.work_item.id]: result.work_item,
+      }));
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setMaterializingTrackID(null);
+    }
+  };
+
+  const handleOpenTrackWorkItem = (track: WorkItemTrack) => {
+    if (!track.work_item_id) return;
+    navigate(`/work-items/${track.work_item_id}`);
+  };
+
+  const replaceTrack = (nextTrack: WorkItemTrack) => {
+    setTracks((prev) => [nextTrack, ...prev.filter((item) => item.id !== nextTrack.id)]);
+  };
+
+  const handleSubmitTrackReview = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`submit-${track.id}`);
+    setError(null);
+    try {
+      const updated = await apiClient.submitTrackReview(track.id, {
+        latest_summary: track.latest_summary?.trim() || track.objective?.trim() || thread?.summary?.trim(),
+      });
+      replaceTrack(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
+    }
+  };
+
+  const handleApproveTrackReview = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`approve-${track.id}`);
+    setError(null);
+    try {
+      const updated = await apiClient.approveTrackReview(track.id, {
+        latest_summary: track.latest_summary?.trim() || track.objective?.trim(),
+      });
+      replaceTrack(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
+    }
+  };
+
+  const handleRejectTrackReview = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`reject-${track.id}`);
+    setError(null);
+    try {
+      const updated = await apiClient.rejectTrackReview(track.id, {
+        latest_summary: track.latest_summary?.trim() || track.objective?.trim(),
+      });
+      replaceTrack(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
+    }
+  };
+
+  const handlePauseTrack = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`pause-${track.id}`);
+    setError(null);
+    try {
+      const updated = await apiClient.pauseTrack(track.id);
+      replaceTrack(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
+    }
+  };
+
+  const handleCancelTrack = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`cancel-${track.id}`);
+    setError(null);
+    try {
+      const updated = await apiClient.cancelTrack(track.id);
+      replaceTrack(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
+    }
+  };
+
+  const handleConfirmTrackExecution = async (track: WorkItemTrack) => {
+    setTrackActionBusyKey(`confirm-${track.id}`);
+    setError(null);
+    try {
+      const result = await apiClient.confirmTrackExecution(track.id);
+      replaceTrack(result.track);
+      setLinkedIssues((prev) => ({
+        ...prev,
+        [result.work_item.id]: result.work_item,
+      }));
+      try {
+        const links = await apiClient.listWorkItemsByThread(id);
+        setWorkItemLinks(links);
+      } catch {
+        // Ignore follow-up refresh failures
+      }
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setTrackActionBusyKey(null);
     }
   };
 
@@ -996,6 +1255,179 @@ export function ThreadDetailPage() {
         }}
         onConfirm={handleInvitePickerConfirm}
       />
+
+      <div className="border-b bg-muted/10 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Thread WorkItem Track
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{tracks.length} tracks</span>
+              {tracksLoading ? (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  加载中
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => void handleStartTrack()}
+            disabled={startingTrack || !thread}
+          >
+            {startingTrack ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            开始孵化
+          </Button>
+        </div>
+
+        {orderedTracks.length === 0 ? (
+          <div className="mt-3 rounded-lg border border-dashed bg-background/70 px-3 py-3 text-xs text-muted-foreground">
+            当前 thread 还没有 Track。可先保存 summary，再点击“开始孵化”创建第一条任务轨道。
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-col gap-2">
+            {orderedTracks.map((track) => {
+              const linkedIssue = track.work_item_id ? linkedIssues[track.work_item_id] : undefined;
+              const materializing = materializingTrackID === track.id;
+              const submitting = trackActionBusyKey === `submit-${track.id}`;
+              const approving = trackActionBusyKey === `approve-${track.id}`;
+              const rejecting = trackActionBusyKey === `reject-${track.id}`;
+              const pausing = trackActionBusyKey === `pause-${track.id}`;
+              const cancelling = trackActionBusyKey === `cancel-${track.id}`;
+              const confirming = trackActionBusyKey === `confirm-${track.id}`;
+              return (
+                <div
+                  key={track.id}
+                  className="rounded-xl border bg-background/80 px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-foreground">{track.title}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn("text-[10px] normal-case", trackStatusTone(track.status))}
+                        >
+                          {track.status}
+                        </Badge>
+                        {track.work_item_id ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            WorkItem #{track.work_item_id}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {track.latest_summary?.trim() || track.objective?.trim() || "暂无轨道摘要"}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                        <span>Track #{track.id}</span>
+                        <span>更新于 {formatRelativeTime(track.updated_at)}</span>
+                        {linkedIssue ? <span>{linkedIssue.title}</span> : null}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handleSubmitTrackReview(track)}
+                        disabled={!canSubmitTrackReview(track) || submitting}
+                      >
+                        {submitting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        送审
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handleApproveTrackReview(track)}
+                        disabled={track.status !== "reviewing" || approving}
+                      >
+                        {approving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        审核通过
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handleRejectTrackReview(track)}
+                        disabled={track.status !== "reviewing" || rejecting}
+                      >
+                        {rejecting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        打回
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handleMaterializeTrack(track)}
+                        disabled={!canMaterializeTrack(track) || materializing}
+                      >
+                        {materializing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        生成待办
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handleConfirmTrackExecution(track)}
+                        disabled={!canConfirmTrackExecution(track) || confirming}
+                      >
+                        {confirming ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        生成并执行
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void handlePauseTrack(track)}
+                        disabled={pausing || ["done", "cancelled", "failed"].includes(track.status)}
+                      >
+                        {pausing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        暂停
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-rose-600 hover:text-rose-700"
+                        onClick={() => void handleCancelTrack(track)}
+                        disabled={cancelling || ["done", "cancelled", "failed"].includes(track.status)}
+                      >
+                        {cancelling ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        取消
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => handleOpenTrackWorkItem(track)}
+                        disabled={!track.work_item_id}
+                      >
+                        <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                        查看关联 WorkItem
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ── Main content: chat + sidebar ── */}
       <div className="flex min-h-0 flex-1">

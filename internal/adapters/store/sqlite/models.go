@@ -894,6 +894,7 @@ func runModelFromCore(exec *core.Run) *RunModel {
 		CreatedAt:        exec.CreatedAt,
 		ResultMarkdown:   exec.ResultMarkdown,
 		ResultMetadata:   JSONField[map[string]any]{Data: exec.ResultMetadata},
+		ResultAssets:     JSONField[[]core.Asset]{Data: exec.ResultAssets},
 	}
 }
 
@@ -919,6 +920,7 @@ func (m *RunModel) toCore() *core.Run {
 		CreatedAt:        m.CreatedAt,
 		ResultMarkdown:   m.ResultMarkdown,
 		ResultMetadata:   m.ResultMetadata.Data,
+		ResultAssets:     m.ResultAssets.Data,
 	}
 }
 

@@ -209,7 +209,14 @@ export type ThreadEventType =
   | "thread.agent_output"
   | "thread.agent_booted"
   | "thread.agent_failed"
-  | "thread.agent_thinking";
+  | "thread.agent_thinking"
+  | "thread.track.created"
+  | "thread.track.updated"
+  | "thread.track.state_changed"
+  | "thread.track.review_approved"
+  | "thread.track.review_rejected"
+  | "thread.track.materialized"
+  | "thread.track.execution_confirmed";
 
 export interface ThreadEventPayload {
   thread_id?: number;
@@ -220,6 +227,12 @@ export interface ThreadEventPayload {
   profile_id?: string;
   target_agent_id?: string;
   reply_to_msg_id?: number;
+  track_id?: number;
+  work_item_id?: number;
+  status?: string;
+  title?: string;
+  objective?: string;
+  track?: Record<string, unknown>;
   role?: string;
   error?: string;
   timestamp?: string;
