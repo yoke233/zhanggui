@@ -11,6 +11,11 @@ type LaunchConfig struct {
 	Args    []string
 	WorkDir string
 	Env     map[string]string
+
+	// SessionCwd is the working directory that should be passed to session/new.
+	// Set by container sandboxes where the container-internal path differs from
+	// the host path. When empty, callers should fall back to the original WorkDir.
+	SessionCwd string
 }
 
 type ClientCapabilities struct {

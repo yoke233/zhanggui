@@ -31,6 +31,7 @@ func convertProfilesFromConfig(driverCfgs []config.RuntimeDriverConfig, profileC
 				ID:            d.ID,
 				LaunchCommand: d.LaunchCommand,
 				LaunchArgs:    d.LaunchArgs,
+				SandboxArgs:   d.SandboxArgs,
 				Env:           d.Env,
 				CapabilitiesMax: core.DriverCapabilities{
 					FSRead:   d.CapabilitiesMax.FSRead,

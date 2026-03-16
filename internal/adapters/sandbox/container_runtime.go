@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	containerWorkDir = "/workspace"
-	containerHomeDir = "/sandbox/home"
-	containerTempDir = "/sandbox/tmp"
+	containerWorkDir  = "/workspace"
+	containerHomeBase = "/home/agent"
+	containerTempDir  = "/tmp"
+	containerGitDir   = "/repo/.git"
 )
 
 type containerVolume struct {
@@ -62,6 +63,11 @@ func prepareContainerLaunch(ctx context.Context, base Sandbox, in PrepareInput, 
 		return launch, fmt.Errorf("container sandbox: image is required")
 	}
 
+	// Append sandbox-specific args from driver config.
+	if in.Profile != nil && len(in.Profile.Driver.SandboxArgs) > 0 {
+		launch.Args = append(launch.Args, in.Profile.Driver.SandboxArgs...)
+	}
+
 	rewritten, mounts, err := rewriteLaunchForContainer(launch)
 	if err != nil {
 		return launch, err
@@ -72,6 +78,7 @@ func prepareContainerLaunch(ctx context.Context, base Sandbox, in PrepareInput, 
 
 	launch.Command = command
 	launch.Args = runner(spec, rewritten, mounts)
+	launch.SessionCwd = rewritten.WorkDir
 	launch.WorkDir = ""
 	launch.Env = nil
 	return launch, nil
@@ -101,10 +108,21 @@ func rewriteLaunchForContainer(launch acpclient.LaunchConfig) (acpclient.LaunchC
 
 	if workDir := strings.TrimSpace(launch.WorkDir); workDir != "" {
 		out.WorkDir = addMount(workDir, containerWorkDir)
+
+		// If workDir is a git worktree, mount the main .git directory so
+		// git operations (commit, push, etc.) work inside the container.
+		// Also record the worktree name so the entrypoint can rewrite the
+		// .git file to point to the container-internal path.
+		if gitDir, worktreeName, ok := resolveWorktreeGitDir(workDir); ok {
+			addMount(gitDir, containerGitDir)
+			out.Env["__CONTAINER_WORKTREE_NAME"] = worktreeName
+		}
 	}
 
 	if homeKey, homeDir := detectLaunchHome(out.Env); homeDir != "" {
-		out.Env[homeKey] = addMount(homeDir, containerHomeDir)
+		containerHome := containerHomeBase + "/" + containerHomeSuffix(homeKey)
+		out.Env[homeKey] = addMount(homeDir, containerHome)
+		out.Env["HOME"] = containerHomeBase
 	}
 	if tempDir := detectLaunchTemp(out.Env); tempDir != "" {
 		containerPath := addMount(tempDir, containerTempDir)
@@ -116,6 +134,17 @@ func rewriteLaunchForContainer(launch acpclient.LaunchConfig) (acpclient.LaunchC
 	}
 
 	return out, mounts, nil
+}
+
+func containerHomeSuffix(homeKey string) string {
+	switch homeKey {
+	case "CODEX_HOME":
+		return ".codex"
+	case "CLAUDE_CONFIG_DIR":
+		return ".claude"
+	default:
+		return ".agent"
+	}
 }
 
 func detectLaunchHome(env map[string]string) (string, string) {
@@ -151,7 +180,7 @@ func materializeMountRoots(mounts []containerVolume) []string {
 	roots := make([]string, 0, 2)
 	seen := map[string]struct{}{}
 	for _, mount := range mounts {
-		if mount.containerPath != containerHomeDir && mount.containerPath != containerTempDir {
+		if !strings.HasPrefix(mount.containerPath, containerHomeBase+"/") && mount.containerPath != containerTempDir {
 			continue
 		}
 		hostPath := strings.TrimSpace(mount.hostPath)
@@ -318,6 +347,48 @@ func copyFileWithMode(src string, dst string, mode fs.FileMode) error {
 		return err
 	}
 	return out.Close()
+}
+
+// resolveWorktreeGitDir checks if dir is a git worktree and returns the main
+// .git directory and the worktree name. A worktree has a .git *file*
+// (not directory) containing "gitdir: /path/to/.git/worktrees/<name>".
+func resolveWorktreeGitDir(dir string) (gitDir string, worktreeName string, ok bool) {
+	dotGit := filepath.Join(dir, ".git")
+	info, err := os.Lstat(dotGit)
+	if err != nil || info.IsDir() {
+		return "", "", false // regular repo or no .git
+	}
+
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", "", false
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, "gitdir:") {
+		return "", "", false
+	}
+	gitdirPath := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+	if gitdirPath == "" {
+		return "", "", false
+	}
+	if !filepath.IsAbs(gitdirPath) {
+		gitdirPath = filepath.Join(dir, gitdirPath)
+	}
+	gitdirPath = filepath.Clean(gitdirPath)
+
+	// gitdirPath points to .git/worktrees/<name>; extract name then walk up.
+	worktreeName = filepath.Base(gitdirPath) // <name>
+	cur := gitdirPath
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", "", false
+		}
+		if filepath.Base(cur) == ".git" {
+			return cur, worktreeName, true
+		}
+		cur = parent
+	}
 }
 
 func appendSortedEnvArgs(args []string, env map[string]string, flag string) []string {

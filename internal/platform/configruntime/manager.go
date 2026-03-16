@@ -191,6 +191,7 @@ func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, erro
 			ID:            strings.TrimSpace(item.ID),
 			LaunchCommand: strings.TrimSpace(item.LaunchCommand),
 			LaunchArgs:    append([]string(nil), item.LaunchArgs...),
+			SandboxArgs:   append([]string(nil), item.SandboxArgs...),
 			Env:           cloneStringMap(item.Env),
 			CapabilitiesMax: core.DriverCapabilities{
 				FSRead:   item.CapabilitiesMax.FSRead,
@@ -358,7 +359,7 @@ func (m *Manager) UpdateRuntime(ctx context.Context, next RuntimeConfig) (*Snaps
 		},
 	}
 
-	raw, err := toml.Marshal(layer)
+	raw, err := marshalReadableTOML(layer)
 	if err != nil {
 		return nil, fmt.Errorf("marshal runtime runtime config: %w", err)
 	}
@@ -668,6 +669,20 @@ func cloneStringSlicePtr(items []string) *[]string {
 	}
 	out := append([]string(nil), items...)
 	return &out
+}
+
+// marshalReadableTOML produces human-friendly TOML output:
+// arrays are multiline and tables are NOT inlined.
+func marshalReadableTOML(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	enc.SetArraysMultiline(true)
+	enc.SetTablesInline(false)
+	enc.SetIndentTables(true)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func StructToTomlMap(v any) (map[string]any, error) {

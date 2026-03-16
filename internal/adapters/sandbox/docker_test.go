@@ -64,10 +64,11 @@ func TestDockerSandboxPrepareWrapsLaunch(t *testing.T) {
 	if !contains(got.Args, "--read-only") || !containsPair(got.Args, "--tmpfs", "/run:size=64m") {
 		t.Fatalf("wrapped args missing rootfs/tmpfs flags: %v", got.Args)
 	}
-	if !containsPair(got.Args, "-e", "CLAUDE_CONFIG_DIR="+containerHomeDir) {
+	expectedClaudeDir := containerHomeBase + "/.claude"
+	if !containsPair(got.Args, "-e", "CLAUDE_CONFIG_DIR="+expectedClaudeDir) {
 		t.Fatalf("wrapped args missing container home env: %v", got.Args)
 	}
-	if !containsPair(got.Args, "-v", homeDir+":"+containerHomeDir) {
+	if !containsPair(got.Args, "-v", homeDir+":"+expectedClaudeDir) {
 		t.Fatalf("wrapped args missing home mount: %v", got.Args)
 	}
 	if !containsPair(got.Args, "-v", tmpDir+":"+containerTempDir) {

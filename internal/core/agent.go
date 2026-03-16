@@ -34,6 +34,7 @@ type DriverConfig struct {
 	ID              string             `json:"id,omitempty"`
 	LaunchCommand   string             `json:"launch_command"`
 	LaunchArgs      []string           `json:"launch_args,omitempty"`
+	SandboxArgs     []string           `json:"sandbox_args,omitempty"`
 	Env             map[string]string  `json:"env,omitempty"`
 	CapabilitiesMax DriverCapabilities `json:"capabilities_max"`
 }

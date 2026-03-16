@@ -22,6 +22,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
+	workspaceclone "github.com/yoke233/ai-workflow/internal/adapters/workspace/clone"
 	workspacegit "github.com/yoke233/ai-workflow/internal/adapters/workspace/git"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -634,7 +635,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	scope := fmt.Sprintf("lead-chat-%d", time.Now().UnixNano())
 
 	driverID = strings.TrimSpace(driverID)
-	client, handler, bridge, events, profile, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
+	client, handler, bridge, events, profile, sessionCwd, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -643,7 +644,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	defer initCancel()
 
 	sessionResult, err := client.NewSessionResult(initCtx, acpproto.NewSessionRequest{
-		Cwd:        workDir,
+		Cwd:        sessionCwd,
 		McpServers: []acpproto.McpServer{},
 	})
 	if err != nil {
@@ -728,7 +729,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		}
 	}
 
-	client, handler, bridge, events, _, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
+	client, handler, bridge, events, _, sessionCwd, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
 	if err != nil {
 		return nil, err
 	}
@@ -742,7 +743,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 
 	loadResult, err := client.LoadSessionResult(initCtx, acpproto.LoadSessionRequest{
 		SessionId:  acpproto.SessionId(record.SessionID),
-		Cwd:        workDir,
+		Cwd:        sessionCwd,
 		McpServers: []acpproto.McpServer{},
 	})
 	events.SetSuppress(false)
@@ -792,9 +793,9 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	return sess, nil
 }
 
-func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, error) {
+func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, string, error) {
 	if l.cfg.Registry == nil {
-		return nil, nil, nil, nil, nil, errors.New("agent registry is not configured")
+		return nil, nil, nil, nil, nil, "", errors.New("agent registry is not configured")
 	}
 
 	profileID := strings.TrimSpace(requestedProfileID)
@@ -803,22 +804,22 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	}
 	profile, err := l.cfg.Registry.ResolveByID(ctx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
+		return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve lead profile %q: %w", profileID, err)
 	}
 	profile = cloneLeadProfile(profile)
 
 	requestedDriverID = strings.TrimSpace(requestedDriverID)
 	if requestedDriverID != "" {
 		if l.cfg.DriverResolver == nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: driver resolver is not configured", requestedDriverID)
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve lead driver %q: driver resolver is not configured", requestedDriverID)
 		}
 		driverCfg, err := l.cfg.DriverResolver(ctx, requestedDriverID)
 		if err != nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: %w", requestedDriverID, err)
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve lead driver %q: %w", requestedDriverID, err)
 		}
 		profile.Driver = cloneLeadDriverConfig(driverCfg)
 		if !profile.Driver.CapabilitiesMax.Covers(profile.EffectiveCapabilities()) {
-			return nil, nil, nil, nil, nil, fmt.Errorf("%w: profile %q exceeds selected driver %q capabilities_max", core.ErrCapabilityOverflow, profile.ID, requestedDriverID)
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("%w: profile %q exceeds selected driver %q capabilities_max", core.ErrCapabilityOverflow, profile.ID, requestedDriverID)
 		}
 	}
 
@@ -828,7 +829,7 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		WorkDir: workDir,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, "", err
 	}
 
 	sb := l.cfg.Sandbox
@@ -841,7 +842,7 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		Scope:   scope,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", err)
+		return nil, nil, nil, nil, nil, "", fmt.Errorf("prepare sandbox: %w", err)
 	}
 
 	bridge := eventbridge.New(l.cfg.Bus, core.EventChatOutput, eventbridge.Scope{
@@ -852,7 +853,7 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	handler := newLeadChatHandler(workDir, l.cfg.Bus, l.broker)
 	client, err := l.cfg.NewClient(launchCfg, handler, acpclient.WithEventHandler(events))
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
+		return nil, nil, nil, nil, nil, "", fmt.Errorf("launch lead agent: %w", err)
 	}
 
 	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -860,10 +861,14 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 
 	if err := client.Initialize(initCtx, acpclient.InitCapabilities(profile)); err != nil {
 		_ = client.Close(context.Background())
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
+		return nil, nil, nil, nil, nil, "", fmt.Errorf("initialize lead agent: %w", err)
 	}
 
-	return client, handler, bridge, events, profile, nil
+	sessionCwd := launchCfg.SessionCwd
+	if sessionCwd == "" {
+		sessionCwd = workDir
+	}
+	return client, handler, bridge, events, profile, sessionCwd, nil
 }
 
 func cloneLeadProfile(profile *core.AgentProfile) *core.AgentProfile {
@@ -1071,12 +1076,19 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 			if space.Kind != core.ResourceKindGit {
 				continue
 			}
-			repoPath := resolveLeadGitSpacePath(space)
+
+			// Resolve to a local path: use local directory when available,
+			// otherwise auto-clone the remote URL into dataDir/repos/<id>.
+			repoPath, err := l.resolveLocalRepoPath(ctx, req.ProjectID, space)
+			if err != nil {
+				slog.Warn("lead chat: resolve local repo failed", "project_id", req.ProjectID, "error", err)
+				continue
+			}
 			if repoPath == "" {
 				continue
 			}
 
-			// UseWorktree explicitly disabled → run directly in project directory.
+			// UseWorktree explicitly disabled → run directly in repo directory.
 			if req.UseWorktree != nil && !*req.UseWorktree {
 				abs, err := filepath.Abs(repoPath)
 				if err != nil {
@@ -1086,10 +1098,10 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 				return abs, "", repoPath, "", nil
 			}
 
-			// Default / UseWorktree=true → create worktree.
+			// Default / UseWorktree=true → create worktree under dataDir.
 			slug := l.generateBranchSlug(ctx, req.Message)
 			branchName := fmt.Sprintf("ai-chat/%s", slug)
-			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+slug)
+			worktreePath := filepath.Join(l.cfg.DataDir, "worktrees", fmt.Sprintf("%d", req.ProjectID), "chat-"+slug)
 
 			runner := workspacegit.NewRunner(repoPath)
 			if err := runner.WorktreeAdd(worktreePath, branchName, ""); err != nil {
@@ -1109,7 +1121,46 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 	return sandboxDir, "sandbox", "", "", nil
 }
 
-func resolveLeadGitSpacePath(space *core.ResourceSpace) string {
+// resolveLocalRepoPath returns a local filesystem path for the git space.
+// For spaces that already point at a local directory it returns that path
+// directly.  For remote-only URLs (git@…, https://…) it clones the
+// repository into <dataDir>/repos/<projectID>/ and returns the clone path.
+func (l *LeadAgent) resolveLocalRepoPath(ctx context.Context, projectID int64, space *core.ResourceSpace) (string, error) {
+	if localPath := resolveLeadGitSpaceLocalPath(space); localPath != "" {
+		return localPath, nil
+	}
+
+	remoteURL := extractLeadGitRemoteURL(space)
+	if remoteURL == "" {
+		return "", nil
+	}
+
+	// Determine ref to checkout (base_branch from space config).
+	var ref string
+	if space.Config != nil {
+		if v, ok := space.Config["base_branch"].(string); ok {
+			ref = strings.TrimSpace(v)
+		}
+	}
+
+	cloneDir := filepath.Join(l.cfg.DataDir, "repos", fmt.Sprintf("%d", projectID))
+	cloner := workspaceclone.New()
+	result, err := cloner.Clone(ctx, workspaceclone.CloneRequest{
+		RemoteURL:  remoteURL,
+		TargetPath: cloneDir,
+		Ref:        ref,
+	})
+	if err != nil {
+		return "", fmt.Errorf("clone %s into %s: %w", remoteURL, cloneDir, err)
+	}
+	slog.Info("lead chat: ensured local clone", "project_id", projectID, "remote", remoteURL, "path", result.RepoPath)
+	return result.RepoPath, nil
+}
+
+// resolveLeadGitSpaceLocalPath returns a local filesystem path configured
+// in the space (work_dir / local_path / clone_dir / non-remote RootURI).
+// Returns "" when no local path is available.
+func resolveLeadGitSpaceLocalPath(space *core.ResourceSpace) string {
 	if space == nil {
 		return ""
 	}
@@ -1125,6 +1176,19 @@ func resolveLeadGitSpacePath(space *core.ResourceSpace) string {
 		return ""
 	}
 	return rootURI
+}
+
+// extractLeadGitRemoteURL returns the remote URL from a git ResourceSpace,
+// or "" if the RootURI is not a remote git address.
+func extractLeadGitRemoteURL(space *core.ResourceSpace) string {
+	if space == nil {
+		return ""
+	}
+	rootURI := strings.TrimSpace(space.RootURI)
+	if rootURI != "" && looksLikeRemoteLeadGitURI(rootURI) {
+		return rootURI
+	}
+	return ""
 }
 
 func looksLikeRemoteLeadGitURI(uri string) bool {

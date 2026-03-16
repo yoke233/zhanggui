@@ -265,10 +265,12 @@ func prepareCodexSandbox(opts commonOptions) (preparedSandbox, error) {
 		RequireCodexAuth: opts.requireAuth,
 	}
 	launch, err := sb.Prepare(context.Background(), v2sandbox.PrepareInput{
-		Profile: &core.AgentProfile{ID: "sandbox-tester"},
-		Driver: &core.AgentDriver{
-			ID:  "codex-acp",
-			Env: map[string]string{"CODEX_HOME": baseHome},
+		Profile: &core.AgentProfile{
+			ID: "sandbox-tester",
+			Driver: core.DriverConfig{
+				ID:  "codex-acp",
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
 		},
 		Launch: acpclient.LaunchConfig{
 			WorkDir: workDir,

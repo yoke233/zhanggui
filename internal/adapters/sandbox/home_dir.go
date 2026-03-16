@@ -101,6 +101,8 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	case "claude":
 		_ = linkPathIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"), true)
 		_ = linkPathIfMissing(filepath.Join(home, "CLAUDE.md"), filepath.Join(baseHome, "CLAUDE.md"), false)
+		_ = linkPathIfMissing(filepath.Join(home, ".credentials.json"), filepath.Join(baseHome, ".credentials.json"), false)
+		_ = linkPathIfMissing(filepath.Join(home, "config"), filepath.Join(baseHome, "config"), true)
 	}
 
 	// Merge profile skills with extra (dynamic) skills.

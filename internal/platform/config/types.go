@@ -227,6 +227,7 @@ type RuntimeDriverConfig struct {
 	ID              string             `toml:"id"               yaml:"id" json:"id"`
 	LaunchCommand   string             `toml:"launch_command"   yaml:"launch_command" json:"launch_command"`
 	LaunchArgs      []string           `toml:"launch_args"      yaml:"launch_args" json:"launch_args"`
+	SandboxArgs     []string           `toml:"sandbox_args"     yaml:"sandbox_args" json:"sandbox_args"`
 	Env             map[string]string  `toml:"env"              yaml:"env" json:"env"`
 	CapabilitiesMax CapabilitiesConfig `toml:"capabilities_max" yaml:"capabilities_max" json:"capabilities_max"`
 }

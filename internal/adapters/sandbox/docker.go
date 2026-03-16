@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
@@ -66,9 +67,27 @@ func buildDockerArgs(spec containerLaunchSpec, launch acpclient.LaunchConfig, mo
 	if launch.WorkDir != "" {
 		args = append(args, "-w", launch.WorkDir)
 	}
-	args = appendSortedEnvArgs(args, launch.Env, "-e")
+	worktreeName := launch.Env["__CONTAINER_WORKTREE_NAME"]
+	filteredEnv := make(map[string]string, len(launch.Env))
+	for k, v := range launch.Env {
+		if k != "__CONTAINER_WORKTREE_NAME" {
+			filteredEnv[k] = v
+		}
+	}
+	args = appendSortedEnvArgs(args, filteredEnv, "-e")
 	args = append(args, spec.runArgs...)
-	args = append(args, spec.image, launch.Command)
-	args = append(args, launch.Args...)
+
+	if worktreeName != "" {
+		// Wrap command: rewrite .git file to container path, then exec agent.
+		gitFixup := fmt.Sprintf(
+			`printf 'gitdir: %s/worktrees/%s\n' > /workspace/.git && exec "$@"`,
+			containerGitDir, worktreeName,
+		)
+		args = append(args, spec.image, "sh", "-c", gitFixup, "--", launch.Command)
+		args = append(args, launch.Args...)
+	} else {
+		args = append(args, spec.image, launch.Command)
+		args = append(args, launch.Args...)
+	}
 	return args
 }
