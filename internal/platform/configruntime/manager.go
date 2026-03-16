@@ -188,6 +188,7 @@ func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, erro
 			continue
 		}
 		cfg := core.DriverConfig{
+			ID:            strings.TrimSpace(item.ID),
 			LaunchCommand: strings.TrimSpace(item.LaunchCommand),
 			LaunchArgs:    append([]string(nil), item.LaunchArgs...),
 			Env:           cloneStringMap(item.Env),

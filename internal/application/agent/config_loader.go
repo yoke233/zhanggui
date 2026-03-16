@@ -28,6 +28,7 @@ func convertProfilesFromConfig(driverCfgs []config.RuntimeDriverConfig, profileC
 		var driverCfg core.DriverConfig
 		if d, ok := driverMap[c.Driver]; ok {
 			driverCfg = core.DriverConfig{
+				ID:            d.ID,
 				LaunchCommand: d.LaunchCommand,
 				LaunchArgs:    d.LaunchArgs,
 				Env:           d.Env,

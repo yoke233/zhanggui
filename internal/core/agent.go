@@ -31,6 +31,7 @@ const (
 
 // DriverConfig holds process-level launch configuration for an agent profile.
 type DriverConfig struct {
+	ID              string             `json:"id,omitempty"`
 	LaunchCommand   string             `json:"launch_command"`
 	LaunchArgs      []string           `json:"launch_args,omitempty"`
 	Env             map[string]string  `json:"env,omitempty"`
