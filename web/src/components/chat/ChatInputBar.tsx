@@ -64,6 +64,9 @@ export function ChatInputBar(props: ChatInputBarProps) {
   const filteredCommands = availableCommands.filter(
     (cmd) => !commandFilter || cmd.name.toLowerCase().includes(commandFilter.toLowerCase()),
   );
+  // Hide mode buttons when configOptions already contains a "Mode" dropdown to avoid duplicate display
+  const hasModeConfigOption = configOptions.some((opt) => opt.name.toLowerCase() === "mode");
+  const showModeButtons = modes && modes.available_modes.length > 0 && !hasModeConfigOption;
 
   return (
     <div className="space-y-2 border-t px-6 py-4">
@@ -160,7 +163,7 @@ export function ChatInputBar(props: ChatInputBarProps) {
                 {currentSession.branch}
               </Badge>
             )}
-            {modes && modes.available_modes.length > 0 ? (
+            {showModeButtons ? (
               <>
                 {(currentSession?.project_name || currentSession?.branch) && (
                   <span className="mx-0.5 text-border">·</span>
@@ -188,7 +191,7 @@ export function ChatInputBar(props: ChatInputBarProps) {
             ) : null}
             {configOptions.length > 0 ? (
               <>
-                {(currentSession?.project_name || currentSession?.branch || (modes && modes.available_modes.length > 0)) && (
+                {(currentSession?.project_name || currentSession?.branch || showModeButtons) && (
                   <span className="mx-0.5 text-border">·</span>
                 )}
                 {configOptions.map((opt) => {
