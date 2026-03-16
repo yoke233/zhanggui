@@ -216,8 +216,6 @@ func knownProviderSupport(provider string, goos string, goarch string) (Provider
 		}, true
 	case "litebox":
 		return detectLiteBoxSupport(goos, goarch), true
-	case "boxlite":
-		return detectBoxLiteSupport(goos, goarch), true
 	case "docker":
 		return detectDockerSupport(), true
 	case "bwrap":
@@ -235,7 +233,6 @@ func detectProviders(goos, goarch string) map[string]ProviderSupport {
 			Reason:      "环境变量驱动的 HOME/TMP/skills 隔离",
 		},
 		"litebox": detectLiteBoxSupport(goos, goarch),
-		"boxlite": detectBoxLiteSupport(goos, goarch),
 		"docker":  detectDockerSupport(),
 		"bwrap":   detectBwrapSupport(goos),
 	}
@@ -263,35 +260,6 @@ func detectLiteBoxSupport(goos, goarch string) ProviderSupport {
 	}
 }
 
-func detectBoxLiteSupport(goos, goarch string) ProviderSupport {
-	if goos != "darwin" {
-		return ProviderSupport{
-			Supported:   false,
-			Implemented: true,
-			Reason:      "boxlite 当前目标宿主为 macOS",
-		}
-	}
-	if goarch != "arm64" {
-		return ProviderSupport{
-			Supported:   false,
-			Implemented: true,
-			Reason:      "boxlite 当前优先目标为 macOS arm64",
-		}
-	}
-	if _, err := lookPath("boxlite"); err != nil {
-		return ProviderSupport{
-			Supported:   false,
-			Implemented: true,
-			Reason:      "未在 PATH 中发现 boxlite 命令",
-		}
-	}
-	return ProviderSupport{
-		Supported:   true,
-		Implemented: true,
-		Reason:      "boxlite provider 已接入，可通过 image/cpus/memory/network 控制运行环境",
-	}
-}
-
 func detectDockerSupport() ProviderSupport {
 	if _, err := lookPath("docker"); err != nil {
 		return ProviderSupport{
@@ -311,20 +279,20 @@ func detectBwrapSupport(goos string) ProviderSupport {
 	if goos != "linux" {
 		return ProviderSupport{
 			Supported:   false,
-			Implemented: false,
+			Implemented: true,
 			Reason:      "bwrap 仅适用于 Linux 主机",
 		}
 	}
 	if _, err := lookPath("bwrap"); err != nil {
 		return ProviderSupport{
 			Supported:   false,
-			Implemented: false,
+			Implemented: true,
 			Reason:      "未在 PATH 中发现 bwrap 命令",
 		}
 	}
 	return ProviderSupport{
 		Supported:   true,
-		Implemented: false,
-		Reason:      "宿主已安装 bwrap，但当前项目尚未接入 bwrap provider",
+		Implemented: true,
+		Reason:      "bwrap provider 已接入，适用于 Linux/WSL2 上的最小进程沙箱",
 	}
 }

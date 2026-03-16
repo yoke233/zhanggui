@@ -15,7 +15,6 @@ import type { SandboxSupportResponse } from "@/types/system";
 const PROVIDER_LABELS: Record<string, string> = {
   home_dir: "home_dir",
   litebox: "litebox",
-  boxlite: "boxlite",
   docker: "docker",
   bwrap: "bwrap",
 };

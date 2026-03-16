@@ -386,40 +386,6 @@
         "profiles"
       ]
     },
-    "RuntimeBoxLiteConfig": {
-      "properties": {
-        "command": {
-          "type": "string"
-        },
-        "image": {
-          "type": "string"
-        },
-        "run_args": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "cpus": {
-          "type": "string"
-        },
-        "memory": {
-          "type": "string"
-        },
-        "network": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "command",
-        "image",
-        "run_args",
-        "cpus",
-        "memory",
-        "network"
-      ]
-    },
     "RuntimeCollectorConfig": {
       "properties": {
         "max_retries": {
@@ -1070,9 +1036,6 @@
         "litebox": {
           "$ref": "#/$defs/RuntimeLiteBoxConfig"
         },
-        "boxlite": {
-          "$ref": "#/$defs/RuntimeBoxLiteConfig"
-        },
         "docker": {
           "$ref": "#/$defs/RuntimeDockerConfig"
         }
@@ -1082,7 +1045,6 @@
         "enabled",
         "provider",
         "litebox",
-        "boxlite",
         "docker"
       ]
     },

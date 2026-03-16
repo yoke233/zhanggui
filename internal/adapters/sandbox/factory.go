@@ -42,16 +42,6 @@ func FromRuntimeConfig(cfg config.RuntimeSandboxConfig, dataDir string) Sandbox 
 			RunnerPath:    strings.TrimSpace(cfg.LiteBox.RunnerPath),
 			RunnerArgs:    append([]string(nil), cfg.LiteBox.RunnerArgs...),
 		}
-	case "boxlite":
-		return BoxLiteSandbox{
-			Base:    homeSandbox,
-			Command: strings.TrimSpace(cfg.BoxLite.Command),
-			Image:   strings.TrimSpace(cfg.BoxLite.Image),
-			RunArgs: append([]string(nil), cfg.BoxLite.RunArgs...),
-			CPUs:    strings.TrimSpace(cfg.BoxLite.CPUs),
-			Memory:  strings.TrimSpace(cfg.BoxLite.Memory),
-			Network: strings.TrimSpace(cfg.BoxLite.Network),
-		}
 	case "docker":
 		return DockerSandbox{
 			Base:           homeSandbox,
@@ -65,6 +55,11 @@ func FromRuntimeConfig(cfg config.RuntimeSandboxConfig, dataDir string) Sandbox 
 			Network:        strings.TrimSpace(cfg.Docker.Network),
 			ReadOnlyRootFS: cfg.Docker.ReadOnlyRootFS,
 			Tmpfs:          append([]string(nil), cfg.Docker.Tmpfs...),
+		}
+	case "bwrap":
+		return BwrapSandbox{
+			Base:    homeSandbox,
+			Command: "bwrap",
 		}
 	default:
 		slog.Warn("sandbox: unknown provider, fallback to home_dir", "provider", cfg.Provider)

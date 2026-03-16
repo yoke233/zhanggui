@@ -374,14 +374,6 @@ func buildRuntimeSandboxLayer(in config.RuntimeSandboxConfig) *config.RuntimeSan
 			RunnerPath:    stringPtr(in.LiteBox.RunnerPath),
 			RunnerArgs:    cloneStringSlicePtr(in.LiteBox.RunnerArgs),
 		},
-		BoxLite: &config.RuntimeBoxLiteLayer{
-			Command: stringPtr(in.BoxLite.Command),
-			Image:   stringPtr(in.BoxLite.Image),
-			RunArgs: cloneStringSlicePtr(in.BoxLite.RunArgs),
-			CPUs:    stringPtr(in.BoxLite.CPUs),
-			Memory:  stringPtr(in.BoxLite.Memory),
-			Network: stringPtr(in.BoxLite.Network),
-		},
 		Docker: &config.RuntimeDockerLayer{
 			Command:        stringPtr(in.Docker.Command),
 			Image:          stringPtr(in.Docker.Image),

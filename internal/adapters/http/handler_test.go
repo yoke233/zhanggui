@@ -1726,9 +1726,6 @@ func TestAPI_GetSandboxSupport(t *testing.T) {
 	if _, ok := got.Providers["docker"]; !ok {
 		t.Fatal("docker provider should be present in API response")
 	}
-	if _, ok := got.Providers["boxlite"]; !ok {
-		t.Fatal("boxlite provider should be present in API response")
-	}
 }
 
 func TestAPI_UpdateSandboxSupport(t *testing.T) {

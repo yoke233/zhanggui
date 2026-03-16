@@ -112,14 +112,6 @@ func TestManager_UpdateRuntimeWritesSandboxConfig(t *testing.T) {
 		LiteBox: config.RuntimeLiteBoxConfig{
 			BridgeCommand: "litebox-acp",
 		},
-		BoxLite: config.RuntimeBoxLiteConfig{
-			Command: "boxlite",
-			Image:   "ghcr.io/example/boxlite:latest",
-			RunArgs: []string{"--debug"},
-			CPUs:    "2",
-			Memory:  "4g",
-			Network: "shared",
-		},
 		Docker: config.RuntimeDockerConfig{
 			Command:        "docker",
 			Image:          "node:20-bookworm",
@@ -142,9 +134,6 @@ func TestManager_UpdateRuntimeWritesSandboxConfig(t *testing.T) {
 	if got.Provider != "docker" || !got.Enabled {
 		t.Fatalf("unexpected sandbox config: %+v", got)
 	}
-	if got.BoxLite.Image != "ghcr.io/example/boxlite:latest" {
-		t.Fatalf("boxlite image not persisted: %+v", got.BoxLite)
-	}
 	if got.Docker.Image != "node:20-bookworm" || !got.Docker.ReadOnlyRootFS {
 		t.Fatalf("docker config not persisted: %+v", got.Docker)
 	}
@@ -157,11 +146,8 @@ func TestManager_UpdateRuntimeWritesSandboxConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLayerBytes() error = %v", err)
 	}
-	if layer.Runtime == nil || layer.Runtime.Sandbox == nil || layer.Runtime.Sandbox.BoxLite == nil || layer.Runtime.Sandbox.Docker == nil {
+	if layer.Runtime == nil || layer.Runtime.Sandbox == nil || layer.Runtime.Sandbox.Docker == nil {
 		t.Fatalf("expected runtime sandbox sections written back")
-	}
-	if layer.Runtime.Sandbox.BoxLite.Image == nil || *layer.Runtime.Sandbox.BoxLite.Image != "ghcr.io/example/boxlite:latest" {
-		t.Fatalf("boxlite image missing in raw layer: %+v", layer.Runtime.Sandbox.BoxLite)
 	}
 	if layer.Runtime.Sandbox.Docker.Image == nil || *layer.Runtime.Sandbox.Docker.Image != "node:20-bookworm" {
 		t.Fatalf("docker image missing in raw layer: %+v", layer.Runtime.Sandbox.Docker)

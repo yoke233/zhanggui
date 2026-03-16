@@ -8,7 +8,6 @@ import type { SandboxSupportResponse } from "@/types/system";
 const providerLabels: Record<string, string> = {
   home_dir: "home_dir",
   litebox: "litebox",
-  boxlite: "boxlite",
   docker: "docker",
   bwrap: "bwrap",
 };
@@ -121,7 +120,9 @@ export function SandboxSupportPanel({
                         {support.implemented ? t("common.connected") : t("common.notConnected")}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{support.reason || "-"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      <div>{support.reason || "-"}</div>
+                    </td>
                   </tr>
                 ))
               )}

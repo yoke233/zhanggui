@@ -48,7 +48,7 @@ func TestDefaultSupportInspectorUnknownProvider(t *testing.T) {
 func TestBuildSupportReportImplementedSemantics(t *testing.T) {
 	patchLookPath(t, func(name string) (string, error) {
 		switch name {
-		case "docker", "boxlite":
+		case "docker":
 			return "C:\\bin\\" + name, nil
 		default:
 			return "", errors.New("missing")
@@ -64,17 +64,6 @@ func TestBuildSupportReportImplementedSemantics(t *testing.T) {
 	}
 	if !report.Providers["docker"].Implemented {
 		t.Fatal("docker should be reported as implemented")
-	}
-
-	report = buildSupportReport(config.RuntimeSandboxConfig{
-		Enabled:  true,
-		Provider: "boxlite",
-	}, "darwin", "arm64")
-	if !report.CurrentSupported {
-		t.Fatal("boxlite should be current_supported on darwin/arm64 when command exists")
-	}
-	if !report.Providers["boxlite"].Implemented {
-		t.Fatal("boxlite should be reported as implemented")
 	}
 }
 
@@ -93,20 +82,6 @@ func TestDetectLiteBoxSupport(t *testing.T) {
 	}
 }
 
-func TestDetectBoxLiteSupportRequiresCommand(t *testing.T) {
-	patchLookPath(t, func(name string) (string, error) {
-		return "", errors.New("missing")
-	})
-
-	got := detectBoxLiteSupport("darwin", "arm64")
-	if got.Supported {
-		t.Fatalf("boxlite should require command presence, got %#v", got)
-	}
-	if !got.Implemented {
-		t.Fatalf("boxlite should be implemented, got %#v", got)
-	}
-}
-
 func TestDetectDockerSupportRequiresCommand(t *testing.T) {
 	patchLookPath(t, func(name string) (string, error) {
 		return "", errors.New("missing")
@@ -121,6 +96,20 @@ func TestDetectDockerSupportRequiresCommand(t *testing.T) {
 	}
 }
 
+func TestDetectBwrapSupportRequiresCommand(t *testing.T) {
+	patchLookPath(t, func(name string) (string, error) {
+		return "", errors.New("missing")
+	})
+
+	got := detectBwrapSupport("linux")
+	if got.Supported {
+		t.Fatalf("bwrap should require command presence, got %#v", got)
+	}
+	if !got.Implemented {
+		t.Fatalf("bwrap should be implemented, got %#v", got)
+	}
+}
+
 func patchLookPath(t *testing.T, fn func(string) (string, error)) {
 	t.Helper()
 	previous := lookPath
@@ -130,17 +119,14 @@ func patchLookPath(t *testing.T, fn func(string) (string, error)) {
 	})
 }
 
-func TestDetectBoxLiteSupportImplemented(t *testing.T) {
-	if got := detectBoxLiteSupport("darwin", "arm64"); !got.Implemented {
-		t.Fatalf("darwin arm64 should mark boxlite implemented, got %#v", got)
-	}
-	if got := detectBoxLiteSupport("linux", "amd64"); !got.Implemented {
-		t.Fatalf("non-target host should still mark implementation present, got %#v", got)
-	}
-}
-
 func TestDetectDockerSupportImplemented(t *testing.T) {
 	if got := detectDockerSupport(); !got.Implemented {
 		t.Fatalf("docker support should always report implementation presence, got %#v", got)
+	}
+}
+
+func TestDetectBwrapSupportImplemented(t *testing.T) {
+	if got := detectBwrapSupport("linux"); !got.Implemented {
+		t.Fatalf("linux should mark bwrap implemented, got %#v", got)
 	}
 }

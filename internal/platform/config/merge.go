@@ -252,26 +252,6 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 					cfg.Runtime.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(*litebox.RunnerArgs)
 				}
 			}
-			if boxlite := sandbox.BoxLite; boxlite != nil {
-				if boxlite.Command != nil {
-					cfg.Runtime.Sandbox.BoxLite.Command = *boxlite.Command
-				}
-				if boxlite.Image != nil {
-					cfg.Runtime.Sandbox.BoxLite.Image = *boxlite.Image
-				}
-				if boxlite.RunArgs != nil {
-					cfg.Runtime.Sandbox.BoxLite.RunArgs = cloneStringSlice(*boxlite.RunArgs)
-				}
-				if boxlite.CPUs != nil {
-					cfg.Runtime.Sandbox.BoxLite.CPUs = *boxlite.CPUs
-				}
-				if boxlite.Memory != nil {
-					cfg.Runtime.Sandbox.BoxLite.Memory = *boxlite.Memory
-				}
-				if boxlite.Network != nil {
-					cfg.Runtime.Sandbox.BoxLite.Network = *boxlite.Network
-				}
-			}
 			if docker := sandbox.Docker; docker != nil {
 				if docker.Command != nil {
 					cfg.Runtime.Sandbox.Docker.Command = *docker.Command
@@ -479,7 +459,6 @@ func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 	out.LLM.Configs = cloneRuntimeLLMEntries(in.LLM.Configs)
 	out.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(in.Sandbox.LiteBox.BridgeArgs)
 	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
-	out.Sandbox.BoxLite.RunArgs = cloneStringSlice(in.Sandbox.BoxLite.RunArgs)
 	out.Sandbox.Docker.RunArgs = cloneStringSlice(in.Sandbox.Docker.RunArgs)
 	out.Sandbox.Docker.Tmpfs = cloneStringSlice(in.Sandbox.Docker.Tmpfs)
 	out.Agents.Drivers = cloneRuntimeDrivers(in.Agents.Drivers)

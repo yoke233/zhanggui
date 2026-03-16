@@ -13,14 +13,13 @@ describe("SandboxSupportPanel", () => {
       <I18nextProvider i18n={i18n}>
         <SandboxSupportPanel
           report={{
-            os: "darwin",
-            arch: "arm64",
+            os: "linux",
+            arch: "amd64",
             enabled: true,
-            configured_provider: "boxlite",
-            current_provider: "boxlite",
-            current_supported: false,
+            configured_provider: "home_dir",
+            current_provider: "home_dir",
+            current_supported: true,
             providers: {
-              boxlite: { supported: true, implemented: false, reason: "尚未接入" },
               docker: { supported: false, implemented: false, reason: "未发现 docker" },
               home_dir: { supported: true, implemented: true, reason: "基础隔离" },
             },
@@ -33,11 +32,10 @@ describe("SandboxSupportPanel", () => {
     );
 
     expect(screen.getByText("沙盒状态")).toBeTruthy();
-    expect(screen.getByText("darwin / arm64")).toBeTruthy();
+    expect(screen.getByText("linux / amd64")).toBeTruthy();
     expect(screen.getByText("已开启")).toBeTruthy();
-    expect(screen.getAllByText("boxlite").length).toBeGreaterThan(0);
     expect(screen.getByText("基础隔离")).toBeTruthy();
-    expect(screen.getAllByText("未接入").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("home_dir").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);

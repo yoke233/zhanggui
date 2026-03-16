@@ -132,7 +132,6 @@ type RuntimeSandboxConfig struct {
 	Enabled  bool                 `toml:"enabled"  yaml:"enabled"`
 	Provider string               `toml:"provider" yaml:"provider"`
 	LiteBox  RuntimeLiteBoxConfig `toml:"litebox"  yaml:"litebox"`
-	BoxLite  RuntimeBoxLiteConfig `toml:"boxlite"  yaml:"boxlite"`
 	Docker   RuntimeDockerConfig  `toml:"docker"   yaml:"docker"`
 }
 
@@ -141,15 +140,6 @@ type RuntimeLiteBoxConfig struct {
 	BridgeArgs    []string `toml:"bridge_args"    yaml:"bridge_args"`
 	RunnerPath    string   `toml:"runner_path"    yaml:"runner_path"`
 	RunnerArgs    []string `toml:"runner_args"    yaml:"runner_args"`
-}
-
-type RuntimeBoxLiteConfig struct {
-	Command string   `toml:"command" yaml:"command"`
-	Image   string   `toml:"image"   yaml:"image"`
-	RunArgs []string `toml:"run_args" yaml:"run_args"`
-	CPUs    string   `toml:"cpus"    yaml:"cpus"`
-	Memory  string   `toml:"memory"  yaml:"memory"`
-	Network string   `toml:"network" yaml:"network"`
 }
 
 type RuntimeDockerConfig struct {
@@ -440,7 +430,6 @@ type RuntimeSandboxLayer struct {
 	Enabled  *bool                `toml:"enabled"  yaml:"enabled"`
 	Provider *string              `toml:"provider" yaml:"provider"`
 	LiteBox  *RuntimeLiteBoxLayer `toml:"litebox"  yaml:"litebox"`
-	BoxLite  *RuntimeBoxLiteLayer `toml:"boxlite"  yaml:"boxlite"`
 	Docker   *RuntimeDockerLayer  `toml:"docker"   yaml:"docker"`
 }
 
@@ -449,15 +438,6 @@ type RuntimeLiteBoxLayer struct {
 	BridgeArgs    *[]string `toml:"bridge_args"    yaml:"bridge_args"`
 	RunnerPath    *string   `toml:"runner_path"    yaml:"runner_path"`
 	RunnerArgs    *[]string `toml:"runner_args"    yaml:"runner_args"`
-}
-
-type RuntimeBoxLiteLayer struct {
-	Command *string   `toml:"command" yaml:"command"`
-	Image   *string   `toml:"image" yaml:"image"`
-	RunArgs *[]string `toml:"run_args" yaml:"run_args"`
-	CPUs    *string   `toml:"cpus" yaml:"cpus"`
-	Memory  *string   `toml:"memory" yaml:"memory"`
-	Network *string   `toml:"network" yaml:"network"`
 }
 
 type RuntimeDockerLayer struct {

@@ -58,14 +58,6 @@ provider = "home_dir"
   runner_path = ""
   runner_args = []
 
-  [runtime.sandbox.boxlite]
-  command = "boxlite"
-  image = ""
-  run_args = []
-  cpus = ""
-  memory = ""
-  network = ""
-
   [runtime.sandbox.docker]
   command = "docker"
   image = ""
