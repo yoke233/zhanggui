@@ -221,7 +221,7 @@ export function FeatureManifestPage() {
             <Select
               value={statusFilter}
               className="w-36"
-              onChange={(e) => setStatusFilter(e.target.value as FeatureStatus | "all")}
+              onValueChange={(v) => setStatusFilter(v as FeatureStatus | "all")}
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
@@ -254,7 +254,7 @@ export function FeatureManifestPage() {
                         <Select
                           value={entry.status}
                           className="h-7 w-28 border-0 px-0 py-0 text-xs shadow-none focus-visible:ring-0"
-                          onChange={(e) => void handleStatusChange(entry, e.target.value as FeatureStatus)}
+                          onValueChange={(v) => void handleStatusChange(entry, v as FeatureStatus)}
                         >
                           {(["pending", "pass", "fail", "skipped"] as FeatureStatus[]).map((s) => (
                             <option key={s} value={s}>{s}</option>

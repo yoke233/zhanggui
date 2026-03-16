@@ -71,8 +71,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{t("common.project")}</label>
             <Select
               value={draftProjectId == null ? "" : String(draftProjectId)}
-              onChange={(event) => {
-                const next = event.target.value;
+              onValueChange={(next) => {
                 const nextProjectId = next ? Number(next) : null;
                 onProjectChange(nextProjectId);
               }}
@@ -87,7 +86,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Profile</label>
             <Select
               value={draftProfileId || ""}
-              onChange={(event) => onProfileChange(event.target.value)}
+              onValueChange={(v) => onProfileChange(v)}
             >
               {leadProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
@@ -100,8 +99,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Driver</label>
             <Select
               value={draftDriverId || EMPTY_PROFILE_VALUE}
-              onChange={(event) => {
-                const next = event.target.value;
+              onValueChange={(next) => {
                 onDriverChange(next === EMPTY_PROFILE_VALUE ? "" : next);
               }}
             >

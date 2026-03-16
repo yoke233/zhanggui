@@ -203,7 +203,7 @@ export function SandboxPage() {
 
           <label className="space-y-2">
             <span className="text-sm font-medium">{t("sandbox.configProvider")}</span>
-            <Select value={provider} onChange={(event) => setProvider(event.target.value)}>
+            <Select value={provider} onValueChange={(v) => setProvider(v)}>
               {providers.map(([name, support]) => (
                 <option key={name} value={name}>
                   {name}

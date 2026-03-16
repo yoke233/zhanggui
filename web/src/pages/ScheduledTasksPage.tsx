@@ -175,7 +175,7 @@ function CronEditorDialog({
                   </div>
                   <Select
                     value={selectedWorkItemId}
-                    onChange={(event) => setSelectedWorkItemId(event.target.value)}
+                    onValueChange={(v) => setSelectedWorkItemId(v)}
                   >
                     <option value="">{t("scheduledTasks.selectWorkItem")}</option>
                     {filteredWorkItems.map((item) => (
@@ -487,7 +487,7 @@ export function ScheduledTasksPage() {
               <div className="flex items-center gap-3">
                 <Select
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                  onValueChange={(v) => setStatusFilter(v as StatusFilter)}
                   className="min-w-[180px]"
                 >
                   <option value="all">{t("scheduledTasks.filterAll")}</option>

@@ -166,7 +166,7 @@ export function LLMConfigPage() {
             <CardDescription>{t("llmConfig.currentProviderDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Select value={defaultConfigID} onChange={(event) => setDefaultConfigID(event.target.value)}>
+            <Select value={defaultConfigID} onValueChange={(v) => setDefaultConfigID(v)}>
               {configs.length === 0 ? <option value="">{t("llmConfig.noConfigOption")}</option> : null}
               {configs.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -257,7 +257,7 @@ export function LLMConfigPage() {
                 </label>
                 <label className="space-y-2 xl:col-span-1">
                   <span className="text-sm font-medium">{t("llmConfig.fieldType")}</span>
-                  <Select value={item.type} onChange={(event) => updateConfig(index, { type: event.target.value as LLMConfigItem["type"] })}>
+                  <Select value={item.type} onValueChange={(v) => updateConfig(index, { type: v as LLMConfigItem["type"] })}>
                     {PROVIDER_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
@@ -296,7 +296,7 @@ export function LLMConfigPage() {
                   <span className="text-sm font-medium">{t("llmConfig.fieldReasoningEffort")}</span>
                   <Select
                     value={item.reasoning_effort ?? ""}
-                    onChange={(event) => updateConfig(index, { reasoning_effort: event.target.value as LLMConfigItem["reasoning_effort"] })}
+                    onValueChange={(v) => updateConfig(index, { reasoning_effort: v as LLMConfigItem["reasoning_effort"] })}
                   >
                     {REASONING_EFFORT_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>

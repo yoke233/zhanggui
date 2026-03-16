@@ -496,7 +496,7 @@ export function AgentsPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{t("llmConfig.currentProvider")}</div>
                   <div className="mt-1 flex items-center gap-2">
-                    <Select value={defaultConfigID} onChange={(event) => setDefaultConfigID(event.target.value)} className="h-9">
+                    <Select value={defaultConfigID} onValueChange={(v) => setDefaultConfigID(v)} className="h-9">
                       {configs.length === 0 ? <option value="">{t("llmConfig.noConfigOption")}</option> : null}
                       {configs.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -551,7 +551,7 @@ export function AgentsPage() {
                           <TableCell className="px-3 py-3">
                             <Select
                               value={item.type}
-                              onChange={(event) => updateConfig(index, { type: event.target.value as LLMConfigItem["type"] })}
+                              onValueChange={(v) => updateConfig(index, { type: v as LLMConfigItem["type"] })}
                               className="h-9"
                             >
                               {PROVIDER_OPTIONS.map((option) => (
@@ -591,7 +591,7 @@ export function AgentsPage() {
                           <TableCell className="px-3 py-3">
                             <Select
                               value={item.reasoning_effort ?? ""}
-                              onChange={(event) => updateConfig(index, { reasoning_effort: event.target.value as LLMConfigItem["reasoning_effort"] })}
+                              onValueChange={(v) => updateConfig(index, { reasoning_effort: v as LLMConfigItem["reasoning_effort"] })}
                               className="h-9 min-w-[120px]"
                             >
                               {REASONING_EFFORT_OPTIONS.map((option) => (

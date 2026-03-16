@@ -365,8 +365,7 @@ export function MobileHomePage() {
                   {/* Project selector */}
                   <Select
                     value={draftProjectId == null ? "" : String(draftProjectId)}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    onValueChange={(v) => {
                       const nextId = v ? Number(v) : null;
                       setDraftProjectId(nextId);
                       setSelectedProjectId(nextId);
@@ -382,8 +381,7 @@ export function MobileHomePage() {
                   {/* Profile selector */}
                   <Select
                     value={draftProfileId || ""}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
+                    onValueChange={(nextId) => {
                       setDraftProfileId(nextId);
                       const profile = leadProfiles.find((p) => p.id === nextId);
                       if (profile?.driver_id) setDraftDriverId(profile.driver_id);
@@ -398,8 +396,7 @@ export function MobileHomePage() {
                   {/* Driver selector */}
                   <Select
                     value={draftDriverId || EMPTY_PROFILE_VALUE}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    onValueChange={(v) => {
                       setDraftDriverId(v === EMPTY_PROFILE_VALUE ? "" : v);
                     }}
                     className="h-8 max-w-[140px] text-xs"
