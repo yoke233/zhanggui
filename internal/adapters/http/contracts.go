@@ -83,6 +83,7 @@ type TextCompleter interface {
 type ThreadAgentRuntime interface {
 	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadMember, error)
 	WaitAgentReady(ctx context.Context, threadID int64, profileID string) error
+	PromptAgent(ctx context.Context, threadID int64, profileID string, message string) (*core.ThreadAgentPromptResult, error)
 	SendMessage(ctx context.Context, threadID int64, profileID string, message string) error
 	RemoveAgent(ctx context.Context, threadID int64, agentSessionID int64) error
 	CleanupThread(ctx context.Context, threadID int64) error

@@ -445,11 +445,12 @@ func eventTypeMatchesThreadAgent(event core.Event, threadID int64, profileID str
 	return eventThreadID == threadID && strings.TrimSpace(eventProfileID) == profileID
 }
 
-// SendMessage routes a human message to all active agents in a thread and
-// saves the agent responses as ThreadMessages.
-func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, profileID string, message string) error {
+// PromptAgent sends a raw prompt to an active thread agent and returns the
+// reply without persisting it as a ThreadMessage. Higher-level orchestrators
+// can use it to implement meeting flows such as concurrent or group chat.
+func (p *ThreadSessionPool) PromptAgent(ctx context.Context, threadID int64, profileID string, message string) (*core.ThreadAgentPromptResult, error) {
 	if p == nil {
-		return fmt.Errorf("thread session pool is nil")
+		return nil, fmt.Errorf("thread session pool is nil")
 	}
 
 	key := threadSessionKey{threadID: threadID, agentID: profileID}
@@ -459,13 +460,13 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 	p.mu.Unlock()
 
 	if pooled == nil {
-		return fmt.Errorf("no active session for profile %q in thread %d", profileID, threadID)
+		return nil, fmt.Errorf("no active session for profile %q in thread %d", profileID, threadID)
 	}
 
 	pooled.mu.Lock()
 	defer pooled.mu.Unlock()
 	if pooled.closing {
-		return fmt.Errorf("session for profile %q in thread %d is closing", profileID, threadID)
+		return nil, fmt.Errorf("session for profile %q in thread %d is closing", profileID, threadID)
 	}
 
 	promptCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
@@ -475,7 +476,7 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 	pooled.bridge.FlushPending(ctx)
 
 	if err != nil {
-		return fmt.Errorf("prompt agent %q: %w", profileID, err)
+		return nil, fmt.Errorf("prompt agent %q: %w", profileID, err)
 	}
 
 	pooled.lastUsed = time.Now().UTC()
@@ -487,26 +488,15 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 		pooled.outputTokens += int64(result.Usage.OutputTokens)
 	}
 
-	// Save agent response as a thread message.
 	reply := ""
+	var inputTokens int64
+	var outputTokens int64
 	if result != nil {
 		reply = strings.TrimSpace(result.Text)
-	}
-	if reply != "" {
-		agentMsg := &core.ThreadMessage{
-			ThreadID: threadID,
-			SenderID: profileID,
-			Role:     "agent",
-			Content:  reply,
+		if result.Usage != nil {
+			inputTokens = int64(result.Usage.InputTokens)
+			outputTokens = int64(result.Usage.OutputTokens)
 		}
-		if _, err := p.store.CreateThreadMessage(ctx, agentMsg); err != nil {
-			slog.Warn("thread pool: save agent message failed", "thread_id", threadID, "profile", profileID, "error", err)
-		}
-
-		// Publish agent output event for WS broadcast.
-		p.publishThreadEvent(ctx, core.EventThreadAgentOutput, threadID, profileID, map[string]any{
-			"content": reply,
-		})
 	}
 
 	// Persist token usage periodically (every 5 turns or on demand).
@@ -516,6 +506,44 @@ func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, pro
 
 	// Check context budget warning.
 	p.checkContextBudget(ctx, threadID, profileID, pooled)
+
+	return &core.ThreadAgentPromptResult{
+		Content:      reply,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+	}, nil
+}
+
+// SendMessage routes a human message to a specific active agent in a thread
+// and saves the reply as a ThreadMessage.
+func (p *ThreadSessionPool) SendMessage(ctx context.Context, threadID int64, profileID string, message string) error {
+	promptResult, err := p.PromptAgent(ctx, threadID, profileID, message)
+	if err != nil {
+		return err
+	}
+
+	reply := ""
+	if promptResult != nil {
+		reply = strings.TrimSpace(promptResult.Content)
+	}
+	if reply == "" {
+		return nil
+	}
+
+	agentMsg := &core.ThreadMessage{
+		ThreadID: threadID,
+		SenderID: profileID,
+		Role:     "agent",
+		Content:  reply,
+	}
+	if _, err := p.store.CreateThreadMessage(ctx, agentMsg); err != nil {
+		slog.Warn("thread pool: save agent message failed", "thread_id", threadID, "profile", profileID, "error", err)
+	}
+
+	// Publish agent output event for WS broadcast.
+	p.publishThreadEvent(ctx, core.EventThreadAgentOutput, threadID, profileID, map[string]any{
+		"content": reply,
+	})
 
 	return nil
 }

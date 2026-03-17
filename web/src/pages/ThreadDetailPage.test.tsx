@@ -334,6 +334,33 @@ describe("ThreadDetailPage", () => {
     expect(await screen.findByText("Broadcast mode: messages go to all active agents. Use @agent-id for targeting.")).toBeTruthy();
   });
 
+  it("支持切换到并行会议模式", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+      updateThread: vi.fn().mockResolvedValue(buildThread("已有摘要", { meeting_mode: "concurrent" })),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Concurrent" }));
+
+    await waitFor(() => {
+      expect(apiClient.updateThread).toHaveBeenCalledWith(1, {
+        metadata: { meeting_mode: "concurrent" },
+      });
+    });
+    expect(await screen.findByText("Concurrent meeting: routed agents reply in parallel, then the thread posts a summary.")).toBeTruthy();
+  });
+
   it("输入 @ 时展示候选并插入 mention", async () => {
     const wsClient = createWsClientMock();
     const apiClient = {

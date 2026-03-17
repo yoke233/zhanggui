@@ -337,34 +337,7 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 	})
 
 	if message.Role == "human" && h.threadPool != nil {
-		for _, profileID := range recipients {
-			go func(pid string) {
-				// Emit thinking event so frontend can show typing indicator.
-				h.bus.Publish(context.Background(), core.Event{
-					Type: core.EventThreadAgentThinking,
-					Data: map[string]any{
-						"thread_id":  message.ThreadID,
-						"profile_id": pid,
-						"message_id": message.ID,
-					},
-					Timestamp: time.Now().UTC(),
-				})
-
-				routedMessage := stripLeadingThreadMention(message.Content, pid, targetAgentID)
-				routedMessage = enrichMessageWithFileRefs(routedMessage, message.Metadata)
-				if sendErr := h.threadPool.SendMessage(context.Background(), message.ThreadID, pid, routedMessage); sendErr != nil {
-					h.bus.Publish(context.Background(), core.Event{
-						Type: core.EventThreadAgentFailed,
-						Data: map[string]any{
-							"thread_id":  message.ThreadID,
-							"profile_id": pid,
-							"error":      sendErr.Error(),
-						},
-						Timestamp: time.Now().UTC(),
-					})
-				}
-			}(profileID)
-		}
+		h.dispatchThreadAgentWork(thread, message, recipients, targetAgentID)
 	}
 
 	return thread, message, nil

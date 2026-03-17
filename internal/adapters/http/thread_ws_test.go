@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,9 @@ type stubThreadAgentRuntime struct {
 	activeProfileIDs []string
 	sendCalls        []stubThreadSendCall
 	sendErr          error
+	promptCalls      []stubThreadSendCall
+	promptReplies    map[string]string
+	promptErr        error
 	cleanupCalls     []int64
 	cleanupErr       error
 }
@@ -31,6 +35,20 @@ func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*c
 
 func (s *stubThreadAgentRuntime) WaitAgentReady(context.Context, int64, string) error {
 	return nil
+}
+
+func (s *stubThreadAgentRuntime) PromptAgent(_ context.Context, threadID int64, profileID string, message string) (*core.ThreadAgentPromptResult, error) {
+	if s.promptErr != nil {
+		return nil, s.promptErr
+	}
+	s.promptCalls = append(s.promptCalls, stubThreadSendCall{
+		threadID:  threadID,
+		profileID: profileID,
+		message:   message,
+	})
+	return &core.ThreadAgentPromptResult{
+		Content: s.promptReplies[profileID],
+	}, nil
 }
 
 func (s *stubThreadAgentRuntime) SendMessage(_ context.Context, threadID int64, profileID string, message string) error {
@@ -442,6 +460,178 @@ func TestAPI_WebSocket_ThreadSend_AutoModeRoutesToBestMatchingAgent(t *testing.T
 	autoRoutedTo, ok := msgs[0].Metadata["auto_routed_to"].([]any)
 	if !ok || len(autoRoutedTo) != 1 || autoRoutedTo[0] != "worker-a" {
 		t.Fatalf("message metadata auto_routed_to = %#v, want [worker-a]", msgs[0].Metadata["auto_routed_to"])
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_ConcurrentMeetingAggregatesReplies(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{
+		activeProfileIDs: []string{"worker-a", "worker-b"},
+		promptReplies: map[string]string{
+			"worker-a": "前端建议：先检查组件状态流。",
+			"worker-b": "后端建议：确认接口返回是否稳定。",
+		},
+	}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-concurrent-thread",
+		"metadata": map[string]any{
+			"agent_routing_mode": "broadcast",
+			"meeting_mode":       "concurrent",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-concurrent",
+			"thread_id":  thread.ID,
+			"message":    "请并行分析这个问题",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if len(threadPool.sendCalls) != 0 {
+		t.Fatalf("send calls = %d, want 0 in concurrent meeting mode", len(threadPool.sendCalls))
+	}
+	if len(threadPool.promptCalls) != 2 {
+		t.Fatalf("prompt calls = %d, want 2", len(threadPool.promptCalls))
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("messages = %d, want 4 (1 human + 2 agent + 1 summary)", len(msgs))
+	}
+	if msgs[1].Role != "agent" || msgs[2].Role != "agent" {
+		t.Fatalf("expected agent messages in the middle, got roles %q and %q", msgs[1].Role, msgs[2].Role)
+	}
+	if msgs[3].Role != "system" {
+		t.Fatalf("summary role = %q, want system", msgs[3].Role)
+	}
+	if got := msgs[3].Metadata["meeting_mode"]; got != "concurrent" {
+		t.Fatalf("summary meeting_mode = %v, want concurrent", got)
+	}
+	if !strings.Contains(msgs[3].Content, "并行会议已完成") {
+		t.Fatalf("summary content = %q, want concurrent summary", msgs[3].Content)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_GroupChatMeetingRotatesSpeakers(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{
+		activeProfileIDs: []string{"worker-a", "worker-b"},
+		promptReplies: map[string]string{
+			"worker-a": "第一轮我建议先确认前端状态。",
+			"worker-b": "[FINAL] 第二轮我建议再检查接口契约。",
+		},
+	}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-group-chat-thread",
+		"metadata": map[string]any{
+			"agent_routing_mode": "broadcast",
+			"meeting_mode":       "group_chat",
+			"meeting_max_rounds": 4,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-group-chat",
+			"thread_id":  thread.ID,
+			"message":    "请轮流讨论这个问题",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if len(threadPool.promptCalls) != 2 {
+		t.Fatalf("prompt calls = %d, want 2", len(threadPool.promptCalls))
+	}
+	if threadPool.promptCalls[0].profileID != "worker-a" || threadPool.promptCalls[1].profileID != "worker-b" {
+		t.Fatalf("unexpected speaker order: %+v", threadPool.promptCalls)
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("messages = %d, want 4 (1 human + 2 rounds + 1 summary)", len(msgs))
+	}
+	if got := msgs[1].Metadata["meeting_round"]; got != int64(1) && got != 1 && got != float64(1) {
+		t.Fatalf("round 1 metadata = %v, want 1", got)
+	}
+	if got := msgs[2].Metadata["meeting_round"]; got != int64(2) && got != 2 && got != float64(2) {
+		t.Fatalf("round 2 metadata = %v, want 2", got)
+	}
+	if msgs[3].Role != "system" {
+		t.Fatalf("summary role = %q, want system", msgs[3].Role)
+	}
+	if got := msgs[3].Metadata["meeting_mode"]; got != "group_chat" {
+		t.Fatalf("summary meeting_mode = %v, want group_chat", got)
+	}
+	if !strings.Contains(msgs[3].Content, "主持人会议已完成") {
+		t.Fatalf("summary content = %q, want group chat summary", msgs[3].Content)
 	}
 }
 

@@ -104,6 +104,14 @@ type ThreadMember struct {
 	LastActiveAt   time.Time         `json:"last_active_at"`
 }
 
+// ThreadAgentPromptResult captures the raw reply returned by a thread agent
+// prompt before the caller decides how to persist or fan it out.
+type ThreadAgentPromptResult struct {
+	Content      string `json:"content"`
+	InputTokens  int64  `json:"input_tokens,omitempty"`
+	OutputTokens int64  `json:"output_tokens,omitempty"`
+}
+
 // ThreadWorkItemLink represents an explicit link between a Thread and a WorkItem.
 type ThreadWorkItemLink struct {
 	ID           int64     `json:"id"`

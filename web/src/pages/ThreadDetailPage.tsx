@@ -88,6 +88,13 @@ function readAgentRoutingMode(thread: Thread | null): "mention_only" | "broadcas
   return "mention_only";
 }
 
+function readMeetingMode(thread: Thread | null): "direct" | "concurrent" | "group_chat" {
+  const value = thread?.metadata?.meeting_mode;
+  if (value === "concurrent") return "concurrent";
+  if (value === "group_chat") return "group_chat";
+  return "direct";
+}
+
 function detectMentionDraft(message: string, caretPosition: number | null): { start: number; end: number; query: string } | null {
   if (caretPosition == null || caretPosition < 0) {
     return null;
@@ -269,6 +276,7 @@ export function ThreadDetailPage() {
   const [invitingAgent, setInvitingAgent] = useState(false);
   const [removingAgentID, setRemovingAgentID] = useState<number | null>(null);
   const [savingRoutingMode, setSavingRoutingMode] = useState(false);
+  const [savingMeetingMode, setSavingMeetingMode] = useState(false);
   const [mentionDraft, setMentionDraft] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [hashDraft, setHashDraft] = useState<{ start: number; end: number; query: string } | null>(null);
@@ -298,6 +306,7 @@ export function ThreadDetailPage() {
     .filter((session) => session.status === "active" || session.status === "booting")
     .map((session) => session.agent_profile_id);
   const agentRoutingMode = readAgentRoutingMode(thread);
+  const meetingMode = readMeetingMode(thread);
   const profileByID = new Map(availableProfiles.map((profile) => [profile.id, profile]));
   const agentSessionByProfileID = new Map(agentSessionsWithProfileID.map((session) => [session.agent_profile_id, session]));
   const committedMentionTargetID = readCommittedMentionTarget(newMessage, activeAgentProfileIDs);
@@ -990,6 +999,25 @@ export function ThreadDetailPage() {
     }
   };
 
+  const handleSetMeetingMode = async (nextMode: "direct" | "concurrent" | "group_chat") => {
+    if (!thread || !id || nextMode === meetingMode) return;
+    setSavingMeetingMode(true);
+    setError(null);
+    try {
+      const updated = await apiClient.updateThread(id, {
+        metadata: {
+          ...(thread.metadata ?? {}),
+          meeting_mode: nextMode,
+        },
+      });
+      setThread(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSavingMeetingMode(false);
+    }
+  };
+
   /* ── render helpers ── */
 
   const renderMessageContent = (msg: ThreadMessage) => {
@@ -1135,6 +1163,41 @@ export function ThreadDetailPage() {
               disabled={savingRoutingMode}
             >
               {t("threads.routingAuto", "Auto")}
+            </button>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 px-1 py-0.5 text-xs">
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-2.5 py-1 transition-colors",
+                meetingMode === "direct" ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => void handleSetMeetingMode("direct")}
+              disabled={savingMeetingMode}
+            >
+              {t("threads.meetingDirect", "Direct")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-2.5 py-1 transition-colors",
+                meetingMode === "concurrent" ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => void handleSetMeetingMode("concurrent")}
+              disabled={savingMeetingMode}
+            >
+              {t("threads.meetingConcurrent", "Concurrent")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-2.5 py-1 transition-colors",
+                meetingMode === "group_chat" ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => void handleSetMeetingMode("group_chat")}
+              disabled={savingMeetingMode}
+            >
+              {t("threads.meetingGroupChat", "Group Chat")}
             </button>
           </div>
           <Badge variant="secondary" className="gap-1 text-xs">
@@ -1333,11 +1396,15 @@ export function ThreadDetailPage() {
                     placeholder={
                       thread.status !== "active"
                         ? t("threads.threadClosed", "Thread is closed")
-                        : agentRoutingMode === "auto"
-                          ? t("threads.messagePlaceholderAuto", "Type a message (auto-routed to the best-fit agent)...")
-                          : agentRoutingMode === "broadcast"
-                            ? t("threads.messagePlaceholderBroadcast", "Type a message (broadcasts to all agents)...")
-                            : t("threads.messagePlaceholder", "Type @ to mention an agent, # to reference a file...")
+                        : meetingMode === "concurrent"
+                          ? t("threads.messagePlaceholderConcurrent", "Type a message (concurrent meeting with routed agents)...")
+                          : meetingMode === "group_chat"
+                            ? t("threads.messagePlaceholderGroupChat", "Type a message (round-robin discussion with routed agents)...")
+                            : agentRoutingMode === "auto"
+                              ? t("threads.messagePlaceholderAuto", "Type a message (auto-routed to the best-fit agent)...")
+                              : agentRoutingMode === "broadcast"
+                                ? t("threads.messagePlaceholderBroadcast", "Type a message (broadcasts to all agents)...")
+                                : t("threads.messagePlaceholder", "Type @ to mention an agent, # to reference a file...")
                     }
                     className="flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none outline-none focus:ring-0"
                     value={newMessage}
@@ -1459,6 +1526,13 @@ export function ThreadDetailPage() {
                     : agentRoutingMode === "broadcast"
                       ? t("threads.mentionHintBroadcast", "Broadcast mode: messages go to all active agents. Use @agent-id for targeting.")
                       : t("threads.mentionHintMentionOnly", "Mention-only mode: use @agent-id to direct messages to specific agents.")}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {meetingMode === "concurrent"
+                    ? t("threads.meetingHintConcurrent", "Concurrent meeting: routed agents reply in parallel, then the thread posts a summary.")
+                    : meetingMode === "group_chat"
+                      ? t("threads.meetingHintGroupChat", "Group chat meeting: routed agents speak round by round using the configured selector.")
+                      : t("threads.meetingHintDirect", "Direct mode: each routed agent receives the message independently. Use @agent-id for lightweight handoff.")}
                 </p>
               </div>
             </div>
