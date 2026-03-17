@@ -115,7 +115,8 @@ func addDescriptions(schema *jsonschema.Schema) {
 		},
 		"RuntimeProfileConfig": {
 			"id": "profile 唯一标识", "name": "展示名称", "driver": "引用的 driver ID",
-			"role": "运行时角色", "capabilities": "能力标签", "actions_allowed": "允许动作",
+			"llm_config_id": "引用的 LLM provider 配置 ID（位于 runtime.llm.configs）",
+			"role":          "运行时角色", "capabilities": "能力标签", "actions_allowed": "允许动作",
 			"prompt_template": "提示词模板名", "skills": "启用 skill 列表", "session": "会话复用配置", "mcp": "MCP 配置",
 		},
 		"RuntimeSessionConfig": {

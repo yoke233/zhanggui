@@ -1,396 +1,218 @@
-# Thread Workspace 与上下文引用模型规格
+# Thread Workspace 与上下文引用现状规格
 
 > 状态：部分实现
 >
-> 最后按代码核对：2026-03-15
+> 最后按代码核对：2026-03-17
 >
-> 当前实现状态：`thread_context_refs` 表、Thread workspace 目录与 `.context.json`、context-ref CRUD API、Thread agent 启动时使用 workspace cwd、以及 ACP handler 的 mount/archive 路径映射与基础访问控制均已落地；但 `Thread.Metadata.focus`、workspace 每日归档、以及更完整的权限/执行约束仍未全部实现。
->
-> 补充边界说明：Thread 主模型见 `thread-agent-runtime.zh-CN.md`；Thread-WorkItem 关联见 `thread-workitem-linking.zh-CN.md`；项目资源绑定见 `spec-unified-resource-model.zh-CN.md`
+> 当前实现状态：`thread_context_refs`、Thread 目录布局、
+> `.context.json` 同步、项目挂载 alias、附件收录、Thread agent 启动时
+> 使用 Thread 目录作为工作区都已落地；但早期文档中的
+> `workspace/` / `mounts/` / `archive/` 分层、`focus` 字段和每日归档并未按原稿全部实现。
 
-## 概述
+## 一句话结论
 
-Thread 是不绑定项目的全局讨论容器。当前代码已经为 Thread agent 分配独立 workspace cwd，并支持基于 `thread_context_refs` 的项目挂载与 `.context.json` 同步；但该能力仍是“workspace + 只读/检查/受限写入挂载”的第一阶段，尚未覆盖本文定义的全部扩展点。
+Thread 现在已经有真实的文件工作区，不再只是逻辑上下文概念。
 
-本规格解决两个问题：
+当前实现主线是：
 
-1. **Thread agent 缺少工作空间**——每个 Thread 获得独立的持久化工作目录，agent 在其中自由读写，保留跨会话的工作产物
-2. **Thread 需要访问项目资源但不应绑定项目**——通过轻量的上下文引用（Context Ref）将项目资源只读挂载到 Thread，不改变 Thread 的全局视角定位
+- 每个 Thread 在 `dataDir/threads/{threadID}` 下拥有自己的目录
+- 平台维护 `.context.json`
+- 项目访问通过 `thread_context_refs` + `projects/{slug}` alias 暴露
+- 用户上传附件通过 `attachments/` 暴露
+- Thread agent 启动时直接以 Thread 目录作为 cwd / workspace 根
 
-设计原则：
+## 当前目录布局
 
-- Thread 主模型不添加 `project_id`
-- 不引入独立的权限授权实体（ThreadGrant）——引用即授权，上下文引用自身携带访问级别
-- 不引入独立的执行任务实体（ExecutionSession）——ACP session 配置即执行上下文
-- 一次操作一个主 cwd，不做多目录自由漫游
+当前真实目录布局来自 `internal/threadctx/workspace.go`。
 
-## 架构模型
+已明确创建的目录/文件包括：
 
-```
-{dataDir}/
-  threads/
-    {threadID}/
-      workspace/                ← agent 的 cwd（可读写）
-        .context.json           ← 平台自动维护的上下文描述
-        ...agent 工作产物...
-      mounts/                   ← 只读项目视图（路径映射，非物理复制）
-        {project-slug}/         → Project ResourceBinding 解析出的实际路径
-      archive/
-        2026-03-14/             ← 每日归档快照
+```text
+{dataDir}/threads/{threadID}/
+├── projects/       <- 项目 alias 目录
+├── attachments/    <- Thread 附件目录
+└── .context.json   <- 平台同步生成
 ```
 
-```
-Thread
-  ├── ThreadMember (human / agent)
-  ├── ThreadMessage
-  │     └── metadata.resource_refs[]   ← 消息级资源引用
-  ├── ThreadWorkItemLink               ← 已有，长期关联
-  └── thread_context_refs              ← 新增，轻量上下文引用
-        ├── ProjectA (read)
-        └── ProjectB (check)
+补充说明：
 
-Agent ACP Session
-  cwd = {dataDir}/threads/{threadID}/workspace/
-  路径映射:
-    mounts/{slug}/** → 项目实际路径（ACP handler 层拦截转译）
-```
+- 当前代码里没有单独创建 `workspace/` 子目录
+- 也没有实现文档草案中的 `archive/{date}` 日归档结构
+- 早期草案里提到的 `mounts/` 最终落到了 `projects/` 目录命名
 
-## 数据模型
+因此任何把现状写成 `workspace/ + mounts/ + archive/` 固定结构的文档
+都需要降级为“历史方案”，不能再当现状。
 
-### thread_context_refs
+## `.context.json` 当前作用
 
-```sql
-CREATE TABLE thread_context_refs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id   INTEGER NOT NULL,
-    project_id  INTEGER NOT NULL,
-    access      TEXT    NOT NULL DEFAULT 'read',  -- read | check | write
-    note        TEXT    NOT NULL DEFAULT '',       -- 引用说明
-    granted_by  TEXT    NOT NULL DEFAULT '',       -- 谁引用的（user_id）
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at  DATETIME,                          -- 可选过期时间
-    UNIQUE(thread_id, project_id)
-);
-```
+平台会基于当前 Thread 状态同步 `.context.json`。
 
-### 字段说明
+当前已写入的信息包括：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `thread_id` | int64 | 关联的 Thread ID |
-| `project_id` | int64 | 引用的 Project ID |
-| `access` | string | 访问级别：`read`、`check`、`write` |
-| `note` | string | 引用说明，如"审核方案文档" |
-| `granted_by` | string | 创建引用的用户 ID（谁分享谁负责） |
-| `expires_at` | datetime | 可选；为空表示随 Thread 生命周期 |
+- `thread_id`
+- `workspace`
+- `mounts`
+- `members`
+- `attachments`
+- `updated_at`
 
-### Go 领域类型
+其中：
 
-```go
-// ContextAccess 定义 Thread 对项目资源的访问级别。
-type ContextAccess string
+- `workspace` 当前为 `"."`
+- `mounts` 的 path 会指向 `projects/{slug}`
+- `attachments` 会指向 `attachments/{filename}`
 
-const (
-    ContextAccessRead  ContextAccess = "read"   // 读文件、看 diff
-    ContextAccessCheck ContextAccess = "check"  // read + 执行项目定义的检查命令
-    ContextAccessWrite ContextAccess = "write"  // check + 在项目范围内写文件
-)
+这意味着 agent 可以通过读取 `.context.json` 发现：
 
-// ThreadContextRef 表示 Thread 对一个项目上下文的轻量引用。
-// 引用即授权：创建引用的行为本身就是对 Thread 参与者的临时授权。
-type ThreadContextRef struct {
-    ID        int64
-    ThreadID  int64
-    ProjectID int64
-    Access    ContextAccess
-    Note      string
-    GrantedBy string
-    CreatedAt time.Time
-    ExpiresAt *time.Time
-}
-```
+- 现在有哪些项目上下文被引用
+- 每个项目对应哪个 alias
+- 当前有哪些附件可用
+- 当前有哪些成员参与 Thread
 
-## Thread Workspace
+## 上下文引用模型
 
-### 创建时机
+当前表为：
 
-Thread 创建时同步创建 workspace 目录：
+- `thread_context_refs`
 
-```
-{dataDir}/threads/{threadID}/workspace/
-```
+核心字段包括：
 
-### .context.json
+- `thread_id`
+- `project_id`
+- `access`
+- `note`
+- `granted_by`
+- `created_at`
+- `expires_at`
 
-平台自动生成并维护，agent 启动时读取即可了解当前可用上下文：
+当前核心语义仍成立：
 
-```json
-{
-  "thread_id": 456,
-  "workspace": ".",
-  "mounts": {
-    "project-alpha": {
-      "path": "../mounts/project-alpha",
-      "project_id": 123,
-      "access": "check",
-      "check_commands": ["go test ./...", "npm test"]
-    }
-  },
-  "archive": "../archive",
-  "members": ["personA", "personC"],
-  "updated_at": "2026-03-14T10:30:00Z"
-}
-```
+- 引用即授权
+- Thread 本身不直接绑定单一 `project_id`
+- 权限粒度由 `ContextAccess` 控制
 
-`check_commands` 来自项目配置（见下文"检查命令白名单"），不在 Thread 层面单独配置。
+当前访问级别仍为：
 
-### ACP Session 配置变更
+- `read`
+- `check`
+- `write`
 
-当前实现位于 `internal/runtime/agent/thread_session_pool.go`，已在启动 Thread agent 时把 workspace 目录作为 ACP cwd，并同步注入 Thread workspace scope：
+## 挂载解析现状
 
-```go
-workspaceDir, scopeCfg, err := p.prepareThreadWorkspace(ctx, member.ThreadID)
-handler := acphandler.NewACPHandler(workspaceDir, "", nil)
-handler.SetThreadWorkspace(scopeCfg)
-```
+当前项目挂载并不是“复制项目文件”。
 
-### 每日归档
+实际逻辑是：
 
-每天凌晨（或 Thread 空闲时），将 workspace 增量快照到 archive：
+1. 从 `thread_context_refs` 找到 `project_id`
+2. 读取该 Project 的 `ResourceSpace`
+3. 优先解析可落地的 `local_fs` 或 `git` 工作目录
+4. 为该 project 生成一个 slug
+5. 在 `threads/{threadID}/projects/{slug}` 下创建 alias 目录
+6. 在 `.context.json` 中登记 `projects/{slug}` 路径
 
-```
-{dataDir}/threads/{threadID}/archive/{YYYY-MM-DD}/
-```
+当前重点：
 
-归档目录对 agent 只读。agent 可访问 `../archive/2026-03-13/` 查看历史版本。
+- 当前挂载别名目录名是 `projects/{slug}`
+- Windows 下会优先尝试创建 junction
+- 如果 junction 不可用，会退化为普通目录占位
 
-归档策略：
+## 与 ResourceSpace 的关系
 
-- 默认保留 7 天（可通过项目配置调整）
-- 空 workspace 不产生归档
-- 归档使用增量复制，不是 git
+当前 Thread workspace 不再依赖旧文档里的 `ResourceBinding` 主叙事，
+而是已经优先从 `ResourceSpace` 解析项目根路径。
 
-## 上下文引用与项目挂载
+当前实际行为：
 
-### 引用即授权
+- `local_fs` 类型：直接使用 `RootURI`
+- `git` 类型：优先解析非远端的 `RootURI`，或读取 `Config.clone_dir`
+- 可从 `ResourceSpace.Config` 中读取 `check_commands`
 
-不存在独立的 ThreadGrant 实体。`thread_context_refs` 的一行记录同时表达：
+这意味着 Thread workspace 与统一资源模型已经接上了第一条真实链路。
 
-- **上下文**：这个 Thread 关联了哪个项目
-- **授权**：Thread 参与者对该项目有什么级别的访问
+## 附件现状
 
-创建引用 = 分享授权。`granted_by` 记录是谁做的，用于审计。
+当前 Thread 附件是现行能力，不再是规划项。
 
-### 挂载机制
+系统会：
 
-挂载不使用文件系统 symlink（Windows 兼容性差），而是 **ACP handler 层的路径映射**：
+- 将附件放到 `attachments/`
+- 把附件信息同步进 `.context.json`
+- 让 Thread agent 可通过上下文看到这些附件
 
-```
-agent 请求的路径                    → 实际物理路径
-workspace/plan.md                  → {dataDir}/threads/456/workspace/plan.md
-mounts/project-alpha/src/main.go   → D:/projects/alpha/src/main.go
-archive/2026-03-13/plan.md         → {dataDir}/threads/456/archive/2026-03-13/plan.md
-```
+因此当前 Thread workspace 实际上已经同时承载：
 
-ACP handler 持有挂载映射表（从 `thread_context_refs` + `ResourceBinding` 解析），拦截所有文件操作请求，做路径转译和权限检查。agent 不知道真实物理路径。
+- 项目引用
+- 用户上传附件
+- agent 运行目录
 
-### Thread 焦点（Focus）
+## 权限语义现状
 
-Thread.Metadata 中维护一个可变的 `focus` 字段，标识当前讨论焦点的项目：
+当前文档仍可保留三档访问语义：
 
-```jsonc
-// Thread.Metadata
-{
-  "focus": { "project_id": 123 }
-}
-```
+- `read`
+- `check`
+- `write`
 
-- 对话中切换焦点：用户说"我们看一下 ProjectX"→ focus 更新
-- focus 影响 UI 默认展示和 agent boot prompt 的上下文优先级
-- focus 不影响权限——权限只看 `thread_context_refs`
-- focus 为空时 Thread 处于纯讨论模式
+但要明确边界：
 
-## 访问级别与权限模型
+- access 字段和上下文信息已经落地
+- 更完整的“所有文件操作都由本文档中的统一权限判定函数拦截”
+  这一层并没有按草案全文一比一实现
 
-### 三档访问级别
+换句话说：
 
-| 级别 | 文件读 | 文件写 | 终端命令 | 典型场景 |
-|------|--------|--------|---------|---------|
-| `read` | 项目文件只读 | 禁止 | 禁止 | 查看文件、diff、摘要 |
-| `check` | 项目文件只读 | 禁止 | 仅项目白名单命令 | 审核 + 跑测试 |
-| `write` | 项目文件只读 | 项目范围内允许 | 仅项目白名单命令 | 修改项目文件 |
+- “访问级别模型存在”是现状
+- “所有权限语义都已严格闭环”不是现状
 
-注意：`write` 级别的文件写入受限于项目 ResourceBinding 范围，不是任意路径。
+## 当前 agent 工作区事实
 
-发布操作（push / merge / secrets）不在此模型中，走 SCM 插件自身的审批流程。
+Thread agent runtime 启动时，已经会为 agent 准备 Thread workspace 作用域。
 
-### 检查命令白名单
+当前已落地行为包括：
 
-由项目配置定义，不在 Thread 层面单独配置：
+- 创建 Thread 目录布局
+- 同步 `.context.json`
+- 将 Thread 工作目录注入到 runtime
+- 按项目 alias 与附件目录暴露上下文
 
-```toml
-# .ai-workflow/config.toml (项目级)
-[review]
-check_commands = [
-    "go test ./...",
-    "npm test",
-    "scripts/check.sh",
-]
-```
+因此现在应当把 Thread workspace 理解为：
 
-当 `thread_context_ref.access = "check"` 或 `"write"` 时，agent 可执行该项目 `check_commands` 中列出的命令。不在白名单中的命令一律拒绝。
+“围绕 Thread 根目录组织的工作区”，而不是
+“必须有独立 `workspace/` 子目录的设计草图”。
 
-### 权限生效规则
+## 当前未落地或不应按现状表述的内容
 
-最终有效权限 = `AgentProfile 上限` ∩ `ContextRef access`
+以下内容应明确视为草案遗留，不应写成现状：
 
-```
-Layer 1: AgentProfile                → capabilities_max + actions_allowed（已有）
-Layer 2: ThreadContextRef.access     → read / check / write（本规格新增）
-```
+- `Thread.Metadata.focus`
+- 固定 `workspace/` 子目录
+- 固定 `mounts/` 子目录
+- 每日归档 `archive/{date}`
+- “所有命令白名单与路径权限都已完全闭环”
 
-任何一层不允许，就不允许。ACP 的 `allow_once` / `reject` 作为运行时兜底交互，不算独立权限层。
+这些内容可以继续作为未来增强方向，但不能再冒充当前代码行为。
 
-### ACP Handler 路径权限判断
+## API 现状
 
-```go
-func (h *Handler) checkThreadAccess(threadID int64, path string, op AccessOp) bool {
-    // workspace/** → 自由读写
-    if isUnderWorkspace(path) {
-        return true
-    }
-    // archive/** → 只读
-    if isUnderArchive(path) {
-        return op == OpRead
-    }
-    // mounts/{project}/** → 查 context_ref
-    if project, ok := resolveMount(path); ok {
-        ref := getContextRef(threadID, project.ID)
-        if ref == nil {
-            return false
-        }
-        switch op {
-        case OpRead:
-            return true // 有 ref 就能读
-        case OpWrite:
-            return ref.Access == ContextAccessWrite
-        case OpExec:
-            return ref.Access >= ContextAccessCheck &&
-                inCheckCommandWhitelist(cmd, project.ReviewConfig.CheckCommands)
-        }
-    }
-    // 其他路径 → 拒绝
-    return false
-}
-```
-
-## 消息级资源引用
-
-除了 `thread_context_refs` 表的项目级引用，消息也可携带轻量的资源引用：
-
-```go
-// ThreadMessage.Metadata 中的可选字段
-type ResourceRef struct {
-    ProjectID int64    `json:"project_id,omitempty"`
-    Paths     []string `json:"paths,omitempty"`     // 具体文件路径
-    Scripts   []string `json:"scripts,omitempty"`   // 建议执行的脚本
-}
-```
-
-消息级引用是提示性的（给 agent 看的上下文），不创建 `thread_context_refs` 记录。真正的权限授权仍然只通过 `thread_context_refs` 表。
-
-## API 端点
+当前已实现端点：
 
 | Method | Path | 说明 |
-|--------|------|------|
-| `POST` | `/threads/{threadID}/context-refs` | 创建上下文引用（挂载项目） |
-| `GET` | `/threads/{threadID}/context-refs` | 列出当前上下文引用 |
-| `PATCH` | `/threads/{threadID}/context-refs/{refID}` | 更新访问级别 |
-| `DELETE` | `/threads/{threadID}/context-refs/{refID}` | 移除上下文引用（卸载项目） |
+|------|------|------|
+| `POST` | `/threads/{threadID}/context-refs` | 创建项目上下文引用 |
+| `GET` | `/threads/{threadID}/context-refs` | 列出引用 |
+| `PATCH` | `/threads/{threadID}/context-refs/{refID}` | 更新 access / note |
+| `DELETE` | `/threads/{threadID}/context-refs/{refID}` | 删除引用 |
 
-### POST /threads/{threadID}/context-refs 请求体
+与之直接相关的现行能力还包括：
 
-```json
-{
-  "project_id": 123,
-  "access": "check",
-  "note": "审核方案文档，跑一下测试"
-}
-```
+- `/threads/{threadID}/attachments`
+- `/threads/{threadID}/files`
 
-`granted_by` 从请求上下文中的用户身份自动填充。
+说明 Thread workspace 当前已经不仅仅是“引用表”，还包含文件入口。
 
-### PATCH /threads/{threadID}/context-refs/{refID} 请求体
+## 推荐搭配阅读
 
-```json
-{
-  "access": "write"
-}
-```
-
-仅允许升级或降级访问级别，不允许更改 project_id（需删除重建）。
-
-## 协作流程示例
-
-```
-1. Thread#456 创建
-   → 创建 {dataDir}/threads/456/workspace/
-   → 生成 .context.json（空 mounts）
-
-2. Agent 加入讨论，自由读写 workspace
-   → cwd = threads/456/workspace/
-   → agent 将讨论产出写入 workspace/plan.md
-
-3. 用户: "挂载 ProjectAlpha，让 reviewerC 来审核，顺便跑测试"
-   → POST /threads/456/context-refs { project_id: alpha, access: "check" }
-   → 路径映射注册: mounts/project-alpha → alpha 的 ResourceBinding 路径
-   → .context.json 更新
-
-4. reviewerC 的 agent 启动
-   → 读 .context.json → 知道有 project-alpha 可用，access=check
-   → 读 workspace/plan.md → 看到之前 agent 的产出
-   → 读 mounts/project-alpha/docs/arch.md → ACP 拦截 → 有 ref → 允许
-   → 执行 go test ./... → ACP 拦截 → 在 check_commands 白名单 → 允许
-   → 执行 rm -rf / → ACP 拦截 → 不在白名单 → 拒绝
-   → 写审核意见到 workspace/review-notes.md → workspace 内 → 允许
-
-5. 其他成员进入 Thread
-   → 读 workspace/ → 看到 plan.md + review-notes.md
-
-6. 凌晨归档
-   → workspace/ 快照到 archive/2026-03-14/
-
-7. 讨论结束
-   → Thread 关闭或 ref 过期 → 挂载映射失效
-   → workspace 保留（可查阅历史）
-```
-
-## 删除与清理策略
-
-- Thread 删除时：先调用 `CleanupThread(threadID)` 释放 ACP session（已有），再清理 `thread_context_refs` 记录
-- workspace 目录：Thread 删除后保留 N 天（可配置），之后由后台任务清理
-- `thread_context_refs` 不设 `ON DELETE CASCADE`，通过 handler 显式清理（与 `thread_work_item_links` 策略一致）
-
-## 实施顺序与统一资源模型的关系
-
-本规格与 `spec-unified-resource-model.zh-CN.md` 无表结构冲突。`thread_context_refs` 只引用 `project_id`，不直接引用 `ResourceBinding` 或 `ResourceSpace`。路径解析发生在运行时代码（ACP handler 挂载映射），不在表结构上。
-
-**建议先实施本规格，后实施统一资源模型。** 原因：
-
-1. 当前 thread agent cwd 为空字符串，是功能缺口，本规格直接解决
-2. 统一资源模型是大型重构（5 Phase），周期长，不应阻塞 Thread 能力建设
-3. 本规格的挂载解析暂时走 `ResourceBinding`；统一资源模型完成后，只需将解析改为查 `ResourceSpace`（一处代码变更）
-
-## 与现有设计的关系
-
-| 现有概念 | 本规格的关系 |
-|---------|-------------|
-| Thread 主模型 | 不修改；不添加 project_id |
-| ThreadWorkItemLink | 保留；用于 Thread-WorkItem 长期关联 |
-| thread_context_refs | 新增；用于项目上下文的轻量引用和权限 |
-| Thread workspace | 新增；每个 Thread 的独立文件空间 |
-| AgentProfile.capabilities_max | 保留；作为权限上限（Layer 1） |
-| AgentProfile.actions_allowed | 保留；作为角色能力约束 |
-| ResourceBinding | 保留；挂载时从中解析项目的实际 workspace 路径 |
-| WorkItem 执行上下文 | 不影响；WorkItem 执行仍走 engine → workspace provider 路径 |
-| ACP handler 权限检查 | 扩展；增加 workspace/mounts 路径判断和命令白名单 |
+1. `thread-agent-runtime.zh-CN.md`
+2. `thread-task-dag.zh-CN.md`
+3. `spec-unified-resource-model.zh-CN.md`
+4. `thread-workitem-linking.zh-CN.md`

@@ -4,7 +4,7 @@
 >
 > 状态：现行
 >
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-17
 >
 > 当前实现状态：本文中的命名治理规则已基本生效。前端主入口与后端 Public REST 都已经切到 `/work-items`；`/flows` 仅保留前端 redirect；剩余兼容层主要存在于持久化表名（`issues` / `steps` / `executions`）和少量 `issue` 命名的 handler / request struct。
 >
@@ -253,7 +253,7 @@ export type WorkItem = Issue;
 补充说明：
 
 - 前端路由当前已切到 `/work-items`，对应实现见 `web/src/App.tsx`
-- 但 API Client 仍调用 `/issues`，因此本文不应再把 `/work-items` 写成已落地的后端等价路由
+- 前端主 API client 现在已经主用 `/work-items`；旧 `issue` 语义主要残留在兼容类型、持久化命名和少量 request / handler 字段中
 - 不建议继续引入 `Action = Step`、`Run = Execution`、`Deliverable = Artifact` 这类第二层 alias，除非确有明确产品收益
 
 ## spec 文档状态规范

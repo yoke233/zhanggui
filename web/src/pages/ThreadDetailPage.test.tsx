@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n";
 import { ThreadDetailPage } from "./ThreadDetailPage";
 
-const DEFAULT_MESSAGE_PLACEHOLDER = "Type @ to mention an agent, # to reference a file...";
+const DEFAULT_MESSAGE_PLACEHOLDER =
+  "Type @ to mention an agent, # to reference a file...";
 
 const { mockUseWorkbench } = vi.hoisted(() => ({
   mockUseWorkbench: vi.fn(),
@@ -56,7 +63,9 @@ function buildAgentSession(id: number, profileID: string, status = "active") {
 
 function createWsClientMock() {
   const subscriptions = new Map<string, Array<(payload: unknown) => void>>();
-  const statusHandlers: Array<(status: "idle" | "connecting" | "open" | "closed") => void> = [];
+  const statusHandlers: Array<
+    (status: "idle" | "connecting" | "open" | "closed") => void
+  > = [];
 
   return {
     send: vi.fn(),
@@ -67,18 +76,25 @@ function createWsClientMock() {
       subscriptions.set(type, handlers);
       return () => {
         const current = subscriptions.get(type) ?? [];
-        subscriptions.set(type, current.filter((item) => item !== handler));
+        subscriptions.set(
+          type,
+          current.filter((item) => item !== handler),
+        );
       };
     }),
-    onStatusChange: vi.fn((handler: (status: "idle" | "connecting" | "open" | "closed") => void) => {
-      statusHandlers.push(handler);
-      return () => {
-        const idx = statusHandlers.indexOf(handler);
-        if (idx >= 0) {
-          statusHandlers.splice(idx, 1);
-        }
-      };
-    }),
+    onStatusChange: vi.fn(
+      (
+        handler: (status: "idle" | "connecting" | "open" | "closed") => void,
+      ) => {
+        statusHandlers.push(handler);
+        return () => {
+          const idx = statusHandlers.indexOf(handler);
+          if (idx >= 0) {
+            statusHandlers.splice(idx, 1);
+          }
+        };
+      },
+    ),
     emit(type: string, payload: unknown) {
       for (const handler of subscriptions.get(type) ?? []) {
         handler(payload);
@@ -104,7 +120,6 @@ function renderPage() {
   );
 }
 
-
 describe("ThreadDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -118,7 +133,6 @@ describe("ThreadDetailPage", () => {
   afterEach(() => {
     cleanup();
   });
-
 
   it("进入页面订阅 thread，并通过 thread.send + 实时事件更新消息列表", async () => {
     const wsClient = createWsClientMock();
@@ -157,7 +171,9 @@ describe("ThreadDetailPage", () => {
       }),
     );
 
-    const sendCall = wsClient.send.mock.calls.find((call) => call[0]?.type === "thread.send");
+    const sendCall = wsClient.send.mock.calls.find(
+      (call) => call[0]?.type === "thread.send",
+    );
     const requestId = sendCall?.[0]?.data?.request_id;
     wsClient.emit("thread.ack", {
       request_id: requestId,
@@ -188,13 +204,21 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn()
+      listThreadAgents: vi
+        .fn()
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([buildAgentSession(11, "worker-a")])
         .mockResolvedValueOnce([]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
-      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a"), buildProfile("worker-b")]),
-      inviteThreadAgent: vi.fn().mockResolvedValue(buildAgentSession(11, "worker-a", "joining")),
+      listProfiles: vi
+        .fn()
+        .mockResolvedValue([
+          buildProfile("worker-a"),
+          buildProfile("worker-b"),
+        ]),
+      inviteThreadAgent: vi
+        .fn()
+        .mockResolvedValue(buildAgentSession(11, "worker-a", "joining")),
       removeThreadAgent: vi.fn().mockResolvedValue(undefined),
     };
     mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
@@ -207,7 +231,9 @@ describe("ThreadDetailPage", () => {
     fireEvent.click(await screen.findByText(/Add \(1\)/));
 
     await waitFor(() => {
-      expect(apiClient.inviteThreadAgent).toHaveBeenCalledWith(1, { agent_profile_id: "worker-a" });
+      expect(apiClient.inviteThreadAgent).toHaveBeenCalledWith(1, {
+        agent_profile_id: "worker-a",
+      });
     });
     expect(await screen.findByText("worker-a")).toBeTruthy();
 
@@ -229,7 +255,9 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
     };
@@ -254,7 +282,9 @@ describe("ThreadDetailPage", () => {
       }),
     );
 
-    const sendCall = wsClient.send.mock.calls.find((call) => call[0]?.type === "thread.send");
+    const sendCall = wsClient.send.mock.calls.find(
+      (call) => call[0]?.type === "thread.send",
+    );
     const requestId = sendCall?.[0]?.data?.request_id;
     wsClient.emit("thread.ack", {
       request_id: requestId,
@@ -269,7 +299,9 @@ describe("ThreadDetailPage", () => {
       target_agent_id: "worker-a",
     });
 
-    expect(await screen.findByRole("button", { name: "@worker-a" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "@worker-a" }),
+    ).toBeTruthy();
     expect(await screen.findByText("请处理这个问题")).toBeTruthy();
   });
 
@@ -281,7 +313,9 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
     };
@@ -289,7 +323,9 @@ describe("ThreadDetailPage", () => {
 
     renderPage();
 
-    await screen.findByText("Mention-only mode: use @agent-id to direct messages to specific agents.");
+    await screen.findByText(
+      "Mention-only mode: use @agent-id to direct messages to specific agents.",
+    );
 
     const input = screen.getByPlaceholderText(DEFAULT_MESSAGE_PLACEHOLDER);
     fireEvent.change(input, { target: { value: "普通讨论消息" } });
@@ -315,10 +351,16 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
-      updateThread: vi.fn().mockResolvedValue(buildThread("已有摘要", { agent_routing_mode: "broadcast" })),
+      updateThread: vi
+        .fn()
+        .mockResolvedValue(
+          buildThread("已有摘要", { agent_routing_mode: "broadcast" }),
+        ),
     };
     mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
 
@@ -331,7 +373,11 @@ describe("ThreadDetailPage", () => {
         metadata: { agent_routing_mode: "broadcast" },
       });
     });
-    expect(await screen.findByText("Broadcast mode: messages go to all active agents. Use @agent-id for targeting.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Broadcast mode: messages go to all active agents. Use @agent-id for targeting.",
+      ),
+    ).toBeTruthy();
   });
 
   it("支持切换到并行会议模式", async () => {
@@ -342,10 +388,16 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
-      updateThread: vi.fn().mockResolvedValue(buildThread("已有摘要", { meeting_mode: "concurrent" })),
+      updateThread: vi
+        .fn()
+        .mockResolvedValue(
+          buildThread("已有摘要", { meeting_mode: "concurrent" }),
+        ),
     };
     mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
 
@@ -358,7 +410,11 @@ describe("ThreadDetailPage", () => {
         metadata: { meeting_mode: "concurrent" },
       });
     });
-    expect(await screen.findByText("Concurrent meeting: routed agents reply in parallel, then the thread posts a summary.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Concurrent meeting: routed agents reply in parallel, then the thread posts a summary.",
+      ),
+    ).toBeTruthy();
   });
 
   it("输入 @ 时展示候选并插入 mention", async () => {
@@ -369,23 +425,39 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a"), buildAgentSession(12, "worker-b")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([
+          buildAgentSession(11, "worker-a"),
+          buildAgentSession(12, "worker-b"),
+        ]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
-      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a"), buildProfile("worker-b")]),
+      listProfiles: vi
+        .fn()
+        .mockResolvedValue([
+          buildProfile("worker-a"),
+          buildProfile("worker-b"),
+        ]),
     };
     mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
 
     renderPage();
 
-    const input = await screen.findByPlaceholderText(DEFAULT_MESSAGE_PLACEHOLDER);
+    const input = await screen.findByPlaceholderText(
+      DEFAULT_MESSAGE_PLACEHOLDER,
+    );
     fireEvent.change(input, { target: { value: "@wor", selectionStart: 4 } });
 
-    expect(await screen.findByRole("button", { name: /@worker-a/ })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /@worker-a/ }),
+    ).toBeTruthy();
 
     fireEvent.mouseDown(screen.getByRole("button", { name: /@worker-a/ }));
 
     expect((input as HTMLInputElement).value).toBe("@worker-a ");
-    expect(await screen.findByRole("button", { name: "@worker-a" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "@worker-a" }),
+    ).toBeTruthy();
   });
 
   it("点击消息里的 mention 会高亮对应 agent 卡片", async () => {
@@ -406,7 +478,9 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
     };
@@ -417,7 +491,9 @@ describe("ThreadDetailPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "@worker-a" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("agent-card-worker-a").className).toContain("border-blue-300");
+      expect(screen.getByTestId("agent-card-worker-a").className).toContain(
+        "border-blue-300",
+      );
     });
   });
 
@@ -469,7 +545,9 @@ describe("ThreadDetailPage", () => {
       listThreadParticipants: vi.fn().mockResolvedValue([]),
       listWorkItemsByThread: vi.fn().mockResolvedValue([]),
       listThreadTaskGroups: vi.fn().mockResolvedValue([]),
-      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
       listThreadAttachments: vi.fn().mockResolvedValue([]),
       listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
     };
@@ -477,7 +555,9 @@ describe("ThreadDetailPage", () => {
 
     renderPage();
 
-    fireEvent.mouseEnter(await screen.findByRole("button", { name: "@worker-a" }));
+    fireEvent.mouseEnter(
+      await screen.findByRole("button", { name: "@worker-a" }),
+    );
 
     const hoverCard = await screen.findByTestId("mention-hover-card-worker-a");
     expect(hoverCard.textContent).toContain("Turns: 0");
