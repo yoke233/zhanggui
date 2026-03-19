@@ -85,7 +85,7 @@ npm --prefix web ci
 npm --prefix web run lint
 npm --prefix web run test
 npm --prefix web run build
-CGO_ENABLED=0 go build -tags webdist -o ./dist/ai-flow ./cmd/ai-flow
+CGO_ENABLED=0 go build -o ./dist/ai-flow ./cmd/ai-flow
 ```
 
 PowerShell scripts under `scripts/test/` remain available for local Windows smoke and manual regression, but CI no longer depends on them.

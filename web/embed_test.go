@@ -1,5 +1,3 @@
-//go:build !webdist
-
 package webassets
 
 import (

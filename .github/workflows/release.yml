@@ -79,7 +79,7 @@ jobs:
 
           mkdir -p "${package_dir}"
           GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" CGO_ENABLED=0 \
-            go build -tags webdist -trimpath -ldflags="-s -w" -o "${package_dir}/${binary_name}" ./cmd/ai-flow
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/${binary_name}" ./cmd/ai-flow
 
           cp README.md "${package_dir}/"
           cp README.zh-CN.md "${package_dir}/"

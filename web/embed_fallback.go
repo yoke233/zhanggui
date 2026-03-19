@@ -1,5 +1,3 @@
-//go:build !webdist
-
 package webassets
 
 import (
@@ -7,7 +5,7 @@ import (
 	"io/fs"
 )
 
-// fallbackFS contains a minimal SPA shell used when webdist tag is not enabled.
+// fallbackFS contains a minimal SPA shell served as the embedded frontend.
 //
 //go:embed all:embedded_fallback
 var fallbackFS embed.FS

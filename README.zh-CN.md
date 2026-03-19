@@ -85,7 +85,7 @@ npm --prefix web ci
 npm --prefix web run lint
 npm --prefix web run test
 npm --prefix web run build
-CGO_ENABLED=0 go build -tags webdist -o ./dist/ai-flow ./cmd/ai-flow
+CGO_ENABLED=0 go build -o ./dist/ai-flow ./cmd/ai-flow
 ```
 
 `scripts/test/` 下的 PowerShell 脚本仍可用于 Windows 本地冒烟和手动回归，但 CI 已不再依赖它们。

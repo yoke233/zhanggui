@@ -121,14 +121,11 @@ jobs:
         working-directory: web
         run: npm run build
 
-      - name: Verify webdist embed tests
-        run: go test -tags webdist ./web
-
-      - name: Build release binary with embedded frontend
+      - name: Build release binary
         shell: bash
         run: |
           mkdir -p dist
-          CGO_ENABLED=0 go build -tags webdist -trimpath -ldflags="-s -w" -o dist/ai-flow ./cmd/ai-flow
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ai-flow ./cmd/ai-flow
 
       - name: Upload embedded CLI artifact
         uses: actions/upload-artifact@v4
