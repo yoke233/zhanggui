@@ -564,7 +564,7 @@ func (m *Manager) buildSnapshotFromPaths(configPath string, secretsPath string) 
 	if _, err := os.Stat(configPath); err != nil {
 		return nil, fmt.Errorf("config file unavailable: %w", err)
 	}
-	cfg, err := config.LoadGlobalCompatible(configPath, secretsPath)
+	cfg, err := config.LoadGlobal(configPath, secretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config runtime: %w", err)
 	}

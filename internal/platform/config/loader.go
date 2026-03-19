@@ -73,23 +73,6 @@ func LoadGlobal(path string, secretsPaths ...string) (*Config, error) {
 	return &cfg, nil
 }
 
-// LoadGlobalCompatible keeps strict parsing for current config files but falls back
-// to defaults when the on-disk file is clearly from a legacy schema generation.
-func LoadGlobalCompatible(path string, secretsPaths ...string) (*Config, error) {
-	cfg, err := LoadGlobal(path, secretsPaths...)
-	if err == nil {
-		return cfg, nil
-	}
-	legacy, legacyErr := IsLegacyConfigFile(path)
-	if legacyErr != nil {
-		return nil, legacyErr
-	}
-	if !legacy {
-		return nil, err
-	}
-	return LoadGlobal("", secretsPaths...)
-}
-
 func LoadProject(repoPath string) (*ConfigLayer, error) {
 	path := ProjectConfigPath(repoPath)
 	layer, err := loadLayerFromFile(path)
@@ -116,30 +99,6 @@ func loadLayerFromFile(path string) (*ConfigLayer, error) {
 	default:
 		return loadLayerFromTOML(data)
 	}
-}
-
-func IsLegacyConfigFile(path string) (bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	content := string(data)
-	legacyMarkers := []string{
-		"[agents]",
-		"[[roles]]",
-		"[role_bindings.",
-		"[v2.",
-		"[a2a]",
-	}
-	for _, marker := range legacyMarkers {
-		if strings.Contains(content, marker) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func decodeLayerFromMap(raw map[string]any) (*ConfigLayer, error) {

@@ -55,23 +55,6 @@ type CodeupSecrets struct {
 	PAT   string `toml:"pat"   yaml:"pat"`
 }
 
-type legacySecrets struct {
-	Tokens    map[string]TokenEntry `toml:"tokens"`
-	GitHub    legacyGitHubSecrets   `toml:"github"`
-	Codeup    CodeupSecrets         `toml:"codeup"`
-	CommitPAT string                `toml:"commit_pat"`
-	MergePAT  string                `toml:"merge_pat"`
-}
-
-type legacyGitHubSecrets struct {
-	Token          string `toml:"token"`
-	PAT            string `toml:"pat"`
-	PrivateKeyPath string `toml:"private_key_path"`
-	WebhookSecret  string `toml:"webhook_secret"`
-	CommitPAT      string `toml:"commit_pat"`
-	MergePAT       string `toml:"merge_pat"`
-}
-
 // AdminToken returns the token value for the "admin" role entry, or empty if none.
 func (s *Secrets) AdminToken() string {
 	if s == nil {
@@ -101,11 +84,7 @@ func LoadSecrets(path string) (*Secrets, error) {
 		dec := toml.NewDecoder(strings.NewReader(string(data)))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(s); err != nil {
-			legacy, legacyErr := loadLegacySecretsTOML(data)
-			if legacyErr != nil {
-				return nil, fmt.Errorf("parse secrets toml: %w", err)
-			}
-			s = legacy
+			return nil, fmt.Errorf("parse secrets toml: %w", err)
 		}
 	default:
 		decoder := yaml.NewDecoder(strings.NewReader(string(data)))
@@ -119,37 +98,6 @@ func LoadSecrets(path string) (*Secrets, error) {
 		s.Tokens = map[string]TokenEntry{}
 	}
 	return s, nil
-}
-
-func loadLegacySecretsTOML(data []byte) (*Secrets, error) {
-	dec := toml.NewDecoder(strings.NewReader(string(data)))
-	dec.DisallowUnknownFields()
-
-	var legacy legacySecrets
-	if err := dec.Decode(&legacy); err != nil {
-		return nil, err
-	}
-
-	return &Secrets{
-		Tokens: legacy.Tokens,
-		GitHub: GitHubSecrets{
-			Token:          legacy.GitHub.Token,
-			PAT:            pickLegacyPAT(legacy.GitHub.PAT, legacy.GitHub.CommitPAT, legacy.GitHub.MergePAT, legacy.CommitPAT, legacy.MergePAT),
-			PrivateKeyPath: legacy.GitHub.PrivateKeyPath,
-			WebhookSecret:  legacy.GitHub.WebhookSecret,
-		},
-		Codeup: legacy.Codeup,
-	}, nil
-}
-
-func pickLegacyPAT(values ...string) string {
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 // SaveSecrets writes secrets to a TOML file with restricted permissions (0600).

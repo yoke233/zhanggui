@@ -108,27 +108,6 @@ func TestLoadConfigDoesNotGenerateAdminTokenWhenAuthDisabled(t *testing.T) {
 	}
 }
 
-func TestLoadConfigFallsBackFromLegacyConfigToml(t *testing.T) {
-	dataDir := t.TempDir()
-	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
-
-	legacyConfig := []byte("[agents]\n[[roles]]\nname = \"worker\"\n[a2a]\nenabled = true\n")
-	if err := os.WriteFile(filepath.Join(dataDir, "config.toml"), legacyConfig, 0o644); err != nil {
-		t.Fatalf("WriteFile(config.toml) error = %v", err)
-	}
-
-	cfg, _, secrets, err := LoadConfig()
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if cfg.Server.Host != "127.0.0.1" || cfg.Server.Port != 8080 {
-		t.Fatalf("expected defaults to be used, got host=%q port=%d", cfg.Server.Host, cfg.Server.Port)
-	}
-	if secrets.AdminToken() == "" {
-		t.Fatal("expected admin token to still be generated when falling back from legacy config")
-	}
-}
-
 func TestExpandStorePathUsesDataDirForRelativePaths(t *testing.T) {
 	t.Parallel()
 

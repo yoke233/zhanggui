@@ -164,19 +164,3 @@ func TestLoadGlobalYAMLReadsSchedulerMaxProjectRuns(t *testing.T) {
 		t.Fatalf("expected scheduler.max_project_runs 7, got %d", cfg.Scheduler.MaxProjectRuns)
 	}
 }
-
-func TestLoadGlobalCompatibleFallsBackFromLegacyConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	data := []byte("[agents]\n[[roles]]\nname = \"worker\"\n[a2a]\nenabled = true\n")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write legacy config.toml: %v", err)
-	}
-
-	cfg, err := LoadGlobalCompatible(path)
-	if err != nil {
-		t.Fatalf("LoadGlobalCompatible(config.toml) returned error: %v", err)
-	}
-	if cfg.Server.Host != "127.0.0.1" || cfg.Server.Port != 8080 {
-		t.Fatalf("expected defaults fallback, got host=%q port=%d", cfg.Server.Host, cfg.Server.Port)
-	}
-}

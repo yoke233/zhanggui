@@ -33,7 +33,7 @@ func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 	} else if statErr != nil {
 		return nil, "", nil, statErr
 	}
-	cfg, err := loadCompatibleGlobalConfig(cfgPath, secretsPath)
+	cfg, err := config.LoadGlobal(cfgPath, secretsPath)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -45,10 +45,6 @@ func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 		return nil, "", nil, err
 	}
 	return cfg, dataDir, secrets, nil
-}
-
-func loadCompatibleGlobalConfig(cfgPath string, secretsPath string) (*config.Config, error) {
-	return config.LoadGlobalCompatible(cfgPath, secretsPath)
 }
 
 func ensureAdminToken(secretsPath string, cfg *config.Config, secrets *config.Secrets) (*config.Secrets, error) {

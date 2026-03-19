@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadSecrets_MigratesLegacyTopLevelPATFields(t *testing.T) {
+func TestLoadSecrets_StrictRejectsLegacyTopLevelPATFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secrets.toml")
 	content := `
@@ -16,34 +16,12 @@ commit_pat = "legacy-token"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write secrets: %v", err)
 	}
-
-	secrets, err := LoadSecrets(path)
-	if err != nil {
-		t.Fatalf("LoadSecrets error: %v", err)
+	_, err := LoadSecrets(path)
+	if err == nil {
+		t.Fatal("expected legacy top-level PAT fields to be rejected by strict parsing")
 	}
-	if got := secrets.GitHub.PAT; got != "legacy-token" {
-		t.Fatalf("GitHub.PAT = %q, want %q", got, "legacy-token")
-	}
-}
-
-func TestLoadSecrets_MigratesLegacyNestedPATFields(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "secrets.toml")
-	content := `
-[github]
-commit_pat = "legacy-commit"
-merge_pat = "legacy-merge"
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write secrets: %v", err)
-	}
-
-	secrets, err := LoadSecrets(path)
-	if err != nil {
-		t.Fatalf("LoadSecrets error: %v", err)
-	}
-	if got := secrets.GitHub.PAT; got != "legacy-commit" {
-		t.Fatalf("GitHub.PAT = %q, want %q", got, "legacy-commit")
+	if !strings.Contains(err.Error(), "strict mode") {
+		t.Fatalf("expected strict-mode decode error, got %v", err)
 	}
 }
 
