@@ -8,6 +8,7 @@ import (
 
 type Store interface {
 	core.ProposalStore
+	core.ProjectStore
 	core.ThreadStore
 	core.WorkItemStore
 	core.InitiativeStore

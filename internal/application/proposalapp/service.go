@@ -197,7 +197,11 @@ func (s *Service) Submit(ctx context.Context, proposalID int64) (*core.ThreadPro
 	if !core.CanTransitionProposalStatus(proposal.Status, core.ProposalOpen) {
 		return nil, core.ErrInvalidTransition
 	}
-	if _, err := normalizeDrafts(proposal.WorkItemDrafts, true); err != nil {
+	drafts, err := normalizeDrafts(proposal.WorkItemDrafts, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDraftProjects(ctx, s.store, drafts); err != nil {
 		return nil, err
 	}
 	proposal.Status = core.ProposalOpen
@@ -233,6 +237,9 @@ func (s *Service) Approve(ctx context.Context, proposalID int64, input ReviewInp
 	}
 	drafts, err := normalizeDrafts(proposal.WorkItemDrafts, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateDraftProjects(ctx, s.store, drafts); err != nil {
 		return nil, err
 	}
 
@@ -555,7 +562,63 @@ func normalizeDrafts(drafts []core.ProposalWorkItemDraft, requireNonEmpty bool) 
 		normalized[i].DependsOn = normalizeStringSlice(draft.DependsOn)
 		normalized[i].Labels = normalizeStringSlice(draft.Labels)
 	}
+	if err := validateDraftDependencyGraph(normalized); err != nil {
+		return nil, err
+	}
 	return normalized, nil
+}
+
+func validateDraftProjects(ctx context.Context, store Store, drafts []core.ProposalWorkItemDraft) error {
+	if store == nil {
+		return fmt.Errorf("proposal store is not configured")
+	}
+	for _, draft := range drafts {
+		if draft.ProjectID == nil {
+			continue
+		}
+		if *draft.ProjectID <= 0 {
+			return fmt.Errorf("draft %s has invalid project_id", draft.TempID)
+		}
+		if _, err := store.GetProject(ctx, *draft.ProjectID); err != nil {
+			return fmt.Errorf("draft %s project_id %d: %w", draft.TempID, *draft.ProjectID, err)
+		}
+	}
+	return nil
+}
+
+func validateDraftDependencyGraph(drafts []core.ProposalWorkItemDraft) error {
+	edges := make(map[string][]string, len(drafts))
+	for _, draft := range drafts {
+		edges[draft.TempID] = draft.DependsOn
+	}
+	const (
+		stateVisiting = 1
+		stateDone     = 2
+	)
+	seen := make(map[string]int, len(edges))
+	var visit func(string) error
+	visit = func(node string) error {
+		switch seen[node] {
+		case stateVisiting:
+			return fmt.Errorf("draft dependency cycle detected at %s", node)
+		case stateDone:
+			return nil
+		}
+		seen[node] = stateVisiting
+		for _, dep := range edges[node] {
+			if err := visit(dep); err != nil {
+				return err
+			}
+		}
+		seen[node] = stateDone
+		return nil
+	}
+	for node := range edges {
+		if err := visit(node); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizePriority(priority core.WorkItemPriority) (core.WorkItemPriority, error) {

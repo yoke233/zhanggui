@@ -228,3 +228,53 @@ func TestServiceSubmitRequiresDrafts(t *testing.T) {
 		t.Fatal("expected Submit to fail without work item drafts")
 	}
 }
+
+func TestServiceSubmitRejectsDependencyCycle(t *testing.T) {
+	store := newProposalServiceTestStore(t)
+	svc := New(Config{Store: store, Tx: proposalTx{base: store}})
+	ctx := context.Background()
+
+	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "cycle draft", Status: core.ThreadActive, OwnerID: "user-1"})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	proposal, err := svc.CreateProposal(ctx, CreateProposalInput{
+		ThreadID: threadID,
+		Title:    "循环依赖",
+		WorkItemDrafts: []core.ProposalWorkItemDraft{
+			{TempID: "a", Title: "任务 A", DependsOn: []string{"b"}},
+			{TempID: "b", Title: "任务 B", DependsOn: []string{"a"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected CreateProposal to reject draft dependency cycle")
+	}
+	if proposal != nil {
+		t.Fatalf("proposal = %+v, want nil", proposal)
+	}
+}
+
+func TestServiceSubmitRejectsUnknownProject(t *testing.T) {
+	store := newProposalServiceTestStore(t)
+	svc := New(Config{Store: store, Tx: proposalTx{base: store}})
+	ctx := context.Background()
+
+	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "unknown project", Status: core.ThreadActive, OwnerID: "user-1"})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	missingProjectID := int64(999)
+	proposal, err := svc.CreateProposal(ctx, CreateProposalInput{
+		ThreadID: threadID,
+		Title:    "无效项目",
+		WorkItemDrafts: []core.ProposalWorkItemDraft{
+			{TempID: "draft-a", Title: "任务 A", ProjectID: &missingProjectID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateProposal: %v", err)
+	}
+	if _, err := svc.Submit(ctx, proposal.ID); err == nil {
+		t.Fatal("expected Submit to fail for unknown project_id")
+	}
+}
