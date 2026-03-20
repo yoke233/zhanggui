@@ -22,10 +22,10 @@
 
 ## 2. 核心判断
 
-1. **提案是 Thread 消息的一种特殊类型**，不是独立于 Thread 的新容器。提案的讨论上下文就是 Thread 本身。
+1. **提案属于 Thread，但需要独立建表**。提案有状态流转、可修改、有审批机制，这些特性超出了 ThreadMessage 的能力。但提案的讨论上下文就是 Thread 本身，不是独立于 Thread 的新容器。
 2. **一个 Thread 可以产出多个提案**。需求分析可能得出多个备选方案，或者一个大需求分阶段提案。
-3. **提案审批后自动生成 Initiative + WorkItems**，这是 Thread 协同层到执行层的桥梁。
-4. **不引入独立的 Proposal 表**。提案就是一种带结构化 metadata 的 ThreadMessage + 一个轻量状态追踪。用 Thread 已有的 attachment/output 机制承载方案内容。
+3. **提案审批后自动生成 Initiative（draft 状态）+ WorkItems 草案**。Proposal 审批 = 审批结论方向；Initiative 审批 = 审批具体执行计划。两次审批各有侧重。
+4. **Proposal 的产出是 Initiative 的输入**。Proposal approve 后 materialize 生成的 Initiative 状态为 `draft`，用户需要审阅具体 WorkItem 拆分后再审批 Initiative 启动执行。
 
 ## 3. 设计方案
 
@@ -196,14 +196,17 @@ thread.proposal.merged         # 提案已合并为 Initiative
 ```go
 func (s *Service) MaterializeProposal(ctx context.Context, proposalID int64) error {
     // 1. 获取 Proposal + WorkItemDrafts
-    // 2. 创建 Initiative（status = approved）
-    // 3. 逐个创建 WorkItem
+    // 2. 创建 Initiative（status = draft）
+    //    ← 注意是 draft，不是 approved。用户还需要审阅具体 WorkItem 拆分后
+    //      通过 Initiative 的 propose → approve 流程来启动执行。
+    // 3. 逐个创建 WorkItem（status = open）
     //    - 解析 DependsOn：将 temp_id 映射为真实 WorkItem ID
     //    - 设置 ProjectID
     // 4. 创建 InitiativeItem 关联
     // 5. 创建 ThreadInitiativeLink
     // 6. 更新 Proposal: initiative_id, status = merged
     // 7. 发布事件 + 系统消息
+    // 8. 用户可在 Initiative 详情页审阅、调整 WorkItem 后再 approve
 }
 ```
 
@@ -284,12 +287,13 @@ CREATE INDEX idx_thread_proposals_status ON thread_proposals(status);
 
 ## 12. 与已有设计的关系
 
-### 与 WorkItemTrack 的关系
+### 与 WorkItemTrack / ThreadTask 的关系
 
-`WorkItemTrack` 已标记为 DEPRECATED，被 ThreadTask 替代。本设计中的 Proposal 与 WorkItemTrack 的定位不同：
+`WorkItemTrack` 已废弃，`ThreadTask` 也已不再用于执行编排（执行全部交给 WorkItem + Action DAG）。本设计中的 Proposal 与它们的定位不同：
 
-- WorkItemTrack 侧重"单个 WorkItem 的孵化过程"
-- Proposal 侧重"讨论收敛后的结构化结论，可以产出多个跨项目 WorkItem"
+- WorkItemTrack 侧重"单个 WorkItem 的孵化过程"（已废弃）
+- ThreadTask 侧重"Thread 内的轻量任务 DAG"（已不再用于执行）
+- Proposal 侧重"讨论收敛后的结构化结论，可以产出多个跨项目 WorkItem，并通过 Initiative 进入执行"
 
 ### 与 thread-collaboration-to-dag-plan 的关系
 

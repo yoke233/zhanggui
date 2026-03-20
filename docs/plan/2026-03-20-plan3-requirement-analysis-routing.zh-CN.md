@@ -126,6 +126,8 @@ Response:
 
 ### 4.2 确认并创建 Thread
 
+分析结果不做服务端持久化，由前端在 analyze 响应后暂存，用户确认时回传。这样避免引入临时存储和过期清理的复杂度。
+
 ```
 POST /api/requirements/create-thread
 ```
@@ -134,7 +136,6 @@ Request:
 ```json
 {
     "description": "原始需求描述",
-    "analysis_id": "可选，引用之前的分析结果",
     "thread_config": {
         "title": "讨论：xxx 需求",
         "context_refs": [
@@ -285,14 +286,19 @@ AI 返回分析结果：
 多 Agent group_chat 讨论
     ↓
 Lead Agent 发起 Proposal（Plan 2）
-  - 拆分为 3 个 WorkItem（分属 3 个项目）
+  - 总结讨论结论
+  - 拟定 3 个 WorkItem 草案（分属 3 个项目）
   - 标注依赖关系（前端依赖后端 API、后端依赖 infra 短信网关）
     ↓
-用户审批 Proposal
+【第一次审批】用户审批 Proposal（审批结论方向）
     ↓
-自动生成 Initiative + 3 个 WorkItem（Plan 1）
+自动 materialize → Initiative(draft) + 3 个 WorkItem(open)
     ↓
-用户审批 Initiative → 开始执行
+用户在 Initiative 详情页审阅具体 WorkItem 拆分
+  - 可调整 WorkItem 标题/内容/依赖/优先级
+  - 确认无误后 propose
+    ↓
+【第二次审批】用户审批 Initiative（审批执行计划）→ 自动开始执行
     ↓
 调度器按依赖顺序执行：infra → backend → frontend
 ```
