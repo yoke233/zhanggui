@@ -964,4 +964,39 @@ describe("ThreadDetailPage", () => {
       });
     });
   });
+
+  it("proposal 绑定 initiative 后显示跳转入口", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi.fn().mockResolvedValue([
+        {
+          id: 18,
+          thread_id: 1,
+          title: "已挂 initiative 的提案",
+          summary: "待执行",
+          content: "生成 initiative",
+          proposed_by: "owner-1",
+          status: "approved",
+          initiative_id: 55,
+          work_item_drafts: [],
+          created_at: "2026-03-21T00:00:00Z",
+          updated_at: "2026-03-21T00:00:00Z",
+        },
+      ]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: "initiative #55" });
+    expect(link.getAttribute("href")).toBe("/initiatives/55");
+  });
 });

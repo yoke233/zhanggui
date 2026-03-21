@@ -875,9 +875,11 @@ function ProposalSection({
                         </Badge>
                       )}
                       {proposal.initiative_id != null && (
-                        <Badge variant="secondary" className="text-[8px]">
-                          initiative #{proposal.initiative_id}
-                        </Badge>
+                        <Link to={`/initiatives/${proposal.initiative_id}`}>
+                          <Badge variant="secondary" className="text-[8px] hover:bg-secondary/80">
+                            initiative #{proposal.initiative_id}
+                          </Badge>
+                        </Link>
                       )}
                     </div>
                   </div>
