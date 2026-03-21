@@ -43,6 +43,8 @@ import { PermissionBar, type PermissionRequest } from "@/components/chat/Permiss
 import { CrystallizeDialog } from "@/components/chat/CrystallizeDialog";
 import { useChatFeed } from "@/components/chat/useChatFeed";
 import type { RuntimeConfigReloadedPayload } from "@/types/ws";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MessagesSquare } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
 const CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT = 6;
@@ -78,6 +80,8 @@ export function ChatPage() {
     selectedProjectId,
     setSelectedProjectId,
   } = useWorkbench();
+  const isMobile = useIsMobile();
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
@@ -1335,9 +1339,21 @@ export function ChatPage() {
         onGroupToggle={handleGroupToggle}
         onCreateSession={createSession}
         onArchiveSession={archiveSession}
+        {...(isMobile ? { drawerOpen: chatSidebarOpen, onClose: () => setChatSidebarOpen(false) } : {})}
       />
 
       <div className="flex flex-1 flex-col">
+        {isMobile && (
+          <div className="flex h-10 shrink-0 items-center border-b px-3">
+            <button
+              onClick={() => setChatSidebarOpen(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+              title="Sessions"
+            >
+              <MessagesSquare className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {!isDraftSessionView && (
           <ChatHeader
             session={currentSession}
