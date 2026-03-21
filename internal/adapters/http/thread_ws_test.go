@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -19,10 +20,13 @@ type stubThreadAgentRuntime struct {
 	activeProfileIDs []string
 	inviteCalls      []stubThreadSendCall
 	inviteErrs       map[string]error
+	waitCalls        []stubThreadSendCall
+	waitErrs         map[string]error
 	sendCalls        []stubThreadSendCall
 	sendErr          error
 	promptCalls      []stubThreadSendCall
 	promptReplies    map[string]string
+	promptErrs       map[string]error
 	promptErr        error
 	cleanupCalls     []int64
 	cleanupErr       error
@@ -64,13 +68,25 @@ func (s *stubThreadAgentRuntime) InviteAgent(_ context.Context, threadID int64, 
 	}, nil
 }
 
-func (s *stubThreadAgentRuntime) WaitAgentReady(context.Context, int64, string) error {
+func (s *stubThreadAgentRuntime) WaitAgentReady(_ context.Context, threadID int64, profileID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.waitErrs[profileID]; err != nil {
+		return err
+	}
+	s.waitCalls = append(s.waitCalls, stubThreadSendCall{
+		threadID:  threadID,
+		profileID: profileID,
+	})
 	return nil
 }
 
 func (s *stubThreadAgentRuntime) PromptAgent(_ context.Context, threadID int64, profileID string, message string) (*core.ThreadAgentPromptResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.promptErrs[profileID]; err != nil {
+		return nil, err
+	}
 	if s.promptErr != nil {
 		return nil, s.promptErr
 	}
@@ -128,6 +144,14 @@ func (s *stubThreadAgentRuntime) snapshotPromptCalls() []stubThreadSendCall {
 	defer s.mu.Unlock()
 	out := make([]stubThreadSendCall, len(s.promptCalls))
 	copy(out, s.promptCalls)
+	return out
+}
+
+func (s *stubThreadAgentRuntime) snapshotWaitCalls() []stubThreadSendCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]stubThreadSendCall, len(s.waitCalls))
+	copy(out, s.waitCalls)
 	return out
 }
 
@@ -797,6 +821,10 @@ func TestAPI_WebSocket_ThreadSend_GroupChatMeetingRotatesSpeakers(t *testing.T) 
 	}
 
 	waitForThreadCondition(t, 2*time.Second, func() error {
+		waitCalls := threadPool.snapshotWaitCalls()
+		if len(waitCalls) != 2 {
+			return fmt.Errorf("wait calls = %d, want 2", len(waitCalls))
+		}
 		promptCalls := threadPool.snapshotPromptCalls()
 		if len(promptCalls) != 2 {
 			return fmt.Errorf("prompt calls = %d, want 2", len(promptCalls))
@@ -810,6 +838,12 @@ func TestAPI_WebSocket_ThreadSend_GroupChatMeetingRotatesSpeakers(t *testing.T) 
 		}
 		return nil
 	})
+	waitCalls := threadPool.snapshotWaitCalls()
+	gotWaitProfiles := []string{waitCalls[0].profileID, waitCalls[1].profileID}
+	sort.Strings(gotWaitProfiles)
+	if gotWaitProfiles[0] != "worker-a" || gotWaitProfiles[1] != "worker-b" {
+		t.Fatalf("unexpected ready wait profiles: %+v", waitCalls)
+	}
 	promptCalls := threadPool.snapshotPromptCalls()
 	if promptCalls[0].profileID != "worker-a" || promptCalls[1].profileID != "worker-b" {
 		t.Fatalf("unexpected speaker order: %+v", promptCalls)
@@ -926,11 +960,95 @@ func TestAPI_WebSocket_ThreadSend_GroupChatMeetingPersistsSummaryWhenNoTurns(t *
 	if got := msgs[1].Metadata["meeting_rounds"]; got != int64(0) && got != 0 && got != float64(0) {
 		t.Fatalf("summary meeting_rounds = %v, want 0", got)
 	}
-	if got := msgs[1].Metadata["stop_reason"]; got != "worker-a failed" {
-		t.Fatalf("summary stop_reason = %v, want worker-a failed", got)
+	if got := msgs[1].Metadata["stop_reason"]; got != "all speakers failed" {
+		t.Fatalf("summary stop_reason = %v, want all speakers failed", got)
 	}
 	if !strings.Contains(msgs[1].Content, "未产生有效发言") {
 		t.Fatalf("summary content = %q, want empty-turns hint", msgs[1].Content)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_GroupChatMeetingSkipsFailedSpeaker(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{
+		activeProfileIDs: []string{"worker-a", "worker-b"},
+		promptErrs: map[string]error{
+			"worker-a": errors.New("agent offline"),
+		},
+		promptReplies: map[string]string{
+			"worker-b": "[FINAL] 我接手并给出最终方案。",
+		},
+	}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-group-chat-skip-failed-thread",
+		"metadata": map[string]any{
+			"agent_routing_mode": "broadcast",
+			"meeting_mode":       "group_chat",
+			"meeting_max_rounds": 4,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-group-chat-skip-failed",
+			"thread_id":  thread.ID,
+			"message":    "请轮流讨论这个问题",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	waitForThreadCondition(t, 2*time.Second, func() error {
+		msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+		if err != nil {
+			return err
+		}
+		if len(msgs) != 3 {
+			return fmt.Errorf("messages = %d, want 3 (1 human + 1 agent + 1 summary)", len(msgs))
+		}
+		return nil
+	})
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if msgs[1].SenderID != "worker-b" {
+		t.Fatalf("agent sender = %q, want worker-b", msgs[1].SenderID)
+	}
+	if got := msgs[2].Metadata["stop_reason"]; got != "worker-b declared final" {
+		t.Fatalf("summary stop_reason = %v, want worker-b declared final", got)
+	}
+	if got := msgs[2].Metadata["meeting_rounds"]; got != int64(1) && got != 1 && got != float64(1) {
+		t.Fatalf("summary meeting_rounds = %v, want 1", got)
 	}
 }
 

@@ -270,9 +270,6 @@ func (s *Service) Approve(ctx context.Context, proposalID int64, input ReviewInp
 	var initiative *core.Initiative
 	var systemMsg *core.ThreadMessage
 	run := func(ctx context.Context, store Store) error {
-		if _, err := store.GetThread(ctx, proposal.ThreadID); err != nil {
-			return err
-		}
 		var err error
 		initiative, err = materializeProposal(ctx, store, proposal, drafts)
 		if err != nil {

@@ -69,6 +69,11 @@ type ThreadSessionPool struct {
 	bootstrapFn func(context.Context, acpclient.BootstrapConfig) (*acpclient.BootstrapResult, error)
 }
 
+const (
+	threadBootTimeout       = 2 * time.Minute
+	threadBootPromptTimeout = 120 * time.Second
+)
+
 // NewThreadSessionPool creates a pool for managing Thread agent ACP sessions.
 func NewThreadSessionPool(store core.Store, bus core.EventBus, registry core.AgentRegistry, dataDir string) *ThreadSessionPool {
 	return &ThreadSessionPool{
@@ -226,7 +231,7 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 // bootSessionBackground runs the full ACP boot sequence in a background
 // goroutine and publishes success/failure events via the EventBus.
 func (p *ThreadSessionPool) bootSessionBackground(member *core.ThreadMember, profile *core.AgentProfile, priorSummary string, priorSessionID string) {
-	bootCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	bootCtx, cancel := context.WithTimeout(context.Background(), threadBootTimeout)
 	defer cancel()
 	if _, err := p.bootSession(bootCtx, member, profile, priorSummary, priorSessionID); err != nil {
 		slog.Warn("thread pool: background boot failed",
@@ -306,7 +311,7 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 
 	// Send boot prompt.
 	if strings.TrimSpace(bootPrompt) != "" && !(bootResult.Session.Loaded && strings.TrimSpace(priorSummary) == "") {
-		bootCtx, bootCancel := context.WithTimeout(ctx, 60*time.Second)
+		bootCtx, bootCancel := context.WithTimeout(ctx, threadBootPromptTimeout)
 		defer bootCancel()
 		_, err = client.PromptText(bootCtx, acpSessionID, bootPrompt)
 		bridge.FlushPending(ctx)

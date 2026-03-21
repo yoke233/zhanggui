@@ -579,7 +579,7 @@
     {
       "id": "task-014",
       "title": "真实环境跑通 requirement 到 workitem 执行全流程",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-013"
@@ -601,21 +601,39 @@
           "total": 4,
           "description": "准备隔离数据目录、启动真实 server，并创建真实 agent profiles / projects / spaces",
           "timestamp": "2026-03-21T01:34:46.9737012Z"
+        },
+        {
+          "step": 2,
+          "total": 4,
+          "description": "确认 Windows 真实 ACP 必须将 codex-acp driver 固定到 @zed-industries/codex-acp@0.9.5，解决 win32 optional dependency 缺失",
+          "timestamp": "2026-03-21T02:41:18.6810288Z"
+        },
+        {
+          "step": 3,
+          "total": 4,
+          "description": "review 发现 group_chat 首 speaker 失败会导致整场会议无有效发言，已补等待 ready、boot prompt 超时和跳过失败 speaker 的收敛修复",
+          "timestamp": "2026-03-21T02:41:18.6810288Z"
+        },
+        {
+          "step": 4,
+          "total": 4,
+          "description": "新隔离 root 真实复跑通过：thread group_chat 产出真实 agent 发言，proposal/initiative/workitem 全链路最终 done",
+          "timestamp": "2026-03-21T02:41:18.6810288Z"
         }
       ],
-      "completed_at": null
+      "completed_at": "2026-03-21T02:41:18.6810288Z"
     },
     {
       "id": "task-015",
       "title": "review 并整理真实全流程联调记录",
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-014"
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "921ee95",
       "validation": {
         "command": "核对 runbook / artifacts / 命令记录",
         "timeout_seconds": 1200
@@ -624,10 +642,64 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "完成真实联调 review，补 runbook：记录最终成功 root、artifacts、Windows 版本固定方式与 thread meeting 修复点",
+          "timestamp": "2026-03-21T02:41:18.6810288Z"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "记录 residual risk：HTTP 整包回归下 TestIntegration_RequirementToWorkItemExecutionFlow 仍偶发 SQLITE_BUSY，拆成独立后续任务跟踪",
+          "timestamp": "2026-03-21T02:41:18.6810288Z"
+        }
+      ],
+      "completed_at": "2026-03-21T02:41:18.6810288Z"
+    },
+    {
+      "id": "task-016",
+      "title": "收敛 HTTP 全包回归中的 RequirementToWorkItemExecutionFlow SQLITE_BUSY 抖动",
+      "status": "completed",
+      "priority": "P1",
+      "depends_on": [
+        "task-015"
+      ],
+      "attempts": 1,
+      "max_attempts": 3,
+      "started_at_commit": "921ee95fca15c7b483d68963a73c81080d7053bb",
+      "validation": {
+        "command": "go test ./internal/adapters/http -run TestIntegration_RequirementToWorkItemExecutionFlow -count=10",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 3,
+          "description": "复现 RequirementToWorkItemExecutionFlow 的 SQLITE_BUSY，定位到 proposal approve 事务内的冗余读后写升级点",
+          "timestamp": "2026-03-21T02:46:30Z"
+        },
+        {
+          "step": 2,
+          "total": 3,
+          "description": "移除 proposal approve 事务内冗余 GetThread，并让 integration cleanup 等待 scheduler / persister 退出",
+          "timestamp": "2026-03-21T02:46:30Z"
+        },
+        {
+          "step": 3,
+          "total": 3,
+          "description": "验证通过：RequirementToWorkItemExecutionFlow 连跑 10 次、HTTP 关键组合连跑 5 次、go test ./internal/adapters/http -count=1 均通过",
+          "timestamp": "2026-03-21T02:46:30Z"
+        }
+      ],
+      "completed_at": "2026-03-21T02:46:30Z"
     }
   ],
-  "session_count": 15,
-  "last_session": "2026-03-21T01:34:46.9737012Z"
+  "session_count": 17,
+  "last_session": "2026-03-21T02:46:30Z"
 }

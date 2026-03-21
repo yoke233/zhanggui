@@ -14,6 +14,7 @@ type EventPersister struct {
 	store EventStore
 	bus   EventBus
 	sub   *core.Subscription
+	done  chan struct{}
 }
 
 // NewEventPersister creates an EventPersister.
@@ -24,11 +25,13 @@ func NewEventPersister(store EventStore, bus EventBus) *EventPersister {
 // Start subscribes to all events and begins persisting in a background goroutine.
 func (p *EventPersister) Start(ctx context.Context) error {
 	p.sub = p.bus.Subscribe(core.SubscribeOpts{BufferSize: 256})
+	p.done = make(chan struct{})
 	go p.loop(ctx)
 	return nil
 }
 
 func (p *EventPersister) loop(ctx context.Context) {
+	defer close(p.done)
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,5 +63,8 @@ func (p *EventPersister) loop(ctx context.Context) {
 func (p *EventPersister) Stop() {
 	if p.sub != nil {
 		p.sub.Cancel()
+	}
+	if p.done != nil {
+		<-p.done
 	}
 }

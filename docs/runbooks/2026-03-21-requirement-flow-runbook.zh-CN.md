@@ -362,3 +362,111 @@ npx -y @zed-industries/claude-agent-acp
 - thread meeting 的 `group_chat` 路径已被真实测试证据覆盖
 - proposal -> initiative 物化闭环已通过
 - 后续切真实 ACP 的运行入口、环境变量、命令和留痕路径已明确
+
+## 2026-03-21 真实 ACP 全流程复跑结果
+
+### 最终成功留痕
+
+最终成功的一轮真实联调使用以下隔离环境：
+
+- Root: `C:\Users\yoke\AppData\Local\Temp\ai-flow-real-20260321-102745`
+- Summary: `C:\Users\yoke\AppData\Local\Temp\ai-flow-real-20260321-102745\artifacts\SUMMARY.md`
+- Artifacts 目录: `C:\Users\yoke\AppData\Local\Temp\ai-flow-real-20260321-102745\artifacts`
+- Port: `18084`
+
+最终状态：
+
+- `thread 1`：真实 `group_chat` 已产出 agent 发言与 `meeting_summary`
+- `proposal 1`：完整经过 `create -> submit -> reject -> revise -> update drafts -> submit -> approve`
+- `initiative 1`：最终状态 `done`
+- `work_item 1` backend：最终状态 `done`
+- `work_item 2` frontend：最终状态 `done`
+
+真实 thread 会议证据：
+
+- `06-thread-messages.json` 中已有 3 条 agent 发言 + 1 条 `meeting_summary`
+- `meeting_summary.stop_reason = backend-codex declared final`
+- 真实发言顺序为：
+  - 第 2 轮 `backend-codex`
+  - 第 3 轮 `frontend-codex`
+  - 第 4 轮 `backend-codex`
+
+真实执行证据：
+
+- `23-backend-runs.json`：backend step `status = succeeded`
+- `24-frontend-runs.json`：frontend step `status = succeeded`
+- backend 目录新增：`otp-plan.md`
+- frontend 目录新增：`otp-ui-plan.md`
+
+### 本轮真实环境修正点
+
+第一次真实联调虽然把 `proposal -> initiative -> workitem execution` 跑通了，但 thread 会议阶段仍有两个真实问题：
+
+1. Windows 上默认 `npx -y @zed-industries/codex-acp` 会拉到 `0.10.0`，但缺少 `@zed-industries/codex-acp-win32-x64` 可选平台包，thread / workitem 都无法启动真实 agent。
+2. `group_chat` 会议路径里，agent session 刚 boot 就立即 `PromptAgent`，遇到慢启动/慢首轮时会触发恢复重入或首个 speaker 失败，导致 `meeting_summary` 只有 “no valid speech”。
+
+本轮已验证有效的运行方式：
+
+- driver 必须显式固定为：
+  - `npx -y @zed-industries/codex-acp@0.9.5`
+- 代码侧已补两类收敛：
+  - thread boot prompt 超时拉长到 `120s`
+  - `group_chat` 在真正 prompt 前等待 agent ready，并在单个 speaker 失败时跳过失败 speaker 继续轮转
+
+对应代码落点：
+
+- `internal/runtime/agent/thread_session_pool.go`
+- `internal/adapters/http/thread_meeting.go`
+- `internal/adapters/http/thread_ws_test.go`
+
+### 如何按这次成功方式重跑真实流程
+
+1. 启动 server，确保 `AI_WORKFLOW_DATA_DIR` 指向隔离目录。
+2. 启动后先通过 API 把 `codex-acp` driver 改成：
+
+```json
+{
+  "id": "codex-acp",
+  "launch_command": "npx",
+  "launch_args": ["-y", "@zed-industries/codex-acp@0.9.5"],
+  "capabilities_max": {
+    "fs_read": true,
+    "fs_write": true,
+    "terminal": true
+  }
+}
+```
+
+3. 再创建 profiles / projects / spaces，并调用：
+   - `POST /api/requirements/analyze`
+   - `POST /api/requirements/create-thread`
+   - proposal / initiative / work-item 相关 API
+4. 重点检查：
+   - `artifacts/06-thread-messages.json`
+   - `artifacts/23-backend-runs.json`
+   - `artifacts/24-frontend-runs.json`
+   - `artifacts/25-initiative-detail-final.json`
+
+### 后续补充修复
+
+后续又补了一轮 HTTP 集成回归稳定性修复，已收敛此前偶发的：
+
+- `TestIntegration_RequirementToWorkItemExecutionFlow`
+- `database is locked (5) (SQLITE_BUSY)`
+
+本次收敛点：
+
+1. `internal/application/proposalapp/service.go`
+   - 移除了 `Approve` 事务里的冗余 `GetThread`，避免 SQLite 在并发写场景下出现读后写升级冲突。
+2. `internal/application/flow/persister.go`
+   - `Stop()` 现在会等待后台 goroutine 退出，避免测试清理阶段留下悬挂写库。
+3. `internal/adapters/http/integration_test.go`
+   - `setupIntegration` 清理时会显式等待 scheduler 退出，再停止 persister。
+
+补充验证结果：
+
+- `go test ./internal/adapters/http -run TestIntegration_RequirementToWorkItemExecutionFlow -count=10 -v`
+- `go test ./internal/adapters/http -run 'TestAPI_WebSocket_ThreadSend_GroupChatMeeting|TestAPI_RequirementToProposalToInitiativeFlow|TestIntegration_RequirementToWorkItemExecutionFlow' -count=5`
+- `go test ./internal/adapters/http -count=1`
+
+以上均已通过。

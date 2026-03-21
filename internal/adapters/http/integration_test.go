@@ -104,6 +104,7 @@ func setupIntegration(t *testing.T, executor flowapp.ActionExecutor) *integratio
 	t.Cleanup(func() {
 		ts.Close()
 		cancel()
+		scheduler.Shutdown()
 		persister.Stop()
 	})
 

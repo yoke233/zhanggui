@@ -20,6 +20,8 @@ const (
 	threadMeetingModeGroupChat  threadMeetingMode = "group_chat"
 )
 
+const threadMeetingAgentReadyTimeout = 3 * time.Minute
+
 type threadMeetingTurn struct {
 	ProfileID string
 	Content   string
@@ -149,11 +151,21 @@ func buildDirectThreadDispatchPrompt(message *core.ThreadMessage, profileID stri
 func (h *Handler) runConcurrentMeeting(ctx context.Context, thread *core.Thread, source *core.ThreadMessage, profileIDs []string) {
 	runID := fmt.Sprintf("meeting-%d-%d", thread.ID, source.ID)
 	promptBase := buildConcurrentMeetingPrompt(source, profileIDs)
+	readyProfiles, readyErrs := h.waitThreadMeetingAgentsReady(ctx, source.ThreadID, profileIDs)
 
 	results := make([]threadConcurrentReply, len(profileIDs))
+	for i, profileID := range profileIDs {
+		if err := readyErrs[profileID]; err != nil {
+			results[i] = threadConcurrentReply{profileID: profileID, err: err}
+		}
+	}
 	var wg sync.WaitGroup
 
-	for index, profileID := range profileIDs {
+	for _, profileID := range readyProfiles {
+		index := indexOfProfileID(profileIDs, profileID)
+		if index < 0 {
+			continue
+		}
 		wg.Add(1)
 		go func(i int, pid string) {
 			defer wg.Done()
@@ -200,30 +212,42 @@ func (h *Handler) runConcurrentMeeting(ctx context.Context, thread *core.Thread,
 
 func (h *Handler) runGroupChatMeeting(ctx context.Context, thread *core.Thread, source *core.ThreadMessage, profileIDs []string) {
 	runID := fmt.Sprintf("meeting-%d-%d", thread.ID, source.ID)
+	profileIDs, _ = h.waitThreadMeetingAgentsReady(ctx, source.ThreadID, profileIDs)
+	activeProfiles := append([]string(nil), profileIDs...)
 	maxRounds := readThreadMeetingMaxRounds(thread)
 	selector := readThreadMeetingSelector(thread)
 	turns := make([]threadMeetingTurn, 0, maxRounds)
 	stopReason := "max rounds reached"
+	lastFailure := ""
+	speakerCursor := 0
 
 	for round := 1; round <= maxRounds; round++ {
-		speakerID := selectGroupChatSpeaker(selector, profileIDs, round)
+		speakerID := selectGroupChatSpeaker(selector, activeProfiles, speakerCursor+1)
 		if speakerID == "" {
-			stopReason = "no available speaker"
+			if len(turns) == 0 && lastFailure != "" {
+				stopReason = "all speakers failed"
+			} else if lastFailure != "" {
+				stopReason = lastFailure
+			} else {
+				stopReason = "no available speaker"
+			}
 			break
 		}
 		h.publishThreadThinking(ctx, source.ThreadID, speakerID, source.ID)
-		prompt := buildGroupChatMeetingPrompt(source, profileIDs, turns, round, maxRounds, speakerID)
+		prompt := buildGroupChatMeetingPrompt(source, activeProfiles, turns, round, maxRounds, speakerID)
 		reply, err := h.threadPool.PromptAgent(ctx, source.ThreadID, speakerID, prompt)
 		if err != nil {
 			h.publishThreadAgentFailure(ctx, source.ThreadID, speakerID, err)
-			stopReason = fmt.Sprintf("%s failed", speakerID)
-			break
+			lastFailure = fmt.Sprintf("%s failed", speakerID)
+			activeProfiles = removeProfileID(activeProfiles, speakerID)
+			continue
 		}
 		content := ""
 		if reply != nil {
 			content = strings.TrimSpace(reply.Content)
 		}
 		if content == "" {
+			speakerCursor++
 			continue
 		}
 		isFinal, cleaned := extractFinalReply(content)
@@ -248,6 +272,7 @@ func (h *Handler) runGroupChatMeeting(ctx context.Context, thread *core.Thread, 
 			stopReason = fmt.Sprintf("%s declared final", speakerID)
 			break
 		}
+		speakerCursor++
 	}
 
 	summary := buildGroupChatMeetingSummary(turns, selector, stopReason)
@@ -263,6 +288,67 @@ func (h *Handler) runGroupChatMeeting(ctx context.Context, thread *core.Thread, 
 		"meeting_rounds":   len(turns),
 		"stop_reason":      stopReason,
 	})
+}
+
+func (h *Handler) waitThreadMeetingAgentsReady(ctx context.Context, threadID int64, profileIDs []string) ([]string, map[string]error) {
+	if h == nil || h.threadPool == nil || len(profileIDs) == 0 {
+		return profileIDs, nil
+	}
+
+	orderedReady := make([]string, len(profileIDs))
+	errs := make(map[string]error)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for idx, profileID := range profileIDs {
+		wg.Add(1)
+		go func(i int, pid string) {
+			defer wg.Done()
+			readyCtx, cancel := context.WithTimeout(ctx, threadMeetingAgentReadyTimeout)
+			defer cancel()
+			if err := h.threadPool.WaitAgentReady(readyCtx, threadID, pid); err != nil {
+				mu.Lock()
+				errs[pid] = err
+				mu.Unlock()
+				h.publishThreadAgentFailure(ctx, threadID, pid, err)
+				return
+			}
+			orderedReady[i] = pid
+		}(idx, profileID)
+	}
+	wg.Wait()
+
+	readyProfiles := make([]string, 0, len(profileIDs))
+	for _, profileID := range orderedReady {
+		if strings.TrimSpace(profileID) == "" {
+			continue
+		}
+		readyProfiles = append(readyProfiles, profileID)
+	}
+	return readyProfiles, errs
+}
+
+func indexOfProfileID(profileIDs []string, target string) int {
+	for i, profileID := range profileIDs {
+		if profileID == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func removeProfileID(profileIDs []string, target string) []string {
+	if len(profileIDs) == 0 {
+		return profileIDs
+	}
+	out := make([]string, 0, len(profileIDs))
+	for _, profileID := range profileIDs {
+		if profileID == target {
+			continue
+		}
+		out = append(out, profileID)
+	}
+	return out
 }
 
 func buildConcurrentMeetingPrompt(source *core.ThreadMessage, profileIDs []string) string {
