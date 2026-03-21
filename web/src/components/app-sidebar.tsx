@@ -32,7 +32,12 @@ const navItems = [
   { to: "/runtime", icon: Cpu, labelKey: "nav.runtime" },
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  drawerOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function AppSidebar({ drawerOpen, onClose }: AppSidebarProps = {}) {
   const { t, i18n } = useTranslation();
   const { projects, selectedProjectId, setSelectedProjectId, logout } = useWorkbench();
   const [showPicker, setShowPicker] = useState(false);
@@ -42,11 +47,14 @@ export function AppSidebar() {
     [projects, selectedProjectId],
   );
 
-  return (
+  const isDrawer = drawerOpen !== undefined;
+  if (isDrawer && !drawerOpen) return null;
+
+  const sidebarContent = (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r bg-sidebar transition-[width] duration-200",
-        collapsed ? "w-14" : "w-56",
+        "flex h-screen flex-col border-r bg-sidebar",
+        isDrawer ? "w-72" : cn("transition-[width] duration-200", collapsed ? "w-14" : "w-56"),
       )}
     >
       {/* Logo */}
@@ -108,6 +116,7 @@ export function AppSidebar() {
             to={item.to}
             end={item.to === "/"}
             title={collapsed ? t(item.labelKey) : undefined}
+            onClick={isDrawer ? onClose : undefined}
             className={({ isActive }) =>
               cn(
                 "flex items-center rounded-md text-sm font-medium transition-colors",
@@ -129,6 +138,7 @@ export function AppSidebar() {
         <NavLink
           to="/settings"
           title={collapsed ? t("nav.settings") : undefined}
+          onClick={isDrawer ? onClose : undefined}
           className={({ isActive }) =>
             cn(
               "flex w-full items-center rounded-md text-sm font-medium transition-colors",
@@ -192,4 +202,16 @@ export function AppSidebar() {
       </div>
     </aside>
   );
+
+  if (isDrawer) {
+    return (
+      <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+        <div onClick={(e) => e.stopPropagation()}>
+          {sidebarContent}
+        </div>
+        <div className="flex-1 drawer-overlay" />
+      </div>
+    );
+  }
+  return sidebarContent;
 }
