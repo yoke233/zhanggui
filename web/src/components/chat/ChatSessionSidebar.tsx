@@ -126,7 +126,6 @@ export const ChatSessionSidebar = memo(function ChatSessionSidebar(props: ChatSe
     collapsedGroups,
     pendingPermissionSessionIds,
     onSearchChange,
-    onSessionSelect,
     onGroupToggle,
     onCreateSession,
     onArchiveSession,
