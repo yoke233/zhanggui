@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   File,
+  FileText,
   Paperclip,
   Info,
   Link2,
@@ -31,8 +32,10 @@ import type {
   ThreadAttachment,
   ThreadAgentSession,
   ThreadParticipant,
+  ThreadProposal,
   ThreadWorkItemLink,
   ThreadTaskGroup,
+  WorkItemPriority,
 } from "@/types/apiV2";
 
 /* ── Accordion section primitive ── */
@@ -87,6 +90,31 @@ function SidebarSection({
 
 type AgentSessionWithProfileID = ThreadAgentSession & { agent_profile_id: string };
 
+type ProposalDraftEditor = {
+  temp_id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  priority: WorkItemPriority;
+  depends_on: string;
+  labels: string;
+};
+
+type ProposalEditor = {
+  proposalId: number | null;
+  title: string;
+  summary: string;
+  content: string;
+  proposedBy: string;
+  sourceMessageId: string;
+  drafts: ProposalDraftEditor[];
+};
+
+type ProposalReviewInput = {
+  reviewedBy: string;
+  reviewNote: string;
+};
+
 export interface ThreadSidebarProps {
   thread: Thread;
   messagesCount: number;
@@ -113,6 +141,39 @@ export interface ThreadSidebarProps {
 
   // Members: participants
   participants: ThreadParticipant[];
+
+  // Proposals
+  proposals: ThreadProposal[];
+  proposalsLoading: boolean;
+  showProposalEditor: boolean;
+  proposalEditor: ProposalEditor;
+  savingProposal: boolean;
+  proposalActionLoadingID: number | null;
+  proposalReviewInputs: Record<number, ProposalReviewInput>;
+  onOpenCreateProposal: () => void;
+  onOpenEditProposal: (proposal: ThreadProposal) => void;
+  onShowProposalEditorChange: (open: boolean) => void;
+  onProposalEditorFieldChange: (
+    field: Exclude<keyof ProposalEditor, "drafts">,
+    value: string,
+  ) => void;
+  onProposalDraftChange: (
+    index: number,
+    field: keyof ProposalDraftEditor,
+    value: string,
+  ) => void;
+  onAddProposalDraft: () => void;
+  onRemoveProposalDraft: (index: number) => void;
+  onSaveProposal: () => void;
+  onProposalReviewInputChange: (
+    proposalId: number,
+    field: keyof ProposalReviewInput,
+    value: string,
+  ) => void;
+  onSubmitProposal: (proposalId: number) => void;
+  onApproveProposal: (proposalId: number) => void;
+  onRejectProposal: (proposalId: number) => void;
+  onReviseProposal: (proposalId: number) => void;
 
   // Tasks: task groups
   threadTaskGroupsEnabled: boolean;
@@ -155,7 +216,7 @@ export interface ThreadSidebarProps {
 export function ThreadSidebar(props: ThreadSidebarProps) {
   const { t } = useTranslation();
   const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(["members"]),
+    () => new Set(["members", "proposals"]),
   );
   const [showInvitePicker, setShowInvitePicker] = useState(false);
 
@@ -199,6 +260,22 @@ export function ThreadSidebar(props: ThreadSidebarProps) {
         </SidebarSection>
 
         {/* ── Tasks ── */}
+        <SidebarSection
+          id="proposals"
+          icon={FileText}
+          label={t("threads.proposals", "Proposals")}
+          count={props.proposals.length}
+          badge={
+            props.proposalsLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+            ) : undefined
+          }
+          openSections={openSections}
+          onToggle={toggle}
+        >
+          <ProposalSection {...props} />
+        </SidebarSection>
+
         <SidebarSection
           id="tasks"
           icon={ClipboardList}
@@ -512,6 +589,412 @@ function MembersSection({
 }
 
 /* ── Tasks section ── */
+
+function proposalStatusTone(status: string): string {
+  switch (status) {
+    case "approved":
+    case "merged":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "open":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "rejected":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "revised":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function ProposalSection({
+  proposals,
+  proposalsLoading,
+  showProposalEditor,
+  proposalEditor,
+  savingProposal,
+  proposalActionLoadingID,
+  proposalReviewInputs,
+  onOpenCreateProposal,
+  onOpenEditProposal,
+  onShowProposalEditorChange,
+  onProposalEditorFieldChange,
+  onProposalDraftChange,
+  onAddProposalDraft,
+  onRemoveProposalDraft,
+  onSaveProposal,
+  onProposalReviewInputChange,
+  onSubmitProposal,
+  onApproveProposal,
+  onRejectProposal,
+  onReviseProposal,
+}: ThreadSidebarProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Proposal Flow
+          {proposalsLoading && (
+            <Loader2 className="ml-1 inline h-3 w-3 animate-spin" />
+          )}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={onOpenCreateProposal}
+        >
+          <Plus className="mr-0.5 h-3 w-3" />
+          {t("threads.newProposalAction", "New Proposal")}
+        </Button>
+      </div>
+
+      {showProposalEditor && (
+        <div className="space-y-2 rounded-lg border bg-slate-50/80 p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-slate-700">
+              {proposalEditor.proposalId == null
+                ? t("threads.newProposal", "New proposal")
+                : t("threads.editProposal", "Edit proposal")}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px]"
+              onClick={() => onShowProposalEditorChange(false)}
+            >
+              {t("common.cancel", "Cancel")}
+            </Button>
+          </div>
+          <Input
+            placeholder={t("threads.proposalTitle", "Proposal title")}
+            className="h-7 text-xs"
+            value={proposalEditor.title}
+            onChange={(e) =>
+              onProposalEditorFieldChange("title", e.target.value)
+            }
+          />
+          <Input
+            placeholder={t("threads.proposalSummary", "Short summary")}
+            className="h-7 text-xs"
+            value={proposalEditor.summary}
+            onChange={(e) =>
+              onProposalEditorFieldChange("summary", e.target.value)
+            }
+          />
+          <Textarea
+            placeholder={t("threads.proposalContent", "Decision details and plan")}
+            className="min-h-[80px] resize-y text-xs"
+            value={proposalEditor.content}
+            onChange={(e) =>
+              onProposalEditorFieldChange("content", e.target.value)
+            }
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              placeholder={t("threads.proposedBy", "Proposed by")}
+              className="h-7 text-xs"
+              value={proposalEditor.proposedBy}
+              onChange={(e) =>
+                onProposalEditorFieldChange("proposedBy", e.target.value)
+              }
+            />
+            <Input
+              placeholder={t("threads.sourceMessageId", "Source message ID")}
+              className="h-7 text-xs"
+              value={proposalEditor.sourceMessageId}
+              onChange={(e) =>
+                onProposalEditorFieldChange("sourceMessageId", e.target.value)
+              }
+            />
+          </div>
+
+          <div className="space-y-2 rounded-md border border-dashed border-slate-200 p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Work Item Drafts
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={onAddProposalDraft}
+              >
+                <Plus className="mr-0.5 h-3 w-3" />
+                {t("threads.addDraft", "Add")}
+              </Button>
+            </div>
+            {proposalEditor.drafts.map((draft, index) => (
+              <div
+                key={`${proposalEditor.proposalId ?? "new"}-draft-${index}`}
+                className="space-y-2 rounded-md border bg-white p-2"
+              >
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="temp_id"
+                    className="h-7 text-xs"
+                    value={draft.temp_id}
+                    onChange={(e) =>
+                      onProposalDraftChange(index, "temp_id", e.target.value)
+                    }
+                  />
+                  <Input
+                    placeholder="project_id"
+                    className="h-7 text-xs"
+                    value={draft.project_id}
+                    onChange={(e) =>
+                      onProposalDraftChange(index, "project_id", e.target.value)
+                    }
+                  />
+                </div>
+                <Input
+                  placeholder={t("threads.workItemTitle", "Title...")}
+                  className="h-7 text-xs"
+                  value={draft.title}
+                  onChange={(e) =>
+                    onProposalDraftChange(index, "title", e.target.value)
+                  }
+                />
+                <Textarea
+                  placeholder={t("threads.workItemBody", "Body...")}
+                  className="min-h-[56px] resize-y text-xs"
+                  value={draft.body}
+                  onChange={(e) =>
+                    onProposalDraftChange(index, "body", e.target.value)
+                  }
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    value={draft.priority}
+                    onChange={(e) =>
+                      onProposalDraftChange(
+                        index,
+                        "priority",
+                        e.target.value as WorkItemPriority,
+                      )
+                    }
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="urgent">urgent</option>
+                  </select>
+                  <Input
+                    placeholder="depends_on: api, ui"
+                    className="h-7 text-xs"
+                    value={draft.depends_on}
+                    onChange={(e) =>
+                      onProposalDraftChange(index, "depends_on", e.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="labels: frontend, planning"
+                    className="h-7 text-xs"
+                    value={draft.labels}
+                    onChange={(e) =>
+                      onProposalDraftChange(index, "labels", e.target.value)
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[10px] text-rose-600 hover:text-rose-700"
+                    onClick={() => onRemoveProposalDraft(index)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="h-7 px-3 text-[10px]"
+              onClick={onSaveProposal}
+              disabled={savingProposal || !proposalEditor.title.trim()}
+            >
+              {savingProposal && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              {proposalEditor.proposalId == null
+                ? t("threads.createProposal", "Create Proposal")
+                : t("threads.saveProposal", "Save Proposal")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {proposals.length === 0 ? (
+        <p className="text-[11px] text-slate-400">
+          {t("threads.noProposals", "No proposals yet")}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {proposals.map((proposal) => {
+            const review = proposalReviewInputs[proposal.id] ?? {
+              reviewedBy: proposal.proposed_by,
+              reviewNote: proposal.review_note ?? "",
+            };
+            const canEdit =
+              proposal.status === "draft" || proposal.status === "revised";
+            return (
+              <div
+                key={proposal.id}
+                className="space-y-2 rounded-lg border border-border/50 p-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-[11px] font-medium text-slate-800">
+                        {proposal.title}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[8px] normal-case",
+                          proposalStatusTone(proposal.status),
+                        )}
+                      >
+                        {proposal.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {proposal.summary || proposal.content || "—"}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <Badge variant="secondary" className="text-[8px]">
+                        {proposal.work_item_drafts?.length ?? 0} drafts
+                      </Badge>
+                      {proposal.source_message_id != null && (
+                        <Badge variant="secondary" className="text-[8px]">
+                          msg #{proposal.source_message_id}
+                        </Badge>
+                      )}
+                      {proposal.initiative_id != null && (
+                        <Badge variant="secondary" className="text-[8px]">
+                          initiative #{proposal.initiative_id}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-slate-400">
+                    {formatRelativeTime(proposal.updated_at)}
+                  </span>
+                </div>
+
+                {proposal.work_item_drafts && proposal.work_item_drafts.length > 0 && (
+                  <div className="space-y-1 rounded-md bg-slate-50/80 p-2">
+                    {proposal.work_item_drafts.map((draft) => (
+                      <div
+                        key={`${proposal.id}-${draft.temp_id}`}
+                        className="text-[10px] text-slate-600"
+                      >
+                        <span className="font-medium">{draft.title || draft.temp_id}</span>
+                        <span className="ml-1 text-slate-400">
+                          [{draft.priority}]
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder={t("threads.reviewedBy", "Reviewer")}
+                    className="h-7 text-xs"
+                    value={review.reviewedBy}
+                    onChange={(e) =>
+                      onProposalReviewInputChange(
+                        proposal.id,
+                        "reviewedBy",
+                        e.target.value,
+                      )
+                    }
+                  />
+                  <Input
+                    placeholder={t("threads.reviewNote", "Review note")}
+                    className="h-7 text-xs"
+                    value={review.reviewNote}
+                    onChange={(e) =>
+                      onProposalReviewInputChange(
+                        proposal.id,
+                        "reviewNote",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  {canEdit && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => onOpenEditProposal(proposal)}
+                      >
+                        {t("threads.editProposal", "Edit Proposal")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => onSubmitProposal(proposal.id)}
+                        disabled={proposalActionLoadingID === proposal.id}
+                      >
+                        {proposalActionLoadingID === proposal.id && (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        )}
+                        {t("threads.submitProposal", "Submit Proposal")}
+                      </Button>
+                    </>
+                  )}
+                  {proposal.status === "open" && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => onApproveProposal(proposal.id)}
+                        disabled={proposalActionLoadingID === proposal.id}
+                      >
+                        {t("threads.approveProposal", "Approve Proposal")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => onRejectProposal(proposal.id)}
+                        disabled={proposalActionLoadingID === proposal.id}
+                      >
+                        {t("threads.rejectProposal", "Reject Proposal")}
+                      </Button>
+                    </>
+                  )}
+                  {proposal.status === "rejected" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => onReviseProposal(proposal.id)}
+                      disabled={proposalActionLoadingID === proposal.id}
+                    >
+                      {t("threads.reviseProposal", "Revise Proposal")}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function readIssueSourceType(issue: Issue | undefined): string | null {
   const value = issue?.metadata?.source_type;

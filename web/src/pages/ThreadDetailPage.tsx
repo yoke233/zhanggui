@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -26,12 +26,15 @@ import type {
   Thread,
   ThreadMessage,
   ThreadParticipant,
+  ThreadProposal,
   ThreadWorkItemLink,
   ThreadAgentSession,
   Issue,
   ThreadAttachment,
   ThreadFileRef,
   MessageFileRef,
+  ProposalWorkItemDraft,
+  WorkItemPriority,
   ThreadTaskGroup,
 } from "@/types/apiV2";
 import type { ThreadAckPayload, ThreadEventPayload } from "@/types/ws";
@@ -342,6 +345,149 @@ type ThreadAgentChunkBuffer = {
   message?: string;
 };
 
+type ProposalDraftForm = {
+  temp_id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  priority: WorkItemPriority;
+  depends_on: string;
+  labels: string;
+};
+
+type ProposalEditorState = {
+  proposalId: number | null;
+  title: string;
+  summary: string;
+  content: string;
+  proposedBy: string;
+  sourceMessageId: string;
+  drafts: ProposalDraftForm[];
+};
+
+type ProposalReviewState = {
+  reviewedBy: string;
+  reviewNote: string;
+};
+
+function splitDelimitedValues(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function normalizeDraftTempID(raw: string, fallback: string): string {
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function createEmptyProposalDraft(index = 1): ProposalDraftForm {
+  return {
+    temp_id: `draft-${index}`,
+    project_id: "",
+    title: "",
+    body: "",
+    priority: "medium",
+    depends_on: "",
+    labels: "",
+  };
+}
+
+function toProposalDraftForm(
+  draft: ProposalWorkItemDraft,
+  index: number,
+): ProposalDraftForm {
+  return {
+    temp_id: draft.temp_id || `draft-${index + 1}`,
+    project_id:
+      typeof draft.project_id === "number" ? String(draft.project_id) : "",
+    title: draft.title ?? "",
+    body: draft.body ?? "",
+    priority: draft.priority ?? "medium",
+    depends_on: (draft.depends_on ?? []).join(", "),
+    labels: (draft.labels ?? []).join(", "),
+  };
+}
+
+function createProposalEditorState(ownerId?: string): ProposalEditorState {
+  return {
+    proposalId: null,
+    title: "",
+    summary: "",
+    content: "",
+    proposedBy: ownerId?.trim() || "human",
+    sourceMessageId: "",
+    drafts: [createEmptyProposalDraft()],
+  };
+}
+
+function createProposalEditorStateFromProposal(
+  proposal: ThreadProposal,
+  ownerId?: string,
+): ProposalEditorState {
+  return {
+    proposalId: proposal.id,
+    title: proposal.title,
+    summary: proposal.summary ?? "",
+    content: proposal.content ?? "",
+    proposedBy: proposal.proposed_by || ownerId?.trim() || "human",
+    sourceMessageId:
+      typeof proposal.source_message_id === "number"
+        ? String(proposal.source_message_id)
+        : "",
+    drafts:
+      proposal.work_item_drafts && proposal.work_item_drafts.length > 0
+        ? proposal.work_item_drafts.map(toProposalDraftForm)
+        : [createEmptyProposalDraft()],
+  };
+}
+
+function buildProposalDraftPayload(
+  draft: ProposalDraftForm,
+  index: number,
+): ProposalWorkItemDraft | null {
+  const title = draft.title.trim();
+  const body = draft.body.trim();
+  const projectRaw = draft.project_id.trim();
+  const tempID = normalizeDraftTempID(
+    draft.temp_id || draft.title,
+    `draft-${index + 1}`,
+  );
+  if (!title && !body && !projectRaw && !draft.depends_on.trim() && !draft.labels.trim()) {
+    return null;
+  }
+
+  const projectID =
+    projectRaw.length > 0 && Number.isFinite(Number(projectRaw))
+      ? Number(projectRaw)
+      : undefined;
+
+  return {
+    temp_id: tempID,
+    project_id: typeof projectID === "number" ? projectID : undefined,
+    title,
+    body,
+    priority: draft.priority ?? "medium",
+    depends_on: splitDelimitedValues(draft.depends_on),
+    labels: splitDelimitedValues(draft.labels),
+  };
+}
+
+function createProposalReviewState(
+  proposal: ThreadProposal,
+  ownerId?: string,
+): ProposalReviewState {
+  return {
+    reviewedBy: proposal.reviewed_by?.trim() || ownerId?.trim() || "human",
+    reviewNote: proposal.review_note ?? "",
+  };
+}
+
 function readThreadTaskGroupsEnabled(): boolean {
   try {
     return localStorage.getItem(THREAD_TASK_GROUPS_STORAGE_KEY) === "true";
@@ -365,10 +511,23 @@ export function ThreadDetailPage() {
     useState<boolean>(() => readThreadTaskGroupsEnabled());
   const [taskGroups, setTaskGroups] = useState<ThreadTaskGroup[]>([]);
   const [taskGroupsLoading, setTaskGroupsLoading] = useState(false);
+  const [proposals, setProposals] = useState<ThreadProposal[]>([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
   const [workItemLinks, setWorkItemLinks] = useState<ThreadWorkItemLink[]>([]);
   const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [showProposalEditor, setShowProposalEditor] = useState(false);
+  const [proposalEditor, setProposalEditor] = useState<ProposalEditorState>(
+    () => createProposalEditorState(),
+  );
+  const [savingProposal, setSavingProposal] = useState(false);
+  const [proposalActionLoadingID, setProposalActionLoadingID] = useState<
+    number | null
+  >(null);
+  const [proposalReviewInputs, setProposalReviewInputs] = useState<
+    Record<number, ProposalReviewState>
+  >({});
   const [showCreateWI, setShowCreateWI] = useState(false);
   const [newWITitle, setNewWITitle] = useState("");
   const [newWIBody, setNewWIBody] = useState("");
@@ -518,6 +677,7 @@ export function ThreadDetailPage() {
     }
     return a.is_primary ? -1 : 1;
   });
+  const orderedProposals = [...proposals].sort((a, b) => b.id - a.id);
   const orderedTaskGroups = [...taskGroups].sort((a, b) => b.id - a.id);
   const visibleAgentActivityIDs = [
     ...new Set([
@@ -579,13 +739,17 @@ export function ThreadDetailPage() {
     const load = async () => {
       setLoading(true);
       setTaskGroupsLoading(threadTaskGroupsEnabled);
+      setProposalsLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts, links, tgItems, agents, profiles, atts] =
+        const [th, msgs, parts, proposalItems, links, tgItems, agents, profiles, atts] =
           await Promise.all([
             apiClient.getThread(id),
             apiClient.listThreadMessages(id, { limit: 100 }),
             apiClient.listThreadParticipants(id),
+            typeof apiClient.listThreadProposals === "function"
+              ? apiClient.listThreadProposals(id)
+              : Promise.resolve([]),
             apiClient.listWorkItemsByThread(id),
             threadTaskGroupsEnabled
               ? apiClient.listThreadTaskGroups(id)
@@ -598,6 +762,21 @@ export function ThreadDetailPage() {
           setThread(th);
           setMessages(msgs);
           setParticipants(parts);
+          setProposals(proposalItems);
+          setProposalEditor((current) =>
+            current.proposalId == null
+              ? createProposalEditorState(th.owner_id)
+              : current,
+          );
+          setProposalReviewInputs((prev) => {
+            const next: Record<number, ProposalReviewState> = {};
+            proposalItems.forEach((proposal) => {
+              next[proposal.id] =
+                prev[proposal.id] ??
+                createProposalReviewState(proposal, th.owner_id);
+            });
+            return next;
+          });
           setWorkItemLinks(links);
           setTaskGroups(tgItems);
           setAgentSessions(agents);
@@ -617,6 +796,7 @@ export function ThreadDetailPage() {
         if (!cancelled) setError(getErrorMessage(e));
       } finally {
         if (!cancelled) setTaskGroupsLoading(false);
+        if (!cancelled) setProposalsLoading(false);
         if (!cancelled) setLoading(false);
       }
     };
@@ -625,6 +805,32 @@ export function ThreadDetailPage() {
       cancelled = true;
     };
   }, [apiClient, id, threadTaskGroupsEnabled]);
+
+  const refreshProposals = useCallback(async () => {
+    if (!id || Number.isNaN(id)) return;
+    if (typeof apiClient.listThreadProposals !== "function") {
+      setProposals([]);
+      return;
+    }
+    setProposalsLoading(true);
+    try {
+      const items = await apiClient.listThreadProposals(id);
+      setProposals(items);
+      setProposalReviewInputs((prev) => {
+        const next: Record<number, ProposalReviewState> = {};
+        items.forEach((proposal) => {
+          next[proposal.id] =
+            prev[proposal.id] ??
+            createProposalReviewState(proposal, thread?.owner_id);
+        });
+        return next;
+      });
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setProposalsLoading(false);
+    }
+  }, [apiClient, id, thread?.owner_id]);
 
   useEffect(() => {
     // Remove selections that are no longer inviteable (e.g. agent already joined)
@@ -868,6 +1074,17 @@ export function ThreadDetailPage() {
       (payload) => {
         if (payload.thread_id !== id) return;
         appendRealtimeMessage(payload, "human");
+        const proposalID = payload.metadata?.proposal_id;
+        const metadataType =
+          typeof payload.metadata?.type === "string"
+            ? payload.metadata.type
+            : "";
+        if (
+          typeof proposalID === "number" ||
+          metadataType.startsWith("proposal_")
+        ) {
+          void refreshProposals();
+        }
       },
     );
     const unsubscribeThreadOutput = wsClient.subscribe<ThreadEventPayload>(
@@ -1104,7 +1321,7 @@ export function ThreadDetailPage() {
         sendThreadSubscription("unsubscribe_thread");
       }
     };
-  }, [apiClient, id, t, threadTaskGroupsEnabled, wsClient]);
+  }, [apiClient, id, refreshProposals, t, threadTaskGroupsEnabled, wsClient]);
 
   const toggleAgentActivityPanel = (profileID: string) => {
     setCollapsedAgentActivityPanels((prev) => ({
@@ -1354,6 +1571,157 @@ export function ThreadDetailPage() {
       setInvitePickerBusy(false);
       setInvitePickerCandidates([]);
       setInvitePickerSelected(new Set());
+    }
+  };
+
+  const handleOpenCreateProposal = () => {
+    setError(null);
+    setProposalEditor(createProposalEditorState(thread?.owner_id));
+    setShowProposalEditor(true);
+  };
+
+  const handleOpenEditProposal = (proposal: ThreadProposal) => {
+    setError(null);
+    setProposalEditor(
+      createProposalEditorStateFromProposal(proposal, thread?.owner_id),
+    );
+    setShowProposalEditor(true);
+  };
+
+  const handleProposalEditorFieldChange = (
+    field: Exclude<keyof ProposalEditorState, "drafts">,
+    value: string | number | null,
+  ) => {
+    setProposalEditor((prev) => ({
+      ...prev,
+      [field]: value == null ? "" : String(value),
+    }));
+  };
+
+  const handleProposalDraftChange = (
+    index: number,
+    field: keyof ProposalDraftForm,
+    value: string,
+  ) => {
+    setProposalEditor((prev) => ({
+      ...prev,
+      drafts: prev.drafts.map((draft, draftIndex) =>
+        draftIndex === index ? { ...draft, [field]: value } : draft,
+      ),
+    }));
+  };
+
+  const handleAddProposalDraft = () => {
+    setProposalEditor((prev) => ({
+      ...prev,
+      drafts: [...prev.drafts, createEmptyProposalDraft(prev.drafts.length + 1)],
+    }));
+  };
+
+  const handleRemoveProposalDraft = (index: number) => {
+    setProposalEditor((prev) => {
+      if (prev.drafts.length === 1) {
+        return { ...prev, drafts: [createEmptyProposalDraft()] };
+      }
+      return {
+        ...prev,
+        drafts: prev.drafts.filter((_, draftIndex) => draftIndex !== index),
+      };
+    });
+  };
+
+  const handleSaveProposal = async () => {
+    if (!id || !proposalEditor.title.trim()) return;
+    setSavingProposal(true);
+    setError(null);
+    const drafts = proposalEditor.drafts
+      .map((draft, index) => buildProposalDraftPayload(draft, index))
+      .filter((draft): draft is ProposalWorkItemDraft => draft !== null);
+    const sourceMessageID = proposalEditor.sourceMessageId.trim();
+    try {
+      if (proposalEditor.proposalId == null) {
+        await apiClient.createThreadProposal(id, {
+          title: proposalEditor.title.trim(),
+          summary: proposalEditor.summary.trim(),
+          content: proposalEditor.content.trim(),
+          proposed_by: proposalEditor.proposedBy.trim() || thread?.owner_id || "human",
+          source_message_id:
+            sourceMessageID.length > 0 ? Number(sourceMessageID) : undefined,
+          work_item_drafts: drafts,
+        });
+      } else {
+        await apiClient.updateProposal(proposalEditor.proposalId, {
+          title: proposalEditor.title.trim(),
+          summary: proposalEditor.summary.trim(),
+          content: proposalEditor.content.trim(),
+          source_message_id:
+            sourceMessageID.length > 0 ? Number(sourceMessageID) : undefined,
+        });
+        await apiClient.replaceProposalDrafts(proposalEditor.proposalId, {
+          work_item_drafts: drafts,
+        });
+      }
+      await refreshProposals();
+      setProposalEditor(createProposalEditorState(thread?.owner_id));
+      setShowProposalEditor(false);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSavingProposal(false);
+    }
+  };
+
+  const handleProposalReviewInputChange = (
+    proposalId: number,
+    field: keyof ProposalReviewState,
+    value: string,
+  ) => {
+    setProposalReviewInputs((prev) => ({
+      ...prev,
+      [proposalId]: {
+        ...(prev[proposalId] ?? {
+          reviewedBy: thread?.owner_id || "human",
+          reviewNote: "",
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const runProposalAction = async (
+    proposalId: number,
+    action: "submit" | "approve" | "reject" | "revise",
+  ) => {
+    setProposalActionLoadingID(proposalId);
+    setError(null);
+    try {
+      const reviewInput = proposalReviewInputs[proposalId] ?? {
+        reviewedBy: thread?.owner_id || "human",
+        reviewNote: "",
+      };
+      if (action === "submit") {
+        await apiClient.submitProposal(proposalId);
+      } else if (action === "approve") {
+        await apiClient.approveProposal(proposalId, {
+          reviewed_by: reviewInput.reviewedBy.trim() || thread?.owner_id || "human",
+          review_note: reviewInput.reviewNote.trim(),
+        });
+      } else if (action === "reject") {
+        await apiClient.rejectProposal(proposalId, {
+          reviewed_by: reviewInput.reviewedBy.trim() || thread?.owner_id || "human",
+          review_note: reviewInput.reviewNote.trim(),
+        });
+      } else {
+        await apiClient.reviseProposal(proposalId, {
+          reviewed_by: reviewInput.reviewedBy.trim() || thread?.owner_id || "human",
+          review_note: reviewInput.reviewNote.trim(),
+        });
+      }
+      await refreshProposals();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setProposalActionLoadingID(null);
     }
   };
 
@@ -2286,6 +2654,39 @@ export function ThreadDetailPage() {
             canStartDiscussionWithAgent={canStartDiscussionWithAgent}
             agentStatusColor={agentStatusColor}
             participants={participants}
+            proposals={orderedProposals}
+            proposalsLoading={proposalsLoading}
+            showProposalEditor={showProposalEditor}
+            proposalEditor={proposalEditor}
+            savingProposal={savingProposal}
+            proposalActionLoadingID={proposalActionLoadingID}
+            proposalReviewInputs={proposalReviewInputs}
+            onOpenCreateProposal={handleOpenCreateProposal}
+            onOpenEditProposal={handleOpenEditProposal}
+            onShowProposalEditorChange={(open) => {
+              setShowProposalEditor(open);
+              if (!open) {
+                setProposalEditor(createProposalEditorState(thread.owner_id));
+              }
+            }}
+            onProposalEditorFieldChange={handleProposalEditorFieldChange}
+            onProposalDraftChange={handleProposalDraftChange}
+            onAddProposalDraft={handleAddProposalDraft}
+            onRemoveProposalDraft={handleRemoveProposalDraft}
+            onSaveProposal={handleSaveProposal}
+            onProposalReviewInputChange={handleProposalReviewInputChange}
+            onSubmitProposal={(proposalId) => {
+              void runProposalAction(proposalId, "submit");
+            }}
+            onApproveProposal={(proposalId) => {
+              void runProposalAction(proposalId, "approve");
+            }}
+            onRejectProposal={(proposalId) => {
+              void runProposalAction(proposalId, "reject");
+            }}
+            onReviseProposal={(proposalId) => {
+              void runProposalAction(proposalId, "revise");
+            }}
             threadTaskGroupsEnabled={threadTaskGroupsEnabled}
             onToggleThreadTaskGroups={() =>
               setThreadTaskGroupsEnabled((prev) => !prev)

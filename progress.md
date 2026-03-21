@@ -9,4 +9,6 @@
 - 已完成 `task-017`：补齐 `web/src/types/apiV2.ts` 与 `web/src/lib/apiClient.ts` 的 Proposal / Initiative 契约，并新增 `apiClient` 路由测试。
 - 已通过验证：`npm --prefix web test -- --run src/lib/apiClient.test.ts`
 - 已完成 `task-018` review：未发现需要修复的 correctness 问题；再次通过 `npm --prefix web test -- --run src/lib/apiClient.test.ts` 与 `pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1`。
-- 当前进入 `task-019`：准备在线程页补 proposal 操作面。
+- 已完成 `task-019`：在线程页右侧 sidebar 增加 Proposal 区，支持创建、编辑、提交、审批与驳回/返修动作。
+- 已通过验证：`npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts`
+- 当前进入 `task-020`：review Proposal 操作面并执行 build 验证。

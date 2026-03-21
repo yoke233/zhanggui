@@ -676,4 +676,257 @@ describe("ThreadDetailPage", () => {
     expect(hoverCard.textContent).toContain("Turns: 0");
     expect(hoverCard.textContent).toContain("0.0k tokens");
   });
+
+  it("支持在线程侧栏创建 proposal 草案", async () => {
+    const wsClient = createWsClientMock();
+    const createdProposal = {
+      id: 12,
+      thread_id: 1,
+      title: "提案 A",
+      summary: "先收敛需求",
+      content: "补 proposal 面板并串审批动作",
+      proposed_by: "human",
+      status: "draft",
+      work_item_drafts: [
+        {
+          temp_id: "draft-1",
+          title: "补 proposal UI",
+          body: "",
+          priority: "medium",
+          depends_on: [],
+          labels: [],
+        },
+      ],
+      created_at: "2026-03-21T00:00:00Z",
+      updated_at: "2026-03-21T00:00:00Z",
+    };
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([createdProposal]),
+      createThreadProposal: vi.fn().mockResolvedValue(createdProposal),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New Proposal" }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("Proposal title"), {
+      target: { value: "提案 A" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Short summary"), {
+      target: { value: "先收敛需求" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Decision details and plan"), {
+      target: { value: "补 proposal 面板并串审批动作" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Source message ID"), {
+      target: { value: "101" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Title..."), {
+      target: { value: "补 proposal UI" },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Proposal" }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.createThreadProposal).toHaveBeenCalledWith(1, {
+        title: "提案 A",
+        summary: "先收敛需求",
+        content: "补 proposal 面板并串审批动作",
+        proposed_by: "human",
+        source_message_id: 101,
+        work_item_drafts: [
+          {
+            temp_id: "draft-1",
+            title: "补 proposal UI",
+            body: "",
+            priority: "medium",
+            depends_on: [],
+            labels: [],
+            project_id: undefined,
+          },
+        ],
+      });
+    });
+
+    expect(await screen.findByText("提案 A")).toBeTruthy();
+  });
+
+  it("支持编辑 draft proposal 并保存草案", async () => {
+    const wsClient = createWsClientMock();
+    const draftProposal = {
+      id: 13,
+      thread_id: 1,
+      title: "旧提案",
+      summary: "旧摘要",
+      content: "旧内容",
+      proposed_by: "owner-1",
+      status: "draft",
+      work_item_drafts: [
+        {
+          temp_id: "draft-a",
+          title: "旧任务",
+          body: "旧 body",
+          priority: "high",
+          depends_on: [],
+          labels: ["legacy"],
+        },
+      ],
+      created_at: "2026-03-21T00:00:00Z",
+      updated_at: "2026-03-21T00:00:00Z",
+    };
+    const updatedProposal = {
+      ...draftProposal,
+      title: "新提案",
+      summary: "新摘要",
+      content: "新内容",
+      work_item_drafts: [
+        {
+          temp_id: "draft-a",
+          title: "新任务",
+          body: "旧 body",
+          priority: "high",
+          depends_on: [],
+          labels: ["legacy"],
+        },
+      ],
+    };
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi
+        .fn()
+        .mockResolvedValueOnce([draftProposal])
+        .mockResolvedValueOnce([updatedProposal]),
+      updateProposal: vi.fn().mockResolvedValue(updatedProposal),
+      replaceProposalDrafts: vi.fn().mockResolvedValue(updatedProposal),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    await screen.findByText("旧提案");
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit Proposal" }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("Proposal title"), {
+      target: { value: "新提案" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Short summary"), {
+      target: { value: "新摘要" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Decision details and plan"), {
+      target: { value: "新内容" },
+    });
+    fireEvent.change(screen.getByDisplayValue("旧任务"), {
+      target: { value: "新任务" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Proposal" }));
+
+    await waitFor(() => {
+      expect(apiClient.updateProposal).toHaveBeenCalledWith(13, {
+        title: "新提案",
+        summary: "新摘要",
+        content: "新内容",
+        source_message_id: undefined,
+      });
+      expect(apiClient.replaceProposalDrafts).toHaveBeenCalledWith(13, {
+        work_item_drafts: [
+          {
+            temp_id: "draft-a",
+            title: "新任务",
+            body: "旧 body",
+            priority: "high",
+            depends_on: [],
+            labels: ["legacy"],
+            project_id: undefined,
+          },
+        ],
+      });
+    });
+  });
+
+  it("支持提交并审批 proposal", async () => {
+    const wsClient = createWsClientMock();
+    const openProposal = {
+      id: 14,
+      thread_id: 1,
+      title: "提案审批",
+      summary: "待审批",
+      content: "请确认执行",
+      proposed_by: "owner-1",
+      status: "open",
+      work_item_drafts: [],
+      created_at: "2026-03-21T00:00:00Z",
+      updated_at: "2026-03-21T00:00:00Z",
+    };
+    const draftProposal = { ...openProposal, id: 15, status: "draft", title: "提案提交" };
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi
+        .fn()
+        .mockResolvedValueOnce([draftProposal, openProposal])
+        .mockResolvedValueOnce([openProposal])
+        .mockResolvedValueOnce([{ ...openProposal, status: "approved" }]),
+      submitProposal: vi.fn().mockResolvedValue({ ...draftProposal, status: "open" }),
+      approveProposal: vi.fn().mockResolvedValue({ ...openProposal, status: "approved" }),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    const submitButtons = await screen.findAllByRole("button", {
+      name: "Submit Proposal",
+    });
+    fireEvent.click(submitButtons[0]);
+
+    await waitFor(() => {
+      expect(apiClient.submitProposal).toHaveBeenCalledWith(15);
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("Reviewer"), {
+      target: { value: "reviewer-a" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Review note"), {
+      target: { value: "可以执行" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Approve Proposal" }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.approveProposal).toHaveBeenCalledWith(14, {
+        reviewed_by: "reviewer-a",
+        review_note: "可以执行",
+      });
+    });
+  });
 });
