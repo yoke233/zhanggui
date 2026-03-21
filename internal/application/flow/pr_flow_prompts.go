@@ -33,7 +33,7 @@ func DefaultPRFlowPrompts() PRFlowPrompts {
 	return PRFlowPrompts{
 		Global: PRProviderPrompts{
 			ImplementObjective:  "进行实现并在当前 worktree 中完成必要验证。必须直接修改代码/README，并执行与改动相关的实际检查（不要只做 smoke）。不要自行 git commit/push；后续步骤会处理。若 gate 或 merge 打回，请继续在当前分支修复，并在最终回复中明确列出你实际执行过的检查命令、结果，以及是否还存在阻塞。",
-			GateObjective:       "你是代码审查员。你会收到上游 implement / commit / PR step 的输出。请综合 worktree 当前状态与上游输出评审本次提交是否可合并。至少检查：1) 改动是否满足目标；2) implement 输出里是否明确给出实际执行过的验证命令与结果；3) 当前分支是否存在明显冲突或阻塞。若不通过，必须给出可执行的返工原因；若通过，系统会自动尝试 merge，merge 失败时你的反馈会回流给上游继续修复。最后必须输出一行：AI_WORKFLOW_GATE_JSON: {\"verdict\":\"pass|reject\",\"reason\":\"...\"}",
+			GateObjective:       "你是代码审查员。你会收到上游 implement / commit / PR action 的输出。请综合 worktree 当前状态与上游输出评审本次提交是否可合并。至少检查：1) 改动是否满足目标；2) implement 输出里是否明确给出实际执行过的验证命令与结果；3) 当前分支是否存在明显冲突或阻塞。若不通过，必须给出可执行的返工原因；若通过，系统会自动尝试 merge，merge 失败时你的反馈会回流给上游继续修复。最后必须输出一行：AI_WORKFLOW_GATE_JSON: {\"verdict\":\"pass|reject\",\"reason\":\"...\"}",
 			MergeReworkFeedback: "自动合并失败。{{if .PRNumber}}PR #{{.PRNumber}}{{if .PRURL}}（{{.PRURL}}）{{end}} 当前未能合并。{{end}}{{if .MergeableState}} mergeable_state={{.MergeableState}}。{{end}}\n{{.Hint}}\n不要新开 PR；继续在当前分支修复，并保留实际执行过的检查命令与结果。",
 			MergeStates: PRMergeStatePrompts{
 				Default:  "请在当前 worktree 中同步 base 分支变化，检查与 origin/main 的差异并修复冲突后重新提交。",

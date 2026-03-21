@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# list-steps.sh — List all steps for a work item.
+# get-action.sh — Get details of a specific action.
 #
 # Usage:
-#   ./list-steps.sh <work-item-id>
+#   ./get-action.sh <action-id>
 #
 # Environment:
 #   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_API_TOKEN
 
 set -euo pipefail
 
-WORK_ITEM_ID="${1:?Usage: list-steps.sh <work-item-id>}"
+ACTION_ID="${1:?Usage: get-action.sh <action-id>}"
 
 SERVER="${AI_WORKFLOW_SERVER_ADDR:?AI_WORKFLOW_SERVER_ADDR is required}"
 TOKEN="${AI_WORKFLOW_API_TOKEN:-}"
@@ -20,10 +20,10 @@ if [ -n "$TOKEN" ]; then
 fi
 
 RESPONSE=$(curl -sf -X GET \
-  "${SERVER}/api/work-items/${WORK_ITEM_ID}/steps" \
+  "${SERVER}/api/actions/${ACTION_ID}" \
   -H "Content-Type: application/json" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} 2>&1) || {
-  echo "Error listing steps: ${RESPONSE}" >&2
+  echo "Error getting action: ${RESPONSE}" >&2
   exit 1
 }
 

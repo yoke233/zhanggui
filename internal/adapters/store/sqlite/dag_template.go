@@ -86,7 +86,7 @@ func (s *Store) UpdateDAGTemplate(ctx context.Context, t *core.DAGTemplate) erro
 			"project_id":  model.ProjectID,
 			"tags":        model.Tags,
 			"metadata":    model.Metadata,
-			"steps":       model.Steps,
+			"actions":     model.Actions,
 			"updated_at":  model.UpdatedAt,
 		})
 	if result.Error != nil {

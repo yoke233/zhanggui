@@ -21,7 +21,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/skills"
 )
 
-// ACPExecutorConfig configures the ACP step executor.
+// ACPExecutorConfig configures the ACP action executor.
 type ACPExecutorConfig struct {
 	Registry                 core.AgentRegistry
 	Store                    core.Store
@@ -35,31 +35,31 @@ type ACPExecutorConfig struct {
 	ServerAddr               string // e.g. "http://127.0.0.1:8080"
 	AuditLogger              *audit.Logger
 
-	// StepContextBuilder generates per-execution reference materials.
-	// When nil, step-context is not injected (graceful degradation).
-	StepContextBuilder *skills.ActionContextBuilder
+	// ActionContextBuilder generates per-run reference materials.
+	// When nil, action-context is not injected (graceful degradation).
+	ActionContextBuilder *skills.ActionContextBuilder
 }
 
-// NewACPActionExecutor creates a ActionExecutor that uses a SessionManager for ACP agent execution.
-// It resolves step → AgentProfile via the AgentRegistry, acquires a session,
-// starts the execution, watches for completion, then stores the result.
+// NewACPActionExecutor creates an ActionExecutor that uses a SessionManager for ACP action runs.
+// It resolves an action to an AgentProfile via the AgentRegistry, acquires a session,
+// starts the run, watches for completion, then stores the result.
 func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
-	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
+	return func(ctx context.Context, action *core.Action, run *core.Run) error {
 		if cfg.SessionManager == nil {
 			return fmt.Errorf("session manager is not configured")
 		}
 
-		profile, err := resolveStepAgent(ctx, cfg.Registry, step)
+		profile, err := resolveActionAgent(ctx, cfg.Registry, action)
 		if err != nil {
-			return fmt.Errorf("resolve agent for step %d: %w", step.ID, err)
+			return fmt.Errorf("resolve agent for action %d: %w", action.ID, err)
 		}
-		exec.AgentID = profile.ID
+		run.AgentID = profile.ID
 
 		workDir := cfg.DefaultWorkDir
 		if ws := flowapp.WorkspaceFromContext(ctx); ws != nil {
 			workDir = ws.Path
 		}
-		if v, ok := step.Config["work_dir"].(string); ok && v != "" {
+		if v, ok := action.Config["work_dir"].(string); ok && v != "" {
 			workDir = v
 		}
 
@@ -68,28 +68,27 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		var scopedToken string
 		extraEnv := map[string]string{}
 		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" &&
-			(step.Type == core.ActionExec || step.Type == core.ActionGate) {
-			scope := fmt.Sprintf("step:%d", step.ID)
+			(action.Type == core.ActionExec || action.Type == core.ActionGate) {
+			scope := fmt.Sprintf("action:%d", action.ID)
 			tok, err := cfg.TokenRegistry.GenerateScopedToken(
-				fmt.Sprintf("agent-step-%d", step.ID),
+				fmt.Sprintf("agent-action-%d", action.ID),
 				[]string{scope},
-				fmt.Sprintf("agent/exec-%d", exec.ID),
+				fmt.Sprintf("agent/run-%d", run.ID),
 			)
 			if err != nil {
-				slog.Warn("step-signal: failed to generate token", "step_id", step.ID, "error", err)
+				slog.Warn("action-signal: failed to generate token", "action_id", action.ID, "error", err)
 			} else {
 				scopedToken = tok
 				hasSignalSkill = true
 				// Inject env vars — agent reads $AI_WORKFLOW_* in SKILL.md
 				extraEnv["AI_WORKFLOW_API_TOKEN"] = tok
 				extraEnv["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
-				extraEnv["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
-				extraEnv["AI_WORKFLOW_WORK_ITEM_ID"] = fmt.Sprintf("%d", step.WorkItemID)
-				extraEnv["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.WorkItemID)
-				extraEnv["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
-				extraEnv["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
-				slog.Info("step-signal: env vars injected",
-					"step_id", step.ID, "step_type", step.Type)
+				extraEnv["AI_WORKFLOW_ACTION_ID"] = fmt.Sprintf("%d", action.ID)
+				extraEnv["AI_WORKFLOW_WORK_ITEM_ID"] = fmt.Sprintf("%d", action.WorkItemID)
+				extraEnv["AI_WORKFLOW_ACTION_TYPE"] = string(action.Type)
+				extraEnv["AI_WORKFLOW_RUN_ID"] = fmt.Sprintf("%d", run.ID)
+				slog.Info("action-signal: env vars injected",
+					"action_id", action.ID, "action_type", action.Type)
 			}
 		}
 
@@ -104,46 +103,46 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 
 		var extraSkills []string
 		if hasSignalSkill {
-			extraSkills = []string{"step-signal"}
+			extraSkills = []string{"action-signal"}
 		}
 
-		// --- step-context: progressive loading ---
-		var stepContextDir string
+		// --- action-context: progressive loading ---
+		var actionContextDir string
 		var ephemeralSkills map[string]string
-		if cfg.StepContextBuilder != nil &&
-			(step.Type == core.ActionExec || step.Type == core.ActionGate) {
+		if cfg.ActionContextBuilder != nil &&
+			(action.Type == core.ActionExec || action.Type == core.ActionGate) {
 
-			ctxParentDir := filepath.Join(workDir, ".ai-workflow", "step-contexts")
-			dir, buildErr := cfg.StepContextBuilder.Build(ctx, ctxParentDir, step, exec)
+			ctxParentDir := filepath.Join(workDir, ".ai-workflow", "action-contexts")
+			dir, buildErr := cfg.ActionContextBuilder.Build(ctx, ctxParentDir, action, run)
 			if buildErr != nil {
-				slog.Warn("step-context: build failed, proceeding without",
-					"step_id", step.ID, "error", buildErr)
+				slog.Warn("action-context: build failed, proceeding without",
+					"action_id", action.ID, "error", buildErr)
 			} else if dir != "" {
-				stepContextDir = dir
-				extraSkills = append(extraSkills, "step-context")
-				ephemeralSkills = map[string]string{"step-context": stepContextDir}
-				slog.Info("step-context: materials prepared",
-					"step_id", step.ID, "dir", dir)
+				actionContextDir = dir
+				extraSkills = append(extraSkills, "action-context")
+				ephemeralSkills = map[string]string{"action-context": actionContextDir}
+				slog.Info("action-context: materials prepared",
+					"action_id", action.ID, "dir", dir)
 			}
 		}
 
 		defer func() {
-			if stepContextDir != "" {
-				skills.Cleanup(stepContextDir)
+			if actionContextDir != "" {
+				skills.Cleanup(actionContextDir)
 			}
 		}()
 
 		bridge := eventbridge.New(cfg.Bus, core.EventRunAgentOutput, eventbridge.Scope{
-			WorkItemID: step.WorkItemID,
-			ActionID:   step.ID,
-			RunID:      exec.ID,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			RunID:      run.ID,
 		})
 		var auditSink runtimeapp.EventSink
 		if cfg.AuditLogger != nil {
 			auditSink = cfg.AuditLogger.NewRunSink(audit.Scope{
-				WorkItemID: step.WorkItemID,
-				ActionID:   step.ID,
-				RunID:      exec.ID,
+				WorkItemID: action.WorkItemID,
+				ActionID:   action.ID,
+				RunID:      run.ID,
 			})
 		}
 		sink := newMultiSink(bridge, auditSink)
@@ -151,8 +150,8 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		acpCaps := acpclient.InitCapabilities(profile)
 
 		reuse := profile.Session.Reuse
-		mcpFactory := buildStepMCPFactory(step, profile, exec.ID, cfg.MCPResolver)
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "started", map[string]any{
+		mcpFactory := buildActionMCPFactory(action, profile, run.ID, cfg.MCPResolver)
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "started", map[string]any{
 			"agent_id":      profile.ID,
 			"session_reuse": reuse,
 			"work_dir":      workDir,
@@ -164,9 +163,9 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			Caps:            acpCaps,
 			WorkDir:         workDir,
 			MCPFactory:      mcpFactory,
-			WorkItemID:      step.WorkItemID,
-			StepID:          step.ID,
-			ExecID:          exec.ID,
+			WorkItemID:      action.WorkItemID,
+			ActionID:        action.ID,
+			RunID:           run.ID,
 			Reuse:           reuse,
 			IdleTTL:         profile.Session.IdleTTL,
 			MaxTurns:        profile.Session.MaxTurns,
@@ -174,13 +173,13 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			EphemeralSkills: ephemeralSkills,
 		})
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "failed", map[string]any{
+			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "failed", map[string]any{
 				"agent_id": profile.ID,
 				"error":    err.Error(),
 			})
 			return fmt.Errorf("acquire session: %w", err)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "session.acquire", "succeeded", map[string]any{
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "succeeded", map[string]any{
 			"agent_id":         profile.ID,
 			"agent_context_id": derefInt64(handle.AgentContextID),
 			"has_prior_turns":  handle.HasPriorTurns,
@@ -195,41 +194,41 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		}()
 
 		if handle.AgentContextID != nil {
-			exec.AgentContextID = handle.AgentContextID
+			run.AgentContextID = handle.AgentContextID
 		}
 
-		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, step)
-		hasStepContext := stepContextDir != ""
-		executionInput := flowapp.BuildRunInputForAction(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasStepContext)
+		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, action)
+		hasActionContext := actionContextDir != ""
+		runInput := flowapp.BuildRunInputForAction(profile, run.BriefingSnapshot, action, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasActionContext)
 
-		// Persist the full execution input for auditability.
-		exec.Input = buildExecutionInputRecord(executionInput, profile, workDir, hasSignalSkill, hasStepContext, step)
+		// Persist the full run input for auditability.
+		run.Input = buildRunInputRecord(runInput, profile, workDir, hasSignalSkill, hasActionContext, action)
 
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.dispatch", "started", map[string]any{
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "started", map[string]any{
 			"agent_id":    profile.ID,
-			"input_chars": len(executionInput),
+			"input_chars": len(runInput),
 		})
-		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
+		invocationID, err := cfg.SessionManager.StartRun(ctx, handle, runInput)
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.dispatch", "failed", map[string]any{
+			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "failed", map[string]any{
 				"error": err.Error(),
 			})
-			return fmt.Errorf("start execution: %w", err)
+			return fmt.Errorf("start run: %w", err)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.dispatch", "succeeded", map[string]any{
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "succeeded", map[string]any{
 			"invocation_id": invocationID,
 		})
 
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.watch", "started", map[string]any{
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "started", map[string]any{
 			"invocation_id": invocationID,
 		})
-		result, err := cfg.SessionManager.WatchExecution(ctx, invocationID, 0, sink)
+		result, err := cfg.SessionManager.WatchRun(ctx, invocationID, 0, sink)
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.watch", "failed", map[string]any{
+			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "failed", map[string]any{
 				"invocation_id": invocationID,
 				"error":         err.Error(),
 			})
-			return fmt.Errorf("watch execution: %w", err)
+			return fmt.Errorf("watch run: %w", err)
 		}
 		watchAuditData := map[string]any{
 			"invocation_id": invocationID,
@@ -238,9 +237,9 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			watchAuditData["stop_reason"] = result.StopReason
 			watchAuditData["output_chars"] = len(strings.TrimSpace(result.Text))
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "run.watch", "completed", watchAuditData)
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "completed", watchAuditData)
 		if result != nil && result.AgentContextID != nil {
-			exec.AgentContextID = result.AgentContextID
+			run.AgentContextID = result.AgentContextID
 		}
 
 		// Flush any remaining accumulated chunks.
@@ -254,27 +253,27 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		})
 
 		// Store agent output inline on the Run.
-		exec.ResultMarkdown = replyText
-		if step.Type == core.ActionGate {
-			exec.ResultMetadata = extractGateMetadata(replyText)
+		run.ResultMarkdown = replyText
+		if action.Type == core.ActionGate {
+			run.ResultMetadata = extractGateMetadata(replyText)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, step, exec, "deliverable.persist", "succeeded", map[string]any{
+		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "deliverable.persist", "succeeded", map[string]any{
 			"result_chars": len(replyText),
 		})
 
 		// Fallback: if agent couldn't curl (network-isolated sandbox),
 		// extract signal from output text and create ActionSignal internally.
 		if hasSignalSkill {
-			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, cfg.AuditLogger, step, exec, replyText, profile.ID)
+			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, cfg.AuditLogger, action, run, replyText, profile.ID)
 		}
 
-		exec.Output = map[string]any{
+		run.Output = map[string]any{
 			"text":        replyText,
 			"stop_reason": result.StopReason,
 		}
 		if result.InputTokens > 0 || result.OutputTokens > 0 {
-			exec.Output["input_tokens"] = result.InputTokens
-			exec.Output["output_tokens"] = result.OutputTokens
+			run.Output["input_tokens"] = result.InputTokens
+			run.Output["output_tokens"] = result.OutputTokens
 		}
 
 		// Persist structured usage record for analytics.
@@ -282,18 +281,18 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		totalTokens := result.InputTokens + result.OutputTokens
 		if totalTokens > 0 {
 			var durationMs int64
-			if exec.StartedAt != nil {
-				// Approximate duration from exec start to now.
-				durationMs = time.Since(*exec.StartedAt).Milliseconds()
+			if run.StartedAt != nil {
+				// Approximate duration from run start to now.
+				durationMs = time.Since(*run.StartedAt).Milliseconds()
 			}
 			var projectID *int64
-			if issue, fErr := cfg.Store.GetWorkItem(ctx, step.WorkItemID); fErr == nil && issue.ProjectID != nil {
-				projectID = issue.ProjectID
+			if workItem, fErr := cfg.Store.GetWorkItem(ctx, action.WorkItemID); fErr == nil && workItem.ProjectID != nil {
+				projectID = workItem.ProjectID
 			}
 			usageRec := &core.UsageRecord{
-				RunID:            exec.ID,
-				WorkItemID:       step.WorkItemID,
-				ActionID:         step.ID,
+				RunID:            run.ID,
+				WorkItemID:       action.WorkItemID,
+				ActionID:         action.ID,
 				ProjectID:        projectID,
 				AgentID:          profile.ID,
 				ProfileID:        profile.ID,
@@ -308,12 +307,12 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			}
 			if _, uErr := cfg.Store.CreateUsageRecord(ctx, usageRec); uErr != nil {
 				slog.Warn("failed to persist usage record",
-					"exec_id", exec.ID, "error", uErr)
+					"run_id", run.ID, "error", uErr)
 			}
 		}
 
-		slog.Info("runtime ACP step executed",
-			"step_id", step.ID, "agent", profile.ID,
+		slog.Info("runtime ACP action executed",
+			"action_id", action.ID, "agent", profile.ID,
 			"output_len", len(replyText),
 			"stop_reason", result.StopReason,
 			"input_tokens", result.InputTokens,
@@ -323,48 +322,47 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 	}
 }
 
-// resolveStepAgent resolves the agent profile for a step.
-// It first checks step.Config["profile_id"] for an explicit profile assignment,
+// resolveActionAgent resolves the agent profile for an action.
+// It first checks action.Config["profile_id"] for an explicit profile assignment,
 // then falls back to ResolveForAction (role + capabilities matching).
-func resolveStepAgent(ctx context.Context, registry core.AgentRegistry, step *core.Action) (*core.AgentProfile, error) {
-	if pid, ok := step.Config["profile_id"].(string); ok && pid != "" {
+func resolveActionAgent(ctx context.Context, registry core.AgentRegistry, action *core.Action) (*core.AgentProfile, error) {
+	if pid, ok := action.Config["profile_id"].(string); ok && pid != "" {
 		p, err := registry.ResolveByID(ctx, pid)
 		if err == nil {
 			return p, nil
 		}
 		slog.Warn("resolve agent: explicit profile_id not found, falling back",
-			"profile_id", pid, "step_id", step.ID, "error", err)
+			"profile_id", pid, "action_id", action.ID, "error", err)
 	}
-	return registry.ResolveForAction(ctx, step)
+	return registry.ResolveForAction(ctx, action)
 }
 
-func buildStepMCPFactory(step *core.Action, profile *core.AgentProfile, execID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
-	if resolver == nil || step == nil || profile == nil || !profile.MCP.Enabled {
+func buildActionMCPFactory(action *core.Action, profile *core.AgentProfile, runID int64, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
+	if resolver == nil || action == nil || profile == nil || !profile.MCP.Enabled {
 		return nil
 	}
-	// MCP tools should only be exposed while executing concrete steps.
-	if step.Type != core.ActionExec && step.Type != core.ActionGate {
+	// MCP tools should only be exposed while running concrete actions.
+	if action.Type != core.ActionExec && action.Type != core.ActionGate {
 		return nil
 	}
 	return func(agentSupportsSSE bool) []acpproto.McpServer {
 		servers := resolver(profile.ID, agentSupportsSSE)
 		slog.Debug("mcp: resolved servers",
-			"profile", profile.ID, "step_id", step.ID,
-			"step_type", step.Type, "exec_id", execID,
+			"profile", profile.ID, "action_id", action.ID,
+			"action_type", action.Type, "run_id", runID,
 			"server_count", len(servers))
-		// Inject step context env vars into internal stdio MCP servers (mcp-serve).
-		stepEnv := []acpproto.EnvVariable{
-			{Name: "AI_WORKFLOW_STEP_ID", Value: fmt.Sprintf("%d", step.ID)},
-			{Name: "AI_WORKFLOW_WORK_ITEM_ID", Value: fmt.Sprintf("%d", step.WorkItemID)},
-			{Name: "AI_WORKFLOW_ISSUE_ID", Value: fmt.Sprintf("%d", step.WorkItemID)},
-			{Name: "AI_WORKFLOW_STEP_TYPE", Value: string(step.Type)},
-			{Name: "AI_WORKFLOW_EXEC_ID", Value: fmt.Sprintf("%d", execID)},
+		// Inject action context env vars into internal stdio MCP servers (mcp-serve).
+		actionEnv := []acpproto.EnvVariable{
+			{Name: "AI_WORKFLOW_ACTION_ID", Value: fmt.Sprintf("%d", action.ID)},
+			{Name: "AI_WORKFLOW_WORK_ITEM_ID", Value: fmt.Sprintf("%d", action.WorkItemID)},
+			{Name: "AI_WORKFLOW_ACTION_TYPE", Value: string(action.Type)},
+			{Name: "AI_WORKFLOW_RUN_ID", Value: fmt.Sprintf("%d", runID)},
 		}
 		for i := range servers {
 			if servers[i].Stdio != nil && containsArg(servers[i].Stdio.Args, "mcp-serve") {
-				servers[i].Stdio.Env = append(servers[i].Stdio.Env, stepEnv...)
-				slog.Debug("mcp: injected step env into mcp-serve",
-					"step_id", step.ID, "env_count", len(servers[i].Stdio.Env))
+				servers[i].Stdio.Env = append(servers[i].Stdio.Env, actionEnv...)
+				slog.Debug("mcp: injected action env into mcp-serve",
+					"action_id", action.ID, "env_count", len(servers[i].Stdio.Env))
 			}
 		}
 		return servers
@@ -413,8 +411,8 @@ func extractGateMetadata(markdown string) map[string]any {
 	return parsed
 }
 
-func publishRunAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.Logger, step *core.Action, exec *core.Run, kind string, status string, data map[string]any) {
-	if step == nil || exec == nil {
+func publishRunAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.Logger, action *core.Action, run *core.Run, kind string, status string, data map[string]any) {
+	if action == nil || run == nil {
 		return
 	}
 	payload := map[string]any{
@@ -426,9 +424,9 @@ func publishRunAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.
 	}
 	if auditLogger != nil {
 		if logRef := auditLogger.LogRunAudit(ctx, audit.Scope{
-			WorkItemID: step.WorkItemID,
-			ActionID:   step.ID,
-			RunID:      exec.ID,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			RunID:      run.ID,
 		}, kind, status, data); strings.TrimSpace(logRef) != "" {
 			payload["log_ref"] = logRef
 		}
@@ -438,9 +436,9 @@ func publishRunAudit(ctx context.Context, bus core.EventBus, auditLogger *audit.
 	}
 	bus.Publish(ctx, core.Event{
 		Type:       core.EventRunAudit,
-		WorkItemID: step.WorkItemID,
-		ActionID:   step.ID,
-		RunID:      exec.ID,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
+		RunID:      run.ID,
 		Timestamp:  time.Now().UTC(),
 		Data:       payload,
 	})
@@ -511,9 +509,9 @@ func decisionToSignalType(decision string) (core.SignalType, bool) {
 // If not, it parses the agent output for an AI_WORKFLOW_SIGNAL line and creates the
 // ActionSignal internally. This covers network-isolated environments where the agent
 // cannot curl the decision endpoint.
-func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, auditLogger *audit.Logger, step *core.Action, exec *core.Run, replyText, profileID string) {
+func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, auditLogger *audit.Logger, action *core.Action, run *core.Run, replyText, profileID string) {
 	// Check if a terminal signal was already received via HTTP curl.
-	existing, _ := store.GetLatestActionSignal(ctx, step.ID,
+	existing, _ := store.GetLatestActionSignal(ctx, action.ID,
 		core.SignalComplete, core.SignalNeedHelp, core.SignalApprove, core.SignalReject)
 	if existing != nil {
 		return // signal already received via HTTP
@@ -530,9 +528,9 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 	}
 
 	sig := &core.ActionSignal{
-		ActionID:   step.ID,
-		WorkItemID: step.WorkItemID,
-		RunID:      exec.ID,
+		ActionID:   action.ID,
+		WorkItemID: action.WorkItemID,
+		RunID:      run.ID,
 		Type:       sigType,
 		Source:     core.SignalSourceAgent,
 		Summary:    parsed.Reason,
@@ -541,15 +539,15 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 	}
 	sigID, err := store.CreateActionSignal(ctx, sig)
 	if err != nil {
-		slog.Warn("step-signal: failed to create fallback signal",
-			"step_id", step.ID, "decision", parsed.Decision, "error", err)
+		slog.Warn("action-signal: failed to create fallback signal",
+			"action_id", action.ID, "decision", parsed.Decision, "error", err)
 		return
 	}
 
 	bus.Publish(ctx, core.Event{
 		Type:       core.EventActionSignal,
-		WorkItemID: step.WorkItemID,
-		ActionID:   step.ID,
+		WorkItemID: action.WorkItemID,
+		ActionID:   action.ID,
 		Timestamp:  time.Now().UTC(),
 		Data: map[string]any{
 			"signal_id": sigID,
@@ -558,13 +556,13 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 			"method":    "output_fallback",
 		},
 	})
-	publishRunAudit(ctx, bus, auditLogger, step, exec, "signal.fallback", "created", map[string]any{
+	publishRunAudit(ctx, bus, auditLogger, action, run, "signal.fallback", "created", map[string]any{
 		"signal_id":   sigID,
 		"signal_type": string(sigType),
 		"actor":       fmt.Sprintf("agent/%s", profileID),
 	})
-	slog.Info("step-signal: created from output fallback",
-		"step_id", step.ID, "decision", parsed.Decision, "signal_id", sigID)
+	slog.Info("action-signal: created from output fallback",
+		"action_id", action.ID, "decision", parsed.Decision, "signal_id", sigID)
 }
 
 func buildFallbackSignalPayload(parsed *outputSignal) map[string]any {
@@ -581,8 +579,8 @@ func buildFallbackSignalPayload(parsed *outputSignal) map[string]any {
 	return payload
 }
 
-// buildExecutionInputRecord captures the full context sent to the agent for auditability.
-func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, workDir string, hasSignalSkill bool, hasStepContext bool, step *core.Action) map[string]any {
+// buildRunInputRecord captures the full context sent to the agent for auditability.
+func buildRunInputRecord(prompt string, profile *core.AgentProfile, workDir string, hasSignalSkill bool, hasActionContext bool, action *core.Action) map[string]any {
 	rec := map[string]any{
 		"prompt":   prompt,
 		"work_dir": workDir,
@@ -617,18 +615,18 @@ func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, workDi
 	// Skills injected
 	var injectedSkills []string
 	if hasSignalSkill {
-		injectedSkills = append(injectedSkills, "step-signal")
+		injectedSkills = append(injectedSkills, "action-signal")
 	}
-	if hasStepContext {
-		injectedSkills = append(injectedSkills, "step-context")
+	if hasActionContext {
+		injectedSkills = append(injectedSkills, "action-context")
 	}
 	if len(injectedSkills) > 0 {
 		rec["skills_injected"] = injectedSkills
 	}
 
-	// Step config (objective, profile_id, etc.)
-	if step != nil && len(step.Config) > 0 {
-		rec["step_config"] = step.Config
+	// Action config (objective, profile_id, etc.)
+	if action != nil && len(action.Config) > 0 {
+		rec["action_config"] = action.Config
 	}
 
 	return rec

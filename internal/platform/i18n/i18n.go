@@ -54,7 +54,7 @@ var catalog = map[Lang]map[string]string{
 
 		// dag / template
 		"DAG_GEN_UNAVAILABLE": "DAG 生成器未配置（需要 LLM）",
-		"MISSING_STEPS":       "至少需要一个步骤",
+		"MISSING_ACTIONS":     "至少需要一个动作",
 		"TEMPLATE_NOT_FOUND":  "模板未找到",
 
 		// chat

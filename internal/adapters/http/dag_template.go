@@ -16,7 +16,7 @@ type createDAGTemplateRequest struct {
 	ProjectID   *int64                   `json:"project_id,omitempty"`
 	Tags        []string                 `json:"tags,omitempty"`
 	Metadata    map[string]string        `json:"metadata,omitempty"`
-	Steps       []core.DAGTemplateAction `json:"steps"`
+	Actions     []core.DAGTemplateAction `json:"actions"`
 }
 
 type updateDAGTemplateRequest struct {
@@ -25,7 +25,7 @@ type updateDAGTemplateRequest struct {
 	ProjectID   *int64                    `json:"project_id,omitempty"`
 	Tags        *[]string                 `json:"tags,omitempty"`
 	Metadata    map[string]string         `json:"metadata,omitempty"`
-	Steps       *[]core.DAGTemplateAction `json:"steps,omitempty"`
+	Actions     *[]core.DAGTemplateAction `json:"actions,omitempty"`
 }
 
 type saveWorkItemAsTemplateRequest struct {
@@ -43,19 +43,19 @@ type createWorkItemFromTemplateRequest struct {
 
 func validateTemplateActions(actions []core.DAGTemplateAction) error {
 	if len(actions) == 0 {
-		return fmt.Errorf("at least one step is required")
+		return fmt.Errorf("at least one action is required")
 	}
 
 	nameSet := make(map[string]struct{}, len(actions))
 	for _, action := range actions {
 		if action.Name == "" {
-			return fmt.Errorf("step name is required")
+			return fmt.Errorf("action name is required")
 		}
 		if action.Type == "" {
-			return fmt.Errorf("step %q type is required", action.Name)
+			return fmt.Errorf("action %q type is required", action.Name)
 		}
 		if _, exists := nameSet[action.Name]; exists {
-			return fmt.Errorf("duplicate step name %q", action.Name)
+			return fmt.Errorf("duplicate action name %q", action.Name)
 		}
 		nameSet[action.Name] = struct{}{}
 	}
@@ -63,10 +63,10 @@ func validateTemplateActions(actions []core.DAGTemplateAction) error {
 	for _, action := range actions {
 		for _, depName := range action.DependsOn {
 			if depName == action.Name {
-				return fmt.Errorf("step %q depends on itself", action.Name)
+				return fmt.Errorf("action %q depends on itself", action.Name)
 			}
 			if _, exists := nameSet[depName]; !exists {
-				return fmt.Errorf("step %q depends on unknown step %q", action.Name, depName)
+				return fmt.Errorf("action %q depends on unknown action %q", action.Name, depName)
 			}
 		}
 	}
@@ -87,11 +87,11 @@ func (h *Handler) createDAGTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required", "MISSING_NAME")
 		return
 	}
-	if len(req.Steps) == 0 {
-		writeError(w, http.StatusBadRequest, "at least one step is required", "MISSING_STEPS")
+	if len(req.Actions) == 0 {
+		writeError(w, http.StatusBadRequest, "at least one action is required", "MISSING_ACTIONS")
 		return
 	}
-	if err := validateTemplateActions(req.Steps); err != nil {
+	if err := validateTemplateActions(req.Actions); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_TEMPLATE")
 		return
 	}
@@ -102,7 +102,7 @@ func (h *Handler) createDAGTemplate(w http.ResponseWriter, r *http.Request) {
 		ProjectID:   req.ProjectID,
 		Tags:        req.Tags,
 		Metadata:    req.Metadata,
-		Actions:     req.Steps,
+		Actions:     req.Actions,
 	}
 	id, err := h.store.CreateDAGTemplate(r.Context(), t)
 	if err != nil {
@@ -193,12 +193,12 @@ func (h *Handler) updateDAGTemplate(w http.ResponseWriter, r *http.Request) {
 	if req.Metadata != nil {
 		existing.Metadata = req.Metadata
 	}
-	if req.Steps != nil {
-		if err := validateTemplateActions(*req.Steps); err != nil {
+	if req.Actions != nil {
+		if err := validateTemplateActions(*req.Actions); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_TEMPLATE")
 			return
 		}
-		existing.Actions = *req.Steps
+		existing.Actions = *req.Actions
 	}
 
 	if err := h.store.UpdateDAGTemplate(r.Context(), existing); err != nil {
@@ -226,16 +226,16 @@ func (h *Handler) deleteDAGTemplate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// POST /work-items/{issueID}/save-as-template
-// Snapshots the current work item's steps into a new DAGTemplate.
+// POST /work-items/{workItemID}/save-as-template
+// Snapshots the current work item's actions into a new DAGTemplate.
 func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
 
-	issue, err := h.store.GetWorkItem(r.Context(), issueID)
+	workItem, err := h.store.GetWorkItem(r.Context(), workItemID)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
 		return
@@ -245,13 +245,13 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	steps, err := h.store.ListActionsByWorkItem(r.Context(), issueID)
+	actions, err := h.store.ListActionsByWorkItem(r.Context(), workItemID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if len(steps) == 0 {
-		writeError(w, http.StatusBadRequest, "work item has no steps to save as template", "NO_STEPS")
+	if len(actions) == 0 {
+		writeError(w, http.StatusBadRequest, "work item has no actions to save as template", "NO_ACTIONS")
 		return
 	}
 
@@ -261,13 +261,13 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if req.Name == "" {
-		req.Name = issue.Title + " (template)"
+		req.Name = workItem.Title + " (template)"
 	}
 
 	// Reject duplicate action names — templates use names for DependsOn references,
 	// so duplicates would cause ambiguous or incorrect dependency wiring on replay.
-	namesSeen := make(map[string]bool, len(steps))
-	for _, s := range steps {
+	namesSeen := make(map[string]bool, len(actions))
+	for _, s := range actions {
 		if namesSeen[s.Name] {
 			writeError(w, http.StatusBadRequest,
 				fmt.Sprintf("duplicate action name %q; cannot save as template with ambiguous dependency names", s.Name),
@@ -278,14 +278,14 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Build ID→name map for reverse-resolving DependsOn IDs to names.
-	idToName := make(map[int64]string, len(steps))
-	for _, s := range steps {
+	idToName := make(map[int64]string, len(actions))
+	for _, s := range actions {
 		idToName[s.ID] = s.Name
 	}
 
-	// Convert runtime steps to template steps (position-ordered), preserving DependsOn.
-	templateSteps := make([]core.DAGTemplateAction, 0, len(steps))
-	for _, s := range steps {
+	// Convert runtime actions to template actions (position-ordered), preserving DependsOn.
+	templateActions := make([]core.DAGTemplateAction, 0, len(actions))
+	for _, s := range actions {
 		var depNames []string
 		for _, depID := range s.DependsOn {
 			name, ok := idToName[depID]
@@ -296,7 +296,7 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 			}
 			depNames = append(depNames, name)
 		}
-		templateSteps = append(templateSteps, core.DAGTemplateAction{
+		templateActions = append(templateActions, core.DAGTemplateAction{
 			Name:                 s.Name,
 			Description:          s.Description,
 			Type:                 string(s.Type),
@@ -310,10 +310,10 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 	t := &core.DAGTemplate{
 		Name:        req.Name,
 		Description: req.Description,
-		ProjectID:   issue.ProjectID,
+		ProjectID:   workItem.ProjectID,
 		Tags:        req.Tags,
 		Metadata:    req.Metadata,
-		Actions:     templateSteps,
+		Actions:     templateActions,
 	}
 	if err := validateTemplateActions(t.Actions); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_TEMPLATE")
@@ -329,7 +329,7 @@ func (h *Handler) saveWorkItemAsTemplate(w http.ResponseWriter, r *http.Request)
 }
 
 // POST /templates/{templateID}/create-work-item
-// Creates a new work item and materializes template steps into it.
+// Creates a new work item and materializes template actions into it.
 func (h *Handler) createWorkItemFromTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, ok := urlParamInt64(r, "templateID")
 	if !ok {
@@ -367,26 +367,26 @@ func (h *Handler) createWorkItemFromTemplate(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Create the work item.
-	issue := &core.WorkItem{
+	workItem := &core.WorkItem{
 		Title:     req.Title,
 		ProjectID: projectID,
 		Status:    core.WorkItemOpen,
 		Metadata:  req.Metadata,
 	}
-	issueID, err := h.store.CreateWorkItem(r.Context(), issue)
+	workItemID, err := h.store.CreateWorkItem(r.Context(), workItem)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	issue.ID = issueID
+	workItem.ID = workItemID
 
-	// Phase 1: Materialize template steps into the issue with position-based ordering.
+	// Phase 1: Materialize template actions into the work item with position-based ordering.
 	nameToID := make(map[string]int64, len(tmpl.Actions))
-	createdSteps := make([]*core.Action, 0, len(tmpl.Actions))
+	createdActions := make([]*core.Action, 0, len(tmpl.Actions))
 
 	for i, ts := range tmpl.Actions {
-		step := &core.Action{
-			WorkItemID:           issueID,
+		action := &core.Action{
+			WorkItemID:           workItemID,
 			Name:                 ts.Name,
 			Description:          ts.Description,
 			Type:                 core.ActionType(ts.Type),
@@ -396,14 +396,14 @@ func (h *Handler) createWorkItemFromTemplate(w http.ResponseWriter, r *http.Requ
 			RequiredCapabilities: ts.RequiredCapabilities,
 			AcceptanceCriteria:   ts.AcceptanceCriteria,
 		}
-		id, err := h.store.CreateAction(r.Context(), step)
+		id, err := h.store.CreateAction(r.Context(), action)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
-		step.ID = id
+		action.ID = id
 		nameToID[ts.Name] = id
-		createdSteps = append(createdSteps, step)
+		createdActions = append(createdActions, action)
 	}
 
 	// Phase 2: Resolve template DependsOn names → action IDs and persist.
@@ -416,20 +416,20 @@ func (h *Handler) createWorkItemFromTemplate(w http.ResponseWriter, r *http.Requ
 			depID, ok := nameToID[depName]
 			if !ok {
 				writeError(w, http.StatusInternalServerError,
-					"template step "+ts.Name+" depends on unknown step "+depName, "TEMPLATE_ERROR")
+					"template action "+ts.Name+" depends on unknown action "+depName, "TEMPLATE_ERROR")
 				return
 			}
 			resolved = append(resolved, depID)
 		}
-		if err := h.store.UpdateActionDependsOn(r.Context(), createdSteps[i].ID, resolved); err != nil {
+		if err := h.store.UpdateActionDependsOn(r.Context(), createdActions[i].ID, resolved); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
-		createdSteps[i].DependsOn = resolved
+		createdActions[i].DependsOn = resolved
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"issue": issue,
-		"steps": createdSteps,
+		"work_item": workItem,
+		"actions":   createdActions,
 	})
 }

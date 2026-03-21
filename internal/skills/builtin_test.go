@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
+func TestEnsureBuiltinSkills_ExtractsActionSignal(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -14,8 +14,8 @@ func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
 		t.Fatalf("EnsureBuiltinSkills: %v", err)
 	}
 
-	// Verify step-signal SKILL.md was extracted.
-	skillMD := filepath.Join(root, "step-signal", "SKILL.md")
+	// Verify action-signal SKILL.md was extracted.
+	skillMD := filepath.Join(root, "action-signal", "SKILL.md")
 	b, err := os.ReadFile(skillMD)
 	if err != nil {
 		t.Fatalf("read extracted SKILL.md: %v", err)
@@ -23,16 +23,16 @@ func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
 	content := string(b)
 
 	// Check frontmatter fields.
-	if meta, errs := ValidateSkillMD("step-signal", content); len(errs) > 0 {
+	if meta, errs := ValidateSkillMD("action-signal", content); len(errs) > 0 {
 		t.Fatalf("extracted SKILL.md validation errors: %v", errs)
-	} else if meta.Name != "step-signal" {
-		t.Fatalf("expected name=step-signal, got %q", meta.Name)
+	} else if meta.Name != "action-signal" {
+		t.Fatalf("expected name=action-signal, got %q", meta.Name)
 	}
 
 	// Check that key content is present.
 	for _, keyword := range []string{
-		"AI_WORKFLOW_STEP_TYPE",
-		"AI_WORKFLOW_STEP_ID",
+		"AI_WORKFLOW_ACTION_TYPE",
+		"AI_WORKFLOW_ACTION_ID",
 		"AI_WORKFLOW_SIGNAL",
 		"signal.sh",
 	} {
@@ -163,7 +163,7 @@ func TestEnsureBuiltinSkills_SkipsWhenContentMatches(t *testing.T) {
 		t.Fatalf("first EnsureBuiltinSkills: %v", err)
 	}
 
-	skillMD := filepath.Join(root, "step-signal", "SKILL.md")
+	skillMD := filepath.Join(root, "action-signal", "SKILL.md")
 	info1, err := os.Stat(skillMD)
 	if err != nil {
 		t.Fatalf("stat after first extract: %v", err)
@@ -190,12 +190,12 @@ func TestEnsureBuiltinSkills_OverwritesOnContentMismatch(t *testing.T) {
 
 	root := t.TempDir()
 
-	// Write a fake step-signal so the embedded builtin should overwrite it.
-	skillDir := filepath.Join(root, "step-signal")
+	// Write a fake action-signal so the embedded builtin should overwrite it.
+	skillDir := filepath.Join(root, "action-signal")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakeContent := "---\nname: step-signal\ndescription: fake\n---\n\n# Fake\n"
+	fakeContent := "---\nname: action-signal\ndescription: fake\n---\n\n# Fake\n"
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(fakeContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestEnsureBuiltinSkills_OverwritesWhenBundledScriptDiffers(t *testing.T) {
 		t.Fatalf("EnsureBuiltinSkills: %v", err)
 	}
 
-	scriptPath := filepath.Join(root, "step-signal", "scripts", "signal.sh")
+	scriptPath := filepath.Join(root, "action-signal", "scripts", "signal.sh")
 	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env bash\necho fake\n"), 0o644); err != nil {
 		t.Fatalf("write fake script: %v", err)
 	}

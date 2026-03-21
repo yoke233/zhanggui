@@ -85,7 +85,7 @@ func (s *Store) ListFeatureEntries(ctx context.Context, filter core.FeatureEntry
 		query = query.Where("status = ?", string(*filter.Status))
 	}
 	if filter.WorkItemID != nil {
-		query = query.Where("issue_id = ?", *filter.WorkItemID)
+		query = query.Where("work_item_id = ?", *filter.WorkItemID)
 	}
 	// Tags filter: match entries whose JSON tags column contains ALL requested tags.
 	for _, tag := range filter.Tags {
@@ -126,14 +126,14 @@ func (s *Store) UpdateFeatureEntry(ctx context.Context, entry *core.FeatureEntry
 	result := s.orm.WithContext(ctx).Model(&FeatureEntryModel{}).
 		Where("id = ?", entry.ID).
 		Updates(map[string]any{
-			"key":         model.Key,
-			"description": model.Description,
-			"status":      model.Status,
-			"issue_id":    model.IssueID,
-			"step_id":     model.StepID,
-			"tags":        model.Tags,
-			"metadata":    model.Metadata,
-			"updated_at":  now,
+			"key":          model.Key,
+			"description":  model.Description,
+			"status":       model.Status,
+			"work_item_id": model.WorkItemID,
+			"action_id":    model.ActionID,
+			"tags":         model.Tags,
+			"metadata":     model.Metadata,
+			"updated_at":   now,
 		})
 	if result.Error != nil {
 		if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {

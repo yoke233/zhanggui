@@ -17,21 +17,21 @@ import (
 //     fetch/deposit (e.g. shared drive, S3 bucket, CDN).
 //
 // When Kind is "attachment", the binding represents a work-item file
-// attachment (IssueID is set, ProjectID may be zero).
+// attachment (WorkItemID is set, ProjectID may be zero).
 //
 // The Kind field determines which provider handles it; the URI field
 // can be a local path ("/home/user/repo"), a remote URL
 // ("https://github.com/org/repo.git"), or a storage URI ("s3://bucket/prefix").
 type ResourceBinding struct {
-	ID        int64          `json:"id"`
-	ProjectID int64          `json:"project_id"`
-	IssueID   *int64         `json:"issue_id,omitempty"`
-	Kind      string         `json:"kind"` // "git" | "local_fs" | "s3" | "http" | "webdav" | "attachment" | ...
-	URI       string         `json:"uri"`  // local path, remote URL, or storage URI
-	Config    map[string]any `json:"config,omitempty"`
-	Label     string         `json:"label,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID         int64          `json:"id"`
+	ProjectID  int64          `json:"project_id"`
+	WorkItemID *int64         `json:"work_item_id,omitempty"`
+	Kind       string         `json:"kind"` // "git" | "local_fs" | "s3" | "http" | "webdav" | "attachment" | ...
+	URI        string         `json:"uri"`  // local path, remote URL, or storage URI
+	Config     map[string]any `json:"config,omitempty"`
+	Label      string         `json:"label,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ type ResourceBindingStore interface {
 	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
 	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
 	ListResourceBindings(ctx context.Context, projectID int64) ([]*ResourceBinding, error)
-	ListResourceBindingsByIssue(ctx context.Context, issueID int64, kind string) ([]*ResourceBinding, error)
+	ListResourceBindingsByWorkItem(ctx context.Context, workItemID int64, kind string) ([]*ResourceBinding, error)
 	UpdateResourceBinding(ctx context.Context, rb *ResourceBinding) error
 	DeleteResourceBinding(ctx context.Context, id int64) error
 }
@@ -97,12 +97,12 @@ type ResourceProvider interface {
 }
 
 // NewAttachmentBinding creates a ResourceBinding that represents a work-item file attachment.
-func NewAttachmentBinding(issueID int64, fileName, filePath, mimeType string, size int64) *ResourceBinding {
+func NewAttachmentBinding(workItemID int64, fileName, filePath, mimeType string, size int64) *ResourceBinding {
 	return &ResourceBinding{
-		IssueID: &issueID,
-		Kind:    ResourceKindAttachment,
-		URI:     filePath,
-		Label:   fileName,
+		WorkItemID: &workItemID,
+		Kind:       ResourceKindAttachment,
+		URI:        filePath,
+		Label:      fileName,
 		Config: map[string]any{
 			"mime_type": mimeType,
 			"size":      size,

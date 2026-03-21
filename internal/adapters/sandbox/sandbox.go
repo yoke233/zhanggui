@@ -27,7 +27,7 @@ type PrepareInput struct {
 	// processes it can be unique (e.g. flow-<id>-exec-<id>).
 	Scope string
 
-	// ExtraSkills are dynamically injected skill names (e.g. "step-signal")
+	// ExtraSkills are dynamically injected skill names (e.g. "action-signal")
 	// that should be linked alongside Profile.Skills.
 	ExtraSkills []string
 

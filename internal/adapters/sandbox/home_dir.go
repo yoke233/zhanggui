@@ -118,7 +118,7 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 		}
 	}
 
-	// Link ephemeral skills (pre-built directories, e.g. step-context).
+	// Link ephemeral skills (pre-built directories, e.g. action-context).
 	// Unlike global skills we always replace — ephemeral skills are per-execution.
 	for name, srcDir := range in.EphemeralSkills {
 		dstName, err := sanitizeSandboxSkillName(name)

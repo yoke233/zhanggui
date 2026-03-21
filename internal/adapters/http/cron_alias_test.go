@@ -48,7 +48,6 @@ func TestAPI_ListCronWorkItemsViaWorkItemAlias(t *testing.T) {
 
 	var listed []struct {
 		WorkItemID int64 `json:"work_item_id"`
-		IssueID    int64 `json:"issue_id"`
 		Enabled    bool  `json:"enabled"`
 	}
 	if err := decodeJSON(resp, &listed); err != nil {
@@ -59,9 +58,6 @@ func TestAPI_ListCronWorkItemsViaWorkItemAlias(t *testing.T) {
 	}
 	if listed[0].WorkItemID != created.ID {
 		t.Fatalf("expected work_item_id=%d, got %d", created.ID, listed[0].WorkItemID)
-	}
-	if listed[0].IssueID != created.ID {
-		t.Fatalf("expected issue_id=%d, got %d", created.ID, listed[0].IssueID)
 	}
 	if !listed[0].Enabled {
 		t.Fatal("expected cron item to be enabled")

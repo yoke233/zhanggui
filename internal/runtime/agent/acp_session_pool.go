@@ -43,7 +43,7 @@ type acpSessionFlight struct {
 
 // switchingEventHandler forwards ACP events to the currently active handler.
 // This allows a pooled session to reuse the same ACP process while emitting events
-// scoped to the current (issue, step, exec) prompt.
+// scoped to the current (work item, action, run) prompt.
 type switchingEventHandler struct {
 	mu sync.RWMutex
 	h  acpclient.EventHandler

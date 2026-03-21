@@ -109,7 +109,7 @@ func TestBuild_FullMaterials(t *testing.T) {
 	// Verify all files exist.
 	for _, f := range []string{
 		"SKILL.md",
-		"issue.md",
+		"work-item.md",
 		"upstream/requirements.md",
 		"acceptance.md",
 		"gate-feedback.md",
@@ -122,15 +122,15 @@ func TestBuild_FullMaterials(t *testing.T) {
 	}
 
 	// Verify work-item material content.
-	issueContent, _ := os.ReadFile(filepath.Join(dir, "issue.md"))
+	issueContent, _ := os.ReadFile(filepath.Join(dir, "work-item.md"))
 	if !strings.Contains(string(issueContent), "Implement login page") {
-		t.Error("issue.md should contain the work item title")
+		t.Error("work-item.md should contain the work item title")
 	}
 	if !strings.Contains(string(issueContent), "Full description") {
-		t.Error("issue.md should contain the full body")
+		t.Error("work-item.md should contain the full body")
 	}
 	if !strings.Contains(string(issueContent), "high") {
-		t.Error("issue.md should contain priority")
+		t.Error("work-item.md should contain priority")
 	}
 
 	// Verify upstream deliverable is not truncated.
@@ -205,7 +205,7 @@ func TestBuild_NoUpstream(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 	if dir == "" {
-		t.Fatal("expected non-empty dir (issue.md should be generated)")
+		t.Fatal("expected non-empty dir (work-item.md should be generated)")
 	}
 	defer Cleanup(dir)
 
@@ -280,7 +280,7 @@ func TestBuild_SkillMD_Index(t *testing.T) {
 	content := string(skillMD)
 
 	// SKILL.md should reference all generated files.
-	for _, expected := range []string{"issue.md", "upstream/design.md", "acceptance.md"} {
+	for _, expected := range []string{"work-item.md", "upstream/design.md", "acceptance.md"} {
 		if !strings.Contains(content, expected) {
 			t.Errorf("SKILL.md should reference %s", expected)
 		}

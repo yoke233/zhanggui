@@ -17,7 +17,7 @@ import (
 )
 
 // RunMCPServe starts the MCP server over stdio.
-// It reads step context from environment variables and exposes tools based on step type.
+// It reads action context from environment variables and exposes tools based on action type.
 func RunMCPServe(args []string) error {
 	dataDir, err := appdata.ResolveDataDir()
 	if err == nil {
@@ -32,10 +32,10 @@ func RunMCPServe(args []string) error {
 	if dbPath == "" {
 		return fmt.Errorf("AI_WORKFLOW_DB_PATH is required")
 	}
-	stepID := envInt64("AI_WORKFLOW_STEP_ID")
-	workItemID := envInt64Compat("AI_WORKFLOW_WORK_ITEM_ID", "AI_WORKFLOW_ISSUE_ID")
-	stepType := strings.TrimSpace(os.Getenv("AI_WORKFLOW_STEP_TYPE"))
-	execID := envInt64("AI_WORKFLOW_EXEC_ID")
+	actionID := envInt64("AI_WORKFLOW_ACTION_ID")
+	workItemID := envInt64("AI_WORKFLOW_WORK_ITEM_ID")
+	actionType := strings.TrimSpace(os.Getenv("AI_WORKFLOW_ACTION_TYPE"))
+	runID := envInt64("AI_WORKFLOW_RUN_ID")
 
 	store, err := sqlitestore.New(dbPath)
 	if err != nil {
@@ -44,34 +44,34 @@ func RunMCPServe(args []string) error {
 	defer store.Close()
 
 	srv := mcp.NewServer(&mcp.Implementation{
-		Name:    "ai-workflow-step",
+		Name:    "ai-workflow-action",
 		Version: "0.1.0",
 	}, nil)
 
-	handler := &mcpStepHandler{
+	handler := &mcpActionHandler{
 		store:      store,
-		stepID:     stepID,
+		actionID:   actionID,
 		workItemID: workItemID,
-		execID:     execID,
+		runID:      runID,
 	}
 
-	// step_context — available for all step types.
+	// action_context — available for all action types.
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "step_context",
-		Description: "Get the execution context: issue details, upstream step results, and your own rework history.",
-	}, handler.handleStepContext)
+		Name:        "action_context",
+		Description: "Get the run context: work item details, upstream action results, and your own rework history.",
+	}, handler.handleActionContext)
 
-	switch stepType {
+	switch actionType {
 	case "exec":
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "step_complete",
+			Name:        "action_complete",
 			Description: "Declare that you have completed the task. Provide a structured summary of what you did. Call this BEFORE ending your response.",
-		}, handler.handleStepComplete)
+		}, handler.handleActionComplete)
 
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "step_need_help",
+			Name:        "action_need_help",
 			Description: "Signal that you cannot complete the task and need human assistance. Explain what you tried, what went wrong, and what kind of help you need.",
-		}, handler.handleStepNeedHelp)
+		}, handler.handleActionNeedHelp)
 	case "gate":
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "gate_approve",
@@ -80,11 +80,11 @@ func RunMCPServe(args []string) error {
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "gate_reject",
-			Description: "Reject the gate. Call this when the review finds issues that must be fixed.",
+			Description: "Reject the gate. Call this when the review finds problems that must be fixed.",
 		}, handler.handleGateReject)
 	}
 
-	slog.Info("mcp-serve: starting", "step_id", stepID, "work_item_id", workItemID, "step_type", stepType, "exec_id", execID)
+	slog.Info("mcp-serve: starting", "action_id", actionID, "work_item_id", workItemID, "action_type", actionType, "run_id", runID)
 	return srv.Run(context.Background(), &mcp.StdioTransport{})
 }
 
@@ -97,61 +97,48 @@ func envInt64(key string) int64 {
 	return n
 }
 
-func envInt64Compat(primaryKey string, legacyKeys ...string) int64 {
-	if v := envInt64(primaryKey); v != 0 {
-		return v
-	}
-	for _, key := range legacyKeys {
-		if v := envInt64(key); v != 0 {
-			return v
-		}
-	}
-	return 0
-}
-
-// mcpStepHandler implements the MCP tool handlers.
-type mcpStepHandler struct {
+// mcpActionHandler implements the MCP tool handlers.
+type mcpActionHandler struct {
 	store      core.Store
-	stepID     int64
+	actionID   int64
 	workItemID int64
-	execID     int64
+	runID      int64
 }
 
-type stepContextInput struct{}
+type actionContextInput struct{}
 
-type stepContextOutput struct {
-	Step              map[string]any   `json:"step"`
+type actionContextOutput struct {
+	Action            map[string]any   `json:"action"`
 	WorkItem          map[string]any   `json:"work_item"`
-	Issue             map[string]any   `json:"issue,omitempty"`
 	UpstreamArtifacts []map[string]any `json:"upstream_artifacts"`
 	ReworkHistory     []any            `json:"rework_history"`
 	Signals           []map[string]any `json:"signals,omitempty"`
 }
 
-func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToolRequest, _ stepContextInput) (*mcp.CallToolResult, stepContextOutput, error) {
-	step, err := h.store.GetAction(ctx, h.stepID)
+func (h *mcpActionHandler) handleActionContext(ctx context.Context, req *mcp.CallToolRequest, _ actionContextInput) (*mcp.CallToolResult, actionContextOutput, error) {
+	action, err := h.store.GetAction(ctx, h.actionID)
 	if err != nil {
-		return nil, stepContextOutput{}, fmt.Errorf("get action: %w", err)
+		return nil, actionContextOutput{}, fmt.Errorf("get action: %w", err)
 	}
 	workItem, err := h.store.GetWorkItem(ctx, h.workItemID)
 	if err != nil {
-		return nil, stepContextOutput{}, fmt.Errorf("get work item: %w", err)
+		return nil, actionContextOutput{}, fmt.Errorf("get work item: %w", err)
 	}
 
 	// Collect upstream artifacts.
-	allSteps, _ := h.store.ListActionsByWorkItem(ctx, h.workItemID)
+	allActions, _ := h.store.ListActionsByWorkItem(ctx, h.workItemID)
 	var upstreamArtifacts []map[string]any
-	for _, s := range allSteps {
-		if s.Position < step.Position {
+	for _, s := range allActions {
+		if s.Position < action.Position {
 			run, err := h.store.GetLatestRunWithResult(ctx, s.ID)
 			if err != nil || run == nil {
 				continue
 			}
 			upstreamArtifacts = append(upstreamArtifacts, map[string]any{
-				"step_id":   s.ID,
-				"step_name": s.Name,
-				"summary":   run.ResultMetadata["summary"],
-				"metadata":  run.ResultMetadata,
+				"action_id":   s.ID,
+				"action_name": s.Name,
+				"summary":     run.ResultMetadata["summary"],
+				"metadata":    run.ResultMetadata,
 			})
 		}
 	}
@@ -159,7 +146,7 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	// Read rework history from signals (preferred) with Config fallback.
 	var reworkHistory []any
 	var signalTimeline []map[string]any
-	if signals, sErr := h.store.ListActionSignals(ctx, h.stepID); sErr == nil && len(signals) > 0 {
+	if signals, sErr := h.store.ListActionSignals(ctx, h.actionID); sErr == nil && len(signals) > 0 {
 		for _, sig := range signals {
 			entry := map[string]any{
 				"id":         sig.ID,
@@ -171,7 +158,7 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 				"created_at": sig.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			}
 			if sig.SourceActionID != 0 {
-				entry["source_step_id"] = sig.SourceActionID
+				entry["source_action_id"] = sig.SourceActionID
 			}
 			if len(sig.Payload) > 0 {
 				entry["payload"] = sig.Payload
@@ -186,14 +173,14 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	}
 	// Signals are the single source of truth; no Config fallback.
 
-	out := stepContextOutput{
-		Step: map[string]any{
-			"id":          step.ID,
-			"name":        step.Name,
-			"type":        string(step.Type),
-			"position":    step.Position,
-			"retry_count": step.RetryCount,
-			"description": step.Description,
+	out := actionContextOutput{
+		Action: map[string]any{
+			"id":          action.ID,
+			"name":        action.Name,
+			"type":        string(action.Type),
+			"position":    action.Position,
+			"retry_count": action.RetryCount,
+			"description": action.Description,
 		},
 		WorkItem: map[string]any{
 			"id":    workItem.ID,
@@ -204,11 +191,10 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 		ReworkHistory:     reworkHistory,
 		Signals:           signalTimeline,
 	}
-	out.Issue = out.WorkItem
 	return nil, out, nil
 }
 
-type stepCompleteInput struct {
+type actionCompleteInput struct {
 	Summary      string   `json:"summary" jsonschema:"One-sentence summary of what was accomplished"`
 	FilesChanged []string `json:"files_changed,omitempty" jsonschema:"File paths that were created or modified"`
 	TestsPassed  *bool    `json:"tests_passed,omitempty" jsonschema:"Whether you ran tests and they passed"`
@@ -220,7 +206,7 @@ type signalResult struct {
 	Type   string `json:"type,omitempty"`
 }
 
-func (h *mcpStepHandler) handleStepComplete(ctx context.Context, req *mcp.CallToolRequest, input stepCompleteInput) (*mcp.CallToolResult, signalResult, error) {
+func (h *mcpActionHandler) handleActionComplete(ctx context.Context, req *mcp.CallToolRequest, input actionCompleteInput) (*mcp.CallToolResult, signalResult, error) {
 	if ok, existing := h.checkIdempotent(ctx); !ok {
 		return nil, signalResult{Status: "already_decided", Type: string(existing)}, nil
 	}
@@ -238,13 +224,13 @@ func (h *mcpStepHandler) handleStepComplete(ctx context.Context, req *mcp.CallTo
 	return nil, signalResult{Status: "accepted"}, nil
 }
 
-type stepNeedHelpInput struct {
+type actionNeedHelpInput struct {
 	Reason    string `json:"reason" jsonschema:"Why you cannot proceed. Be specific about what is blocking you"`
 	Attempted string `json:"attempted,omitempty" jsonschema:"What you already tried before giving up"`
 	HelpType  string `json:"help_type,omitempty" jsonschema:"What kind of help is needed: access or clarification or decision or manual_action or other"`
 }
 
-func (h *mcpStepHandler) handleStepNeedHelp(ctx context.Context, req *mcp.CallToolRequest, input stepNeedHelpInput) (*mcp.CallToolResult, signalResult, error) {
+func (h *mcpActionHandler) handleActionNeedHelp(ctx context.Context, req *mcp.CallToolRequest, input actionNeedHelpInput) (*mcp.CallToolResult, signalResult, error) {
 	if ok, existing := h.checkIdempotent(ctx); !ok {
 		return nil, signalResult{Status: "already_decided", Type: string(existing)}, nil
 	}
@@ -263,7 +249,7 @@ type gateApproveInput struct {
 	Reason string `json:"reason" jsonschema:"Why the gate passes. Be specific about what was verified"`
 }
 
-func (h *mcpStepHandler) handleGateApprove(ctx context.Context, req *mcp.CallToolRequest, input gateApproveInput) (*mcp.CallToolResult, signalResult, error) {
+func (h *mcpActionHandler) handleGateApprove(ctx context.Context, req *mcp.CallToolRequest, input gateApproveInput) (*mcp.CallToolResult, signalResult, error) {
 	if ok, existing := h.checkIdempotent(ctx); !ok {
 		return nil, signalResult{Status: "already_decided", Type: string(existing)}, nil
 	}
@@ -273,10 +259,10 @@ func (h *mcpStepHandler) handleGateApprove(ctx context.Context, req *mcp.CallToo
 
 type gateRejectInput struct {
 	Reason        string  `json:"reason" jsonschema:"What needs to be fixed. Be specific and actionable"`
-	RejectTargets []int64 `json:"reject_targets,omitempty" jsonschema:"Step IDs to reset for rework. Omit to reset immediate predecessors"`
+	RejectTargets []int64 `json:"reject_targets,omitempty" jsonschema:"Action IDs to reset for rework. Omit to reset immediate predecessors"`
 }
 
-func (h *mcpStepHandler) handleGateReject(ctx context.Context, req *mcp.CallToolRequest, input gateRejectInput) (*mcp.CallToolResult, signalResult, error) {
+func (h *mcpActionHandler) handleGateReject(ctx context.Context, req *mcp.CallToolRequest, input gateRejectInput) (*mcp.CallToolResult, signalResult, error) {
 	if ok, existing := h.checkIdempotent(ctx); !ok {
 		return nil, signalResult{Status: "already_decided", Type: string(existing)}, nil
 	}
@@ -292,26 +278,26 @@ func (h *mcpStepHandler) handleGateReject(ctx context.Context, req *mcp.CallTool
 	return nil, signalResult{Status: "accepted"}, nil
 }
 
-// checkIdempotent returns (true, "") if no terminal signal exists yet for this exec,
+// checkIdempotent returns (true, "") if no terminal signal exists yet for this run,
 // or (false, existingType) if one does.
-func (h *mcpStepHandler) checkIdempotent(ctx context.Context) (bool, core.SignalType) {
-	signals, err := h.store.ListActionSignals(ctx, h.stepID)
+func (h *mcpActionHandler) checkIdempotent(ctx context.Context) (bool, core.SignalType) {
+	signals, err := h.store.ListActionSignals(ctx, h.actionID)
 	if err != nil {
 		return true, "" // error → allow (best-effort)
 	}
 	for _, sig := range signals {
-		if sig.RunID == h.execID && sig.Type.IsTerminal() {
+		if sig.RunID == h.runID && sig.Type.IsTerminal() {
 			return false, sig.Type
 		}
 	}
 	return true, ""
 }
 
-func (h *mcpStepHandler) createSignal(ctx context.Context, sigType core.SignalType, payload map[string]any) {
+func (h *mcpActionHandler) createSignal(ctx context.Context, sigType core.SignalType, payload map[string]any) {
 	sig := &core.ActionSignal{
-		ActionID:   h.stepID,
+		ActionID:   h.actionID,
 		WorkItemID: h.workItemID,
-		RunID:      h.execID,
+		RunID:      h.runID,
 		Type:       sigType,
 		Source:     core.SignalSourceAgent,
 		Payload:    payload,

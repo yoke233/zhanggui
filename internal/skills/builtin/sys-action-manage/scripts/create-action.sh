@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# update-step.sh — Update a pending step.
+# create-action.sh — Create a new action for a work item.
 #
 # Usage:
-#   ./update-step.sh <step-id> '<json-payload>'
-#
-# Only pending steps can be edited.
+#   ./create-action.sh <work-item-id> '<json-payload>'
 #
 # Environment:
 #   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_API_TOKEN
 
 set -euo pipefail
 
-STEP_ID="${1:?Usage: update-step.sh <step-id> '<json>'}"
-PAYLOAD="${2:?Usage: update-step.sh <step-id> '<json>'}"
+WORK_ITEM_ID="${1:?Usage: create-action.sh <work-item-id> '<json>'}"
+PAYLOAD="${2:?Usage: create-action.sh <work-item-id> '<json>'}"
 
 SERVER="${AI_WORKFLOW_SERVER_ADDR:?AI_WORKFLOW_SERVER_ADDR is required}"
 TOKEN="${AI_WORKFLOW_API_TOKEN:-}"
@@ -22,12 +20,12 @@ if [ -n "$TOKEN" ]; then
   AUTH_HEADER="Authorization: Bearer ${TOKEN}"
 fi
 
-RESPONSE=$(curl -sf -X PUT \
-  "${SERVER}/api/steps/${STEP_ID}" \
+RESPONSE=$(curl -sf -X POST \
+  "${SERVER}/api/work-items/${WORK_ITEM_ID}/actions" \
   -H "Content-Type: application/json" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
   -d "$PAYLOAD" 2>&1) || {
-  echo "Error updating step: ${RESPONSE}" >&2
+  echo "Error creating action: ${RESPONSE}" >&2
   exit 1
 }
 

@@ -119,7 +119,7 @@ func createWorkItemFixture(t *testing.T, store *sqlite.Store) (workItemID int64,
 	}
 	actionID, err = store.CreateAction(ctx, &core.Action{
 		WorkItemID: workItemID,
-		Name:       "exec-step",
+		Name:       "exec-action",
 		Type:       core.ActionExec,
 		Status:     core.ActionPending,
 		Position:   0,
@@ -152,11 +152,11 @@ func createWorkItemFixture(t *testing.T, store *sqlite.Store) (workItemID int64,
 		t.Fatalf("create agent context: %v", err)
 	}
 	bindingID, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
-		ProjectID: projectID,
-		IssueID:   &workItemID,
-		Kind:      core.ResourceKindAttachment,
-		URI:       "D:/tmp/fixture.txt",
-		Label:     "fixture.txt",
+		ProjectID:  projectID,
+		WorkItemID: &workItemID,
+		Kind:       core.ResourceKindAttachment,
+		URI:        "D:/tmp/fixture.txt",
+		Label:      "fixture.txt",
 	})
 	if err != nil {
 		t.Fatalf("create work item resource binding: %v", err)

@@ -1,17 +1,14 @@
 #!/usr/bin/env pwsh
-# update-step.ps1 — Update a pending step.
+# delete-action.ps1 — Delete a pending action.
 #
 # Usage:
-#   pwsh -NoProfile -File update-step.ps1 <step-id> '<json-payload>'
+#   pwsh -NoProfile -File delete-action.ps1 <action-id>
 #
-# Only pending steps can be edited.
+# Only pending actions can be deleted.
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$StepId,
-
-  [Parameter(Mandatory = $true, Position = 1)]
-  [string]$Payload
+  [string]$ActionId
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,15 +26,14 @@ if ($token) {
 }
 
 try {
-  $response = Invoke-WebRequest `
-    -Method Put `
-    -Uri "$server/api/steps/$StepId" `
+  $null = Invoke-WebRequest `
+    -Method Delete `
+    -Uri "$server/api/actions/$ActionId" `
     -Headers $headers `
-    -Body $Payload `
     -TimeoutSec 30
 
-  Write-Output $response.Content
+  Write-Output "{`"deleted`":true,`"action_id`":$ActionId}"
 } catch {
-  Write-Error "Error updating step: $($_.Exception.Message)"
+  Write-Error "Error deleting action: $($_.Exception.Message)"
   exit 1
 }

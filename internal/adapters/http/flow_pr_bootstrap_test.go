@@ -33,7 +33,7 @@ func TestDefaultPRTemplates(t *testing.T) {
 }
 
 func TestDefaultPRCommitMessage(t *testing.T) {
-	if got := defaultPRCommitMessage(42); got != "chore(pr-issue): apply issue 42 updates" {
+	if got := defaultPRCommitMessage(42); got != "chore(pr-work-item): apply work item 42 updates" {
 		t.Fatalf("unexpected commit message: %q", got)
 	}
 }
@@ -222,7 +222,7 @@ func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
 	}
 	h.store = wrapped
 
-	if _, err := h.bootstrapPRWorkItemForIssue(context.Background(), issue.ID, bootstrapPRWorkItemRequest{}); err == nil {
+	if _, err := h.bootstrapPRWorkItemActions(context.Background(), issue.ID, bootstrapPRWorkItemRequest{}); err == nil {
 		t.Fatal("expected bootstrap failure")
 	}
 

@@ -14,7 +14,7 @@ func (s *Store) CreateActionSignal(ctx context.Context, sig *core.ActionSignal) 
 	model := actionSignalModelFromCore(sig)
 	model.CreatedAt = now
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
-		return 0, fmt.Errorf("insert step signal: %w", err)
+		return 0, fmt.Errorf("insert action signal: %w", err)
 	}
 	sig.ID = model.ID
 	sig.CreatedAt = now
@@ -26,9 +26,9 @@ func (s *Store) CreateActionSignal(ctx context.Context, sig *core.ActionSignal) 
 	return model.ID, nil
 }
 
-func (s *Store) GetLatestActionSignal(ctx context.Context, stepID int64, types ...core.SignalType) (*core.ActionSignal, error) {
+func (s *Store) GetLatestActionSignal(ctx context.Context, actionID int64, types ...core.SignalType) (*core.ActionSignal, error) {
 	var model ActionSignalModel
-	q := s.orm.WithContext(ctx).Where("step_id = ?", stepID)
+	q := s.orm.WithContext(ctx).Where("action_id = ?", actionID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
 		for i, t := range types {
@@ -46,10 +46,10 @@ func (s *Store) GetLatestActionSignal(ctx context.Context, stepID int64, types .
 	return model.toCore(), nil
 }
 
-func (s *Store) ListActionSignals(ctx context.Context, stepID int64) ([]*core.ActionSignal, error) {
+func (s *Store) ListActionSignals(ctx context.Context, actionID int64) ([]*core.ActionSignal, error) {
 	var models []ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("step_id = ?", stepID).
+		Where("action_id = ?", actionID).
 		Order("id ASC").
 		Find(&models).Error
 	if err != nil {
@@ -62,9 +62,9 @@ func (s *Store) ListActionSignals(ctx context.Context, stepID int64) ([]*core.Ac
 	return out, nil
 }
 
-func (s *Store) ListActionSignalsByType(ctx context.Context, stepID int64, types ...core.SignalType) ([]*core.ActionSignal, error) {
+func (s *Store) ListActionSignalsByType(ctx context.Context, actionID int64, types ...core.SignalType) ([]*core.ActionSignal, error) {
 	var models []ActionSignalModel
-	q := s.orm.WithContext(ctx).Where("step_id = ?", stepID)
+	q := s.orm.WithContext(ctx).Where("action_id = ?", actionID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
 		for i, t := range types {
@@ -83,9 +83,9 @@ func (s *Store) ListActionSignalsByType(ctx context.Context, stepID int64, types
 	return out, nil
 }
 
-func (s *Store) CountActionSignals(ctx context.Context, stepID int64, types ...core.SignalType) (int, error) {
+func (s *Store) CountActionSignals(ctx context.Context, actionID int64, types ...core.SignalType) (int, error) {
 	var count int64
-	q := s.orm.WithContext(ctx).Model(&ActionSignalModel{}).Where("step_id = ?", stepID)
+	q := s.orm.WithContext(ctx).Model(&ActionSignalModel{}).Where("action_id = ?", actionID)
 	if len(types) > 0 {
 		strs := make([]string, len(types))
 		for i, t := range types {
@@ -99,10 +99,10 @@ func (s *Store) CountActionSignals(ctx context.Context, stepID int64, types ...c
 	return int(count), nil
 }
 
-func (s *Store) ListPendingHumanActions(ctx context.Context, issueID int64) ([]*core.Action, error) {
+func (s *Store) ListPendingHumanActions(ctx context.Context, workItemID int64) ([]*core.Action, error) {
 	var models []ActionModel
 	err := s.orm.WithContext(ctx).
-		Where("issue_id = ? AND status IN ?", issueID, []string{
+		Where("work_item_id = ? AND status IN ?", workItemID, []string{
 			string(core.ActionBlocked),
 			string(core.ActionWaitingGate),
 		}).
@@ -125,7 +125,7 @@ func (s *Store) ListAllPendingHumanActions(ctx context.Context) ([]*core.Action,
 			string(core.ActionBlocked),
 			string(core.ActionWaitingGate),
 		}).
-		Order("issue_id ASC, position ASC").
+		Order("work_item_id ASC, position ASC").
 		Find(&models).Error
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ var probeSignalTypes = []string{
 func (s *Store) ListProbeSignalsByRun(ctx context.Context, runID int64) ([]*core.ActionSignal, error) {
 	var models []ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type IN ?", runID, probeSignalTypes).
+		Where("run_id = ? AND type IN ?", runID, probeSignalTypes).
 		Order("id ASC").
 		Find(&models).Error
 	if err != nil {
@@ -163,7 +163,7 @@ func (s *Store) ListProbeSignalsByRun(ctx context.Context, runID int64) ([]*core
 func (s *Store) GetLatestProbeSignal(ctx context.Context, runID int64) (*core.ActionSignal, error) {
 	var model ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type IN ?", runID, probeSignalTypes).
+		Where("run_id = ? AND type IN ?", runID, probeSignalTypes).
 		Order("id DESC").
 		First(&model).Error
 	if err != nil {
@@ -178,7 +178,7 @@ func (s *Store) GetLatestProbeSignal(ctx context.Context, runID int64) (*core.Ac
 func (s *Store) GetActiveProbeSignal(ctx context.Context, runID int64) (*core.ActionSignal, error) {
 	var model ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type = ? AND json_extract(payload, '$.status') NOT IN (?, ?, ?, ?)",
+		Where("run_id = ? AND type = ? AND json_extract(payload, '$.status') NOT IN (?, ?, ?, ?)",
 			runID,
 			string(core.SignalProbeRequest),
 			"answered", "timeout", "unreachable", "failed",
@@ -215,11 +215,11 @@ func (s *Store) UpdateProbeSignal(ctx context.Context, sig *core.ActionSignal) e
 	return nil
 }
 
-func (s *Store) GetRunProbeRoute(ctx context.Context, executionID int64) (*core.RunProbeRoute, error) {
+func (s *Store) GetRunProbeRoute(ctx context.Context, runID int64) (*core.RunProbeRoute, error) {
 	type probeRouteRow struct {
-		ExecutionID     int64      `gorm:"column:execution_id"`
-		IssueID         int64      `gorm:"column:issue_id"`
-		StepID          int64      `gorm:"column:step_id"`
+		RunID           int64      `gorm:"column:run_id"`
+		WorkItemID      int64      `gorm:"column:work_item_id"`
+		ActionID        int64      `gorm:"column:action_id"`
 		AgentContextID  *int64     `gorm:"column:agent_context_id"`
 		SessionID       string     `gorm:"column:session_id"`
 		OwnerID         string     `gorm:"column:owner_id"`
@@ -228,21 +228,21 @@ func (s *Store) GetRunProbeRoute(ctx context.Context, executionID int64) (*core.
 
 	var row probeRouteRow
 	err := s.orm.WithContext(ctx).
-		Table("executions e").
-		Select("e.id AS execution_id, e.issue_id, e.step_id, e.agent_context_id, COALESCE(ac.session_id, '') AS session_id, COALESCE(ac.worker_id, '') AS owner_id, ac.worker_last_seen_at").
+		Table("runs e").
+		Select("e.id AS run_id, e.work_item_id, e.action_id, e.agent_context_id, COALESCE(ac.session_id, '') AS session_id, COALESCE(ac.worker_id, '') AS owner_id, ac.worker_last_seen_at").
 		Joins("LEFT JOIN agent_contexts ac ON ac.id = e.agent_context_id").
-		Where("e.id = ?", executionID).
+		Where("e.id = ?", runID).
 		Scan(&row).Error
 	if err != nil {
-		return nil, fmt.Errorf("get execution probe route: %w", err)
+		return nil, fmt.Errorf("get run probe route: %w", err)
 	}
-	if row.ExecutionID == 0 {
+	if row.RunID == 0 {
 		return nil, core.ErrNotFound
 	}
 	return &core.RunProbeRoute{
-		RunID:           row.ExecutionID,
-		WorkItemID:      row.IssueID,
-		ActionID:        row.StepID,
+		RunID:           row.RunID,
+		WorkItemID:      row.WorkItemID,
+		ActionID:        row.ActionID,
 		AgentContextID:  row.AgentContextID,
 		SessionID:       row.SessionID,
 		OwnerID:         row.OwnerID,

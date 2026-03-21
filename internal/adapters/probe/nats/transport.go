@@ -3,7 +3,7 @@ package nats
 import "time"
 
 type Request struct {
-	ExecutionID  int64  `json:"execution_id"`
+	RunID        int64  `json:"run_id"`
 	SessionID    string `json:"session_id"`
 	InvocationID string `json:"invocation_id,omitempty"`
 	Question     string `json:"question"`

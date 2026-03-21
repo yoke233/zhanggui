@@ -12,29 +12,29 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, execRec *core.Run, markdown string, metadata map[string]any) error {
+func storeBuiltinArtifact(ctx context.Context, store core.Store, bus core.EventBus, action *core.Action, runRec *core.Run, markdown string, metadata map[string]any) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if store == nil {
 		return fmt.Errorf("storeBuiltinArtifact: store is nil")
 	}
-	if step == nil || execRec == nil {
-		return fmt.Errorf("storeBuiltinArtifact: step/exec is nil")
+	if action == nil || runRec == nil {
+		return fmt.Errorf("storeBuiltinArtifact: action/run is nil")
 	}
 
 	trimmed := strings.TrimSpace(markdown)
-	execRec.ResultMarkdown = trimmed
-	execRec.ResultMetadata = metadata
-	execRec.Output = map[string]any{"text": trimmed, "stop_reason": "builtin"}
+	runRec.ResultMarkdown = trimmed
+	runRec.ResultMetadata = metadata
+	runRec.Output = map[string]any{"text": trimmed, "stop_reason": "builtin"}
 
 	now := time.Now().UTC()
 	if bus != nil {
 		bus.Publish(ctx, core.Event{
 			Type:       core.EventRunAgentOutput,
-			WorkItemID: step.WorkItemID,
-			ActionID:   step.ID,
-			RunID:      execRec.ID,
+			WorkItemID: action.WorkItemID,
+			ActionID:   action.ID,
+			RunID:      runRec.ID,
 			Timestamp:  now,
 			Data: map[string]any{
 				"type":    "done",

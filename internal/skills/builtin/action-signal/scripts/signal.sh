@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# signal.sh — Signal step decision to the AI Workflow engine.
+# signal.sh — Signal action decision to the AI Workflow engine.
 #
 # Usage:
 #   ./signal.sh <decision> <reason> [metadata_json]
@@ -7,7 +7,7 @@
 # Decisions: complete | need_help | approve | reject
 #
 # Reads from environment (injected by the engine):
-#   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_STEP_ID, AI_WORKFLOW_API_TOKEN
+#   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_ACTION_ID, AI_WORKFLOW_API_TOKEN
 #
 # If the HTTP call fails (e.g. no network), falls back to printing
 # AI_WORKFLOW_SIGNAL: line so the engine can parse it from output.
@@ -42,9 +42,9 @@ if [ -n "${METADATA_JSON}" ]; then
 fi
 
 # Try HTTP first.
-if [ -n "${AI_WORKFLOW_SERVER_ADDR:-}" ] && [ -n "${AI_WORKFLOW_STEP_ID:-}" ] && [ -n "${AI_WORKFLOW_API_TOKEN:-}" ]; then
+if [ -n "${AI_WORKFLOW_SERVER_ADDR:-}" ] && [ -n "${AI_WORKFLOW_ACTION_ID:-}" ] && [ -n "${AI_WORKFLOW_API_TOKEN:-}" ]; then
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-    "${AI_WORKFLOW_SERVER_ADDR}/api/steps/${AI_WORKFLOW_STEP_ID}/decision" \
+    "${AI_WORKFLOW_SERVER_ADDR}/api/actions/${AI_WORKFLOW_ACTION_ID}/decision" \
     -H "Authorization: Bearer ${AI_WORKFLOW_API_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD" 2>/dev/null || echo "000")

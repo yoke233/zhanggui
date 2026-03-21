@@ -1,15 +1,12 @@
 #!/usr/bin/env pwsh
-# create-step.ps1 — Create a new step for a work item.
+# list-actions.ps1 — List all actions for a work item.
 #
 # Usage:
-#   pwsh -NoProfile -File create-step.ps1 <work-item-id> '<json-payload>'
+#   pwsh -NoProfile -File list-actions.ps1 <work-item-id>
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$WorkItemId,
-
-  [Parameter(Mandatory = $true, Position = 1)]
-  [string]$Payload
+  [string]$WorkItemId
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,14 +25,13 @@ if ($token) {
 
 try {
   $response = Invoke-WebRequest `
-    -Method Post `
-    -Uri "$server/api/work-items/$WorkItemId/steps" `
+    -Method Get `
+    -Uri "$server/api/work-items/$WorkItemId/actions" `
     -Headers $headers `
-    -Body $Payload `
     -TimeoutSec 30
 
   Write-Output $response.Content
 } catch {
-  Write-Error "Error creating step: $($_.Exception.Message)"
+  Write-Error "Error listing actions: $($_.Exception.Message)"
   exit 1
 }

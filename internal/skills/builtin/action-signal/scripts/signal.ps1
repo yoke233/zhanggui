@@ -31,14 +31,14 @@ if ($MetadataJson) {
 $payload = $payloadObject | ConvertTo-Json -Compress
 
 $serverAddr = $env:AI_WORKFLOW_SERVER_ADDR
-$stepID = $env:AI_WORKFLOW_STEP_ID
+$actionID = $env:AI_WORKFLOW_ACTION_ID
 $apiToken = $env:AI_WORKFLOW_API_TOKEN
 
-if ($serverAddr -and $stepID -and $apiToken) {
+if ($serverAddr -and $actionID -and $apiToken) {
   try {
     $response = Invoke-WebRequest `
       -Method Post `
-      -Uri "$serverAddr/api/steps/$stepID/decision" `
+      -Uri "$serverAddr/api/actions/$actionID/decision" `
       -Headers @{ Authorization = "Bearer $apiToken" } `
       -ContentType "application/json" `
       -Body $payload `

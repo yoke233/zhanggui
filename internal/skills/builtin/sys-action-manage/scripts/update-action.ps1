@@ -1,12 +1,17 @@
 #!/usr/bin/env pwsh
-# list-steps.ps1 — List all steps for a work item.
+# update-action.ps1 — Update a pending action.
 #
 # Usage:
-#   pwsh -NoProfile -File list-steps.ps1 <work-item-id>
+#   pwsh -NoProfile -File update-action.ps1 <action-id> '<json-payload>'
+#
+# Only pending actions can be edited.
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$WorkItemId
+  [string]$ActionId,
+
+  [Parameter(Mandatory = $true, Position = 1)]
+  [string]$Payload
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,13 +30,14 @@ if ($token) {
 
 try {
   $response = Invoke-WebRequest `
-    -Method Get `
-    -Uri "$server/api/work-items/$WorkItemId/steps" `
+    -Method Put `
+    -Uri "$server/api/actions/$ActionId" `
     -Headers $headers `
+    -Body $Payload `
     -TimeoutSec 30
 
   Write-Output $response.Content
 } catch {
-  Write-Error "Error listing steps: $($_.Exception.Message)"
+  Write-Error "Error updating action: $($_.Exception.Message)"
   exit 1
 }

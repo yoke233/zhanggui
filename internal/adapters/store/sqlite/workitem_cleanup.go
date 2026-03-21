@@ -14,7 +14,7 @@ func (s *Store) DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID in
 	subQuery := s.orm.WithContext(ctx).
 		Model(&ActionModel{}).
 		Select("id").
-		Where("issue_id = ?", workItemID)
+		Where("work_item_id = ?", workItemID)
 	return s.orm.WithContext(ctx).
 		Where("action_id IN (?)", subQuery).
 		Delete(&ActionIODeclModel{}).Error
@@ -27,7 +27,7 @@ func (s *Store) DeleteActionResourcesByWorkItem(ctx context.Context, workItemID 
 	subQuery := s.orm.WithContext(ctx).
 		Model(&ActionModel{}).
 		Select("id").
-		Where("issue_id = ?", workItemID)
+		Where("work_item_id = ?", workItemID)
 	return s.orm.WithContext(ctx).
 		Where("action_id IN (?)", subQuery).
 		Delete(&ActionResourceModel{}).Error
@@ -38,7 +38,7 @@ func (s *Store) DeleteRunsByWorkItem(ctx context.Context, workItemID int64) erro
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&RunModel{}).Error
 }
 
@@ -49,7 +49,7 @@ func (s *Store) DeleteResourcesByWorkItem(ctx context.Context, workItemID int64)
 	runSubQuery := s.orm.WithContext(ctx).
 		Model(&RunModel{}).
 		Select("id").
-		Where("issue_id = ?", workItemID)
+		Where("work_item_id = ?", workItemID)
 
 	var models []ResourceModel
 	if err := s.orm.WithContext(ctx).
@@ -72,7 +72,7 @@ func (s *Store) DeleteActionSignalsByWorkItem(ctx context.Context, workItemID in
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&ActionSignalModel{}).Error
 }
 
@@ -81,7 +81,7 @@ func (s *Store) DeleteAgentContextsByWorkItem(ctx context.Context, workItemID in
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&AgentContextModel{}).Error
 }
 
@@ -90,7 +90,7 @@ func (s *Store) DeleteEventsByWorkItem(ctx context.Context, workItemID int64) er
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&EventModel{}).Error
 }
 
@@ -108,7 +108,7 @@ func (s *Store) DeleteResourceBindingsByWorkItem(ctx context.Context, workItemID
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&ResourceBindingModel{}).Error
 }
 
@@ -117,7 +117,7 @@ func (s *Store) DeleteActionsByWorkItem(ctx context.Context, workItemID int64) e
 		return fmt.Errorf("store is not initialized")
 	}
 	return s.orm.WithContext(ctx).
-		Where("issue_id = ?", workItemID).
+		Where("work_item_id = ?", workItemID).
 		Delete(&ActionModel{}).Error
 }
 
@@ -129,13 +129,13 @@ func (s *Store) DetachFeatureEntriesByWorkItem(ctx context.Context, workItemID i
 	subQuery := s.orm.WithContext(ctx).
 		Model(&ActionModel{}).
 		Select("id").
-		Where("issue_id = ?", workItemID)
+		Where("work_item_id = ?", workItemID)
 	return s.orm.WithContext(ctx).
 		Model(&FeatureEntryModel{}).
-		Where("issue_id = ? OR step_id IN (?)", workItemID, subQuery).
+		Where("work_item_id = ? OR action_id IN (?)", workItemID, subQuery).
 		Updates(map[string]any{
-			"issue_id":   nil,
-			"step_id":    nil,
-			"updated_at": now,
+			"work_item_id": nil,
+			"action_id":    nil,
+			"updated_at":   now,
 		}).Error
 }

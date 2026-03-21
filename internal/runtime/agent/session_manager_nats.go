@@ -32,19 +32,19 @@ type NATSSessionManagerConfig struct {
 	// Auto-generated from hostname + PID if empty.
 	ServerID string
 
-	// Store is used for persisting execution metadata.
+	// Store is used for persisting run metadata.
 	Store core.Store
 }
 
 // NATSSessionManager implements SessionManager using NATS JetStream.
-// Executions are published as messages, executors consume them via queue groups,
+// Runs are published as messages, executors consume them via queue groups,
 // results and events are streamed back through dedicated subjects.
 //
 // Subject layout:
 //
-//	{prefix}.invocation.submit.{agent_type}  — execution submission (consumed by executors)
+//	{prefix}.invocation.submit.{agent_type}  — run submission (consumed by executors)
 //	{prefix}.invocation.result.{invocation_id}   — final result
-//	{prefix}.invocation.events.{invocation_id}   — streaming events during execution
+//	{prefix}.invocation.events.{invocation_id}   — streaming events during a run
 //	{prefix}.executor.register           — executor heartbeat/registration
 type NATSSessionManager struct {
 	nc       *nats.Conn
@@ -66,30 +66,24 @@ type natsHandle struct {
 	sessionIn runtimeapp.SessionAcquireInput
 }
 
-// natsInvocationMessage is the payload published to the execution submission subject.
+// natsInvocationMessage is the payload published to the run submission subject.
 type natsInvocationMessage struct {
-	InvocationID  string                         `json:"invocation_id"`
-	HandleID      string                         `json:"handle_id"`
-	Text          string                         `json:"text"`
-	Input         runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
-	WorkItemID    int64                          `json:"work_item_id"`
-	LegacyIssueID int64                          `json:"issue_id,omitempty"`
-	StepID        int64                          `json:"step_id"`
-	ExecID        int64                          `json:"execution_id"`
-	AgentID       string                         `json:"agent_id"`
-	ProfileID     string                         `json:"profile_id"`
-	WorkDir       string                         `json:"work_dir"`
+	InvocationID string                         `json:"invocation_id"`
+	HandleID     string                         `json:"handle_id"`
+	Text         string                         `json:"text"`
+	Input        runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
+	WorkItemID   int64                          `json:"work_item_id"`
+
+	ActionID  int64  `json:"action_id"`
+	RunID     int64  `json:"run_id"`
+	AgentID   string `json:"agent_id"`
+	ProfileID string `json:"profile_id"`
+	WorkDir   string `json:"work_dir"`
 }
 
 func (m *natsInvocationMessage) normalize() {
 	if m == nil {
 		return
-	}
-	if m.WorkItemID == 0 {
-		m.WorkItemID = m.LegacyIssueID
-	}
-	if m.LegacyIssueID == 0 {
-		m.LegacyIssueID = m.WorkItemID
 	}
 }
 
@@ -157,7 +151,7 @@ func NewNATSSessionManager(cfg NATSSessionManagerConfig) (*NATSSessionManager, e
 }
 
 func (m *NATSSessionManager) ensureStreams(ctx context.Context) error {
-	// Execution submission stream — consumed by executor workers.
+	// Run submission stream — consumed by executor workers.
 	_, err := m.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      m.prefix + "_invocations",
 		Subjects:  []string{m.prefix + ".invocation.submit.>"},
@@ -181,7 +175,7 @@ func (m *NATSSessionManager) ensureStreams(ctx context.Context) error {
 		return fmt.Errorf("create results stream: %w", err)
 	}
 
-	// Events stream — streaming events during execution.
+	// Events stream — streaming events during runs.
 	_, err = m.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      m.prefix + "_events",
 		Subjects:  []string{m.prefix + ".invocation.events.>"},
@@ -211,8 +205,8 @@ func (m *NATSSessionManager) Acquire(_ context.Context, in runtimeapp.SessionAcq
 	return &runtimeapp.SessionHandle{ID: handleID}, nil
 }
 
-// StartExecution publishes the execution request to JetStream for remote execution.
-func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
+// StartRun publishes the run request to JetStream for remote execution.
+func (m *NATSSessionManager) StartRun(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	nh, ok := m.handles[handle.ID]
 	if !ok {
@@ -229,15 +223,14 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	}
 
 	msg := natsInvocationMessage{
-		InvocationID:  invocationID,
-		HandleID:      handle.ID,
-		Text:          text,
-		WorkItemID:    nh.sessionIn.WorkItemID,
-		LegacyIssueID: nh.sessionIn.WorkItemID,
-		StepID:        nh.sessionIn.StepID,
-		ExecID:        nh.sessionIn.ExecID,
-		AgentID:       agentType,
-		WorkDir:       nh.sessionIn.WorkDir,
+		InvocationID: invocationID,
+		HandleID:     handle.ID,
+		Text:         text,
+		WorkItemID:   nh.sessionIn.WorkItemID,
+		ActionID:     nh.sessionIn.ActionID,
+		RunID:        nh.sessionIn.RunID,
+		AgentID:      agentType,
+		WorkDir:      nh.sessionIn.WorkDir,
 	}
 	if nh.sessionIn.Profile != nil {
 		msg.ProfileID = strings.TrimSpace(nh.sessionIn.Profile.ID)
@@ -245,27 +238,27 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return "", fmt.Errorf("marshal execution message: %w", err)
+		return "", fmt.Errorf("marshal run message: %w", err)
 	}
 
 	subject := fmt.Sprintf("%s.invocation.submit.%s", m.prefix, agentType)
 	_, err = m.js.Publish(ctx, subject, data)
 	if err != nil {
-		return "", fmt.Errorf("publish execution to NATS: %w", err)
+		return "", fmt.Errorf("publish run to NATS: %w", err)
 	}
 
 	m.activeCount.Add(1)
 	m.drainWg.Add(1)
 
 	slog.Info("nats session manager: run dispatched",
-		"run_id", msg.ExecID, "agent", agentType, "workitem_id", msg.WorkItemID)
+		"run_id", msg.RunID, "agent", agentType, "workitem_id", msg.WorkItemID)
 
 	return invocationID, nil
 }
 
-// WatchExecution subscribes to the result and event subjects for a given invocation.
+// WatchRun subscribes to the result and event subjects for a given invocation.
 // It blocks until the result is received or ctx is cancelled.
-func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
+func (m *NATSSessionManager) WatchRun(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.RunResult, error) {
 	defer func() {
 		m.activeCount.Add(-1)
 		m.drainWg.Done()
@@ -317,10 +310,10 @@ func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID st
 			_ = msg.Ack()
 
 			if result.Error != "" {
-				return nil, fmt.Errorf("remote execution failed: %s", result.Error)
+				return nil, fmt.Errorf("remote run failed: %s", result.Error)
 			}
 
-			return &runtimeapp.ExecutionResult{
+			return &runtimeapp.RunResult{
 				Text:             result.Text,
 				StopReason:       result.StopReason,
 				InputTokens:      result.InputTokens,
@@ -366,10 +359,10 @@ func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstre
 	}
 }
 
-// RecoverExecutions queries NATS for executions that may have been in-flight during a restart.
-func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
-	// In NATS mode, executions that were published but not yet consumed are still in the stream.
-	// Executions that were being executed will have their results published by the executor.
+// RecoverRuns queries NATS for runs that may have been in-flight during a restart.
+func (m *NATSSessionManager) RecoverRuns(ctx context.Context, since time.Time) ([]runtimeapp.RunRuntimeStatus, error) {
+	// In NATS mode, runs that were published but not yet consumed are still in the stream.
+	// Runs that were being processed will have their results published by the executor.
 	// We return an empty list here — the executor worker handles recovery by re-publishing results.
 	slog.Info("nats session manager: recovery check", "since", since)
 	return nil, nil
@@ -380,13 +373,13 @@ func (m *NATSSessionManager) ProbeRun(ctx context.Context, req runtimeapp.RunPro
 	if strings.TrimSpace(req.OwnerID) == "" {
 		return &runtimeapp.RunProbeRuntimeResult{
 			Reachable:  false,
-			Error:      "missing execution owner",
+			Error:      "missing run owner",
 			ObservedAt: time.Now().UTC(),
 		}, nil
 	}
 
 	payload, err := json.Marshal(natsprobe.Request{
-		ExecutionID:  req.RunID,
+		RunID:        req.RunID,
 		SessionID:    req.SessionID,
 		InvocationID: req.InvocationID,
 		Question:     req.Question,
@@ -438,7 +431,7 @@ func (m *NATSSessionManager) Release(_ context.Context, handle *runtimeapp.Sessi
 // CleanupWorkItem is a no-op in NATS mode — executor workers manage their own sessions.
 func (m *NATSSessionManager) CleanupWorkItem(_ int64) {}
 
-// DrainActive blocks until all in-flight executions complete.
+// DrainActive blocks until all in-flight runs complete.
 func (m *NATSSessionManager) DrainActive(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {

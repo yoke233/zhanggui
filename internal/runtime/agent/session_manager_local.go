@@ -21,8 +21,8 @@ import (
 // LocalSessionManager manages ACP sessions in the same process.
 // This is the default mode — no external dependencies, same behavior as before.
 //
-// StartExecution executes synchronously (blocks until execution completes).
-// WatchExecution returns the cached result immediately.
+// StartRun executes synchronously (blocks until the run completes).
+// WatchRun returns the cached result immediately.
 type LocalSessionManager struct {
 	pool    *ACPSessionPool
 	store   core.Store
@@ -50,8 +50,8 @@ type localHandle struct {
 	mcpServers []acpproto.McpServer
 	reuse      bool
 	workItemID int64
-	stepID     int64
-	execID     int64
+	actionID   int64
+	runID      int64
 }
 
 type localInvocationEvent struct {
@@ -62,13 +62,13 @@ type localInvocationEvent struct {
 type localInvocation struct {
 	id         string
 	handleID   string
-	execID     int64
+	runID      int64
 	workItemID int64
-	stepID     int64
-	status     runtimeapp.ExecutionRuntimeState
-	result     *runtimeapp.ExecutionResult
+	actionID   int64
+	status     runtimeapp.RunRuntimeState
+	result     *runtimeapp.RunResult
 	err        error
-	done       chan struct{} // closed when execution completes
+	done       chan struct{} // closed when the run completes
 	events     []localInvocationEvent
 	createdAt  time.Time
 }
@@ -100,7 +100,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if !acpclient.UsesInProcAdapterProfile(in.Profile) {
 		scope := fmt.Sprintf("workitem-%d", in.WorkItemID)
 		if !in.Reuse {
-			scope = fmt.Sprintf("workitem-%d-run-%d", in.WorkItemID, in.ExecID)
+			scope = fmt.Sprintf("workitem-%d-run-%d", in.WorkItemID, in.RunID)
 		}
 		sandboxedLaunch, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
 			Profile:         in.Profile,
@@ -122,8 +122,8 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		reuse:      in.Reuse,
 		profile:    in.Profile,
 		workItemID: in.WorkItemID,
-		stepID:     in.StepID,
-		execID:     in.ExecID,
+		actionID:   in.ActionID,
+		runID:      in.RunID,
 		launch:     sandboxedLaunch,
 		caps:       in.Caps,
 		workDir:    in.WorkDir,
@@ -137,8 +137,8 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 			WorkDir:    in.WorkDir,
 			MCPFactory: in.MCPFactory,
 			WorkItemID: in.WorkItemID,
-			ActionID:   in.StepID,
-			RunID:      in.ExecID,
+			ActionID:   in.ActionID,
+			RunID:      in.RunID,
 			IdleTTL:    in.IdleTTL,
 			MaxTurns:   in.MaxTurns,
 		})
@@ -199,9 +199,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	return handle, nil
 }
 
-// StartExecution executes synchronously in local mode.
-// Returns an invocation ID; the result is available immediately via WatchExecution.
-func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
+// StartRun executes synchronously in local mode.
+// Returns an invocation ID; the result is available immediately via WatchRun.
+func (m *LocalSessionManager) StartRun(ctx context.Context, handle *runtimeapp.SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	lh, ok := m.handles[handle.ID]
 	if !ok {
@@ -213,10 +213,10 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 	inv := &localInvocation{
 		id:         invocationID,
 		handleID:   handle.ID,
-		execID:     lh.execID,
+		runID:      lh.runID,
 		workItemID: lh.workItemID,
-		stepID:     lh.stepID,
-		status:     runtimeapp.ExecutionRunning,
+		actionID:   lh.actionID,
+		status:     runtimeapp.RunRunning,
 		done:       make(chan struct{}),
 		createdAt:  time.Now().UTC(),
 	}
@@ -231,10 +231,10 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 
 	m.mu.Lock()
 	if err != nil {
-		inv.status = runtimeapp.ExecutionFailed
+		inv.status = runtimeapp.RunFailed
 		inv.err = err
 	} else {
-		inv.status = runtimeapp.ExecutionDone
+		inv.status = runtimeapp.RunDone
 		inv.result = result
 	}
 	close(inv.done)
@@ -249,7 +249,7 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 	return invocationID, nil
 }
 
-func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*runtimeapp.ExecutionResult, error) {
+func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*runtimeapp.RunResult, error) {
 	// Capture events for the invocation record.
 	collector := &eventCollector{inv: inv, mu: &m.mu}
 
@@ -267,7 +267,7 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 		client = lh.standalone
 	}
 
-	// Pre-execution token budget check (reuse sessions only).
+	// Pre-run token budget check (reuse sessions only).
 	if lh.reuse && lh.pooled != nil && m.pool != nil && lh.profile != nil {
 		status := m.pool.CheckTokenBudget(lh.pooled, lh.profile)
 		if status == TokenBudgetExceeded {
@@ -288,14 +288,14 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 
 	result, err := client.PromptText(ctx, lh.sessionID, text)
 	if err != nil {
-		return nil, fmt.Errorf("ACP execution failed: %w", err)
+		return nil, fmt.Errorf("ACP run failed: %w", err)
 	}
 
 	if lh.reuse && lh.pooled != nil && m.pool != nil {
 		m.pool.NoteTurn(ctx, lh.agentCtx, lh.pooled)
 	}
 
-	out := &runtimeapp.ExecutionResult{
+	out := &runtimeapp.RunResult{
 		Text:       strings.TrimSpace(result.Text),
 		StopReason: string(result.StopReason),
 	}
@@ -313,7 +313,7 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 		}
 	}
 
-	// Post-execution: record token usage for budget tracking.
+	// Post-run: record token usage for budget tracking.
 	if lh.reuse && lh.pooled != nil && m.pool != nil {
 		m.pool.NoteTokens(lh.pooled, out.InputTokens, out.OutputTokens)
 	}
@@ -332,9 +332,9 @@ func localProfileID(profile *core.AgentProfile) string {
 	return profile.ID
 }
 
-// WatchExecution returns the result of a completed execution (local mode completes synchronously).
-// If the execution is still running (shouldn't happen in local mode), it waits.
-func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
+// WatchRun returns the result of a completed run (local mode completes synchronously).
+// If the run is still active (shouldn't happen in local mode), it waits.
+func (m *LocalSessionManager) WatchRun(ctx context.Context, invocationID string, lastEventSeq int64, sink runtimeapp.EventSink) (*runtimeapp.RunResult, error) {
 	m.mu.Lock()
 	inv, ok := m.invocations[invocationID]
 	m.mu.Unlock()
@@ -368,21 +368,21 @@ func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID s
 	return inv.result, nil
 }
 
-// RecoverExecutions returns recent execution statuses (local mode: only in-memory).
-func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
+// RecoverRuns returns recent run statuses (local mode: only in-memory).
+func (m *LocalSessionManager) RecoverRuns(_ context.Context, since time.Time) ([]runtimeapp.RunRuntimeStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var out []runtimeapp.ExecutionRuntimeStatus
+	var out []runtimeapp.RunRuntimeStatus
 	for _, inv := range m.invocations {
 		if inv.createdAt.Before(since) {
 			continue
 		}
-		status := runtimeapp.ExecutionRuntimeStatus{
+		status := runtimeapp.RunRuntimeStatus{
 			InvocationID: inv.id,
-			ExecID:       inv.execID,
+			RunID:        inv.runID,
 			WorkItemID:   inv.workItemID,
-			StepID:       inv.stepID,
+			ActionID:     inv.actionID,
 			Status:       inv.status,
 			CreatedAt:    inv.createdAt,
 		}
@@ -402,7 +402,7 @@ func (m *LocalSessionManager) ProbeRun(ctx context.Context, req runtimeapp.RunPr
 	m.mu.Lock()
 	var handle *localHandle
 	for _, candidate := range m.handles {
-		if candidate.execID == req.RunID {
+		if candidate.runID == req.RunID {
 			handle = candidate
 			break
 		}
@@ -412,7 +412,7 @@ func (m *LocalSessionManager) ProbeRun(ctx context.Context, req runtimeapp.RunPr
 	if handle == nil {
 		return &runtimeapp.RunProbeRuntimeResult{
 			Reachable:  false,
-			Error:      "execution route is not active",
+			Error:      "run route is not active",
 			ObservedAt: time.Now().UTC(),
 		}, nil
 	}
@@ -453,7 +453,7 @@ func (m *LocalSessionManager) CleanupWorkItem(workItemID int64) {
 	}
 }
 
-// DrainActive blocks until all in-flight executions complete.
+// DrainActive blocks until all in-flight runs complete.
 func (m *LocalSessionManager) DrainActive(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -468,7 +468,7 @@ func (m *LocalSessionManager) DrainActive(ctx context.Context) error {
 	}
 }
 
-// ActiveCount returns the number of executing invocations.
+// ActiveCount returns the number of invocations with runs in flight.
 func (m *LocalSessionManager) ActiveCount() int {
 	return int(m.activeCount.Load())
 }

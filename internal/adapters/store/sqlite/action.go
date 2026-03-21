@@ -20,7 +20,7 @@ func (s *Store) CreateAction(ctx context.Context, st *core.Action) (int64, error
 	model.UpdatedAt = now
 
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
-		return 0, fmt.Errorf("insert step: %w", err)
+		return 0, fmt.Errorf("insert action: %w", err)
 	}
 	st.ID = model.ID
 	st.CreatedAt = now
@@ -35,7 +35,7 @@ func (s *Store) GetAction(ctx context.Context, id int64) (*core.Action, error) {
 		if err == gorm.ErrRecordNotFound {
 			return nil, core.ErrNotFound
 		}
-		return nil, fmt.Errorf("get step %d: %w", id, err)
+		return nil, fmt.Errorf("get action %d: %w", id, err)
 	}
 	return model.toCore(), nil
 }
@@ -43,18 +43,18 @@ func (s *Store) GetAction(ctx context.Context, id int64) (*core.Action, error) {
 func (s *Store) ListActionsByWorkItem(ctx context.Context, issueID int64) ([]*core.Action, error) {
 	var models []ActionModel
 	err := s.orm.WithContext(ctx).
-		Where("issue_id = ?", issueID).
+		Where("work_item_id = ?", issueID).
 		Order("position ASC, id ASC").
 		Find(&models).Error
 	if err != nil {
-		return nil, fmt.Errorf("list steps by issue: %w", err)
+		return nil, fmt.Errorf("list actions by work item: %w", err)
 	}
 
-	steps := make([]*core.Action, 0, len(models))
+	actions := make([]*core.Action, 0, len(models))
 	for i := range models {
-		steps = append(steps, models[i].toCore())
+		actions = append(actions, models[i].toCore())
 	}
-	return steps, nil
+	return actions, nil
 }
 
 func (s *Store) UpdateActionStatus(ctx context.Context, id int64, status core.ActionStatus) error {
@@ -65,7 +65,7 @@ func (s *Store) UpdateActionStatus(ctx context.Context, id int64, status core.Ac
 			"updated_at": time.Now().UTC(),
 		})
 	if result.Error != nil {
-		return fmt.Errorf("update step status: %w", result.Error)
+		return fmt.Errorf("update action status: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound
@@ -97,7 +97,7 @@ func (s *Store) UpdateAction(ctx context.Context, st *core.Action) error {
 			"updated_at":            model.UpdatedAt,
 		})
 	if result.Error != nil {
-		return fmt.Errorf("update step: %w", result.Error)
+		return fmt.Errorf("update action: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound
@@ -109,7 +109,7 @@ func (s *Store) UpdateAction(ctx context.Context, st *core.Action) error {
 func (s *Store) DeleteAction(ctx context.Context, id int64) error {
 	result := s.orm.WithContext(ctx).Delete(&ActionModel{}, id)
 	if result.Error != nil {
-		return fmt.Errorf("delete step %d: %w", id, result.Error)
+		return fmt.Errorf("delete action %d: %w", id, result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound

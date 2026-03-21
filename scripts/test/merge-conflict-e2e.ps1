@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   E2E test: PR merge conflict → gate rework limit → blocked.
-  Creates a 4-step PR flow, injects a conflict after PR opens, verifies gate blocks after max_rework_rounds.
+  Creates a 4-action PR work item, injects a conflict after PR opens, verifies gate blocks after max_rework_rounds.
 
 .EXAMPLE
   pwsh -NoProfile -File .\scripts\test\merge-conflict-e2e.ps1
@@ -211,57 +211,57 @@ try {
   Write-Host "resource_id=$($rb.id) (enable_scm_flow=true)"
 
   # -------------------------------------------------------------------------
-  # 3. Create issue
+  # 3. Create work item
   # -------------------------------------------------------------------------
-  $issue = Api -Method Post -Url "$base/issues" -Token $adminToken -Body @{
+  $workItem = Api -Method Post -Url "$base/work-items" -Token $adminToken -Body @{
     project_id = $projectId
     title      = "Merge conflict test ($ts)"
     body       = "Modify README.md: append a section '## Auto Test $ts' with a greeting message. This is a test for merge conflict handling."
     priority   = "medium"
   }
-  $issueId = [int64]$issue.id
-  Write-Host "issue_id=$issueId"
+  $workItemId = [int64]$workItem.id
+  Write-Host "work_item_id=$workItemId"
 
   # -------------------------------------------------------------------------
-  # 4. Verify auto-bootstrapped steps (enable_scm_flow triggers auto-bootstrap)
+  # 4. Verify auto-bootstrapped actions (enable_scm_flow triggers auto-bootstrap)
   # -------------------------------------------------------------------------
-  $steps = Api -Method Get -Url "$base/issues/$issueId/steps" -Token $adminToken
-  Write-Host "auto-bootstrapped $($steps.Count) steps:"
-  $gateStepId = $null
-  foreach ($s in $steps) {
-    Write-Host "  step=$($s.name) type=$($s.type) id=$($s.id)"
-    if ($s.name -eq "review_merge_gate") { $gateStepId = $s.id }
+  $actions = Api -Method Get -Url "$base/work-items/$workItemId/actions" -Token $adminToken
+  Write-Host "auto-bootstrapped $($actions.Count) actions:"
+  $gateActionId = $null
+  foreach ($action in $actions) {
+    Write-Host "  action=$($action.name) type=$($action.type) id=$($action.id)"
+    if ($action.name -eq "review_merge_gate") { $gateActionId = $action.id }
   }
-  if ($steps.Count -ne 4) {
-    Write-Host "WARNING: expected 4 auto-bootstrapped steps, got $($steps.Count)" -ForegroundColor Yellow
+  if ($actions.Count -ne 4) {
+    Write-Host "WARNING: expected 4 auto-bootstrapped actions, got $($actions.Count)" -ForegroundColor Yellow
   }
 
   # -------------------------------------------------------------------------
-  # 5. Run issue
+  # 5. Run work item
   # -------------------------------------------------------------------------
-  Write-Host "Running issue $issueId ..."
-  Api -Method Post -Url "$base/issues/$issueId/run" -Token $adminToken -Body @{} | Out-Null
+  Write-Host "Running work item $workItemId ..."
+  Api -Method Post -Url "$base/work-items/$workItemId/run" -Token $adminToken -Body @{} | Out-Null
 
   # -------------------------------------------------------------------------
-  # 6. Poll — inject conflict when open_pr step completes
+  # 6. Poll — inject conflict when open_pr action completes
   # -------------------------------------------------------------------------
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $status = ""
-  $prevStepStates = @{}
+  $prevActionStates = @{}
 
   while ((Get-Date) -lt $deadline) {
-    $iss = Api -Method Get -Url "$base/issues/$issueId" -Token $adminToken
-    $status = [string]$iss.status
+    $currentWorkItem = Api -Method Get -Url "$base/work-items/$workItemId" -Token $adminToken
+    $status = [string]$currentWorkItem.status
 
-    # Fetch step statuses
-    $steps = Api -Method Get -Url "$base/issues/$issueId/steps" -Token $adminToken
-    foreach ($s in $steps) {
-      $stepName = [string]$s.name
-      $stepStatus = [string]$s.status
-      $prevStatus = $prevStepStates[$stepName]
-      if ($prevStatus -ne $stepStatus) {
-        Write-Host "  step=$stepName status=$stepStatus" -ForegroundColor $(
-          switch ($stepStatus) {
+    # Fetch action statuses
+    $actions = Api -Method Get -Url "$base/work-items/$workItemId/actions" -Token $adminToken
+    foreach ($action in $actions) {
+      $actionName = [string]$action.name
+      $actionStatus = [string]$action.status
+      $prevStatus = $prevActionStates[$actionName]
+      if ($prevStatus -ne $actionStatus) {
+        Write-Host "  action=$actionName status=$actionStatus" -ForegroundColor $(
+          switch ($actionStatus) {
             "done"    { "Green" }
             "blocked" { "Yellow" }
             "failed"  { "Red" }
@@ -269,33 +269,33 @@ try {
             default   { "White" }
           }
         )
-        $prevStepStates[$stepName] = $stepStatus
+        $prevActionStates[$actionName] = $actionStatus
       }
 
       # Inject conflict right after open_pr succeeds (PR is open, but gate hasn't run yet)
-      if ($stepName -eq "open_pr" -and $stepStatus -eq "done" -and -not $conflictPushed) {
+      if ($actionName -eq "open_pr" -and $actionStatus -eq "done" -and -not $conflictPushed) {
         Push-ConflictToMain -RepoPath $RepoPath -Branch $BaseBranch -ConflictFile $conflictFile
         $conflictPushed = $true
       }
     }
 
-    # Track gate step ID
-    foreach ($s in $steps) {
-      if ([string]$s.name -eq "review_merge_gate" -and -not $gateStepId) {
-        $gateStepId = $s.id
+    # Track gate action ID
+    foreach ($action in $actions) {
+      if ([string]$action.name -eq "review_merge_gate" -and -not $gateActionId) {
+        $gateActionId = $action.id
       }
     }
 
     # Check gate's rework count
-    if ($gateStepId) {
+    if ($gateActionId) {
       try {
-        $gateStep = Api -Method Get -Url "$base/steps/$gateStepId" -Token $adminToken
+        $gateAction = Api -Method Get -Url "$base/actions/$gateActionId" -Token $adminToken
         $reworkCount = 0
-        if ($gateStep.config -and $gateStep.config.rework_count) {
-          $reworkCount = [int]$gateStep.config.rework_count
+        if ($gateAction.config -and $gateAction.config.rework_count) {
+          $reworkCount = [int]$gateAction.config.rework_count
         }
         if ($reworkCount -gt 0) {
-          Write-Host "  gate rework_count=$reworkCount / max=$($gateStep.config.max_rework_rounds)" -ForegroundColor Magenta
+          Write-Host "  gate rework_count=$reworkCount / max=$($gateAction.config.max_rework_rounds)" -ForegroundColor Magenta
         }
       } catch {}
     }
@@ -309,35 +309,35 @@ try {
   # -------------------------------------------------------------------------
   Write-Host ""
   Write-Host "=== Final State ===" -ForegroundColor Magenta
-  Write-Host "issue_status=$status"
+  Write-Host "work_item_status=$status"
 
-  $steps = Api -Method Get -Url "$base/issues/$issueId/steps" -Token $adminToken
-  foreach ($s in $steps) {
+  $actions = Api -Method Get -Url "$base/work-items/$workItemId/actions" -Token $adminToken
+  foreach ($action in $actions) {
     $extra = ""
     try {
-      if ($s.config -and $null -ne $s.config.PSObject.Properties['rework_count']) {
-        $extra = " rework_count=$($s.config.rework_count)"
+      if ($action.config -and $null -ne $action.config.PSObject.Properties['rework_count']) {
+        $extra = " rework_count=$($action.config.rework_count)"
       }
     } catch {}
     try {
-      if ($s.retry_count -gt 0) {
-        $extra += " retry_count=$($s.retry_count)"
+      if ($action.retry_count -gt 0) {
+        $extra += " retry_count=$($action.retry_count)"
       }
     } catch {}
-    Write-Host "  step=$($s.name) type=$($s.type) status=$($s.status)$extra"
+    Write-Host "  action=$($action.name) type=$($action.type) status=$($action.status)$extra"
   }
 
   # Check if gate blocked (expected outcome)
-  $gateStep = $steps | Where-Object { $_.name -eq "review_merge_gate" }
-  if ($gateStep -and $gateStep.status -eq "blocked") {
+  $gateAction = $actions | Where-Object { $_.name -eq "review_merge_gate" }
+  if ($gateAction -and $gateAction.status -eq "blocked") {
     Write-Host ""
     Write-Host "SUCCESS: Gate blocked after rework limit reached (expected behavior)." -ForegroundColor Green
   } elseif ($status -eq "done") {
     Write-Host ""
-    Write-Host "NOTE: Issue completed successfully (no conflict encountered or agent resolved it)." -ForegroundColor Yellow
+    Write-Host "NOTE: Work item completed successfully (no conflict encountered or agent resolved it)." -ForegroundColor Yellow
   } else {
     Write-Host ""
-    Write-Host "RESULT: issue_status=$status (check logs for details)" -ForegroundColor Yellow
+    Write-Host "RESULT: work_item_status=$status (check logs for details)" -ForegroundColor Yellow
     Write-Host "Server stderr log: $($server.Stderr)"
   }
 

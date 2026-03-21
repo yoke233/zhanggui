@@ -9,12 +9,12 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-func TestAPI_CreateDAGTemplateRejectsDuplicateStepNames(t *testing.T) {
+func TestAPI_CreateDAGTemplateRejectsDuplicateActionNames(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	resp, err := post(ts, "/templates", map[string]any{
 		"name": "dup-template",
-		"steps": []map[string]any{
+		"actions": []map[string]any{
 			{"name": "implement", "type": "exec"},
 			{"name": "implement", "type": "gate"},
 		},
@@ -23,7 +23,7 @@ func TestAPI_CreateDAGTemplateRejectsDuplicateStepNames(t *testing.T) {
 		t.Fatalf("create template: %v", err)
 	}
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 creating template with duplicate step names, got %d", resp.StatusCode)
+		t.Fatalf("expected 400 creating template with duplicate action names, got %d", resp.StatusCode)
 	}
 }
 
@@ -38,7 +38,7 @@ func TestAPI_SaveWorkItemAsTemplateRejectsDuplicateActionNames(t *testing.T) {
 	}
 	workItem := decode[core.WorkItem](t, resp)
 
-	resp, err = post(ts, fmt.Sprintf("/work-items/%d/steps", workItem.ID), map[string]any{
+	resp, err = post(ts, fmt.Sprintf("/work-items/%d/actions", workItem.ID), map[string]any{
 		"name": "implement", "type": "exec",
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestAPI_SaveWorkItemAsTemplateRejectsDuplicateActionNames(t *testing.T) {
 		t.Fatalf("expected 201 creating first action, got %d", resp.StatusCode)
 	}
 
-	resp, err = post(ts, fmt.Sprintf("/work-items/%d/steps", workItem.ID), map[string]any{
+	resp, err = post(ts, fmt.Sprintf("/work-items/%d/actions", workItem.ID), map[string]any{
 		"name": "implement", "type": "gate",
 	})
 	if err != nil {
@@ -69,7 +69,7 @@ func TestAPI_SaveWorkItemAsTemplateRejectsDuplicateActionNames(t *testing.T) {
 	}
 }
 
-func TestAPI_CreateWorkItemFromTemplateRejectsStoredDuplicateStepNames(t *testing.T) {
+func TestAPI_CreateWorkItemFromTemplateRejectsStoredDuplicateActionNames(t *testing.T) {
 	h, ts := setupAPI(t)
 
 	tmpl := &core.DAGTemplate{
@@ -91,6 +91,6 @@ func TestAPI_CreateWorkItemFromTemplateRejectsStoredDuplicateStepNames(t *testin
 		t.Fatalf("create work item from template: %v", err)
 	}
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 materializing template with duplicate step names, got %d", resp.StatusCode)
+		t.Fatalf("expected 400 materializing template with duplicate action names, got %d", resp.StatusCode)
 	}
 }

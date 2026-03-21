@@ -11,19 +11,19 @@ import (
 
 // NotificationModel is the GORM model for the notifications table.
 type NotificationModel struct {
-	ID        int64                                 `gorm:"column:id;primaryKey;autoIncrement"`
-	Level     string                                `gorm:"column:level;not null"`
-	Title     string                                `gorm:"column:title;not null"`
-	Body      string                                `gorm:"column:body;not null;default:''"`
-	Category  string                                `gorm:"column:category;not null;default:''"`
-	ActionURL string                                `gorm:"column:action_url;not null;default:''"`
-	ProjectID *int64                                `gorm:"column:project_id"`
-	IssueID   *int64                                `gorm:"column:issue_id"`
-	ExecID    *int64                                `gorm:"column:exec_id"`
-	Channels  JSONField[[]core.NotificationChannel] `gorm:"column:channels;type:text"`
-	Read      bool                                  `gorm:"column:read;not null;default:false"`
-	ReadAt    *time.Time                            `gorm:"column:read_at"`
-	CreatedAt time.Time                             `gorm:"column:created_at"`
+	ID         int64                                 `gorm:"column:id;primaryKey;autoIncrement"`
+	Level      string                                `gorm:"column:level;not null"`
+	Title      string                                `gorm:"column:title;not null"`
+	Body       string                                `gorm:"column:body;not null;default:''"`
+	Category   string                                `gorm:"column:category;not null;default:''"`
+	ActionURL  string                                `gorm:"column:action_url;not null;default:''"`
+	ProjectID  *int64                                `gorm:"column:project_id"`
+	WorkItemID *int64                                `gorm:"column:work_item_id"`
+	RunID      *int64                                `gorm:"column:run_id"`
+	Channels   JSONField[[]core.NotificationChannel] `gorm:"column:channels;type:text"`
+	Read       bool                                  `gorm:"column:read;not null;default:false"`
+	ReadAt     *time.Time                            `gorm:"column:read_at"`
+	CreatedAt  time.Time                             `gorm:"column:created_at"`
 }
 
 func (NotificationModel) TableName() string { return "notifications" }
@@ -33,19 +33,19 @@ func notificationModelFromCore(n *core.Notification) *NotificationModel {
 		return nil
 	}
 	return &NotificationModel{
-		ID:        n.ID,
-		Level:     string(n.Level),
-		Title:     n.Title,
-		Body:      n.Body,
-		Category:  n.Category,
-		ActionURL: n.ActionURL,
-		ProjectID: n.ProjectID,
-		IssueID:   n.IssueID,
-		ExecID:    n.ExecID,
-		Channels:  JSONField[[]core.NotificationChannel]{Data: n.Channels},
-		Read:      n.Read,
-		ReadAt:    n.ReadAt,
-		CreatedAt: n.CreatedAt,
+		ID:         n.ID,
+		Level:      string(n.Level),
+		Title:      n.Title,
+		Body:       n.Body,
+		Category:   n.Category,
+		ActionURL:  n.ActionURL,
+		ProjectID:  n.ProjectID,
+		WorkItemID: n.WorkItemID,
+		RunID:      n.RunID,
+		Channels:   JSONField[[]core.NotificationChannel]{Data: n.Channels},
+		Read:       n.Read,
+		ReadAt:     n.ReadAt,
+		CreatedAt:  n.CreatedAt,
 	}
 }
 
@@ -54,19 +54,19 @@ func (m *NotificationModel) toCore() *core.Notification {
 		return nil
 	}
 	return &core.Notification{
-		ID:        m.ID,
-		Level:     core.NotificationLevel(m.Level),
-		Title:     m.Title,
-		Body:      m.Body,
-		Category:  m.Category,
-		ActionURL: m.ActionURL,
-		ProjectID: m.ProjectID,
-		IssueID:   m.IssueID,
-		ExecID:    m.ExecID,
-		Channels:  m.Channels.Data,
-		Read:      m.Read,
-		ReadAt:    m.ReadAt,
-		CreatedAt: m.CreatedAt,
+		ID:         m.ID,
+		Level:      core.NotificationLevel(m.Level),
+		Title:      m.Title,
+		Body:       m.Body,
+		Category:   m.Category,
+		ActionURL:  m.ActionURL,
+		ProjectID:  m.ProjectID,
+		WorkItemID: m.WorkItemID,
+		RunID:      m.RunID,
+		Channels:   m.Channels.Data,
+		Read:       m.Read,
+		ReadAt:     m.ReadAt,
+		CreatedAt:  m.CreatedAt,
 	}
 }
 
@@ -99,8 +99,8 @@ func (s *Store) ListNotifications(ctx context.Context, filter core.NotificationF
 	if filter.ProjectID != nil {
 		q = q.Where("project_id = ?", *filter.ProjectID)
 	}
-	if filter.IssueID != nil {
-		q = q.Where("issue_id = ?", *filter.IssueID)
+	if filter.WorkItemID != nil {
+		q = q.Where("work_item_id = ?", *filter.WorkItemID)
 	}
 	if filter.Category != "" {
 		q = q.Where("category = ?", filter.Category)

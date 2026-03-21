@@ -1,9 +1,9 @@
 ---
-name: step-signal
+name: action-signal
 description: Emit the terminal decision for the current ai-workflow action run. Use when this skill is auto-injected for exec or gate actions and the engine needs exactly one final signal such as complete, need_help, approve, or reject before the response ends.
 ---
 
-# Step Signal
+# Action Signal
 
 You are running inside an `ai-workflow` managed action.
 Before your final response ends, emit exactly one terminal signal so the engine can continue.
@@ -12,13 +12,13 @@ Before your final response ends, emit exactly one terminal signal so the engine 
 
 | Variable | Meaning |
 |---|---|
-| `AI_WORKFLOW_STEP_TYPE` | Current action type: `exec` or `gate` |
-| `AI_WORKFLOW_STEP_ID` | Current action ID |
-| `AI_WORKFLOW_ISSUE_ID` | Current work item ID |
-| `AI_WORKFLOW_EXEC_ID` | Current run ID |
+| `AI_WORKFLOW_ACTION_TYPE` | Current action type: `exec` or `gate` |
+| `AI_WORKFLOW_ACTION_ID` | Current action ID |
+| `AI_WORKFLOW_WORK_ITEM_ID` | Current work item ID |
+| `AI_WORKFLOW_RUN_ID` | Current run ID |
 | `AI_WORKFLOW_SERVER_ADDR` | Decision API base URL |
 | `AI_WORKFLOW_API_TOKEN` | Scoped bearer token for the decision API |
-| `CODEX_HOME` / `CLAUDE_CONFIG_DIR` | Agent home directory that contains `skills/step-signal/` |
+| `CODEX_HOME` / `CLAUDE_CONFIG_DIR` | Agent home directory that contains `skills/action-signal/` |
 
 ## Decision Map
 
@@ -43,9 +43,9 @@ Use that to attach fields such as `summary`, `artifact_namespace`, `artifact_typ
 
 ```powershell
 $skillHome = if ($env:CODEX_HOME) {
-  Join-Path $env:CODEX_HOME "skills\\step-signal"
+  Join-Path $env:CODEX_HOME "skills\\action-signal"
 } elseif ($env:CLAUDE_CONFIG_DIR) {
-  Join-Path $env:CLAUDE_CONFIG_DIR "skills\\step-signal"
+  Join-Path $env:CLAUDE_CONFIG_DIR "skills\\action-signal"
 } else {
   $null
 }
@@ -58,7 +58,7 @@ if ($skillHome) {
 ### POSIX shell
 
 ```bash
-SKILL_HOME="${CODEX_HOME:-${CLAUDE_CONFIG_DIR:-}}/skills/step-signal"
+SKILL_HOME="${CODEX_HOME:-${CLAUDE_CONFIG_DIR:-}}/skills/action-signal"
 bash "$SKILL_HOME/scripts/signal.sh" complete "implemented auth module with tests"
 ```
 
@@ -103,7 +103,7 @@ AI_WORKFLOW_SIGNAL: {"decision":"reject","reason":"missing error handling in pay
 ## Rules
 
 1. Emit exactly one terminal signal per run.
-2. Match the decision to `AI_WORKFLOW_STEP_TYPE`.
+2. Match the decision to `AI_WORKFLOW_ACTION_TYPE`.
 3. Keep `reason` concise, specific, and actionable.
 4. Emit the signal before ending the response.
 5. For artifact-producing workflows, include artifact metadata in the HTTP or fallback payload.

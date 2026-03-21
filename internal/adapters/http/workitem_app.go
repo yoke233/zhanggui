@@ -18,13 +18,13 @@ func (b workItemAppBootstrapper) BootstrapPRWorkItem(ctx context.Context, workIt
 	if b.handler == nil {
 		return nil
 	}
-	_, err := b.handler.bootstrapPRWorkItemForIssue(ctx, workItemID, bootstrapPRWorkItemRequest{})
+	_, err := b.handler.bootstrapPRWorkItemActions(ctx, workItemID, bootstrapPRWorkItemRequest{})
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, errBootstrapPRIssueMissingProject),
-		errors.Is(err, errBootstrapPRIssueMissingSpace),
-		errors.Is(err, errBootstrapPRIssueAmbiguousSpace):
+	case errors.Is(err, errBootstrapPRWorkItemMissingProject),
+		errors.Is(err, errBootstrapPRWorkItemMissingSpace),
+		errors.Is(err, errBootstrapPRWorkItemAmbiguousSpace):
 		return nil
 	default:
 		return err
@@ -75,19 +75,19 @@ func writeWorkItemAppError(w http.ResponseWriter, err error) bool {
 	case workitemapp.CodeResourceBindingNotFound:
 		writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
 	case workitemapp.CodeWorkItemDependencyNotFound:
-		writeError(w, http.StatusNotFound, "dependency work item not found", "ISSUE_DEPENDENCY_NOT_FOUND")
+		writeError(w, http.StatusNotFound, "dependency work item not found", "WORK_ITEM_DEPENDENCY_NOT_FOUND")
 	case workitemapp.CodeMissingTitle:
 		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
 	case workitemapp.CodeInvalidResourceBinding:
 		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_RESOURCE_BINDING")
 	case workitemapp.CodeInvalidWorkItemDependency:
-		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_ISSUE_DEPENDENCY")
-	case workitemapp.CodeNoSteps:
-		writeError(w, http.StatusBadRequest, "work item has no steps; add at least one step before running", "NO_STEPS")
+		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_WORK_ITEM_DEPENDENCY")
+	case workitemapp.CodeNoActions:
+		writeError(w, http.StatusBadRequest, "work item has no actions; add at least one action before running", "NO_ACTIONS")
 	case workitemapp.CodeInvalidState:
 		writeError(w, http.StatusConflict, err.Error(), "INVALID_STATE")
 	case workitemapp.CodeBootstrapPRFailed:
-		writeError(w, http.StatusInternalServerError, err.Error(), "AUTO_SCM_ISSUE_BOOTSTRAP_FAILED")
+		writeError(w, http.StatusInternalServerError, err.Error(), "AUTO_SCM_WORK_ITEM_BOOTSTRAP_FAILED")
 	default:
 		return false
 	}

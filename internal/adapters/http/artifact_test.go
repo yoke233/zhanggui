@@ -131,13 +131,13 @@ func TestArtifactRoutesExposeMetadataOnlyResults(t *testing.T) {
 		t.Fatalf("expected normalized artifact in single response, got %+v", single)
 	}
 
-	resp, err = http.Get(fmt.Sprintf("%s/steps/%d/artifact/latest", env.server.URL, stepID))
+	resp, err = http.Get(fmt.Sprintf("%s/actions/%d/artifact/latest", env.server.URL, stepID))
 	if err != nil {
 		t.Fatalf("get latest artifact: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /steps/{stepID}/artifact/latest status = %d", resp.StatusCode)
+		t.Fatalf("GET /actions/{actionID}/artifact/latest status = %d", resp.StatusCode)
 	}
 	var latest map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {

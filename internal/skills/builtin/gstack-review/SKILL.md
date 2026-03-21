@@ -67,7 +67,7 @@ When stored on a run result, set:
 7. `producer_kind = skill`
 8. `summary =` a 1 to 2 sentence review summary
 
-When finishing via `step-signal`, pass these fields in the decision payload so the artifact is indexed in `Run.ResultMetadata`.
+When finishing via `action-signal`, pass these fields in the decision payload so the artifact is indexed in `Run.ResultMetadata`.
 
 ## Gate Hint
 

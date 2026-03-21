@@ -8,7 +8,7 @@ const (
 	CodeInvalidWorkItemDependency  = "INVALID_WORK_ITEM_DEPENDENCY"
 	CodeInvalidState               = "INVALID_STATE"
 	CodeMissingTitle               = "MISSING_TITLE"
-	CodeNoSteps                    = "NO_STEPS"
+	CodeNoActions                  = "NO_ACTIONS"
 	CodeProjectNotFound            = "PROJECT_NOT_FOUND"
 	CodeResourceBindingNotFound    = "RESOURCE_BINDING_NOT_FOUND"
 	CodeWorkItemDependencyNotFound = "WORK_ITEM_DEPENDENCY_NOT_FOUND"

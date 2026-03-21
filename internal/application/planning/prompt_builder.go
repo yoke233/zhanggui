@@ -15,12 +15,12 @@ const (
 Use this workflow to convert a task description into an executable DAG:
 
 1. Restate the objective in execution terms and infer the expected deliverable.
-2. Create only the minimum set of steps needed to deliver the outcome.
-3. Use short, unique, lowercase dash-separated step names.
-4. Prefer a single focused implementation step over many tiny procedural steps.
-5. Insert a gate step when review, approval, or quality validation is required.
+2. Create only the minimum set of actions needed to deliver the outcome.
+3. Use short, unique, lowercase dash-separated action names.
+4. Prefer a single focused implementation action over many tiny procedural actions.
+5. Insert a gate action when review, approval, or quality validation is required.
 6. Use depends_on only for real prerequisites and keep the result topologically ordered.
-7. For every step, provide a concise description and at least one concrete acceptance criterion.
+7. For every action, provide a concise description and at least one concrete acceptance criterion.
 8. Choose agent_role and required_capabilities that match available profiles when they are provided.
 9. If no profiles are available, default implementation to worker and review to gate.
 10. Return only a DAG that is ready to materialize into system actions.`
@@ -65,7 +65,7 @@ func NewPromptBuilder(opts ...PromptBuilderOption) *PromptBuilder {
 // or the built-in fallback guidance when the skill is unavailable.
 func (b *PromptBuilder) BuildDAGGenPrompt(input GenerateInput, profiles []*core.AgentProfile) string {
 	var sb strings.Builder
-	sb.WriteString(`You are a software engineering workflow planner. Given a task description, decompose it into a DAG (directed acyclic graph) of execution steps.`)
+	sb.WriteString(`You are a software engineering workflow planner. Given a task description, decompose it into a DAG (directed acyclic graph) of execution actions.`)
 	sb.WriteString("\n\n")
 	sb.WriteString(b.planningGuidance())
 
@@ -79,16 +79,16 @@ func (b *PromptBuilder) BuildDAGGenPrompt(input GenerateInput, profiles []*core.
 			fmt.Fprintf(&sb, "- %q (role: %s, capabilities: [%s])\n", p.ID, p.Role, caps)
 		}
 		sb.WriteString(`
-When assigning agent_role and required_capabilities to a step:
+When assigning agent_role and required_capabilities to an action:
 - Set agent_role to one of the roles listed above (e.g. "worker", "gate").
 - Set required_capabilities using ONLY capability tags from the profiles above.
-- Each step's role + capabilities must match at least one available profile.
+- Each action's role + capabilities must match at least one available profile.
 `)
 	} else {
 		sb.WriteString(`
 When assigning agent_role:
-- Set agent_role to "worker" for implementation steps.
-- Set agent_role to "gate" for review or approval steps.
+- Set agent_role to "worker" for implementation actions.
+- Set agent_role to "gate" for review or approval actions.
 `)
 	}
 
@@ -110,7 +110,7 @@ Task description:
 		sb.WriteString("---\n")
 	}
 
-	sb.WriteString("\nReturn a JSON object with a \"steps\" array. Steps MUST be ordered so that dependencies always appear before dependents (topological order).")
+	sb.WriteString("\nReturn a JSON object with an \"actions\" array. Actions MUST be ordered so that dependencies always appear before dependents (topological order).")
 
 	return sb.String()
 }

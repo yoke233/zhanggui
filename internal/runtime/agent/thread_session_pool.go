@@ -48,8 +48,8 @@ type TokenGenerator interface {
 }
 
 // ThreadSessionPool manages ACP sessions for agents participating in Threads.
-// Unlike ACPSessionPool (which is tied to Issue lifecycle), ThreadSessionPool
-// is driven by user invite/remove actions and has no Step/Execution concept.
+// Unlike ACPSessionPool (which is tied to WorkItem lifecycle), ThreadSessionPool
+// is driven by user invite/remove actions and has no Action/Run concept.
 type ThreadSessionPool struct {
 	store                    core.Store
 	bus                      core.EventBus

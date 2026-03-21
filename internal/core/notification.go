@@ -31,13 +31,13 @@ type Notification struct {
 	Level     NotificationLevel `json:"level"`
 	Title     string            `json:"title"`
 	Body      string            `json:"body,omitempty"`
-	Category  string            `json:"category,omitempty"`   // e.g. "issue", "exec", "chat", "system"
+	Category  string            `json:"category,omitempty"`   // e.g. "workitem", "run", "chat", "system"
 	ActionURL string            `json:"action_url,omitempty"` // deep-link into the UI
 
-	// Scope: which project/issue/exec triggered this notification.
-	ProjectID *int64 `json:"project_id,omitempty"`
-	IssueID   *int64 `json:"issue_id,omitempty"`
-	ExecID    *int64 `json:"exec_id,omitempty"`
+	// Scope: which project/work item/run triggered this notification.
+	ProjectID  *int64 `json:"project_id,omitempty"`
+	WorkItemID *int64 `json:"work_item_id,omitempty"`
+	RunID      *int64 `json:"run_id,omitempty"`
 
 	// Delivery tracking.
 	Channels  []NotificationChannel `json:"channels,omitempty"`
@@ -48,13 +48,13 @@ type Notification struct {
 
 // NotificationFilter constrains notification queries.
 type NotificationFilter struct {
-	ProjectID *int64
-	IssueID   *int64
-	Category  string
-	Level     *NotificationLevel
-	Read      *bool
-	Limit     int
-	Offset    int
+	ProjectID  *int64
+	WorkItemID *int64
+	Category   string
+	Level      *NotificationLevel
+	Read       *bool
+	Limit      int
+	Offset     int
 }
 
 // NotificationStore persists Notification records.

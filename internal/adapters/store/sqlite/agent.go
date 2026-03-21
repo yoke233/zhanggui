@@ -111,18 +111,18 @@ func (s *Store) DeleteProfile(ctx context.Context, id string) error {
 
 // ---------- Resolution ----------
 
-func (s *Store) ResolveForAction(ctx context.Context, step *core.Action) (*core.AgentProfile, error) {
+func (s *Store) ResolveForAction(ctx context.Context, action *core.Action) (*core.AgentProfile, error) {
 	profiles, err := s.ListProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	role := core.AgentRole(step.AgentRole)
+	role := core.AgentRole(action.AgentRole)
 	for _, p := range profiles {
 		if role != "" && p.Role != role {
 			continue
 		}
-		if !p.MatchesRequirements(step.RequiredCapabilities) {
+		if !p.MatchesRequirements(action.RequiredCapabilities) {
 			continue
 		}
 		return p, nil

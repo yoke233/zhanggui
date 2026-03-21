@@ -16,7 +16,6 @@ type setupCronRequest struct {
 
 type cronStatusResponse struct {
 	WorkItemID    int64  `json:"work_item_id"`
-	IssueID       int64  `json:"issue_id"`
 	Enabled       bool   `json:"enabled"`
 	IsTemplate    bool   `json:"is_template"`
 	Schedule      string `json:"schedule,omitempty"`
@@ -26,9 +25,9 @@ type cronStatusResponse struct {
 
 // setupWorkItemCron enables cron scheduling on a work item (making it a template).
 func (h *Handler) setupWorkItemCron(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid work_item_id", "INVALID_PARAM")
 		return
 	}
 
@@ -42,7 +41,7 @@ func (h *Handler) setupWorkItemCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issue, err := h.store.GetWorkItem(r.Context(), issueID)
+	workItem, err := h.store.GetWorkItem(r.Context(), workItemID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
@@ -52,24 +51,23 @@ func (h *Handler) setupWorkItemCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if issue.Metadata == nil {
-		issue.Metadata = make(map[string]any)
+	if workItem.Metadata == nil {
+		workItem.Metadata = make(map[string]any)
 	}
-	issue.Metadata[cronapp.MetaSchedule] = req.Schedule
-	issue.Metadata[cronapp.MetaEnabled] = "true"
-	issue.Metadata[cronapp.MetaTemplateID] = "true"
+	workItem.Metadata[cronapp.MetaSchedule] = req.Schedule
+	workItem.Metadata[cronapp.MetaEnabled] = "true"
+	workItem.Metadata[cronapp.MetaTemplateID] = "true"
 	if req.MaxInstances > 0 {
-		issue.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
+		workItem.Metadata[cronapp.MetaMaxInstances] = strconv.Itoa(req.MaxInstances)
 	}
 
-	if err := h.store.UpdateWorkItemMetadata(r.Context(), issueID, issue.Metadata); err != nil {
+	if err := h.store.UpdateWorkItemMetadata(r.Context(), workItemID, workItem.Metadata); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, cronStatusResponse{
-		WorkItemID:   issueID,
-		IssueID:      issueID,
+		WorkItemID:   workItemID,
 		Enabled:      true,
 		IsTemplate:   true,
 		Schedule:     req.Schedule,
@@ -79,13 +77,13 @@ func (h *Handler) setupWorkItemCron(w http.ResponseWriter, r *http.Request) {
 
 // disableWorkItemCron disables cron scheduling on a work item.
 func (h *Handler) disableWorkItemCron(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid work_item_id", "INVALID_PARAM")
 		return
 	}
 
-	issue, err := h.store.GetWorkItem(r.Context(), issueID)
+	workItem, err := h.store.GetWorkItem(r.Context(), workItemID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
@@ -95,9 +93,9 @@ func (h *Handler) disableWorkItemCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if issue.Metadata != nil {
-		issue.Metadata[cronapp.MetaEnabled] = "false"
-		if err := h.store.UpdateWorkItemMetadata(r.Context(), issueID, issue.Metadata); err != nil {
+	if workItem.Metadata != nil {
+		workItem.Metadata[cronapp.MetaEnabled] = "false"
+		if err := h.store.UpdateWorkItemMetadata(r.Context(), workItemID, workItem.Metadata); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 			return
 		}
@@ -105,18 +103,17 @@ func (h *Handler) disableWorkItemCron(w http.ResponseWriter, r *http.Request) {
 
 	metaTemplateID := ""
 	metaSchedule := ""
-	if issue.Metadata != nil {
-		if v, ok := issue.Metadata[cronapp.MetaTemplateID].(string); ok {
+	if workItem.Metadata != nil {
+		if v, ok := workItem.Metadata[cronapp.MetaTemplateID].(string); ok {
 			metaTemplateID = v
 		}
-		if v, ok := issue.Metadata[cronapp.MetaSchedule].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaSchedule].(string); ok {
 			metaSchedule = v
 		}
 	}
 
 	writeJSON(w, http.StatusOK, cronStatusResponse{
-		WorkItemID: issueID,
-		IssueID:    issueID,
+		WorkItemID: workItemID,
 		Enabled:    false,
 		IsTemplate: metaTemplateID == "true",
 		Schedule:   metaSchedule,
@@ -125,13 +122,13 @@ func (h *Handler) disableWorkItemCron(w http.ResponseWriter, r *http.Request) {
 
 // getWorkItemCronStatus returns the cron status for a work item.
 func (h *Handler) getWorkItemCronStatus(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid issue_id", "INVALID_PARAM")
+		writeError(w, http.StatusBadRequest, "invalid work_item_id", "INVALID_PARAM")
 		return
 	}
 
-	issue, err := h.store.GetWorkItem(r.Context(), issueID)
+	workItem, err := h.store.GetWorkItem(r.Context(), workItemID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
@@ -141,21 +138,21 @@ func (h *Handler) getWorkItemCronStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp := cronStatusResponse{WorkItemID: issueID, IssueID: issueID}
-	if issue.Metadata != nil {
-		if v, ok := issue.Metadata[cronapp.MetaEnabled].(string); ok {
+	resp := cronStatusResponse{WorkItemID: workItemID}
+	if workItem.Metadata != nil {
+		if v, ok := workItem.Metadata[cronapp.MetaEnabled].(string); ok {
 			resp.Enabled = v == "true"
 		}
-		if v, ok := issue.Metadata[cronapp.MetaTemplateID].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaTemplateID].(string); ok {
 			resp.IsTemplate = v == "true"
 		}
-		if v, ok := issue.Metadata[cronapp.MetaSchedule].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaSchedule].(string); ok {
 			resp.Schedule = v
 		}
-		if v, ok := issue.Metadata[cronapp.MetaLastTriggered].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaLastTriggered].(string); ok {
 			resp.LastTriggered = v
 		}
-		if v, ok := issue.Metadata[cronapp.MetaMaxInstances].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaMaxInstances].(string); ok {
 			resp.MaxInstances, _ = strconv.Atoi(v)
 		}
 	}
@@ -166,7 +163,7 @@ func (h *Handler) getWorkItemCronStatus(w http.ResponseWriter, r *http.Request) 
 // listCronWorkItems lists all work items that are configured as cron templates.
 func (h *Handler) listCronWorkItems(w http.ResponseWriter, r *http.Request) {
 	archived := false
-	issues, err := h.store.ListWorkItems(r.Context(), core.WorkItemFilter{
+	workItems, err := h.store.ListWorkItems(r.Context(), core.WorkItemFilter{
 		Archived: &archived,
 		Limit:    200,
 	})
@@ -176,27 +173,26 @@ func (h *Handler) listCronWorkItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cronWorkItems []cronStatusResponse
-	for _, iss := range issues {
-		if iss.Metadata == nil {
+	for _, workItem := range workItems {
+		if workItem.Metadata == nil {
 			continue
 		}
-		metaTemplateID, _ := iss.Metadata[cronapp.MetaTemplateID].(string)
+		metaTemplateID, _ := workItem.Metadata[cronapp.MetaTemplateID].(string)
 		if metaTemplateID != "true" {
 			continue
 		}
-		metaEnabled, _ := iss.Metadata[cronapp.MetaEnabled].(string)
-		metaSchedule, _ := iss.Metadata[cronapp.MetaSchedule].(string)
-		metaLastTriggered, _ := iss.Metadata[cronapp.MetaLastTriggered].(string)
+		metaEnabled, _ := workItem.Metadata[cronapp.MetaEnabled].(string)
+		metaSchedule, _ := workItem.Metadata[cronapp.MetaSchedule].(string)
+		metaLastTriggered, _ := workItem.Metadata[cronapp.MetaLastTriggered].(string)
 
 		resp := cronStatusResponse{
-			WorkItemID:    iss.ID,
-			IssueID:       iss.ID,
+			WorkItemID:    workItem.ID,
 			Enabled:       metaEnabled == "true",
 			IsTemplate:    true,
 			Schedule:      metaSchedule,
 			LastTriggered: metaLastTriggered,
 		}
-		if v, ok := iss.Metadata[cronapp.MetaMaxInstances].(string); ok {
+		if v, ok := workItem.Metadata[cronapp.MetaMaxInstances].(string); ok {
 			resp.MaxInstances, _ = strconv.Atoi(v)
 		}
 		cronWorkItems = append(cronWorkItems, resp)

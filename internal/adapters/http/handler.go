@@ -57,7 +57,7 @@ func WithLeadAgent(lead LeadChatService) HandlerOption {
 	return func(h *Handler) { h.lead = lead }
 }
 
-// WithScheduler sets the issue scheduler for queued execution.
+// WithScheduler sets the work item scheduler for queued runs.
 func WithScheduler(s issueapp.Scheduler) HandlerOption {
 	return func(h *Handler) { h.scheduler = s }
 }
@@ -67,7 +67,7 @@ func WithRegistry(r core.AgentRegistry) HandlerOption {
 	return func(h *Handler) { h.registry = r }
 }
 
-// WithDAGGenerator sets the DAG generator for AI-powered step decomposition.
+// WithDAGGenerator sets the DAG generator for AI-powered action decomposition.
 func WithDAGGenerator(g DAGGenerator) HandlerOption {
 	return func(h *Handler) { h.dagGen = g }
 }
@@ -103,7 +103,7 @@ func WithLLMConfigController(controller llmconfig.ControlService) HandlerOption 
 	return func(h *Handler) { h.llmConfig = controller }
 }
 
-// WithPRFlowPromptsProvider sets a provider for built-in PR issue prompt text.
+// WithPRFlowPromptsProvider sets a provider for built-in PR work item prompt text.
 func WithPRFlowPromptsProvider(provider issueapp.PRFlowPromptsProvider) HandlerOption {
 	return func(h *Handler) { h.prPrompts = provider }
 }
@@ -182,9 +182,9 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/resources/{resourceID}", h.getResource)
 	r.Get("/resources/{resourceID}/download", h.downloadResource)
 	r.Delete("/resources/{resourceID}", h.deleteResource)
-	r.Get("/steps/{stepID}", h.getAction)
-	r.Put("/steps/{stepID}", h.updateAction)
-	r.Delete("/steps/{stepID}", h.deleteAction)
+	r.Get("/actions/{actionID}", h.getAction)
+	r.Put("/actions/{actionID}", h.updateAction)
+	r.Delete("/actions/{actionID}", h.deleteAction)
 
 	// DAG Templates
 	r.Post("/templates", h.createDAGTemplate)
@@ -194,16 +194,16 @@ func (h *Handler) Register(r chi.Router) {
 	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
 	r.Post("/templates/{templateID}/create-work-item", h.createWorkItemFromTemplate)
 
-	// Step signals (human intervention)
-	r.Post("/steps/{stepID}/decision", h.actionDecision)
-	r.Post("/steps/{stepID}/unblock", h.actionUnblock)
-	r.Get("/steps/{stepID}/signals", h.listActionSignals)
+	// Action signals (human intervention)
+	r.Post("/actions/{actionID}/decision", h.actionDecision)
+	r.Post("/actions/{actionID}/unblock", h.actionUnblock)
+	r.Get("/actions/{actionID}/signals", h.listActionSignals)
 	r.Get("/pending-decisions", h.listPendingDecisions)
 
 	// Runs
-	r.Get("/steps/{stepID}/runs", h.listRuns)
+	r.Get("/actions/{actionID}/runs", h.listRuns)
 	r.Get("/runs/{runID}", h.getRun)
-	r.Get("/steps/{stepID}/artifact/latest", h.getLatestDeliverable)
+	r.Get("/actions/{actionID}/artifact/latest", h.getLatestDeliverable)
 	r.Get("/runs/{runID}/artifacts", h.listDeliverablesByRun)
 	r.Get("/artifacts/{artifactID}", h.getDeliverable)
 
@@ -296,25 +296,25 @@ func (h *Handler) registerWorkItemRoutes(r chi.Router, basePath string) {
 	r.Post(basePath, h.createWorkItem)
 	r.Get(basePath, h.listWorkItems)
 	r.Get(basePath+"/cron", h.listCronWorkItems)
-	r.Get(basePath+"/{issueID}", h.getWorkItem)
-	r.Put(basePath+"/{issueID}", h.updateWorkItem)
-	r.Delete(basePath+"/{issueID}", h.deleteWorkItem)
-	r.Post(basePath+"/{issueID}/bootstrap-pr", h.bootstrapPRWorkItem)
-	r.Post(basePath+"/{issueID}/archive", h.archiveWorkItem)
-	r.Post(basePath+"/{issueID}/unarchive", h.unarchiveWorkItem)
-	r.Post(basePath+"/{issueID}/run", h.runWorkItem)
-	r.Post(basePath+"/{issueID}/cancel", h.cancelWorkItem)
-	r.Post(basePath+"/{issueID}/resources", h.uploadWorkItemResource)
-	r.Get(basePath+"/{issueID}/resources", h.listWorkItemResources)
-	r.Post(basePath+"/{issueID}/steps", h.createAction)
-	r.Get(basePath+"/{issueID}/steps", h.listActions)
-	r.Post(basePath+"/{issueID}/generate-steps", h.generateActions)
+	r.Get(basePath+"/{workItemID}", h.getWorkItem)
+	r.Put(basePath+"/{workItemID}", h.updateWorkItem)
+	r.Delete(basePath+"/{workItemID}", h.deleteWorkItem)
+	r.Post(basePath+"/{workItemID}/bootstrap-pr", h.bootstrapPRWorkItem)
+	r.Post(basePath+"/{workItemID}/archive", h.archiveWorkItem)
+	r.Post(basePath+"/{workItemID}/unarchive", h.unarchiveWorkItem)
+	r.Post(basePath+"/{workItemID}/run", h.runWorkItem)
+	r.Post(basePath+"/{workItemID}/cancel", h.cancelWorkItem)
+	r.Post(basePath+"/{workItemID}/resources", h.uploadWorkItemResource)
+	r.Get(basePath+"/{workItemID}/resources", h.listWorkItemResources)
+	r.Post(basePath+"/{workItemID}/actions", h.createAction)
+	r.Get(basePath+"/{workItemID}/actions", h.listActions)
+	r.Post(basePath+"/{workItemID}/generate-actions", h.generateActions)
 	r.Post(basePath+"/generate-title", h.generateTitle)
-	r.Post(basePath+"/{issueID}/save-as-template", h.saveWorkItemAsTemplate)
-	r.Get(basePath+"/{issueID}/events", h.listWorkItemEvents)
-	r.Get(basePath+"/{issueID}/cron", h.getWorkItemCronStatus)
-	r.Post(basePath+"/{issueID}/cron", h.setupWorkItemCron)
-	r.Delete(basePath+"/{issueID}/cron", h.disableWorkItemCron)
+	r.Post(basePath+"/{workItemID}/save-as-template", h.saveWorkItemAsTemplate)
+	r.Get(basePath+"/{workItemID}/events", h.listWorkItemEvents)
+	r.Get(basePath+"/{workItemID}/cron", h.getWorkItemCronStatus)
+	r.Post(basePath+"/{workItemID}/cron", h.setupWorkItemCron)
+	r.Delete(basePath+"/{workItemID}/cron", h.disableWorkItemCron)
 }
 
 // urlParamInt64 extracts an int64 from a chi URL path parameter.

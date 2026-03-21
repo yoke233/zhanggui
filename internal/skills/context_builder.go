@@ -15,7 +15,7 @@ import (
 
 // ContextMaterial represents one reference file in the action-context skill.
 type ContextMaterial struct {
-	Path        string // relative path within skill dir, e.g. "issue.md"
+	Path        string // relative path within skill dir, e.g. "work-item.md"
 	Description string // one-line description for the index table
 	Hint        string // when the agent should read this
 	Content     string // file content
@@ -36,7 +36,7 @@ func NewActionContextBuilder(store core.Store) *ActionContextBuilder {
 // and returns the full path. The caller must defer Cleanup(dir).
 //
 // Materials generated (when data exists):
-//   - issue.md:           full WorkItem title + body + metadata
+//   - work-item.md:       full WorkItem title + body + metadata
 //   - upstream/<name>.md: full ResultMarkdown of each predecessor action
 //   - acceptance.md:      numbered acceptance criteria
 //   - gate-feedback.md:   last_gate_feedback + rework_history
@@ -54,13 +54,13 @@ func (b *ActionContextBuilder) Build(ctx context.Context, parentDir string,
 		return "", fmt.Errorf("create action-context dir: %w", err)
 	}
 
-	// Query work item once; reused by buildIssueMaterial and buildManifestMaterial.
-	issue, _ := b.store.GetWorkItem(ctx, action.WorkItemID)
+	// Query work item once; reused by buildWorkItemMaterial and buildManifestMaterial.
+	workItem, _ := b.store.GetWorkItem(ctx, action.WorkItemID)
 
 	var materials []ContextMaterial
 
-	// 1. Issue (full body, not truncated)
-	if m := buildIssueMaterial(issue); m != nil {
+	// 1. Work item (full body, not truncated)
+	if m := buildWorkItemMaterial(workItem); m != nil {
 		materials = append(materials, *m)
 	}
 
@@ -80,7 +80,7 @@ func (b *ActionContextBuilder) Build(ctx context.Context, parentDir string,
 	}
 
 	// 5. Feature manifest
-	if m := b.buildManifestMaterial(ctx, issue); m != nil {
+	if m := b.buildManifestMaterial(ctx, workItem); m != nil {
 		materials = append(materials, *m)
 	}
 
@@ -125,7 +125,7 @@ func Cleanup(dir string) {
 	_ = os.Remove(parent) // fails silently if non-empty or already gone
 }
 
-func buildIssueMaterial(wi *core.WorkItem) *ContextMaterial {
+func buildWorkItemMaterial(wi *core.WorkItem) *ContextMaterial {
 	if wi == nil {
 		return nil
 	}
@@ -155,7 +155,7 @@ func buildIssueMaterial(wi *core.WorkItem) *ContextMaterial {
 	}
 
 	return &ContextMaterial{
-		Path:        "issue.md",
+		Path:        "work-item.md",
 		Description: "Full work item details (title, body, priority, labels)",
 		Hint:        "At start — understand the full task",
 		Content:     sb.String(),

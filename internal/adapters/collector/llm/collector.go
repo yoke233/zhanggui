@@ -44,10 +44,10 @@ func buildExtractionPrompt(stepType core.ActionType, markdown string) string {
 		instruction = `You are a metadata extractor. Analyze the following gate review output and extract:
 - verdict: "pass" or "reject"
  - reason: a short, human-readable reason (empty string if unclear)
- - reject_targets: list of upstream step IDs to reset when verdict is "reject" (optional; omit if unclear)
+ - reject_targets: list of upstream action IDs to reset when verdict is "reject" (optional; omit if unclear)
 Return ONLY a JSON object matching the provided JSON schema.`
 	case core.ActionPlan:
-		instruction = `You are a metadata extractor. Analyze the following composite step output and extract:
+		instruction = `You are a metadata extractor. Analyze the following composite action output and extract:
 - sub_tasks: list of sub-task names/descriptions identified
 Return ONLY a JSON object matching the provided JSON schema.`
 	default:
@@ -81,7 +81,7 @@ func extractionTools(stepType core.ActionType) []basellm.ToolDef {
 					"reject_targets": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "integer"},
-						"description": "Upstream step IDs to reset when verdict is reject.",
+						"description": "Upstream action IDs to reset when verdict is reject.",
 					},
 				},
 				"required": []string{"verdict", "reason"},
@@ -90,7 +90,7 @@ func extractionTools(stepType core.ActionType) []basellm.ToolDef {
 	case core.ActionPlan:
 		return []basellm.ToolDef{{
 			Name:        "extract_composite_metadata",
-			Description: "Extract structured metadata from a composite step output.",
+			Description: "Extract structured metadata from a composite action output.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

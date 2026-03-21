@@ -65,11 +65,11 @@ func TestUnifiedResourceMigrationMigratesLegacyModelsOnRestart(t *testing.T) {
 		t.Fatalf("create legacy space binding: %v", err)
 	}
 	attachmentBindingID, err := seed.CreateResourceBinding(ctx, &core.ResourceBinding{
-		ProjectID: projectID,
-		IssueID:   &workItemID,
-		Kind:      core.ResourceKindAttachment,
-		URI:       filepath.Join(t.TempDir(), "legacy-spec.md"),
-		Label:     "legacy-spec.md",
+		ProjectID:  projectID,
+		WorkItemID: &workItemID,
+		Kind:       core.ResourceKindAttachment,
+		URI:        filepath.Join(t.TempDir(), "legacy-spec.md"),
+		Label:      "legacy-spec.md",
 		Config: map[string]any{
 			"mime_type": "text/markdown",
 			"size":      42,
@@ -148,7 +148,7 @@ func TestUnifiedResourceMigrationMigratesLegacyModelsOnRestart(t *testing.T) {
 	if len(runResources) != 1 {
 		t.Fatalf("expected 1 migrated run resource, got %d", len(runResources))
 	}
-	if runResources[0].FileName != "result.txt" || runResources[0].Metadata["legacy_source"] != "executions.result_assets" {
+	if runResources[0].FileName != "result.txt" || runResources[0].Metadata["legacy_source"] != "runs.result_assets" {
 		t.Fatalf("unexpected migrated run resource: %+v", runResources[0])
 	}
 

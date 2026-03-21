@@ -53,22 +53,22 @@ func TestBuildRunInputFromSnapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("with step context", func(t *testing.T) {
+	t.Run("with action context", func(t *testing.T) {
 		step := &core.Action{Name: "implement"}
 		executionInput := flowapp.BuildRunInputFromSnapshot("Do something", step, true)
 		if !strings.Contains(executionInput, "# Reference Materials") {
-			t.Error("execution input should contain Reference Materials header when hasStepContext=true")
+			t.Error("execution input should contain Reference Materials header when hasActionContext=true")
 		}
-		if !strings.Contains(executionInput, "skills/step-context/") {
-			t.Error("execution input should reference skills/step-context/ path")
+		if !strings.Contains(executionInput, "skills/action-context/") {
+			t.Error("execution input should reference skills/action-context/ path")
 		}
 	})
 
-	t.Run("without step context", func(t *testing.T) {
+	t.Run("without action context", func(t *testing.T) {
 		step := &core.Action{Name: "implement"}
 		executionInput := flowapp.BuildRunInputFromSnapshot("Do something", step, false)
 		if strings.Contains(executionInput, "Reference Materials") {
-			t.Error("execution input should not contain Reference Materials when hasStepContext=false")
+			t.Error("execution input should not contain Reference Materials when hasActionContext=false")
 		}
 	})
 }
@@ -282,28 +282,28 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	}
 
 	t.Run("nil resolver returns nil", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 0, nil)
+		factory := buildActionMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 0, nil)
 		if factory != nil {
 			t.Fatal("expected nil factory")
 		}
 	})
 
 	t.Run("composite step does not inject", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Action{Type: core.ActionPlan}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
+		factory := buildActionMCPFactory(&core.Action{Type: core.ActionPlan}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
 		if factory != nil {
 			t.Fatal("expected nil factory for composite step")
 		}
 	})
 
 	t.Run("profile without mcp does not inject", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker"}, 1, resolver)
+		factory := buildActionMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker"}, 1, resolver)
 		if factory != nil {
 			t.Fatal("expected nil factory for profile without MCP")
 		}
 	})
 
 	t.Run("exec step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
+		factory := buildActionMCPFactory(&core.Action{Type: core.ActionExec}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for exec step")
 		}
@@ -314,7 +314,7 @@ func TestBuildStepMCPFactory(t *testing.T) {
 	})
 
 	t.Run("gate step injects", func(t *testing.T) {
-		factory := buildStepMCPFactory(&core.Action{Type: core.ActionGate}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
+		factory := buildActionMCPFactory(&core.Action{Type: core.ActionGate}, &core.AgentProfile{ID: "worker", MCP: core.ProfileMCP{Enabled: true}}, 1, resolver)
 		if factory == nil {
 			t.Fatal("expected non-nil factory for gate step")
 		}

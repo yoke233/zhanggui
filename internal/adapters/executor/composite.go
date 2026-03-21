@@ -9,7 +9,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-// CompositeStepExecutorConfig wires builtin steps with an ACP fallback executor.
+// CompositeStepExecutorConfig wires builtin actions with an ACP fallback executor.
 type CompositeStepExecutorConfig struct {
 	Store core.Store
 	Bus   core.EventBus
@@ -23,19 +23,19 @@ type CompositeStepExecutorConfig struct {
 	ACPExecutor flowapp.ActionExecutor
 }
 
-// NewCompositeActionExecutor returns a ActionExecutor that routes certain exec steps to builtin
+// NewCompositeActionExecutor returns an ActionExecutor that routes certain exec actions to builtin
 // implementations (git commit/push, open PR), and falls back to ACP for everything else.
 //
-// Builtin routing is controlled by step.Config["builtin"].
+// Builtin routing is controlled by action.Config["builtin"].
 func NewCompositeActionExecutor(cfg CompositeStepExecutorConfig) flowapp.ActionExecutor {
-	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
-		if step == nil {
-			return fmt.Errorf("step is nil")
+	return func(ctx context.Context, action *core.Action, run *core.Run) error {
+		if action == nil {
+			return fmt.Errorf("action is nil")
 		}
 
 		builtin := ""
-		if step.Config != nil {
-			if v, ok := step.Config["builtin"].(string); ok {
+		if action.Config != nil {
+			if v, ok := action.Config["builtin"].(string); ok {
 				builtin = strings.TrimSpace(v)
 			}
 		}
@@ -44,11 +44,11 @@ func NewCompositeActionExecutor(cfg CompositeStepExecutorConfig) flowapp.ActionE
 		case "":
 			// fallthrough to ACP
 		case "git_commit_push":
-			return runBuiltinGitCommitPush(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, step, exec)
+			return runBuiltinGitCommitPush(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, action, run)
 		case "scm_open_pr", "github_open_pr":
-			return runBuiltinSCMOpenPR(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, step, exec)
+			return runBuiltinSCMOpenPR(ctx, cfg.Store, cfg.Bus, cfg.SCMTokens, action, run)
 		case "self_upgrade":
-			return runBuiltinSelfUpgrade(ctx, cfg.Store, cfg.Bus, step, exec, cfg.UpgradeFunc)
+			return runBuiltinSelfUpgrade(ctx, cfg.Store, cfg.Bus, action, run, cfg.UpgradeFunc)
 		default:
 			return fmt.Errorf("unknown builtin executor: %s", builtin)
 		}
@@ -56,6 +56,6 @@ func NewCompositeActionExecutor(cfg CompositeStepExecutorConfig) flowapp.ActionE
 		if cfg.ACPExecutor == nil {
 			return fmt.Errorf("ACP executor is not configured")
 		}
-		return cfg.ACPExecutor(ctx, step, exec)
+		return cfg.ACPExecutor(ctx, action, run)
 	}
 }

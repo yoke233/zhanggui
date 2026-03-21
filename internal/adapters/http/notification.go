@@ -14,15 +14,15 @@ import (
 // ── Request / Response types ──
 
 type createNotificationRequest struct {
-	Level     string   `json:"level,omitempty"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body,omitempty"`
-	Category  string   `json:"category,omitempty"`
-	ActionURL string   `json:"action_url,omitempty"`
-	ProjectID *int64   `json:"project_id,omitempty"`
-	IssueID   *int64   `json:"issue_id,omitempty"`
-	ExecID    *int64   `json:"exec_id,omitempty"`
-	Channels  []string `json:"channels,omitempty"`
+	Level      string   `json:"level,omitempty"`
+	Title      string   `json:"title"`
+	Body       string   `json:"body,omitempty"`
+	Category   string   `json:"category,omitempty"`
+	ActionURL  string   `json:"action_url,omitempty"`
+	ProjectID  *int64   `json:"project_id,omitempty"`
+	WorkItemID *int64   `json:"work_item_id,omitempty"`
+	RunID      *int64   `json:"run_id,omitempty"`
+	Channels   []string `json:"channels,omitempty"`
 }
 
 type unreadCountResponse struct {
@@ -62,8 +62,8 @@ func (h *Handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 	if pid, ok := queryInt64(r, "project_id"); ok {
 		filter.ProjectID = &pid
 	}
-	if iid, ok := queryInt64(r, "issue_id"); ok {
-		filter.IssueID = &iid
+	if workItemID, ok := queryInt64(r, "work_item_id"); ok {
+		filter.WorkItemID = &workItemID
 	}
 
 	notifications, err := h.store.ListNotifications(r.Context(), filter)
@@ -103,16 +103,16 @@ func (h *Handler) createNotification(w http.ResponseWriter, r *http.Request) {
 	}
 
 	n := &core.Notification{
-		Level:     level,
-		Title:     title,
-		Body:      req.Body,
-		Category:  req.Category,
-		ActionURL: req.ActionURL,
-		ProjectID: req.ProjectID,
-		IssueID:   req.IssueID,
-		ExecID:    req.ExecID,
-		Channels:  channels,
-		CreatedAt: time.Now().UTC(),
+		Level:      level,
+		Title:      title,
+		Body:       req.Body,
+		Category:   req.Category,
+		ActionURL:  req.ActionURL,
+		ProjectID:  req.ProjectID,
+		WorkItemID: req.WorkItemID,
+		RunID:      req.RunID,
+		Channels:   channels,
+		CreatedAt:  time.Now().UTC(),
 	}
 
 	id, err := h.store.CreateNotification(r.Context(), n)

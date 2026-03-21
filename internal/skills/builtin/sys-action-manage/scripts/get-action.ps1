@@ -1,12 +1,12 @@
 #!/usr/bin/env pwsh
-# get-step.ps1 — Get details of a specific step.
+# get-action.ps1 — Get details of a specific action.
 #
 # Usage:
-#   pwsh -NoProfile -File get-step.ps1 <step-id>
+#   pwsh -NoProfile -File get-action.ps1 <action-id>
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$StepId
+  [string]$ActionId
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,12 +26,12 @@ if ($token) {
 try {
   $response = Invoke-WebRequest `
     -Method Get `
-    -Uri "$server/api/steps/$StepId" `
+    -Uri "$server/api/actions/$ActionId" `
     -Headers $headers `
     -TimeoutSec 30
 
   Write-Output $response.Content
 } catch {
-  Write-Error "Error getting step: $($_.Exception.Message)"
+  Write-Error "Error getting action: $($_.Exception.Message)"
   exit 1
 }

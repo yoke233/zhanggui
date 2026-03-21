@@ -151,7 +151,7 @@ func (n *noopStore) GetResourceBinding(context.Context, int64) (*core.ResourceBi
 func (n *noopStore) ListResourceBindings(context.Context, int64) ([]*core.ResourceBinding, error) {
 	panic("unused")
 }
-func (n *noopStore) ListResourceBindingsByIssue(context.Context, int64, string) ([]*core.ResourceBinding, error) {
+func (n *noopStore) ListResourceBindingsByWorkItem(context.Context, int64, string) ([]*core.ResourceBinding, error) {
 	panic("unused")
 }
 func (n *noopStore) UpdateResourceBinding(context.Context, *core.ResourceBinding) error {

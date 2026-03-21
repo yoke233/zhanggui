@@ -10,28 +10,28 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateWorkItem(ctx context.Context, issue *core.WorkItem) (int64, error) {
+func (s *Store) CreateWorkItem(ctx context.Context, workItem *core.WorkItem) (int64, error) {
 	if s == nil || s.orm == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
-	if issue == nil {
-		return 0, fmt.Errorf("issue is nil")
+	if workItem == nil {
+		return 0, fmt.Errorf("work item is nil")
 	}
 
-	title := strings.TrimSpace(issue.Title)
+	title := strings.TrimSpace(workItem.Title)
 	if title == "" {
 		return 0, fmt.Errorf("title is required")
 	}
 
-	if issue.Status == "" {
-		issue.Status = core.WorkItemOpen
+	if workItem.Status == "" {
+		workItem.Status = core.WorkItemOpen
 	}
-	if issue.Priority == "" {
-		issue.Priority = core.PriorityMedium
+	if workItem.Priority == "" {
+		workItem.Priority = core.PriorityMedium
 	}
 
 	now := time.Now().UTC()
-	model := workItemModelFromCore(issue)
+	model := workItemModelFromCore(workItem)
 	model.Title = title
 	model.CreatedAt = now
 	model.UpdatedAt = now
@@ -39,10 +39,10 @@ func (s *Store) CreateWorkItem(ctx context.Context, issue *core.WorkItem) (int64
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
 		return 0, err
 	}
-	issue.ID = model.ID
-	issue.Title = title
-	issue.CreatedAt = now
-	issue.UpdatedAt = now
+	workItem.ID = model.ID
+	workItem.Title = title
+	workItem.CreatedAt = now
+	workItem.UpdatedAt = now
 	return model.ID, nil
 }
 
@@ -106,20 +106,20 @@ func (s *Store) ListWorkItems(ctx context.Context, filter core.WorkItemFilter) (
 	return out, nil
 }
 
-func (s *Store) UpdateWorkItem(ctx context.Context, issue *core.WorkItem) error {
+func (s *Store) UpdateWorkItem(ctx context.Context, workItem *core.WorkItem) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
 	}
-	if issue == nil {
-		return fmt.Errorf("issue is nil")
+	if workItem == nil {
+		return fmt.Errorf("work item is nil")
 	}
 
 	now := time.Now().UTC()
-	model := workItemModelFromCore(issue)
+	model := workItemModelFromCore(workItem)
 	model.UpdatedAt = now
 
 	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
-		Where("id = ?", issue.ID).
+		Where("id = ?", workItem.ID).
 		Updates(map[string]any{
 			"project_id":          model.ProjectID,
 			"resource_binding_id": model.ResourceBindingID,
@@ -138,7 +138,7 @@ func (s *Store) UpdateWorkItem(ctx context.Context, issue *core.WorkItem) error 
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound
 	}
-	issue.UpdatedAt = now
+	workItem.UpdatedAt = now
 	return nil
 }
 
@@ -174,7 +174,7 @@ func (s *Store) UpdateWorkItemMetadata(ctx context.Context, id int64, metadata m
 			"updated_at": time.Now().UTC(),
 		})
 	if result.Error != nil {
-		return fmt.Errorf("update issue metadata: %w", result.Error)
+		return fmt.Errorf("update work item metadata: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound
@@ -194,7 +194,7 @@ func (s *Store) PrepareWorkItemRun(ctx context.Context, id int64, queuedStatus c
 			"updated_at": time.Now().UTC(),
 		})
 	if result.Error != nil {
-		return fmt.Errorf("prepare issue run: %w", result.Error)
+		return fmt.Errorf("prepare work item run: %w", result.Error)
 	}
 	if result.RowsAffected > 0 {
 		return nil
@@ -228,7 +228,7 @@ func (s *Store) SetWorkItemArchived(ctx context.Context, id int64, archived bool
 
 	result := query.Updates(updates)
 	if result.Error != nil {
-		return fmt.Errorf("set issue archived: %w", result.Error)
+		return fmt.Errorf("set work item archived: %w", result.Error)
 	}
 	if result.RowsAffected > 0 {
 		return nil

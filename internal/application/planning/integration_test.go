@@ -63,7 +63,7 @@ func TestIntegration_PlanningGenerateAndMaterialize(t *testing.T) {
 					"content":[
 						{
 							"type":"output_text",
-							"text":"{\"steps\":[{\"name\":\"implement-api\",\"type\":\"exec\",\"agent_role\":\"worker\",\"required_capabilities\":[\"backend\"],\"description\":\"Implement the API\",\"acceptance_criteria\":[\"tests pass\"]},{\"name\":\"review-api\",\"type\":\"gate\",\"depends_on\":[\"implement-api\"],\"agent_role\":\"gate\",\"required_capabilities\":[\"review\"],\"description\":\"Review the API\",\"acceptance_criteria\":[\"approved\"]}]}"
+							"text":"{\"actions\":[{\"name\":\"implement-api\",\"type\":\"exec\",\"agent_role\":\"worker\",\"required_capabilities\":[\"backend\"],\"description\":\"Implement the API\",\"acceptance_criteria\":[\"tests pass\"]},{\"name\":\"review-api\",\"type\":\"gate\",\"depends_on\":[\"implement-api\"],\"agent_role\":\"gate\",\"required_capabilities\":[\"review\"],\"description\":\"Review the API\",\"acceptance_criteria\":[\"approved\"]}]}"
 						}
 					]
 				}
@@ -92,7 +92,7 @@ func TestIntegration_PlanningGenerateAndMaterialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate(integration) error = %v", err)
 	}
-	if len(dag.Steps) != 2 || len(dag.Steps[1].DependsOn) != 1 || dag.Steps[1].DependsOn[0] != "implement-api" {
+	if len(dag.Actions) != 2 || len(dag.Actions[1].DependsOn) != 1 || dag.Actions[1].DependsOn[0] != "implement-api" {
 		t.Fatalf("generated dag = %#v", dag)
 	}
 

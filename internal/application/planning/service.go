@@ -49,7 +49,7 @@ func NewService(llm LLMCompleter, registry core.AgentRegistry, opts ...Option) *
 	return svc
 }
 
-// Generate calls the LLM to decompose a task description into a DAG of Steps.
+// Generate calls the LLM to decompose a task description into a DAG of actions.
 func (s *Service) Generate(ctx context.Context, input GenerateInput) (*GeneratedDAG, error) {
 	if s.llm == nil {
 		return nil, fmt.Errorf("dag_gen: llm completer is nil")
@@ -73,8 +73,8 @@ func (s *Service) Generate(ctx context.Context, input GenerateInput) (*Generated
 		return nil, fmt.Errorf("dag_gen: parse llm output: %w", err)
 	}
 
-	if len(dag.Steps) == 0 {
-		return nil, fmt.Errorf("dag_gen: llm returned zero steps")
+	if len(dag.Actions) == 0 {
+		return nil, fmt.Errorf("dag_gen: llm returned zero actions")
 	}
 
 	if err := ValidateGeneratedDAG(&dag); err != nil {
@@ -92,8 +92,8 @@ func (s *Service) Generate(ctx context.Context, input GenerateInput) (*Generated
 
 // Materialize creates Actions in the store for a given work item from a GeneratedDAG.
 // It delegates to the package-level MaterializeDAG function.
-func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Action, error) {
-	return MaterializeDAG(ctx, store, issueID, dag)
+func (s *Service) Materialize(ctx context.Context, store core.Store, workItemID int64, dag *GeneratedDAG) ([]*core.Action, error) {
+	return MaterializeDAG(ctx, store, workItemID, dag)
 }
 
 // MaterializeDAG creates Actions in the store for a given work item from a GeneratedDAG.
@@ -108,20 +108,20 @@ func MaterializeDAG(ctx context.Context, store ActionMaterializer, workItemID in
 	}
 
 	// Phase 1: create all actions, record name→ID.
-	nameToID := make(map[string]int64, len(dag.Steps))
+	nameToID := make(map[string]int64, len(dag.Actions))
 	var created []*core.Action
 
-	for i, gs := range dag.Steps {
-		stepType := core.ActionType(gs.Type)
-		if stepType == "" {
-			stepType = core.ActionExec
+	for i, gs := range dag.Actions {
+		actionType := core.ActionType(gs.Type)
+		if actionType == "" {
+			actionType = core.ActionExec
 		}
 
-		step := &core.Action{
+		action := &core.Action{
 			WorkItemID:           workItemID,
 			Name:                 gs.Name,
 			Description:          gs.Description,
-			Type:                 stepType,
+			Type:                 actionType,
 			Status:               core.ActionPending,
 			Position:             i,
 			AgentRole:            gs.AgentRole,
@@ -129,17 +129,17 @@ func MaterializeDAG(ctx context.Context, store ActionMaterializer, workItemID in
 			AcceptanceCriteria:   gs.AcceptanceCriteria,
 		}
 
-		id, err := store.CreateAction(ctx, step)
+		id, err := store.CreateAction(ctx, action)
 		if err != nil {
-			return nil, fmt.Errorf("dag_gen: create step %q: %w", gs.Name, err)
+			return nil, fmt.Errorf("dag_gen: create action %q: %w", gs.Name, err)
 		}
-		step.ID = id
+		action.ID = id
 		nameToID[gs.Name] = id
-		created = append(created, step)
+		created = append(created, action)
 	}
 
 	// Phase 2: resolve DependsOn names → IDs and persist.
-	for i, gs := range dag.Steps {
+	for i, gs := range dag.Actions {
 		if len(gs.DependsOn) == 0 {
 			continue
 		}
@@ -147,12 +147,12 @@ func MaterializeDAG(ctx context.Context, store ActionMaterializer, workItemID in
 		for _, depName := range gs.DependsOn {
 			depID, ok := nameToID[depName]
 			if !ok {
-				return nil, fmt.Errorf("dag_gen: step %q depends on unknown step %q", gs.Name, depName)
+				return nil, fmt.Errorf("dag_gen: action %q depends on unknown action %q", gs.Name, depName)
 			}
 			resolved = append(resolved, depID)
 		}
 		if err := store.UpdateActionDependsOn(ctx, created[i].ID, resolved); err != nil {
-			return nil, fmt.Errorf("dag_gen: update depends_on for step %q: %w", gs.Name, err)
+			return nil, fmt.Errorf("dag_gen: update depends_on for action %q: %w", gs.Name, err)
 		}
 		created[i].DependsOn = resolved
 	}
@@ -168,43 +168,43 @@ func (s *Service) listProfiles(ctx context.Context) ([]*core.AgentProfile, error
 }
 
 // ValidateGeneratedDAG checks that the generated DAG has no duplicate names,
-// all dependency references are valid, and step types are known.
+// all dependency references are valid, and action types are known.
 func ValidateGeneratedDAG(dag *GeneratedDAG) error {
-	names := make(map[string]bool, len(dag.Steps))
-	for i, s := range dag.Steps {
+	names := make(map[string]bool, len(dag.Actions))
+	for i, s := range dag.Actions {
 		if s.Name == "" {
-			return fmt.Errorf("step[%d] has empty name", i)
+			return fmt.Errorf("action[%d] has empty name", i)
 		}
 		if names[s.Name] {
-			return fmt.Errorf("duplicate step name %q", s.Name)
+			return fmt.Errorf("duplicate action name %q", s.Name)
 		}
 		names[s.Name] = true
 	}
 
-	seen := make(map[string]bool, len(dag.Steps))
-	for _, s := range dag.Steps {
+	seen := make(map[string]bool, len(dag.Actions))
+	for _, s := range dag.Actions {
 		for _, dep := range s.DependsOn {
 			if !seen[dep] {
-				return fmt.Errorf("step %q depends on %q which is not defined before it", s.Name, dep)
+				return fmt.Errorf("action %q depends on %q which is not defined before it", s.Name, dep)
 			}
 		}
 		seen[s.Name] = true
 	}
 
 	validTypes := map[string]bool{"exec": true, "gate": true, "composite": true}
-	for _, s := range dag.Steps {
+	for _, s := range dag.Actions {
 		if !validTypes[s.Type] {
-			return fmt.Errorf("step %q has invalid type %q", s.Name, s.Type)
+			return fmt.Errorf("action %q has invalid type %q", s.Name, s.Type)
 		}
 	}
 
 	return nil
 }
 
-// ValidateCapabilityFit checks that every step's agent_role + required_capabilities
+// ValidateCapabilityFit checks that every action's agent_role + required_capabilities
 // can be satisfied by at least one available profile.
 func ValidateCapabilityFit(dag *GeneratedDAG, profiles []*core.AgentProfile) error {
-	for _, gs := range dag.Steps {
+	for _, gs := range dag.Actions {
 		role := core.AgentRole(gs.AgentRole)
 		matched := false
 		for _, p := range profiles {
@@ -217,7 +217,7 @@ func ValidateCapabilityFit(dag *GeneratedDAG, profiles []*core.AgentProfile) err
 			}
 		}
 		if !matched {
-			return fmt.Errorf("step %q (role=%s, caps=%v) has no matching agent profile",
+			return fmt.Errorf("action %q (role=%s, caps=%v) has no matching agent profile",
 				gs.Name, gs.AgentRole, gs.RequiredCapabilities)
 		}
 	}
@@ -259,33 +259,33 @@ func BuildDAGGenSchema(profiles []*core.AgentProfile) []ToolDef {
 
 	return []ToolDef{{
 		Name:        "generate_dag",
-		Description: "Generate a DAG of workflow steps from a task description.",
+		Description: "Generate a DAG of workflow actions from a task description.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"steps": map[string]any{
+				"actions": map[string]any{
 					"type": "array",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"name": map[string]any{
 								"type":        "string",
-								"description": "Unique step name (lowercase, dash-separated).",
+								"description": "Unique action name (lowercase, dash-separated).",
 							},
 							"type": map[string]any{
 								"type":        "string",
 								"enum":        []string{"exec", "gate", "composite"},
-								"description": "Step type.",
+								"description": "Action type.",
 							},
 							"depends_on": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Names of upstream steps this depends on.",
+								"description": "Names of upstream actions this depends on.",
 							},
 							"agent_role": map[string]any{
 								"type":        "string",
 								"enum":        roleEnum,
-								"description": "Agent role for this step.",
+								"description": "Agent role for this action.",
 							},
 							"required_capabilities": map[string]any{
 								"type":        "array",
@@ -295,20 +295,20 @@ func BuildDAGGenSchema(profiles []*core.AgentProfile) []ToolDef {
 							"acceptance_criteria": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Conditions that must be met for the step to be done.",
+								"description": "Conditions that must be met for the action to be done.",
 							},
 							"description": map[string]any{
 								"type":        "string",
-								"description": "What this step should accomplish.",
+								"description": "What this action should accomplish.",
 							},
 						},
 						"required":             []string{"name", "type"},
 						"additionalProperties": false,
 					},
-					"description": "Ordered list of steps forming a DAG (dependencies appear before dependents).",
+					"description": "Ordered list of actions forming a DAG (dependencies appear before dependents).",
 				},
 			},
-			"required": []string{"steps"},
+			"required": []string{"actions"},
 		},
 	}}
 }

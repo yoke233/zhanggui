@@ -49,7 +49,7 @@ var allowedResourceExt = map[string]string{
 const maxResourceSize = 10 << 20 // 10 MB
 
 func (h *Handler) uploadWorkItemResource(w http.ResponseWriter, r *http.Request) {
-	workItemID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -70,7 +70,7 @@ func (h *Handler) uploadWorkItemResource(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) listWorkItemResources(w http.ResponseWriter, r *http.Request) {
-	workItemID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return

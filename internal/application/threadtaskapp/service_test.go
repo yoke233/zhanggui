@@ -951,7 +951,7 @@ func TestMaterializeWithDAG(t *testing.T) {
 	bus := &memBus{}
 
 	dagGen := &mockDAGGen{dag: &planning.GeneratedDAG{
-		Steps: []planning.GeneratedStep{
+		Actions: []planning.GeneratedAction{
 			{Name: "design", Type: "exec", Description: "Design the API"},
 			{Name: "implement", Type: "exec", DependsOn: []string{"design"}, Description: "Implement the API"},
 		},

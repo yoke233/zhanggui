@@ -1,16 +1,16 @@
 <#
 .SYNOPSIS
-  Issue-based E2E smoke test against a Codeup (Alibaba Cloud) repository.
-  Clones the Codeup repo locally, then: server → project → resource binding → issue → exec+gate steps → run → poll.
+  WorkItem-based E2E smoke test against a Codeup (Alibaba Cloud) repository.
+  Clones the Codeup repo locally, then: server → project → resource binding → work item → exec+gate actions → run → poll.
 
 .DESCRIPTION
-  This script tests the full Issue → Steps → ACP Agent execution pipeline using a Codeup repository.
+  This script tests the full WorkItem → Actions → ACP Agent execution pipeline using a Codeup repository.
   It reads the Codeup PAT from secrets.toml [codeup] section and clones the repo to a local temp directory.
   The resource binding uses provider=codeup with organization_id and base_branch=master (Codeup default).
 
 .EXAMPLE
-  pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1
-  pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1 -CodeupRepoUrl "https://codeup.aliyun.com/org/repo" -Port 8084
+  pwsh -NoProfile -File .\scripts\test\workitem-e2e-codeup.ps1
+  pwsh -NoProfile -File .\scripts\test\workitem-e2e-codeup.ps1 -CodeupRepoUrl "https://codeup.aliyun.com/org/repo" -Port 8084
 #>
 [CmdletBinding()]
 param(
@@ -64,8 +64,8 @@ function Start-Server {
   param([int]$Port)
   $logDir = Join-Path (Get-Location) ".tmp"
   New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-  $stdout = Join-Path $logDir "issue-e2e-codeup-$Port.out.log"
-  $stderr = Join-Path $logDir "issue-e2e-codeup-$Port.err.log"
+  $stdout = Join-Path $logDir "workitem-e2e-codeup-$Port.out.log"
+  $stderr = Join-Path $logDir "workitem-e2e-codeup-$Port.err.log"
 
   $p = Start-Process -FilePath "go" `
     -ArgumentList @("run", "./cmd/ai-flow", "server", "--port", "$Port") `
@@ -151,7 +151,7 @@ try {
   # 1. Create project
   # -------------------------------------------------------------------------
   $proj = Api -Method Post -Url "$base/projects" -Token $adminToken -Body @{
-    name = "codeup-issue-e2e-$ts"
+    name = "codeup-workitem-e2e-$ts"
     kind = "dev"
   }
   $projectId = [int64]$proj.id
@@ -173,21 +173,21 @@ try {
   Write-Host "resource_id=$($rb.id)"
 
   # -------------------------------------------------------------------------
-  # 3. Create issue
+  # 3. Create work item
   # -------------------------------------------------------------------------
-  $issue = Api -Method Post -Url "$base/issues" -Token $adminToken -Body @{
+  $workItem = Api -Method Post -Url "$base/work-items" -Token $adminToken -Body @{
     project_id = $projectId
     title      = "E2E smoke: add greeting util ($ts)"
     body       = "Create pkg/greeting/hello.go with Hello(name) returning 'Hello, <name>!'. Add hello_test.go with TestHello. Run go test ./... to verify."
     priority   = "medium"
   }
-  $issueId = [int64]$issue.id
-  Write-Host "issue_id=$issueId"
+  $workItemId = [int64]$workItem.id
+  Write-Host "work_item_id=$workItemId"
 
   # -------------------------------------------------------------------------
-  # 4. Create exec step (implement)
+  # 4. Create exec action (implement)
   # -------------------------------------------------------------------------
-  $step1 = Api -Method Post -Url "$base/issues/$issueId/steps" -Token $adminToken -Body @{
+  $action1 = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name        = "implement"
     type        = "exec"
     position    = 0
@@ -197,12 +197,12 @@ try {
       profile_id = $ExecProfileId
     }
   }
-  Write-Host "step_implement_id=$($step1.id)"
+  Write-Host "action_implement_id=$($action1.id)"
 
   # -------------------------------------------------------------------------
-  # 5. Create gate step (review)
+  # 5. Create gate action (review)
   # -------------------------------------------------------------------------
-  $step2 = Api -Method Post -Url "$base/issues/$issueId/steps" -Token $adminToken -Body @{
+  $action2 = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name        = "review"
     type        = "gate"
     position    = 1
@@ -212,13 +212,13 @@ try {
       profile_id = $GateProfileId
     }
   }
-  Write-Host "step_review_id=$($step2.id)"
+  Write-Host "action_review_id=$($action2.id)"
 
   # -------------------------------------------------------------------------
-  # 6. Run issue
+  # 6. Run work item
   # -------------------------------------------------------------------------
-  Write-Host "Running issue $issueId ..."
-  Api -Method Post -Url "$base/issues/$issueId/run" -Token $adminToken -Body @{} | Out-Null
+  Write-Host "Running work item $workItemId ..."
+  Api -Method Post -Url "$base/work-items/$workItemId/run" -Token $adminToken -Body @{} | Out-Null
 
   # -------------------------------------------------------------------------
   # 7. Poll until done
@@ -226,30 +226,30 @@ try {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $status = ""
   while ((Get-Date) -lt $deadline) {
-    $iss = Api -Method Get -Url "$base/issues/$issueId" -Token $adminToken
-    $status = [string]$iss.status
+    $currentWorkItem = Api -Method Get -Url "$base/work-items/$workItemId" -Token $adminToken
+    $status = [string]$currentWorkItem.status
     if ($status -in @("done", "closed", "failed", "blocked", "cancelled")) { break }
     Start-Sleep -Seconds 5
   }
-  Write-Host "issue_status=$status"
+  Write-Host "work_item_status=$status"
 
   # -------------------------------------------------------------------------
-  # 8. Report step results
+  # 8. Report action results
   # -------------------------------------------------------------------------
-  $steps = Api -Method Get -Url "$base/issues/$issueId/steps" -Token $adminToken
-  foreach ($s in $steps) {
-    Write-Host "  step=$($s.name) type=$($s.type) status=$($s.status)"
+  $actions = Api -Method Get -Url "$base/work-items/$workItemId/actions" -Token $adminToken
+  foreach ($action in $actions) {
+    Write-Host "  action=$($action.name) type=$($action.type) status=$($action.status)"
   }
 
   if ($status -ne "done") {
     Write-Host ""
-    Write-Host "FAILED: issue did not complete (status=$status)." -ForegroundColor Red
+    Write-Host "FAILED: work item did not complete (status=$status)." -ForegroundColor Red
     Write-Host "Server stderr log: $($server.Stderr)"
     exit 1
   }
 
   Write-Host ""
-  Write-Host "Codeup Issue E2E smoke PASSED." -ForegroundColor Green
+  Write-Host "Codeup WorkItem E2E smoke PASSED." -ForegroundColor Green
 
 } finally {
   if ($server -and $server.Proc -and -not $server.Proc.HasExited) {

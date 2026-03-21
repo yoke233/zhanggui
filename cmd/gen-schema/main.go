@@ -127,7 +127,7 @@ func addDescriptions(schema *jsonschema.Schema) {
 			"app_id": "GitHub App ID", "private_key_path": "GitHub App 私钥路径",
 			"installation_id": "GitHub App 安装 ID", "owner": "仓库 owner", "repo": "仓库名",
 			"webhook_secret": "Webhook 签名密钥", "webhook_enabled": "是否接收 Webhook",
-			"pr_enabled": "是否启用 PR 管理", "auto_trigger": "Issue 创建时自动触发 run",
+			"pr_enabled": "是否启用 PR 管理", "auto_trigger": "WorkItem 创建时自动触发 run",
 			"allow_pat_fallback": "App 认证失败时回退到 PAT", "pr": "PR 自动化设置",
 		},
 		"GitHubPRConfig": {

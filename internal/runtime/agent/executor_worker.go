@@ -51,7 +51,7 @@ type ExecutorWorkerConfig struct {
 	// DefaultWorkDir is the fallback working directory.
 	DefaultWorkDir string
 
-	// MaxConcurrent limits parallel execution. Default: 2.
+	// MaxConcurrent limits parallel run execution. Default: 2.
 	MaxConcurrent int
 }
 
@@ -65,7 +65,7 @@ type activeRunProbeTarget struct {
 	MCPServers     []acpproto.McpServer
 }
 
-// ExecutorWorker consumes execution messages from NATS JetStream, executes them locally
+// ExecutorWorker consumes run messages from NATS JetStream, executes them locally
 // via ACP agents, and publishes results + events back to NATS.
 type ExecutorWorker struct {
 	cfg    ExecutorWorkerConfig
@@ -127,7 +127,7 @@ func NewExecutorWorker(cfg ExecutorWorkerConfig) (*ExecutorWorker, error) {
 	}, nil
 }
 
-// Start begins consuming execution messages. Blocks until ctx is cancelled.
+// Start begins consuming run messages. Blocks until ctx is cancelled.
 func (w *ExecutorWorker) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
@@ -200,7 +200,7 @@ func buildExecutorConsumerConfig(prefix string, maxConcurrent int, subjects []st
 		Durable:       prefix + "_executor",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		MaxAckPending: maxConcurrent,
-		AckWait:       10 * time.Minute, // allow up to 10 min for execution
+		AckWait:       10 * time.Minute, // allow up to 10 min for a run
 	}
 	if len(subjects) == 1 {
 		cfg.FilterSubject = subjects[0]
@@ -213,14 +213,14 @@ func buildExecutorConsumerConfig(prefix string, maxConcurrent int, subjects []st
 func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	var invocation natsInvocationMessage
 	if err := json.Unmarshal(msg.Data(), &invocation); err != nil {
-		slog.Error("executor worker: invalid execution message", "error", err)
+		slog.Error("executor worker: invalid run message", "error", err)
 		_ = msg.Nak()
 		return
 	}
 	invocation.normalize()
 
 	slog.Info("executor worker: executing run",
-		"run_id", invocation.ExecID, "agent", invocation.AgentID, "workitem_id", invocation.WorkItemID)
+		"run_id", invocation.RunID, "agent", invocation.AgentID, "workitem_id", invocation.WorkItemID)
 
 	// Create event forwarder that publishes to NATS.
 	eventSeq := int64(0)
@@ -256,20 +256,20 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	resultSubject := fmt.Sprintf("%s.invocation.result.%s", w.prefix, invocation.InvocationID)
 	if err := publishInvocationResult(w.js, msg, resultSubject, resultData); err != nil {
 		slog.Error("executor worker: failed to publish result",
-			"run_id", invocation.ExecID, "error", err)
+			"run_id", invocation.RunID, "error", err)
 		return
 	}
 
 	if execErr != nil {
 		slog.Error("executor worker: run failed",
-			"run_id", invocation.ExecID, "error", execErr)
+			"run_id", invocation.RunID, "error", execErr)
 	} else {
 		slog.Info("executor worker: run completed",
-			"run_id", invocation.ExecID, "output_len", len(resultMsg.Text))
+			"run_id", invocation.RunID, "output_len", len(resultMsg.Text))
 	}
 }
 
-func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*runtimeapp.ExecutionResult, error) {
+func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocationMessage, eventHandler acpclient.EventHandler) (*runtimeapp.RunResult, error) {
 	workDir := invocation.WorkDir
 	if workDir == "" {
 		workDir = w.cfg.DefaultWorkDir
@@ -296,7 +296,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		sandboxedLaunch, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
 			Profile: profile,
 			Launch:  launchCfg,
-			Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.WorkItemID, invocation.ExecID),
+			Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.WorkItemID, invocation.RunID),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("prepare sandbox: %w", err)
@@ -316,8 +316,8 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		Caps:       acpCaps,
 		WorkDir:    workDir,
 		WorkItemID: invocation.WorkItemID,
-		ActionID:   invocation.StepID,
-		RunID:      invocation.ExecID,
+		ActionID:   invocation.ActionID,
+		RunID:      invocation.RunID,
 	}
 	if w.cfg.MCPResolver != nil {
 		acquireInput.MCPFactory = func(agentSupportsSSE bool) []acpproto.McpServer {
@@ -326,7 +326,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 	}
 
 	if w.pool == nil {
-		return nil, fmt.Errorf("execution pool is not configured")
+		return nil, fmt.Errorf("run pool is not configured")
 	}
 
 	session, agentCtx, err := w.pool.Acquire(ctx, acquireInput)
@@ -339,18 +339,18 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		mcpServers = acquireInput.MCPFactory(session.client.SupportsSSEMCP())
 	}
 
-	w.registerActiveRun(invocation.ExecID, &activeRunProbeTarget{
-		RunID:      invocation.ExecID,
+	w.registerActiveRun(invocation.RunID, &activeRunProbeTarget{
+		RunID:      invocation.RunID,
 		SessionID:  session.sessionID,
 		Launch:     sandboxedLaunch,
 		Caps:       acpCaps,
 		WorkDir:    workDir,
 		MCPServers: append([]acpproto.McpServer(nil), mcpServers...),
 	})
-	defer w.unregisterActiveRun(invocation.ExecID)
+	defer w.unregisterActiveRun(invocation.RunID)
 
-	if err := w.persistRunRoute(ctx, invocation.ExecID, agentCtx); err != nil {
-		slog.Warn("executor worker: persist run route failed", "run_id", invocation.ExecID, "error", err)
+	if err := w.persistRunRoute(ctx, invocation.RunID, agentCtx); err != nil {
+		slog.Warn("executor worker: persist run route failed", "run_id", invocation.RunID, "error", err)
 	}
 
 	collector := session.events
@@ -369,7 +369,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ACP execution failed: %w", err)
+		return nil, fmt.Errorf("ACP run failed: %w", err)
 	}
 
 	w.pool.NoteTurn(ctx, agentCtx, session)
@@ -377,7 +377,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		w.touchRunOwner(ctx, agentCtx)
 	}
 
-	out := &runtimeapp.ExecutionResult{
+	out := &runtimeapp.RunResult{
 		Text:       strings.TrimSpace(result.Text),
 		StopReason: string(result.StopReason),
 	}
@@ -449,7 +449,7 @@ func (w *ExecutorWorker) handleProbeRequest(msg *nats.Msg) {
 	}
 
 	w.mu.Lock()
-	target := w.activeRuns[req.ExecutionID]
+	target := w.activeRuns[req.RunID]
 	w.mu.Unlock()
 	if target == nil {
 		w.respondProbe(msg, natsprobe.Response{

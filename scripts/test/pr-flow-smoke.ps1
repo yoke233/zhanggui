@@ -86,28 +86,32 @@ try {
   }
   Write-Host "resource_id=$($rb.id)"
 
-  $flow = Api -Method Post -Url "$base/flows" -Token $adminToken -Body @{
-    name = "pr-flow-smoke-$ts"
+  $workItem = Api -Method Post -Url "$base/work-items" -Token $adminToken -Body @{
     project_id = $projectId
+    title = "pr-flow-smoke-$ts"
+    body = "Append one smoke-test line to README.md, push a branch, open a PR, and pass review_merge_gate."
+    priority = "medium"
   }
-  $flowId = [int64]$flow.id
-  Write-Host "flow_id=$flowId"
+  $workItemId = [int64]$workItem.id
+  Write-Host "work_item_id=$workItemId"
 
-  $implement = Api -Method Post -Url "$base/flows/$flowId/steps" -Token $adminToken -Body @{
+  $implement = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name = "implement"
     type = "exec"
+    position = 0
     agent_role = "worker"
     max_retries = 3
     config = @{
-      objective = "在该仓库中做一个最小变更：在 README.md 末尾追加一行 `\"pr flow smoke $ts`\"。不要 git commit/push（后续步骤会处理）。如果存在 Go 测试则运行 go test ./...（失败则说明原因）。"
+      objective = "在该仓库中做一个最小变更：在 README.md 末尾追加一行 'pr flow smoke $ts'。不要 git commit/push（后续 actions 会处理）。如果存在 Go 测试则运行 go test ./...（失败则说明原因）。"
     }
   }
   $implementId = [int64]$implement.id
-  Write-Host "step_implement_id=$implementId"
+  Write-Host "action_implement_id=$implementId"
 
-  $commit = Api -Method Post -Url "$base/flows/$flowId/steps" -Token $adminToken -Body @{
+  $commit = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name = "commit_push"
     type = "exec"
+    position = 1
     agent_role = "worker"
     depends_on = @($implementId)
     max_retries = 0
@@ -117,11 +121,12 @@ try {
     }
   }
   $commitId = [int64]$commit.id
-  Write-Host "step_commit_id=$commitId"
+  Write-Host "action_commit_id=$commitId"
 
-  $openPR = Api -Method Post -Url "$base/flows/$flowId/steps" -Token $adminToken -Body @{
+  $openPR = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name = "open_pr"
     type = "exec"
+    position = 2
     agent_role = "worker"
     depends_on = @($commitId)
     max_retries = 0
@@ -133,44 +138,45 @@ try {
     }
   }
   $openPrId = [int64]$openPR.id
-  Write-Host "step_open_pr_id=$openPrId"
+  Write-Host "action_open_pr_id=$openPrId"
 
-  $gate = Api -Method Post -Url "$base/flows/$flowId/steps" -Token $adminToken -Body @{
+  $gate = Api -Method Post -Url "$base/work-items/$workItemId/actions" -Token $adminToken -Body @{
     name = "review_merge_gate"
     type = "gate"
+    position = 3
     agent_role = "gate"
     depends_on = @($openPrId)
     max_retries = 0
     config = @{
-      objective = "你是代码审查员。请在当前 worktree 中执行 git status、git diff $BaseBranch...HEAD，评估变更是否合理且无明显问题。若通过则 verdict=pass；否则 verdict=reject 并说明 reason。最后必须输出一行：AI_WORKFLOW_GATE_JSON: {`\"verdict`\":`\"pass|reject`\",`\"reason`\":`\"...`\"}"
+      objective = "你是代码审查员。请在当前 worktree 中执行 git status、git diff $BaseBranch...HEAD，评估变更是否合理且无明显问题。若通过则 verdict=pass；否则 verdict=reject 并说明 reason。最后必须输出一行 AI_WORKFLOW_GATE_JSON，包含 verdict 和 reason。"
       merge_on_pass = $true
       merge_method = "squash"
       reset_upstream_closure = $true
     }
   }
   $gateId = [int64]$gate.id
-  Write-Host "step_gate_id=$gateId"
+  Write-Host "action_gate_id=$gateId"
 
-  Api -Method Post -Url "$base/flows/$flowId/run" -Token $adminToken | Out-Null
+  Api -Method Post -Url "$base/work-items/$workItemId/run" -Token $adminToken | Out-Null
 
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $status = ""
   while ((Get-Date) -lt $deadline) {
-    $f = Api -Method Get -Url "$base/flows/$flowId" -Token $adminToken
-    $status = [string]$f.status
+    $currentWorkItem = Api -Method Get -Url "$base/work-items/$workItemId" -Token $adminToken
+    $status = [string]$currentWorkItem.status
     if ($status -in @("done","blocked","failed","cancelled")) { break }
     Start-Sleep -Milliseconds 750
   }
-  Write-Host "flow_status=$status"
+  Write-Host "work_item_status=$status"
 
-  $prArtifact = Api -Method Get -Url "$base/steps/$openPrId/artifact" -Token $adminToken
+  $prArtifact = Api -Method Get -Url "$base/actions/$openPrId/artifact/latest" -Token $adminToken
   if ($prArtifact -and $prArtifact.metadata -and $prArtifact.metadata.pr_url) {
     Write-Host "pr_url=$($prArtifact.metadata.pr_url)"
     Write-Host "pr_number=$($prArtifact.metadata.pr_number)"
   }
 
   if ($status -ne "done") {
-    throw "flow did not complete successfully (status=$status). See logs: $($server.Stderr)"
+    throw "work item did not complete successfully (status=$status). See logs: $($server.Stderr)"
   }
 } finally {
   if ($server -and $server.Proc -and -not $server.Proc.HasExited) {

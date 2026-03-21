@@ -33,14 +33,14 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listWorkItemEvents(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
 
 	filter := buildEventFilter(r)
-	filter.WorkItemID = &issueID
+	filter.WorkItemID = &workItemID
 
 	events, err := h.store.ListEvents(r.Context(), filter)
 	if err != nil {
@@ -80,12 +80,12 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 		Offset: queryInt(r, "offset", 0),
 	}
 
-	if s := r.URL.Query().Get("issue_id"); s != "" {
+	if s := r.URL.Query().Get("work_item_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
 			filter.WorkItemID = &id
 		}
 	}
-	if s := r.URL.Query().Get("step_id"); s != "" {
+	if s := r.URL.Query().Get("action_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
 			filter.ActionID = &id
 		}
@@ -176,7 +176,7 @@ func threadIDFromEventData(data map[string]any) (int64, bool) {
 
 // wsEvents upgrades to WebSocket and streams real-time events from the EventBus.
 // Query params:
-//   - issue_id: optional, filter events to a specific issue
+//   - work_item_id: optional, filter events to a specific work item
 //   - types: optional, comma-separated event types to subscribe to
 func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -203,9 +203,9 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var issueFilter int64
-	if s := r.URL.Query().Get("issue_id"); s != "" {
-		issueFilter, _ = strconv.ParseInt(s, 10, 64)
+	var workItemFilter int64
+	if s := r.URL.Query().Get("work_item_id"); s != "" {
+		workItemFilter, _ = strconv.ParseInt(s, 10, 64)
 	}
 	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session_id"))
 
@@ -238,8 +238,8 @@ func (h *Handler) wsEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			// Apply issue filter if specified.
-			if issueFilter != 0 && ev.WorkItemID != issueFilter {
+			// Apply work item filter if specified.
+			if workItemFilter != 0 && ev.WorkItemID != workItemFilter {
 				continue
 			}
 			if sessionFilter != "" {

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# generate-steps.sh — AI auto-decompose a task description into steps.
+# generate-actions.sh — AI auto-decompose a task description into actions.
 #
 # Usage:
-#   ./generate-steps.sh <work-item-id> '<description>'
+#   ./generate-actions.sh <work-item-id> '<description>'
 #
 # The backend uses the plan-actions planning service to generate a DAG
-# and materializes the steps into the work item.
+# and materializes the actions into the work item.
 #
 # Environment:
 #   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_API_TOKEN
 
 set -euo pipefail
 
-WORK_ITEM_ID="${1:?Usage: generate-steps.sh <work-item-id> '<description>'}"
-DESCRIPTION="${2:?Usage: generate-steps.sh <work-item-id> '<description>'}"
+WORK_ITEM_ID="${1:?Usage: generate-actions.sh <work-item-id> '<description>'}"
+DESCRIPTION="${2:?Usage: generate-actions.sh <work-item-id> '<description>'}"
 
 SERVER="${AI_WORKFLOW_SERVER_ADDR:?AI_WORKFLOW_SERVER_ADDR is required}"
 TOKEN="${AI_WORKFLOW_API_TOKEN:-}"
@@ -27,11 +27,11 @@ fi
 PAYLOAD=$(printf '{"description":"%s"}' "$(echo "$DESCRIPTION" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g')")
 
 RESPONSE=$(curl -sf -X POST \
-  "${SERVER}/api/work-items/${WORK_ITEM_ID}/generate-steps" \
+  "${SERVER}/api/work-items/${WORK_ITEM_ID}/generate-actions" \
   -H "Content-Type: application/json" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
   -d "$PAYLOAD" 2>&1) || {
-  echo "Error generating steps: ${RESPONSE}" >&2
+  echo "Error generating actions: ${RESPONSE}" >&2
   exit 1
 }
 

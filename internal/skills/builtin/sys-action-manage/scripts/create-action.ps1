@@ -1,14 +1,15 @@
 #!/usr/bin/env pwsh
-# delete-step.ps1 — Delete a pending step.
+# create-action.ps1 — Create a new action for a work item.
 #
 # Usage:
-#   pwsh -NoProfile -File delete-step.ps1 <step-id>
-#
-# Only pending steps can be deleted.
+#   pwsh -NoProfile -File create-action.ps1 <work-item-id> '<json-payload>'
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$StepId
+  [string]$WorkItemId,
+
+  [Parameter(Mandatory = $true, Position = 1)]
+  [string]$Payload
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,14 +27,15 @@ if ($token) {
 }
 
 try {
-  $null = Invoke-WebRequest `
-    -Method Delete `
-    -Uri "$server/api/steps/$StepId" `
+  $response = Invoke-WebRequest `
+    -Method Post `
+    -Uri "$server/api/work-items/$WorkItemId/actions" `
     -Headers $headers `
+    -Body $Payload `
     -TimeoutSec 30
 
-  Write-Output "{`"deleted`":true,`"step_id`":$StepId}"
+  Write-Output $response.Content
 } catch {
-  Write-Error "Error deleting step: $($_.Exception.Message)"
+  Write-Error "Error creating action: $($_.Exception.Message)"
   exit 1
 }

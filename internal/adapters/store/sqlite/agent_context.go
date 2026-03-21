@@ -38,7 +38,7 @@ func (s *Store) GetAgentContext(ctx context.Context, id int64) (*core.AgentConte
 func (s *Store) FindAgentContext(ctx context.Context, agentID string, issueID int64) (*core.AgentContext, error) {
 	var model AgentContextModel
 	err := s.orm.WithContext(ctx).
-		Where("agent_id = ? AND issue_id = ?", agentID, issueID).
+		Where("agent_id = ? AND work_item_id = ?", agentID, issueID).
 		Order("id DESC").
 		First(&model).Error
 	if err != nil {
@@ -58,7 +58,7 @@ func (s *Store) UpdateAgentContext(ctx context.Context, ac *core.AgentContext) e
 		Where("id = ?", ac.ID).
 		Updates(map[string]any{
 			"agent_id":            model.AgentID,
-			"issue_id":            model.IssueID,
+			"work_item_id":        model.WorkItemID,
 			"system_prompt":       model.SystemPrompt,
 			"session_id":          model.SessionID,
 			"summary":             model.Summary,

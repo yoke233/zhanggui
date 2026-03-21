@@ -36,14 +36,14 @@ func (s *Store) GetUsageRecord(ctx context.Context, id int64) (*core.UsageRecord
 	return model.toCore(), nil
 }
 
-func (s *Store) GetUsageByRun(ctx context.Context, executionID int64) (*core.UsageRecord, error) {
+func (s *Store) GetUsageByRun(ctx context.Context, runID int64) (*core.UsageRecord, error) {
 	var model UsageRecordModel
-	err := s.orm.WithContext(ctx).Where("execution_id = ?", executionID).First(&model).Error
+	err := s.orm.WithContext(ctx).Where("run_id = ?", runID).First(&model).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get usage by execution: %w", err)
+		return nil, fmt.Errorf("get usage by run: %w", err)
 	}
 	return model.toCore(), nil
 }

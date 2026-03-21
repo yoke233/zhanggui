@@ -1,11 +1,11 @@
 #!/usr/bin/env pwsh
-# generate-steps.ps1 — AI auto-decompose a task description into steps.
+# generate-actions.ps1 — AI auto-decompose a task description into actions.
 #
 # Usage:
-#   pwsh -NoProfile -File generate-steps.ps1 <work-item-id> '<description>'
+#   pwsh -NoProfile -File generate-actions.ps1 <work-item-id> '<description>'
 #
 # The backend uses the plan-actions planning service to generate a DAG
-# and materializes the steps into the work item.
+# and materializes the actions into the work item.
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
@@ -34,13 +34,13 @@ $body = @{ description = $Description } | ConvertTo-Json -Compress
 try {
   $response = Invoke-WebRequest `
     -Method Post `
-    -Uri "$server/api/work-items/$WorkItemId/generate-steps" `
+    -Uri "$server/api/work-items/$WorkItemId/generate-actions" `
     -Headers $headers `
     -Body $body `
     -TimeoutSec 120
 
   Write-Output $response.Content
 } catch {
-  Write-Error "Error generating steps: $($_.Exception.Message)"
+  Write-Error "Error generating actions: $($_.Exception.Message)"
   exit 1
 }

@@ -22,8 +22,8 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 		Key         string         `json:"key"`
 		Description string         `json:"description"`
 		Status      string         `json:"status"`
-		IssueID     *int64         `json:"issue_id"`
-		StepID      *int64         `json:"step_id"`
+		WorkItemID  *int64         `json:"work_item_id"`
+		ActionID    *int64         `json:"action_id"`
 		Tags        []string       `json:"tags"`
 		Metadata    map[string]any `json:"metadata"`
 	}
@@ -40,8 +40,8 @@ func (h *Handler) createManifestEntry(w http.ResponseWriter, r *http.Request) {
 		ProjectID:   projectID,
 		Key:         body.Key,
 		Description: body.Description,
-		WorkItemID:  body.IssueID,
-		ActionID:    body.StepID,
+		WorkItemID:  body.WorkItemID,
+		ActionID:    body.ActionID,
 		Tags:        body.Tags,
 		Metadata:    body.Metadata,
 	}
@@ -78,8 +78,8 @@ func (h *Handler) listManifestEntries(w http.ResponseWriter, r *http.Request) {
 		st := core.FeatureStatus(s)
 		filter.Status = &st
 	}
-	if issueID, ok := queryInt64(r, "issue_id"); ok {
-		filter.WorkItemID = &issueID
+	if workItemID, ok := queryInt64(r, "work_item_id"); ok {
+		filter.WorkItemID = &workItemID
 	}
 
 	entries, err := h.store.ListFeatureEntries(r.Context(), filter)
@@ -129,8 +129,8 @@ func (h *Handler) updateManifestEntry(w http.ResponseWriter, r *http.Request) {
 		Key         *string        `json:"key"`
 		Description *string        `json:"description"`
 		Status      *string        `json:"status"`
-		IssueID     *int64         `json:"issue_id"`
-		StepID      *int64         `json:"step_id"`
+		WorkItemID  *int64         `json:"work_item_id"`
+		ActionID    *int64         `json:"action_id"`
 		Tags        []string       `json:"tags"`
 		Metadata    map[string]any `json:"metadata"`
 	}
@@ -147,11 +147,11 @@ func (h *Handler) updateManifestEntry(w http.ResponseWriter, r *http.Request) {
 	if body.Status != nil {
 		entry.Status = core.FeatureStatus(*body.Status)
 	}
-	if body.IssueID != nil {
-		entry.WorkItemID = body.IssueID
+	if body.WorkItemID != nil {
+		entry.WorkItemID = body.WorkItemID
 	}
-	if body.StepID != nil {
-		entry.ActionID = body.StepID
+	if body.ActionID != nil {
+		entry.ActionID = body.ActionID
 	}
 	if body.Tags != nil {
 		entry.Tags = body.Tags

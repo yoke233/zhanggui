@@ -23,7 +23,7 @@ func TestAPI_CreateWorkItemFromTemplateRoute(t *testing.T) {
 
 	resp, err := post(ts, "/templates", map[string]any{
 		"name": "template-a",
-		"steps": []map[string]any{
+		"actions": []map[string]any{
 			{"name": "implement", "type": "exec"},
 		},
 	})

@@ -223,17 +223,17 @@ func TestModelConversions(t *testing.T) {
 	}
 
 	resourceBinding := &core.ResourceBinding{
-		ID:        6,
-		ProjectID: projectID,
-		IssueID:   &issueID,
-		Kind:      core.ResourceKindGit,
-		URI:       "file:///repo",
-		Config:    map[string]any{"branch": "main"},
-		Label:     "repo",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:         6,
+		ProjectID:  projectID,
+		WorkItemID: &issueID,
+		Kind:       core.ResourceKindGit,
+		URI:        "file:///repo",
+		Config:     map[string]any{"branch": "main"},
+		Label:      "repo",
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
-	if got := resourceBindingModelFromCore(resourceBinding).toCore(); got.Config["branch"] != "main" || got.IssueID == nil {
+	if got := resourceBindingModelFromCore(resourceBinding).toCore(); got.Config["branch"] != "main" || got.WorkItemID == nil {
 		t.Fatalf("resource binding round-trip mismatch: %+v", got)
 	}
 
@@ -465,19 +465,19 @@ func TestModelConversions(t *testing.T) {
 	}
 
 	notification := &core.Notification{
-		ID:        15,
-		Level:     core.NotificationLevelWarning,
-		Title:     "Heads up",
-		Body:      "body",
-		Category:  "system",
-		ActionURL: "/runs/1",
-		ProjectID: &projectID,
-		IssueID:   &issueID,
-		ExecID:    &runID,
-		Channels:  []core.NotificationChannel{core.ChannelBrowser, core.ChannelInApp},
-		Read:      true,
-		ReadAt:    &readAt,
-		CreatedAt: now,
+		ID:         15,
+		Level:      core.NotificationLevelWarning,
+		Title:      "Heads up",
+		Body:       "body",
+		Category:   "system",
+		ActionURL:  "/runs/1",
+		ProjectID:  &projectID,
+		WorkItemID: &issueID,
+		RunID:      &runID,
+		Channels:   []core.NotificationChannel{core.ChannelBrowser, core.ChannelInApp},
+		Read:       true,
+		ReadAt:     &readAt,
+		CreatedAt:  now,
 	}
 	if got := notificationModelFromCore(notification).toCore(); len(got.Channels) != 2 || got.ReadAt == nil {
 		t.Fatalf("notification round-trip mismatch: %+v", got)
@@ -508,14 +508,14 @@ func TestNotificationCRUD(t *testing.T) {
 	read := false
 
 	first := &core.Notification{
-		Level:     core.NotificationLevelInfo,
-		Title:     "First",
-		Body:      "body-1",
-		Category:  "system",
-		ActionURL: "/threads/1",
-		ProjectID: &projectID,
-		IssueID:   &issueID,
-		Channels:  []core.NotificationChannel{core.ChannelBrowser},
+		Level:      core.NotificationLevelInfo,
+		Title:      "First",
+		Body:       "body-1",
+		Category:   "system",
+		ActionURL:  "/threads/1",
+		ProjectID:  &projectID,
+		WorkItemID: &issueID,
+		Channels:   []core.NotificationChannel{core.ChannelBrowser},
 	}
 	second := &core.Notification{
 		Level:     level,

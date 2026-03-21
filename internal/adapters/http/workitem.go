@@ -60,12 +60,12 @@ func (h *Handler) createWorkItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "issueID")
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
-	issue, err := h.store.GetWorkItem(r.Context(), id)
+	workItem, err := h.store.GetWorkItem(r.Context(), id)
 	if err == core.ErrNotFound {
 		writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
 		return
@@ -74,7 +74,7 @@ func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, issue)
+	writeJSON(w, http.StatusOK, workItem)
 }
 
 func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
@@ -110,19 +110,19 @@ func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issues, err := h.store.ListWorkItems(r.Context(), filter)
+	workItems, err := h.store.ListWorkItems(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if issues == nil {
-		issues = []*core.WorkItem{}
+	if workItems == nil {
+		workItems = []*core.WorkItem{}
 	}
-	writeJSON(w, http.StatusOK, issues)
+	writeJSON(w, http.StatusOK, workItems)
 }
 
 func (h *Handler) updateWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "issueID")
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -157,7 +157,7 @@ func (h *Handler) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "issueID")
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -174,15 +174,15 @@ func (h *Handler) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) archiveWorkItem(w http.ResponseWriter, r *http.Request) {
-	h.setIssueArchived(w, r, true)
+	h.setWorkItemArchived(w, r, true)
 }
 
 func (h *Handler) unarchiveWorkItem(w http.ResponseWriter, r *http.Request) {
-	h.setIssueArchived(w, r, false)
+	h.setWorkItemArchived(w, r, false)
 }
 
-func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archived bool) {
-	id, ok := urlParamInt64(r, "issueID")
+func (h *Handler) setWorkItemArchived(w http.ResponseWriter, r *http.Request, archived bool) {
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -199,10 +199,10 @@ func (h *Handler) setIssueArchived(w http.ResponseWriter, r *http.Request, archi
 	writeJSON(w, http.StatusOK, workItem)
 }
 
-// runWorkItem triggers async execution of a work item. Returns immediately.
-// If a scheduler is configured, the work item is queued; otherwise it runs directly.
+// runWorkItem triggers an async run for a work item. Returns immediately.
+// If a scheduler is configured, the work item is queued; otherwise it starts directly.
 func (h *Handler) runWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "issueID")
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -218,21 +218,21 @@ func (h *Handler) runWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.Queued {
 		writeJSON(w, http.StatusAccepted, map[string]any{
-			"issue_id": id,
-			"status":   "queued",
-			"message":  result.Message,
+			"work_item_id": id,
+			"status":       "queued",
+			"message":      result.Message,
 		})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"issue_id": id,
-		"status":   "accepted",
-		"message":  result.Message,
+		"work_item_id": id,
+		"status":       "accepted",
+		"message":      result.Message,
 	})
 }
 
 func (h *Handler) cancelWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "issueID")
+	id, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
@@ -247,7 +247,7 @@ func (h *Handler) cancelWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"issue_id": id,
-		"status":   "cancelled",
+		"work_item_id": id,
+		"status":       "cancelled",
 	})
 }

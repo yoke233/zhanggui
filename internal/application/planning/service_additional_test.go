@@ -133,15 +133,15 @@ func TestServiceGenerate(t *testing.T) {
 		}
 	})
 
-	t.Run("zero steps", func(t *testing.T) {
-		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"steps":[]}`)}, nil)
-		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "zero steps") {
-			t.Fatalf("Generate(zero steps) = %v", err)
+	t.Run("zero actions", func(t *testing.T) {
+		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"actions":[]}`)}, nil)
+		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "zero actions") {
+			t.Fatalf("Generate(zero actions) = %v", err)
 		}
 	})
 
 	t.Run("invalid dag", func(t *testing.T) {
-		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"build","type":"weird"}]}`)}, nil)
+		svc := NewService(&planningLLMStub{raw: json.RawMessage(`{"actions":[{"name":"build","type":"weird"}]}`)}, nil)
 		if _, err := svc.Generate(ctx, GenerateInput{Description: "build api"}); err == nil || !strings.Contains(err.Error(), "invalid type") {
 			t.Fatalf("Generate(invalid dag) = %v", err)
 		}
@@ -149,7 +149,7 @@ func TestServiceGenerate(t *testing.T) {
 
 	t.Run("capability fit error", func(t *testing.T) {
 		svc := NewService(
-			&planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"frontend","type":"exec","agent_role":"worker","required_capabilities":["react"]}]}`)},
+			&planningLLMStub{raw: json.RawMessage(`{"actions":[{"name":"frontend","type":"exec","agent_role":"worker","required_capabilities":["react"]}]}`)},
 			&planningRegistryStub{profiles: []*core.AgentProfile{{ID: "worker", Role: core.RoleWorker, Capabilities: []string{"go"}}}},
 		)
 		if _, err := svc.Generate(ctx, GenerateInput{Description: "build ui"}); err == nil || !strings.Contains(err.Error(), "no matching agent profile") {
@@ -158,7 +158,7 @@ func TestServiceGenerate(t *testing.T) {
 	})
 
 	t.Run("success with profiles", func(t *testing.T) {
-		llm := &planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"implement-api","type":"exec","agent_role":"worker","required_capabilities":["backend"],"description":"ship api","acceptance_criteria":["tests pass"]}]}`)}
+		llm := &planningLLMStub{raw: json.RawMessage(`{"actions":[{"name":"implement-api","type":"exec","agent_role":"worker","required_capabilities":["backend"],"description":"ship api","acceptance_criteria":["tests pass"]}]}`)}
 		svc := NewService(llm, &planningRegistryStub{profiles: []*core.AgentProfile{
 			{ID: "backend-worker", Role: core.RoleWorker, Capabilities: []string{"backend"}},
 		}})
@@ -167,7 +167,7 @@ func TestServiceGenerate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Generate(success) error = %v", err)
 		}
-		if len(dag.Steps) != 1 || dag.Steps[0].Name != "implement-api" {
+		if len(dag.Actions) != 1 || dag.Actions[0].Name != "implement-api" {
 			t.Fatalf("Generate(success) = %#v", dag)
 		}
 		if llm.calls != 1 {
@@ -200,7 +200,7 @@ Always identify the primary deliverable first.
 			t.Fatalf("write skill: %v", err)
 		}
 
-		llm := &planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"implement-api","type":"exec","agent_role":"worker","required_capabilities":["backend"],"description":"ship api","acceptance_criteria":["tests pass"]}]}`)}
+		llm := &planningLLMStub{raw: json.RawMessage(`{"actions":[{"name":"implement-api","type":"exec","agent_role":"worker","required_capabilities":["backend"],"description":"ship api","acceptance_criteria":["tests pass"]}]}`)}
 		svc := NewService(
 			llm,
 			&planningRegistryStub{profiles: []*core.AgentProfile{{ID: "backend-worker", Role: core.RoleWorker, Capabilities: []string{"backend"}}}},
@@ -233,12 +233,12 @@ func TestServiceMaterializeAdditionalBranches(t *testing.T) {
 		t.Fatalf("Materialize(nil dag) = %v", err)
 	}
 
-	if _, err := svc.Materialize(ctx, store, workItemID, &GeneratedDAG{Steps: []GeneratedStep{{Name: "", Type: "exec"}}}); err == nil || !strings.Contains(err.Error(), "empty name") {
+	if _, err := svc.Materialize(ctx, store, workItemID, &GeneratedDAG{Actions: []GeneratedAction{{Name: "", Type: "exec"}}}); err == nil || !strings.Contains(err.Error(), "empty name") {
 		t.Fatalf("Materialize(invalid dag) = %v", err)
 	}
 
 	steps, err := svc.Materialize(ctx, store, workItemID, &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "composite-step", Type: "composite", AgentRole: "worker", Description: "delegated workflow"},
 		},
 	})
@@ -254,8 +254,8 @@ func TestServiceMaterializeAdditionalBranches(t *testing.T) {
 		createActionErr: errors.New("create failed"),
 	}
 	if _, err := svc.Materialize(ctx, failingStore, workItemID, &GeneratedDAG{
-		Steps: []GeneratedStep{{Name: "will-fail", Type: "exec"}},
-	}); err == nil || !strings.Contains(err.Error(), `create step "will-fail"`) {
+		Actions: []GeneratedAction{{Name: "will-fail", Type: "exec"}},
+	}); err == nil || !strings.Contains(err.Error(), `create action "will-fail"`) {
 		t.Fatalf("Materialize(create failure) = %v", err)
 	}
 }

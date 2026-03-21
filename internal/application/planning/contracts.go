@@ -18,8 +18,8 @@ type GenerateInput struct {
 	Files       map[string]string // filename → content (optional)
 }
 
-// GeneratedStep is the planner output for a single step in a generated DAG.
-type GeneratedStep struct {
+// GeneratedAction is the planner output for a single action in a generated DAG.
+type GeneratedAction struct {
 	Name                 string   `json:"name"`
 	Type                 string   `json:"type"`
 	DependsOn            []string `json:"depends_on,omitempty"`
@@ -31,5 +31,5 @@ type GeneratedStep struct {
 
 // GeneratedDAG is the planner output for the full DAG.
 type GeneratedDAG struct {
-	Steps []GeneratedStep `json:"steps"`
+	Actions []GeneratedAction `json:"actions"`
 }

@@ -71,9 +71,9 @@ func (s *Store) UpdateResourceBinding(ctx context.Context, rb *core.ResourceBind
 	return nil
 }
 
-func (s *Store) ListResourceBindingsByIssue(ctx context.Context, issueID int64, kind string) ([]*core.ResourceBinding, error) {
+func (s *Store) ListResourceBindingsByWorkItem(ctx context.Context, workItemID int64, kind string) ([]*core.ResourceBinding, error) {
 	var models []ResourceBindingModel
-	q := s.orm.WithContext(ctx).Where("issue_id = ?", issueID)
+	q := s.orm.WithContext(ctx).Where("work_item_id = ?", workItemID)
 	if kind != "" {
 		q = q.Where("kind = ?", kind)
 	}

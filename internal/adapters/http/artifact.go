@@ -85,15 +85,15 @@ func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
-	stepID, ok := urlParamInt64(r, "stepID")
+	actionID, ok := urlParamInt64(r, "actionID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
 
-	run, err := h.store.GetLatestRunWithResult(r.Context(), stepID)
+	run, err := h.store.GetLatestRunWithResult(r.Context(), actionID)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "no artifact for this step", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "no artifact for this action", "NOT_FOUND")
 		return
 	}
 	if err != nil {

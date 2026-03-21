@@ -2,11 +2,11 @@ package builtin
 
 import "embed"
 
-//go:embed step-signal
-var StepSignalFS embed.FS
+//go:embed action-signal
+var ActionSignalFS embed.FS
 
-//go:embed sys-step-manage
-var SysStepManageFS embed.FS
+//go:embed sys-action-manage
+var SysActionManageFS embed.FS
 
 //go:embed task-signal
 var TaskSignalFS embed.FS

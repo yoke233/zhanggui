@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# delete-step.sh — Delete a pending step.
+# delete-action.sh — Delete a pending action.
 #
 # Usage:
-#   ./delete-step.sh <step-id>
+#   ./delete-action.sh <action-id>
 #
-# Only pending steps can be deleted.
+# Only pending actions can be deleted.
 #
 # Environment:
 #   AI_WORKFLOW_SERVER_ADDR, AI_WORKFLOW_API_TOKEN
 
 set -euo pipefail
 
-STEP_ID="${1:?Usage: delete-step.sh <step-id>}"
+ACTION_ID="${1:?Usage: delete-action.sh <action-id>}"
 
 SERVER="${AI_WORKFLOW_SERVER_ADDR:?AI_WORKFLOW_SERVER_ADDR is required}"
 TOKEN="${AI_WORKFLOW_API_TOKEN:-}"
@@ -22,13 +22,13 @@ if [ -n "$TOKEN" ]; then
 fi
 
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-  "${SERVER}/api/steps/${STEP_ID}" \
+  "${SERVER}/api/actions/${ACTION_ID}" \
   -H "Content-Type: application/json" \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} 2>/dev/null || echo "000")
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-  echo "{\"deleted\":true,\"step_id\":${STEP_ID}}"
+  echo "{\"deleted\":true,\"action_id\":${ACTION_ID}}"
 else
-  echo "Error deleting step: HTTP ${HTTP_CODE}" >&2
+  echo "Error deleting action: HTTP ${HTTP_CODE}" >&2
   exit 1
 fi

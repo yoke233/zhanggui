@@ -105,7 +105,7 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 
 	r.Get("/threads/{threadID}/files", h.listThreadFiles)
 
-	r.Get("/work-items/{issueID}/threads", h.listThreadsByWorkItem)
+	r.Get("/work-items/{workItemID}/threads", h.listThreadsByWorkItem)
 }
 
 func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
@@ -498,13 +498,13 @@ func (h *Handler) deleteThreadWorkItemLink(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) listThreadsByWorkItem(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
 
-	links, err := h.store.ListThreadsByWorkItem(r.Context(), issueID)
+	links, err := h.store.ListThreadsByWorkItem(r.Context(), workItemID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return

@@ -12,7 +12,7 @@ import (
 
 func TestValidateGeneratedDAG_Valid(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "parse", Type: "exec"},
 			{Name: "implement", Type: "exec", DependsOn: []string{"parse"}},
 			{Name: "review", Type: "gate", DependsOn: []string{"implement"}},
@@ -26,7 +26,7 @@ func TestValidateGeneratedDAG_Valid(t *testing.T) {
 
 func TestValidateGeneratedDAG_DuplicateName(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "build", Type: "exec"},
 			{Name: "build", Type: "exec"},
 		},
@@ -38,7 +38,7 @@ func TestValidateGeneratedDAG_DuplicateName(t *testing.T) {
 
 func TestValidateGeneratedDAG_MissingDependency(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "build", Type: "exec", DependsOn: []string{"nonexistent"}},
 		},
 	}
@@ -49,7 +49,7 @@ func TestValidateGeneratedDAG_MissingDependency(t *testing.T) {
 
 func TestValidateGeneratedDAG_InvalidType(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "build", Type: "unknown"},
 		},
 	}
@@ -60,7 +60,7 @@ func TestValidateGeneratedDAG_InvalidType(t *testing.T) {
 
 func TestValidateGeneratedDAG_EmptyName(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "", Type: "exec"},
 		},
 	}
@@ -71,7 +71,7 @@ func TestValidateGeneratedDAG_EmptyName(t *testing.T) {
 
 func TestValidateGeneratedDAG_BackwardReference(t *testing.T) {
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "A", Type: "exec"},
 			{Name: "B", Type: "exec", DependsOn: []string{"C"}},
 			{Name: "C", Type: "exec", DependsOn: []string{"A"}},
@@ -88,7 +88,7 @@ func TestValidateCapabilityFit_Pass(t *testing.T) {
 		{ID: "gater", Role: core.RoleGate, Capabilities: []string{"review"}},
 	}
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "code", Type: "exec", AgentRole: "worker", RequiredCapabilities: []string{"go"}},
 			{Name: "review", Type: "gate", AgentRole: "gate", RequiredCapabilities: []string{"review"}},
 		},
@@ -103,7 +103,7 @@ func TestValidateCapabilityFit_NoMatch(t *testing.T) {
 		{ID: "be", Role: core.RoleWorker, Capabilities: []string{"go"}},
 	}
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "frontend", Type: "exec", AgentRole: "worker", RequiredCapabilities: []string{"react"}},
 		},
 	}
@@ -117,7 +117,7 @@ func TestValidateCapabilityFit_RoleMismatch(t *testing.T) {
 		{ID: "worker", Role: core.RoleWorker, Capabilities: []string{"go"}},
 	}
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "review", Type: "gate", AgentRole: "gate", RequiredCapabilities: []string{"go"}},
 		},
 	}
@@ -131,7 +131,7 @@ func TestValidateCapabilityFit_NoRoleFilter(t *testing.T) {
 		{ID: "any", Role: core.RoleWorker, Capabilities: []string{"go"}},
 	}
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "code", Type: "exec", RequiredCapabilities: []string{"go"}},
 		},
 	}
@@ -149,13 +149,13 @@ func TestService_Materialize(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	issueID, err := store.CreateWorkItem(ctx, &core.WorkItem{Title: "gen-test", Status: core.WorkItemOpen})
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{Title: "gen-test", Status: core.WorkItemOpen})
 	if err != nil {
-		t.Fatalf("create issue: %v", err)
+		t.Fatalf("create work item: %v", err)
 	}
 
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "parse-requirements", Type: "exec", AgentRole: "worker",
 				Description:          "Parse the task requirements into actionable items",
 				RequiredCapabilities: []string{"backend"},
@@ -179,54 +179,54 @@ func TestService_Materialize(t *testing.T) {
 	}
 
 	svc := &Service{}
-	steps, err := svc.Materialize(ctx, store, issueID, dag)
+	actions, err := svc.Materialize(ctx, store, workItemID, dag)
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
 
-	if len(steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(steps))
+	if len(actions) != 4 {
+		t.Fatalf("expected 4 actions, got %d", len(actions))
 	}
 
-	names := make([]string, len(steps))
-	for i, s := range steps {
-		names[i] = s.Name
+	names := make([]string, len(actions))
+	for i, action := range actions {
+		names[i] = action.Name
 	}
 	expected := []string{"parse-requirements", "implement-api", "code-review", "deploy"}
 	for i, name := range expected {
 		if names[i] != name {
-			t.Fatalf("step[%d] expected %q, got %q", i, name, names[i])
+			t.Fatalf("action[%d] expected %q, got %q", i, name, names[i])
 		}
 	}
 
-	for i, step := range steps {
-		if step.Position != i {
-			t.Fatalf("step[%d] expected position %d, got %d", i, i, step.Position)
+	for i, action := range actions {
+		if action.Position != i {
+			t.Fatalf("action[%d] expected position %d, got %d", i, i, action.Position)
 		}
 	}
 
-	if steps[2].Type != core.ActionGate {
-		t.Fatalf("code-review expected gate, got %s", steps[2].Type)
+	if actions[2].Type != core.ActionGate {
+		t.Fatalf("code-review expected gate, got %s", actions[2].Type)
 	}
 
-	if len(steps[0].AcceptanceCriteria) != 1 || steps[0].AcceptanceCriteria[0] != "requirements parsed" {
-		t.Fatalf("unexpected acceptance_criteria: %v", steps[0].AcceptanceCriteria)
+	if len(actions[0].AcceptanceCriteria) != 1 || actions[0].AcceptanceCriteria[0] != "requirements parsed" {
+		t.Fatalf("unexpected acceptance_criteria: %v", actions[0].AcceptanceCriteria)
 	}
 
-	if steps[0].Description != "Parse the task requirements into actionable items" {
-		t.Fatalf("description not mapped: %q", steps[0].Description)
+	if actions[0].Description != "Parse the task requirements into actionable items" {
+		t.Fatalf("description not mapped: %q", actions[0].Description)
 	}
 
-	if len(steps[1].RequiredCapabilities) != 2 || steps[1].RequiredCapabilities[0] != "go" {
-		t.Fatalf("required_capabilities not mapped: %v", steps[1].RequiredCapabilities)
+	if len(actions[1].RequiredCapabilities) != 2 || actions[1].RequiredCapabilities[0] != "go" {
+		t.Fatalf("required_capabilities not mapped: %v", actions[1].RequiredCapabilities)
 	}
 
-	stored, err := store.ListActionsByWorkItem(ctx, issueID)
+	stored, err := store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
-		t.Fatalf("list steps: %v", err)
+		t.Fatalf("list actions: %v", err)
 	}
 	if len(stored) != 4 {
-		t.Fatalf("expected 4 stored steps, got %d", len(stored))
+		t.Fatalf("expected 4 stored actions, got %d", len(stored))
 	}
 
 	if stored[0].Description != "Parse the task requirements into actionable items" {
@@ -250,7 +250,7 @@ func TestService_Materialize_BadReference(t *testing.T) {
 	issueID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "bad-ref", Status: core.WorkItemOpen})
 
 	dag := &GeneratedDAG{
-		Steps: []GeneratedStep{
+		Actions: []GeneratedAction{
 			{Name: "A", Type: "exec", DependsOn: []string{"nonexistent"}},
 		},
 	}
@@ -302,7 +302,7 @@ func TestBuildDAGGenSchema_WithProfiles(t *testing.T) {
 
 	schema := tools[0].InputSchema
 	props := schema["properties"].(map[string]any)
-	steps := props["steps"].(map[string]any)
+	steps := props["actions"].(map[string]any)
 	items := steps["items"].(map[string]any)
 	itemProps := items["properties"].(map[string]any)
 
@@ -321,7 +321,7 @@ func TestBuildDAGGenSchema_NoProfiles(t *testing.T) {
 	tools := BuildDAGGenSchema(nil)
 	schema := tools[0].InputSchema
 	props := schema["properties"].(map[string]any)
-	steps := props["steps"].(map[string]any)
+	steps := props["actions"].(map[string]any)
 	items := steps["items"].(map[string]any)
 	itemProps := items["properties"].(map[string]any)
 

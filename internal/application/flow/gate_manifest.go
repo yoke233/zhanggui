@@ -28,8 +28,8 @@ func (e *WorkItemEngine) checkManifestEntries(ctx context.Context, action *core.
 	// Determine which entries to check.
 	filter := core.FeatureEntryFilter{ProjectID: *workItem.ProjectID, Limit: 500}
 
-	// If manifest_issue_id is configured, check only entries linked to that work item.
-	if workItemID, ok := action.Config["manifest_issue_id"].(float64); ok {
+	// If manifest_work_item_id is configured, check only entries linked to that work item.
+	if workItemID, ok := action.Config["manifest_work_item_id"].(float64); ok {
 		id := int64(workItemID)
 		filter.WorkItemID = &id
 	}

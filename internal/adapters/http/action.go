@@ -11,8 +11,8 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-// createStepRequest is the request body for POST /work-items/{issueID}/steps.
-type createStepRequest struct {
+// createActionRequest is the request body for POST /work-items/{workItemID}/actions.
+type createActionRequest struct {
 	Name                 string          `json:"name"`
 	Description          string          `json:"description,omitempty"`
 	Type                 core.ActionType `json:"type"`
@@ -27,13 +27,13 @@ type createStepRequest struct {
 }
 
 func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
 
-	var req createStepRequest
+	var req createActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
@@ -46,7 +46,7 @@ func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "type is required", "MISSING_TYPE")
 		return
 	}
-	position, err := h.resolveCreateStepPosition(r.Context(), issueID, req.Position)
+	position, err := h.resolveCreateActionPosition(r.Context(), workItemID, req.Position)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_POSITION")
 		return
@@ -62,7 +62,7 @@ func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := &core.Action{
-		WorkItemID:           issueID,
+		WorkItemID:           workItemID,
 		Name:                 req.Name,
 		Description:          req.Description,
 		Type:                 req.Type,
@@ -76,7 +76,7 @@ func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
 		MaxRetries:           req.MaxRetries,
 		Config:               req.Config,
 	}
-	if err := h.validateDAGConsistency(r.Context(), issueID, 0, s); err != nil {
+	if err := h.validateDAGConsistency(r.Context(), workItemID, 0, s); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "INCOMPLETE_DAG")
 		return
 	}
@@ -90,26 +90,26 @@ func (h *Handler) createAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listActions(w http.ResponseWriter, r *http.Request) {
-	issueID, ok := urlParamInt64(r, "issueID")
+	workItemID, ok := urlParamInt64(r, "workItemID")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
 		return
 	}
 
-	steps, err := h.store.ListActionsByWorkItem(r.Context(), issueID)
+	actions, err := h.store.ListActionsByWorkItem(r.Context(), workItemID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if steps == nil {
-		steps = []*core.Action{}
+	if actions == nil {
+		actions = []*core.Action{}
 	}
-	writeJSON(w, http.StatusOK, steps)
+	writeJSON(w, http.StatusOK, actions)
 }
 
-// updateStepRequest is the request body for PUT /steps/{stepID}.
+// updateActionRequest is the request body for PUT /actions/{actionID}.
 // All fields are optional — only provided fields are applied.
-type updateStepRequest struct {
+type updateActionRequest struct {
 	Name                 *string          `json:"name,omitempty"`
 	Description          *string          `json:"description,omitempty"`
 	Type                 *core.ActionType `json:"type,omitempty"`
@@ -124,15 +124,15 @@ type updateStepRequest struct {
 }
 
 func (h *Handler) updateAction(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "stepID")
+	id, ok := urlParamInt64(r, "actionID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
 
 	existing, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "action not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
@@ -140,13 +140,13 @@ func (h *Handler) updateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allow editing pending steps.
+	// Only allow editing pending actions.
 	if existing.Status != core.ActionPending {
-		writeError(w, http.StatusConflict, "only pending steps can be edited", "INVALID_STATE")
+		writeError(w, http.StatusConflict, "only pending actions can be edited", "INVALID_STATE")
 		return
 	}
 
-	var req updateStepRequest
+	var req updateActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
@@ -162,7 +162,7 @@ func (h *Handler) updateAction(w http.ResponseWriter, r *http.Request) {
 		existing.Type = *req.Type
 	}
 	if req.Position != nil {
-		if err := h.validateStepPosition(r.Context(), existing.WorkItemID, existing.ID, *req.Position); err != nil {
+		if err := h.validateActionPosition(r.Context(), existing.WorkItemID, existing.ID, *req.Position); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_POSITION")
 			return
 		}
@@ -207,16 +207,16 @@ func (h *Handler) updateAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteAction(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "stepID")
+	id, ok := urlParamInt64(r, "actionID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
 
-	// Only allow deleting pending steps.
+	// Only allow deleting pending actions.
 	existing, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "action not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
@@ -224,13 +224,13 @@ func (h *Handler) deleteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing.Status != core.ActionPending {
-		writeError(w, http.StatusConflict, "only pending steps can be deleted", "INVALID_STATE")
+		writeError(w, http.StatusConflict, "only pending actions can be deleted", "INVALID_STATE")
 		return
 	}
 
 	if err := h.store.DeleteAction(r.Context(), id); err != nil {
 		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
+			writeError(w, http.StatusNotFound, "action not found", "NOT_FOUND")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
@@ -240,15 +240,15 @@ func (h *Handler) deleteAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAction(w http.ResponseWriter, r *http.Request) {
-	id, ok := urlParamInt64(r, "stepID")
+	id, ok := urlParamInt64(r, "actionID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
 
 	s, err := h.store.GetAction(r.Context(), id)
 	if err == core.ErrNotFound {
-		writeError(w, http.StatusNotFound, "step not found", "NOT_FOUND")
+		writeError(w, http.StatusNotFound, "action not found", "NOT_FOUND")
 		return
 	}
 	if err != nil {
@@ -258,22 +258,22 @@ func (h *Handler) getAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s)
 }
 
-func (h *Handler) resolveCreateStepPosition(ctx context.Context, issueID int64, requested *int) (int, error) {
+func (h *Handler) resolveCreateActionPosition(ctx context.Context, workItemID int64, requested *int) (int, error) {
 	if requested != nil {
-		if err := h.validateStepPosition(ctx, issueID, 0, *requested); err != nil {
+		if err := h.validateActionPosition(ctx, workItemID, 0, *requested); err != nil {
 			return 0, err
 		}
 		return *requested, nil
 	}
 
-	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
+	actions, err := h.store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
 		return 0, err
 	}
 	position := 0
-	for _, step := range steps {
-		if step != nil && step.Position >= position {
-			position = step.Position + 1
+	for _, action := range actions {
+		if action != nil && action.Position >= position {
+			position = action.Position + 1
 		}
 	}
 	return position, nil
@@ -343,20 +343,20 @@ func (h *Handler) validateDAGConsistency(ctx context.Context, workItemID int64, 
 	return flowapp.ValidateActions(actions)
 }
 
-func (h *Handler) validateStepPosition(ctx context.Context, issueID, stepID int64, position int) error {
+func (h *Handler) validateActionPosition(ctx context.Context, workItemID, actionID int64, position int) error {
 	if position < 0 {
 		return fmt.Errorf("position must be non-negative")
 	}
-	steps, err := h.store.ListActionsByWorkItem(ctx, issueID)
+	actions, err := h.store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
 		return err
 	}
-	for _, step := range steps {
-		if step == nil || step.ID == stepID {
+	for _, action := range actions {
+		if action == nil || action.ID == actionID {
 			continue
 		}
-		if step.Position == position {
-			return fmt.Errorf("position %d is already used by step %d", position, step.ID)
+		if action.Position == position {
+			return fmt.Errorf("position %d is already used by action %d", position, action.ID)
 		}
 	}
 	return nil

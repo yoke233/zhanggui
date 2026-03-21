@@ -96,7 +96,7 @@ func TestReal_PlanningGenerateAndMaterializeLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate(real llm): %v", err)
 	}
-	if dag == nil || len(dag.Steps) == 0 {
+	if dag == nil || len(dag.Actions) == 0 {
 		t.Fatalf("generated dag = %#v, want non-empty", dag)
 	}
 	if err := planning.ValidateGeneratedDAG(dag); err != nil {
@@ -116,15 +116,15 @@ func TestReal_PlanningGenerateAndMaterializeLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Materialize(real llm): %v", err)
 	}
-	if len(actions) != len(dag.Steps) {
-		t.Fatalf("materialized actions = %d, generated steps = %d", len(actions), len(dag.Steps))
+	if len(actions) != len(dag.Actions) {
+		t.Fatalf("materialized actions = %d, generated actions = %d", len(actions), len(dag.Actions))
 	}
 	for i, action := range actions {
 		if action.Position != i {
 			t.Fatalf("action[%d] position = %d, want %d", i, action.Position, i)
 		}
-		if action.Name != dag.Steps[i].Name {
-			t.Fatalf("action[%d].Name = %q, want %q", i, action.Name, dag.Steps[i].Name)
+		if action.Name != dag.Actions[i].Name {
+			t.Fatalf("action[%d].Name = %q, want %q", i, action.Name, dag.Actions[i].Name)
 		}
 	}
 }
