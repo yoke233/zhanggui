@@ -12,4 +12,10 @@
 - 已完成 `task-019`：在线程页右侧 sidebar 增加 Proposal 区，支持创建、编辑、提交、审批与驳回/返修动作。
 - 已通过验证：`npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts`
 - 已完成 `task-020`：补 Proposal 输入校验，拦截非法 `source_message_id`，并再次通过 ThreadDetailPage/apiClient 测试与前端 build。
-- 当前进入 `task-021`：开始补 Initiative 页面与入口。
+- 已完成 `task-021`：新增 `web/src/pages/InitiativeDetailPage.tsx`，接入 `/initiatives/:initiativeId` 路由，并在线程 proposal 卡片上增加 initiative 跳转入口。
+- 已新增测试：`web/src/pages/InitiativeDetailPage.test.tsx`，覆盖详情加载、审批动作、跨路由切换时审批表单刷新。
+- review 阶段发现并修复一个状态串页问题：同一组件实例在不同 initiative 间切换时，右侧审批表单会残留前一个 initiative 的 reviewer / note。
+- 已通过验证：
+  - `npm --prefix web test -- --run src/pages/InitiativeDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts`
+  - `pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1`
+- 当前前端补齐任务 `task-017` ~ `task-022` 已全部完成。

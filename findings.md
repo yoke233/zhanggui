@@ -13,3 +13,6 @@
 - 已完成 Phase 1 契约层补齐：`web/src/types/apiV2.ts` 新增 `ThreadProposal`、`ProposalWorkItemDraft`、`Initiative`、`InitiativeDetail`、`InitiativeItem`、`ThreadInitiativeLink` 及请求体类型；`web/src/lib/apiClient.ts` 新增 `/threads/{id}/proposals`、`/proposals/*`、`/initiatives/*` 的访问方法；`web/src/lib/apiClient.test.ts` 已覆盖 proposal / initiative 路由命中。
 - 已完成 Phase 2 第一轮实现：`ThreadDetailPage` 现在会加载 thread proposals，并在右侧 sidebar 提供 `New Proposal`、草案编辑、draft 明细、`Submit/Approve/Reject/Revise` 动作；`ThreadDetailPage.test.tsx` 已覆盖创建 proposal、编辑保存和提交审批。
 - 已完成 Phase 2 review 修补：proposal 编辑器会在前端拦截非法 `source_message_id`，避免把无效字符串静默提交成空值；该校验已有组件测试覆盖。
+- 已完成 Phase 3 实现：新增 `InitiativeDetailPage`，展示 initiative 基本信息、进度、work items、关联 threads，并提供 `Propose / Approve / Reject / Cancel` 动作；同时在 `ThreadSidebar` 的 proposal 卡片上补 initiative 跳转入口。
+- Phase 3 review 发现一个 correctness 问题：`InitiativeDetailPage` 初版在加载详情时会优先保留旧的 `reviewForm` 值，导致同一组件实例从 `/initiatives/:idA` 切到 `/initiatives/:idB` 时，审批侧栏可能残留上一个 initiative 的 `approvedBy / reviewNote`。现已修正为按当前详情重置表单，并补了路由切换回归测试。
+- 当前残余项只有既有 build warning：`Circular chunk: vendor -> react-vendor -> vendor`，本轮未处理。

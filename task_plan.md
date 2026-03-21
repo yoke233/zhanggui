@@ -1,6 +1,6 @@
 # 前端界面操作补齐计划
 
-状态：in_progress
+状态：completed
 最后更新：2026-03-21
 
 ## 目标
@@ -33,9 +33,11 @@
 - `task-018` 已完成 review：未发现需要修复的 correctness 问题，单测与 build 已通过。
 - `task-019` 已完成实现与验证：在线程页侧栏补 proposal 列表、草案编辑、提交与审批动作。
 - `task-020` 已完成 review/fix：补上 proposal 输入的数字校验与回归测试，前端 build 通过。
-- 当前进入 `task-021`：新增 Initiative 详情页与审批入口。
+- `task-021` 已完成：新增 `InitiativeDetailPage`，接入 `/initiatives/:initiativeId` 路由，并在线程页 proposal 卡片补 initiative 跳转入口。
+- `task-022` 已完成 review/fix：修正跨 initiative 切页时审批表单沿用旧值的问题，并补路由切换回归测试。
 
 ## 本轮结论
 
-- 当前前端已经覆盖 `Requirement -> Thread -> WorkItem` 的部分链路，但没有覆盖 `Proposal -> Initiative` 审批面。
+- 前端主链已补齐到 `Requirement -> Thread -> Proposal -> Initiative -> WorkItem`，审批链路不再断在 thread 侧栏。
+- Initiative 页面已具备详情展示、审批动作、work item / thread 回跳入口。
 - 已补一份正式计划文档：`docs/plan/2026-03-21-frontend-thread-proposal-initiative-plan.zh-CN.md`

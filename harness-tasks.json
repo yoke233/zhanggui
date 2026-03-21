@@ -702,10 +702,10 @@
     {
       "id": "task-017",
       "title": "实现前端 Phase 1：补齐 Proposal / Initiative 类型与 API 契约",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
       "started_at_commit": "83faae9",
       "validation": {
@@ -716,18 +716,31 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "Add proposal and initiative API contracts plus route tests",
+          "timestamp": "2026-03-21T11:58:00+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "Validated apiClient tests and committed 8de0e5e",
+          "timestamp": "2026-03-21T12:00:31+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:00:31+08:00"
     },
     {
       "id": "task-018",
       "title": "review 并修复前端 Phase 1 契约层实现",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-017"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
       "started_at_commit": "8de0e5e",
       "validation": {
@@ -738,18 +751,31 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "Reviewed phase 1 contracts and found no new correctness issues",
+          "timestamp": "2026-03-21T12:01:10+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "Revalidated apiClient tests and frontend build, then committed 3efe979",
+          "timestamp": "2026-03-21T12:02:08+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:02:08+08:00"
     },
     {
       "id": "task-019",
       "title": "实现前端 Phase 2：在线程页补 Proposal 操作面",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-018"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
       "started_at_commit": "3efe979",
       "validation": {
@@ -760,18 +786,31 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "Integrated proposal list, editor, submit and review actions into thread sidebar",
+          "timestamp": "2026-03-21T12:08:00+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "Validated ThreadDetailPage and apiClient tests, then committed a9509bf",
+          "timestamp": "2026-03-21T12:12:08+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:12:08+08:00"
     },
     {
       "id": "task-020",
       "title": "review 并修复前端 Phase 2 Proposal 操作面",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-019"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
       "started_at_commit": "a9509bf",
       "validation": {
@@ -782,20 +821,33 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "Review found missing numeric validation for source_message_id and added regression coverage",
+          "timestamp": "2026-03-21T12:14:20+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "Revalidated ThreadDetailPage tests and frontend build, then committed 167eecc",
+          "timestamp": "2026-03-21T12:15:51+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:15:51+08:00"
     },
     {
       "id": "task-021",
       "title": "实现前端 Phase 3：新增 Initiative 详情页与审批入口",
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-020"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "167eecc",
       "validation": {
         "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts",
         "timeout_seconds": 1800
@@ -804,20 +856,39 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 3,
+          "description": "Built InitiativeDetailPage with detail, progress, work item and thread sections plus review actions",
+          "timestamp": "2026-03-21T12:20:00+08:00"
+        },
+        {
+          "step": 2,
+          "total": 3,
+          "description": "Connected /initiatives/:initiativeId route and initiative entry from thread proposal cards",
+          "timestamp": "2026-03-21T12:21:00+08:00"
+        },
+        {
+          "step": 3,
+          "total": 3,
+          "description": "Added InitiativeDetailPage and thread initiative link tests, then committed 0737069",
+          "timestamp": "2026-03-21T12:24:38+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:24:38+08:00"
     },
     {
       "id": "task-022",
       "title": "review 并修复前端 Phase 3 Initiative 页面实现",
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "depends_on": [
         "task-021"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "0737069",
       "validation": {
         "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
         "timeout_seconds": 1800
@@ -826,10 +897,23 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "Review found review form values leaking across initiative route changes",
+          "timestamp": "2026-03-21T12:22:00+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "Reset review form from loaded initiative detail, added route-switch regression test, and revalidated tests plus build",
+          "timestamp": "2026-03-21T12:25:30+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:25:30+08:00"
     }
   ],
   "session_count": 18,
-  "last_session": "2026-03-21T04:12:20.1072910Z"
+  "last_session": "2026-03-21T12:25:30+08:00"
 }
