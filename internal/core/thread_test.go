@@ -84,24 +84,25 @@ func TestThreadFocusHelpers(t *testing.T) {
 		t.Fatalf("ReadThreadFocusProjectID() = (%d, %v), want (42, true)", got, ok)
 	}
 
-	thread.Metadata["other"] = "value"
 	ClearThreadFocus(thread)
 	if _, ok := ReadThreadFocus(thread); ok {
 		t.Fatal("expected focus to be cleared")
 	}
-	if thread.Metadata["other"] != "value" {
-		t.Fatalf("expected unrelated metadata to remain, got %+v", thread.Metadata)
+	if thread.FocusProjectID != 0 {
+		t.Fatalf("expected FocusProjectID to be 0 after clear, got %d", thread.FocusProjectID)
 	}
 }
 
-func TestReadThreadFocusSupportsDecodedMetadata(t *testing.T) {
+func TestThreadFocusProjectIDField(t *testing.T) {
 	thread := &Thread{
-		Metadata: map[string]any{
-			"focus": map[string]any{"project_id": float64(7)},
-		},
+		ID:             1,
+		FocusProjectID: 42,
+	}
+	if thread.FocusProjectID != 42 {
+		t.Fatalf("FocusProjectID = %d, want 42", thread.FocusProjectID)
 	}
 	focus, ok := ReadThreadFocus(thread)
-	if !ok || focus == nil || focus.ProjectID != 7 {
-		t.Fatalf("ReadThreadFocus() = %+v, %v", focus, ok)
+	if !ok || focus == nil || focus.ProjectID != 42 {
+		t.Fatalf("ReadThreadFocus() = %+v, %v, want ProjectID=42", focus, ok)
 	}
 }

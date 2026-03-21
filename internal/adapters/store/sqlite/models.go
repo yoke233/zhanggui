@@ -209,13 +209,14 @@ func (UsageRecordModel) TableName() string { return "usage_records" }
 // ── Thread ──
 
 type ThreadModel struct {
-	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	Title     string                    `gorm:"column:title;not null"`
-	Status    string                    `gorm:"column:status;not null"`
-	OwnerID   string                    `gorm:"column:owner_id;not null"`
-	Metadata  JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	CreatedAt time.Time                 `gorm:"column:created_at"`
-	UpdatedAt time.Time                 `gorm:"column:updated_at"`
+	ID             int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	Title          string                    `gorm:"column:title;not null"`
+	Status         string                    `gorm:"column:status;not null"`
+	OwnerID        string                    `gorm:"column:owner_id;not null"`
+	FocusProjectID int64                     `gorm:"column:focus_project_id"`
+	Metadata       JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt      time.Time                 `gorm:"column:created_at"`
+	UpdatedAt      time.Time                 `gorm:"column:updated_at"`
 }
 
 func (ThreadModel) TableName() string { return "threads" }
@@ -225,13 +226,14 @@ func threadModelFromCore(t *core.Thread) *ThreadModel {
 		return nil
 	}
 	return &ThreadModel{
-		ID:        t.ID,
-		Title:     t.Title,
-		Status:    string(t.Status),
-		OwnerID:   t.OwnerID,
-		Metadata:  JSONField[map[string]any]{Data: t.Metadata},
-		CreatedAt: t.CreatedAt,
-		UpdatedAt: t.UpdatedAt,
+		ID:             t.ID,
+		Title:          t.Title,
+		Status:         string(t.Status),
+		OwnerID:        t.OwnerID,
+		FocusProjectID: t.FocusProjectID,
+		Metadata:       JSONField[map[string]any]{Data: t.Metadata},
+		CreatedAt:      t.CreatedAt,
+		UpdatedAt:      t.UpdatedAt,
 	}
 }
 
@@ -240,13 +242,14 @@ func (m *ThreadModel) toCore() *core.Thread {
 		return nil
 	}
 	return &core.Thread{
-		ID:        m.ID,
-		Title:     m.Title,
-		Status:    core.ThreadStatus(m.Status),
-		OwnerID:   m.OwnerID,
-		Metadata:  m.Metadata.Data,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
+		ID:             m.ID,
+		Title:          m.Title,
+		Status:         core.ThreadStatus(m.Status),
+		OwnerID:        m.OwnerID,
+		FocusProjectID: m.FocusProjectID,
+		Metadata:       m.Metadata.Data,
+		CreatedAt:      m.CreatedAt,
+		UpdatedAt:      m.UpdatedAt,
 	}
 }
 

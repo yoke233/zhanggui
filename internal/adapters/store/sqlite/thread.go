@@ -116,11 +116,12 @@ func (s *Store) UpdateThread(ctx context.Context, thread *core.Thread) error {
 	result := s.orm.WithContext(ctx).Model(&ThreadModel{}).
 		Where("id = ?", thread.ID).
 		Updates(map[string]any{
-			"title":      model.Title,
-			"status":     model.Status,
-			"owner_id":   model.OwnerID,
-			"metadata":   model.Metadata,
-			"updated_at": model.UpdatedAt,
+			"title":            model.Title,
+			"status":           model.Status,
+			"owner_id":         model.OwnerID,
+			"focus_project_id": model.FocusProjectID,
+			"metadata":         model.Metadata,
+			"updated_at":       model.UpdatedAt,
 		})
 
 	if result.Error != nil {

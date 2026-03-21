@@ -883,6 +883,7 @@ export interface Thread {
   status: ThreadStatus;
   owner_id?: string;
   summary?: string;
+  focus_project_id?: number;
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -892,6 +893,7 @@ export interface CreateThreadRequest {
   title: string;
   owner_id?: string;
   summary?: string;
+  focus_project_id?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -900,6 +902,7 @@ export interface UpdateThreadRequest {
   status?: string;
   owner_id?: string;
   summary?: string;
+  focus_project_id?: number;
   metadata?: Record<string, unknown>;
 }
 

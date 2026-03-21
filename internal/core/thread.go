@@ -56,13 +56,14 @@ func CanTransitionThreadStatus(from, to ThreadStatus) bool {
 // Unlike ChatSession (1:1 direct chat), a Thread supports multiple
 // AI agents and multiple human participants in shared discussion.
 type Thread struct {
-	ID        int64          `json:"id"`
-	Title     string         `json:"title"`
-	Status    ThreadStatus   `json:"status"`
-	OwnerID   string         `json:"owner_id,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID             int64          `json:"id"`
+	Title          string         `json:"title"`
+	Status         ThreadStatus   `json:"status"`
+	OwnerID        string         `json:"owner_id,omitempty"`
+	FocusProjectID int64          `json:"focus_project_id,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 // ThreadFilter constrains Thread queries.
@@ -268,80 +269,31 @@ func CanTransitionThreadAgentStatus(from, to ThreadAgentStatus) bool {
 }
 
 func ReadThreadFocus(thread *Thread) (*ThreadFocus, bool) {
-	if thread == nil || len(thread.Metadata) == 0 {
+	if thread == nil || thread.FocusProjectID <= 0 {
 		return nil, false
 	}
-	raw, ok := thread.Metadata["focus"]
-	if !ok || raw == nil {
-		return nil, false
-	}
-	switch value := raw.(type) {
-	case ThreadFocus:
-		if value.ProjectID > 0 {
-			copyValue := value
-			return &copyValue, true
-		}
-	case *ThreadFocus:
-		if value != nil && value.ProjectID > 0 {
-			copyValue := *value
-			return &copyValue, true
-		}
-	case map[string]any:
-		if projectID, ok := parseThreadFocusProjectID(value["project_id"]); ok {
-			return &ThreadFocus{ProjectID: projectID}, true
-		}
-	case map[string]int64:
-		if projectID, ok := value["project_id"]; ok && projectID > 0 {
-			return &ThreadFocus{ProjectID: projectID}, true
-		}
-	}
-	return nil, false
+	return &ThreadFocus{ProjectID: thread.FocusProjectID}, true
 }
 
 func ReadThreadFocusProjectID(thread *Thread) (int64, bool) {
-	focus, ok := ReadThreadFocus(thread)
-	if !ok || focus == nil || focus.ProjectID <= 0 {
+	if thread == nil || thread.FocusProjectID <= 0 {
 		return 0, false
 	}
-	return focus.ProjectID, true
+	return thread.FocusProjectID, true
 }
 
 func SetThreadFocusProjectID(thread *Thread, projectID int64) {
 	if thread == nil || projectID <= 0 {
 		return
 	}
-	if thread.Metadata == nil {
-		thread.Metadata = map[string]any{}
-	}
-	thread.Metadata["focus"] = map[string]any{"project_id": projectID}
+	thread.FocusProjectID = projectID
 }
 
 func ClearThreadFocus(thread *Thread) {
-	if thread == nil || len(thread.Metadata) == 0 {
+	if thread == nil {
 		return
 	}
-	delete(thread.Metadata, "focus")
-	if len(thread.Metadata) == 0 {
-		thread.Metadata = nil
-	}
-}
-
-func parseThreadFocusProjectID(raw any) (int64, bool) {
-	switch value := raw.(type) {
-	case int:
-		if value > 0 {
-			return int64(value), true
-		}
-	case int64:
-		if value > 0 {
-			return value, true
-		}
-	case float64:
-		if value > 0 {
-			return int64(value), true
-		}
-	}
-	return 0, false
+	thread.FocusProjectID = 0
 }
 
 // ThreadStore persists Thread aggregates.
