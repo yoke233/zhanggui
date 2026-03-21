@@ -292,7 +292,7 @@ func (t *Trigger) cloneAndSubmit(ctx context.Context, source *core.WorkItem) (in
 	// 1. Clone work item.
 	newWorkItem := &core.WorkItem{
 		ProjectID:         source.ProjectID,
-		ResourceBindingID: source.ResourceBindingID,
+		ResourceSpaceID: source.ResourceSpaceID,
 		Title:             source.Title + " [cron " + time.Now().UTC().Format("01-02 15:04") + "]",
 		Status:            core.WorkItemOpen,
 		Metadata: map[string]any{

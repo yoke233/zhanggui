@@ -59,7 +59,7 @@ func (ProjectModel) TableName() string { return "projects" }
 type WorkItemModel struct {
 	ID                int64                     `gorm:"column:id;primaryKey;autoIncrement"`
 	ProjectID         *int64                    `gorm:"column:project_id"`
-	ResourceBindingID *int64                    `gorm:"column:resource_binding_id"`
+	ResourceSpaceID *int64                    `gorm:"column:resource_space_id"`
 	Title             string                    `gorm:"column:title;not null"`
 	Body              string                    `gorm:"column:body;not null"`
 	Status            string                    `gorm:"column:status;not null"`
@@ -880,7 +880,7 @@ func workItemModelFromCore(w *core.WorkItem) *WorkItemModel {
 	return &WorkItemModel{
 		ID:                w.ID,
 		ProjectID:         w.ProjectID,
-		ResourceBindingID: w.ResourceBindingID,
+		ResourceSpaceID: w.ResourceSpaceID,
 		Title:             w.Title,
 		Body:              w.Body,
 		Status:            string(w.Status),
@@ -901,7 +901,7 @@ func (m *WorkItemModel) toCore() *core.WorkItem {
 	return &core.WorkItem{
 		ID:                m.ID,
 		ProjectID:         m.ProjectID,
-		ResourceBindingID: m.ResourceBindingID,
+		ResourceSpaceID: m.ResourceSpaceID,
 		Title:             m.Title,
 		Body:              m.Body,
 		Status:            core.WorkItemStatus(m.Status),

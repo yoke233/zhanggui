@@ -39,7 +39,7 @@ const (
 type WorkItem struct {
 	ID                int64  `json:"id"`
 	ProjectID         *int64 `json:"project_id,omitempty"`
-	ResourceBindingID *int64 `json:"resource_binding_id,omitempty"` // which repo/resource to work on
+	ResourceSpaceID *int64 `json:"resource_space_id,omitempty"` // which resource space to work on
 
 	// Planning fields
 	Title     string           `json:"title"`

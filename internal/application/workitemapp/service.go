@@ -51,7 +51,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, input CreateWorkItemInput)
 	if err := s.validateProject(ctx, input.ProjectID); err != nil {
 		return nil, err
 	}
-	if err := s.validateResourceSpace(ctx, input.ProjectID, input.ResourceBindingID); err != nil {
+	if err := s.validateResourceSpace(ctx, input.ProjectID, input.ResourceSpaceID); err != nil {
 		return nil, err
 	}
 	if err := s.validateDependencies(ctx, 0, input.ProjectID, input.DependsOn); err != nil {
@@ -65,7 +65,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, input CreateWorkItemInput)
 
 	workItem := &core.WorkItem{
 		ProjectID:         input.ProjectID,
-		ResourceBindingID: input.ResourceBindingID,
+		ResourceSpaceID: input.ResourceSpaceID,
 		Title:             title,
 		Body:              strings.TrimSpace(input.Body),
 		Status:            core.WorkItemOpen,
@@ -114,11 +114,11 @@ func (s *Service) UpdateWorkItem(ctx context.Context, input UpdateWorkItemInput)
 		targetProjectID = input.ProjectID
 	}
 
-	if input.ResourceBindingID != nil {
-		if err := s.validateResourceSpace(ctx, targetProjectID, input.ResourceBindingID); err != nil {
+	if input.ResourceSpaceID != nil {
+		if err := s.validateResourceSpace(ctx, targetProjectID, input.ResourceSpaceID); err != nil {
 			return nil, err
 		}
-		workItem.ResourceBindingID = input.ResourceBindingID
+		workItem.ResourceSpaceID = input.ResourceSpaceID
 	}
 	if input.Title != nil {
 		workItem.Title = strings.TrimSpace(*input.Title)
@@ -331,17 +331,17 @@ func (s *Service) validateResourceSpace(ctx context.Context, projectID *int64, s
 		return nil
 	}
 	if projectID == nil {
-		return newError(CodeInvalidResourceBinding, "resource space requires project_id", nil)
+		return newError(CodeInvalidResourceSpace, "resource space requires project_id", nil)
 	}
 	space, err := s.store.GetResourceSpace(ctx, *spaceID)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
-			return newError(CodeResourceBindingNotFound, "resource space not found", err)
+			return newError(CodeResourceSpaceNotFound, "resource space not found", err)
 		}
 		return err
 	}
 	if space.ProjectID != *projectID {
-		return newError(CodeInvalidResourceBinding, fmt.Sprintf("resource space %d does not belong to project %d", *spaceID, *projectID), nil)
+		return newError(CodeInvalidResourceSpace, fmt.Sprintf("resource space %d does not belong to project %d", *spaceID, *projectID), nil)
 	}
 	return nil
 }

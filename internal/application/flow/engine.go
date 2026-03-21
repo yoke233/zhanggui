@@ -176,16 +176,16 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 		if err != nil {
 			return fmt.Errorf("list resource spaces for project %d: %w", *workItem.ProjectID, err)
 		}
-		if workItem.ResourceBindingID != nil {
+		if workItem.ResourceSpaceID != nil {
 			filtered := make([]*core.ResourceSpace, 0, 1)
 			for _, space := range spaces {
-				if space != nil && space.ID == *workItem.ResourceBindingID {
+				if space != nil && space.ID == *workItem.ResourceSpaceID {
 					filtered = append(filtered, space)
 					break
 				}
 			}
 			if len(filtered) == 0 {
-				return fmt.Errorf("resource space %d not found in project %d", *workItem.ResourceBindingID, *workItem.ProjectID)
+				return fmt.Errorf("resource space %d not found in project %d", *workItem.ResourceSpaceID, *workItem.ProjectID)
 			}
 			spaces = filtered
 		}

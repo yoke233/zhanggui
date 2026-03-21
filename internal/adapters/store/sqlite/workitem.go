@@ -122,7 +122,7 @@ func (s *Store) UpdateWorkItem(ctx context.Context, workItem *core.WorkItem) err
 		Where("id = ?", workItem.ID).
 		Updates(map[string]any{
 			"project_id":          model.ProjectID,
-			"resource_binding_id": model.ResourceBindingID,
+			"resource_space_id": model.ResourceSpaceID,
 			"title":               model.Title,
 			"body":                model.Body,
 			"status":              model.Status,

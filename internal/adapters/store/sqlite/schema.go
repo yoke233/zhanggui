@@ -45,6 +45,17 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		return err
 	}
 
+	// Migrate legacy column data (idempotent, safe for fresh DBs).
+	var colCount int64
+	orm.WithContext(ctx).Raw(
+		`SELECT COUNT(*) FROM pragma_table_info('work_items') WHERE name = 'resource_binding_id'`,
+	).Scan(&colCount)
+	if colCount > 0 {
+		orm.WithContext(ctx).Exec(
+			`UPDATE work_items SET resource_space_id = resource_binding_id WHERE resource_space_id IS NULL AND resource_binding_id IS NOT NULL`,
+		)
+	}
+
 	// Create partial indexes for activity_journal (GORM AutoMigrate does not support SQLite partial indexes).
 	for _, ddl := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_actions_work_item_position_id ON actions(work_item_id, position, id)`,

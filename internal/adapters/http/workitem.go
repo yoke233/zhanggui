@@ -11,7 +11,7 @@ import (
 
 type createWorkItemRequest struct {
 	ProjectID         *int64         `json:"project_id,omitempty"`
-	ResourceBindingID *int64         `json:"resource_binding_id,omitempty"`
+	ResourceSpaceID *int64         `json:"resource_space_id,omitempty"`
 	Title             string         `json:"title"`
 	Body              string         `json:"body,omitempty"`
 	Priority          string         `json:"priority,omitempty"`
@@ -22,7 +22,7 @@ type createWorkItemRequest struct {
 
 type updateWorkItemRequest struct {
 	ProjectID         *int64         `json:"project_id,omitempty"`
-	ResourceBindingID *int64         `json:"resource_binding_id,omitempty"`
+	ResourceSpaceID *int64         `json:"resource_space_id,omitempty"`
 	Title             *string        `json:"title,omitempty"`
 	Body              *string        `json:"body,omitempty"`
 	Status            *string        `json:"status,omitempty"`
@@ -40,7 +40,7 @@ func (h *Handler) createWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	workItem, err := h.workItemService().CreateWorkItem(r.Context(), workitemapp.CreateWorkItemInput{
 		ProjectID:         req.ProjectID,
-		ResourceBindingID: req.ResourceBindingID,
+		ResourceSpaceID: req.ResourceSpaceID,
 		Title:             req.Title,
 		Body:              req.Body,
 		Priority:          req.Priority,
@@ -137,7 +137,7 @@ func (h *Handler) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.workItemService().UpdateWorkItem(r.Context(), workitemapp.UpdateWorkItemInput{
 		ID:                id,
 		ProjectID:         req.ProjectID,
-		ResourceBindingID: req.ResourceBindingID,
+		ResourceSpaceID: req.ResourceSpaceID,
 		Title:             req.Title,
 		Body:              req.Body,
 		Status:            req.Status,

@@ -519,7 +519,7 @@ func TestAPI_CreateIssue_AutoBootstrapsSelectedBindingWhenMultipleSCMReposExist(
 		"title":               "auto-issue-selected-binding",
 		"priority":            "medium",
 		"project_id":          project.ID,
-		"resource_binding_id": selected.ID,
+		"resource_space_id": selected.ID,
 	})
 	if err != nil {
 		t.Fatalf("create issue: %v", err)

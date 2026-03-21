@@ -15,7 +15,7 @@ export type WorkItemPriority = "low" | "medium" | "high" | "urgent";
 export interface WorkItem {
   id: number;
   project_id?: number | null;
-  resource_binding_id?: number | null;
+  resource_space_id?: number | null;
   title: string;
   body: string;
   priority: WorkItemPriority;
@@ -30,7 +30,7 @@ export interface WorkItem {
 
 export interface CreateWorkItemRequest {
   project_id?: number;
-  resource_binding_id?: number;
+  resource_space_id?: number;
   title: string;
   body?: string;
   priority?: WorkItemPriority;

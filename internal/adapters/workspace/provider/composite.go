@@ -9,7 +9,7 @@ import (
 
 // CompositeProvider routes workspace preparation to the appropriate provider
 // based on the selected ResourceSpace's Kind. If the WorkItem has a specific
-// ResourceBindingID, that space is used; otherwise the first space is used.
+// ResourceSpaceID, that space is used; otherwise the first space is used.
 //
 // Routing:
 //

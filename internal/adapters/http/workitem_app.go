@@ -72,14 +72,14 @@ func writeWorkItemAppError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, "work item not found", "NOT_FOUND")
 	case workitemapp.CodeProjectNotFound:
 		writeError(w, http.StatusNotFound, "project not found", "PROJECT_NOT_FOUND")
-	case workitemapp.CodeResourceBindingNotFound:
-		writeError(w, http.StatusNotFound, "resource binding not found", "RESOURCE_BINDING_NOT_FOUND")
+	case workitemapp.CodeResourceSpaceNotFound:
+		writeError(w, http.StatusNotFound, "resource space not found", "RESOURCE_SPACE_NOT_FOUND")
 	case workitemapp.CodeWorkItemDependencyNotFound:
 		writeError(w, http.StatusNotFound, "dependency work item not found", "WORK_ITEM_DEPENDENCY_NOT_FOUND")
 	case workitemapp.CodeMissingTitle:
 		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
-	case workitemapp.CodeInvalidResourceBinding:
-		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_RESOURCE_BINDING")
+	case workitemapp.CodeInvalidResourceSpace:
+		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_RESOURCE_SPACE")
 	case workitemapp.CodeInvalidWorkItemDependency:
 		writeError(w, http.StatusBadRequest, err.Error(), "INVALID_WORK_ITEM_DEPENDENCY")
 	case workitemapp.CodeNoActions:

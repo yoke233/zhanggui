@@ -225,7 +225,7 @@ func TestModelConversions(t *testing.T) {
 	workItem := &core.WorkItem{
 		ID:                issueID,
 		ProjectID:         &projectID,
-		ResourceBindingID: &projectID,
+		ResourceSpaceID: &projectID,
 		Title:             "work",
 		Body:              "body",
 		Status:            core.WorkItemRunning,

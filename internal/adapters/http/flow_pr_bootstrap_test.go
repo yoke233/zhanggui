@@ -204,7 +204,7 @@ func TestBootstrapPRIssueForIssue_RollsBackCreatedStepsOnFailure(t *testing.T) {
 
 	issue := &core.WorkItem{
 		ProjectID:         &project.ID,
-		ResourceBindingID: &space.ID,
+		ResourceSpaceID: &space.ID,
 		Title:             "rollback issue",
 		Status:            core.WorkItemOpen,
 		Priority:          core.PriorityMedium,

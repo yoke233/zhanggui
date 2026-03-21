@@ -299,9 +299,9 @@ func filterSpacesForWorkItem(workItem *core.WorkItem, spaces []*core.ResourceSpa
 	if workItem == nil {
 		return nil, errBootstrapPRWorkItemMissingProject
 	}
-	if workItem.ResourceBindingID != nil {
+	if workItem.ResourceSpaceID != nil {
 		for _, space := range spaces {
-			if space != nil && space.ID == *workItem.ResourceBindingID {
+			if space != nil && space.ID == *workItem.ResourceSpaceID {
 				return []*core.ResourceSpace{space}, nil
 			}
 		}

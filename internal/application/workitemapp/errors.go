@@ -4,13 +4,13 @@ import "errors"
 
 const (
 	CodeBootstrapPRFailed          = "BOOTSTRAP_PR_FAILED"
-	CodeInvalidResourceBinding     = "INVALID_RESOURCE_BINDING"
+	CodeInvalidResourceSpace     = "INVALID_RESOURCE_SPACE"
 	CodeInvalidWorkItemDependency  = "INVALID_WORK_ITEM_DEPENDENCY"
 	CodeInvalidState               = "INVALID_STATE"
 	CodeMissingTitle               = "MISSING_TITLE"
 	CodeNoActions                  = "NO_ACTIONS"
 	CodeProjectNotFound            = "PROJECT_NOT_FOUND"
-	CodeResourceBindingNotFound    = "RESOURCE_BINDING_NOT_FOUND"
+	CodeResourceSpaceNotFound    = "RESOURCE_SPACE_NOT_FOUND"
 	CodeWorkItemDependencyNotFound = "WORK_ITEM_DEPENDENCY_NOT_FOUND"
 	CodeWorkItemNotFound           = "WORK_ITEM_NOT_FOUND"
 )

@@ -81,7 +81,7 @@ type Bootstrapper interface {
 
 type CreateWorkItemInput struct {
 	ProjectID         *int64
-	ResourceBindingID *int64
+	ResourceSpaceID *int64
 	Title             string
 	Body              string
 	Priority          string
@@ -93,7 +93,7 @@ type CreateWorkItemInput struct {
 type UpdateWorkItemInput struct {
 	ID                int64
 	ProjectID         *int64
-	ResourceBindingID *int64
+	ResourceSpaceID *int64
 	Title             *string
 	Body              *string
 	Status            *string
