@@ -335,6 +335,8 @@ func TestParseOutputSignal(t *testing.T) {
 		wantNil  bool
 		decision string
 		reason   string
+		extraKey string
+		extraVal any
 	}{
 		{
 			name:     "complete signal",
@@ -392,6 +394,14 @@ func TestParseOutputSignal(t *testing.T) {
 			decision: "complete",
 			reason:   "all done",
 		},
+		{
+			name:     "signal preserves artifact metadata",
+			text:     "AI_WORKFLOW_SIGNAL: {\"decision\":\"complete\",\"reason\":\"all done\",\"artifact_namespace\":\"gstack\",\"artifact_type\":\"design_doc\"}",
+			decision: "complete",
+			reason:   "all done",
+			extraKey: "artifact_namespace",
+			extraVal: "gstack",
+		},
 	}
 
 	for _, tt := range tests {
@@ -412,6 +422,9 @@ func TestParseOutputSignal(t *testing.T) {
 			}
 			if sig.Reason != tt.reason {
 				t.Errorf("reason = %q, want %q", sig.Reason, tt.reason)
+			}
+			if tt.extraKey != "" && sig.Payload[tt.extraKey] != tt.extraVal {
+				t.Errorf("payload[%q] = %v, want %v", tt.extraKey, sig.Payload[tt.extraKey], tt.extraVal)
 			}
 		})
 	}

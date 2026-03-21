@@ -4,7 +4,10 @@ param(
   [string]$Decision,
 
   [Parameter(Mandatory = $true, Position = 1)]
-  [string]$Reason
+  [string]$Reason,
+
+  [Parameter(Mandatory = $false, Position = 2)]
+  [string]$MetadataJson
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +21,12 @@ if ($validDecisions -notcontains $Decision) {
 $payloadObject = @{
   decision = $Decision
   reason   = $Reason
+}
+if ($MetadataJson) {
+  $extra = ConvertFrom-Json $MetadataJson -AsHashtable
+  foreach ($entry in $extra.GetEnumerator()) {
+    $payloadObject[$entry.Key] = $entry.Value
+  }
 }
 $payload = $payloadObject | ConvertTo-Json -Compress
 

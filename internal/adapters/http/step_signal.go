@@ -2,19 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/yoke233/zhanggui/internal/core"
 )
-
-// stepDecisionRequest is the request body for POST /steps/{stepID}/decision.
-type stepDecisionRequest struct {
-	Decision      string  `json:"decision"`                 // approve | reject | complete | need_help
-	Reason        string  `json:"reason"`                   // required
-	RejectTargets []int64 `json:"reject_targets,omitempty"` // for reject only
-}
 
 func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 	stepID, ok := urlParamInt64(r, "stepID")
@@ -23,18 +17,23 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req stepDecisionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	if strings.TrimSpace(req.Reason) == "" {
+	decision, reason, rejectTargets, payload, err := parseStepDecisionPayload(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "BAD_REQUEST")
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
 		writeError(w, http.StatusBadRequest, "reason is required", "MISSING_REASON")
 		return
 	}
 
 	var sigType core.SignalType
-	switch strings.ToLower(strings.TrimSpace(req.Decision)) {
+	switch strings.ToLower(strings.TrimSpace(decision)) {
 	case "approve":
 		sigType = core.SignalApprove
 	case "reject":
@@ -64,13 +63,9 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := map[string]any{"reason": req.Reason}
-	if sigType == core.SignalReject && len(req.RejectTargets) > 0 {
-		targets := make([]any, len(req.RejectTargets))
-		for i, t := range req.RejectTargets {
-			targets[i] = t
-		}
-		payload["reject_targets"] = targets
+	payload["reason"] = reason
+	if sigType == core.SignalReject && len(rejectTargets) > 0 {
+		payload["reject_targets"] = rejectTargets
 	}
 
 	sig := &core.ActionSignal{
@@ -99,6 +94,52 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusCreated, sig)
+}
+
+func parseStepDecisionPayload(raw map[string]any) (decision string, reason string, rejectTargets []any, payload map[string]any, err error) {
+	if raw == nil {
+		return "", "", nil, nil, fmt.Errorf("invalid JSON body")
+	}
+	payload = make(map[string]any, len(raw))
+	for k, v := range raw {
+		payload[k] = v
+	}
+
+	decision, _ = payload["decision"].(string)
+	reason, _ = payload["reason"].(string)
+	delete(payload, "decision")
+	delete(payload, "reason")
+
+	if rawTargets, ok := payload["reject_targets"]; ok {
+		targets, convErr := normalizeRejectTargets(rawTargets)
+		if convErr != nil {
+			return "", "", nil, nil, convErr
+		}
+		rejectTargets = targets
+		payload["reject_targets"] = targets
+	}
+	return decision, reason, rejectTargets, payload, nil
+}
+
+func normalizeRejectTargets(raw any) ([]any, error) {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("reject_targets must be an array")
+	}
+	targets := make([]any, 0, len(items))
+	for _, item := range items {
+		switch v := item.(type) {
+		case float64:
+			targets = append(targets, int64(v))
+		case int64:
+			targets = append(targets, v)
+		case int:
+			targets = append(targets, int64(v))
+		default:
+			return nil, fmt.Errorf("reject_targets must contain numeric step IDs")
+		}
+	}
+	return targets, nil
 }
 
 // stepUnblockRequest is the request body for POST /steps/{stepID}/unblock.

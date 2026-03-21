@@ -457,6 +457,7 @@ func derefInt64(v *int64) int64 {
 type outputSignal struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason"`
+	Payload  map[string]any
 }
 
 // parseOutputSignal extracts a structured signal from agent output text.
@@ -471,10 +472,16 @@ func parseOutputSignal(text string) *outputSignal {
 	if raw == "" {
 		return nil
 	}
-	var sig outputSignal
-	if err := json.Unmarshal([]byte(raw), &sig); err != nil {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return nil
 	}
+	var sig outputSignal
+	sig.Decision, _ = payload["decision"].(string)
+	sig.Reason, _ = payload["reason"].(string)
+	delete(payload, "decision")
+	delete(payload, "reason")
+	sig.Payload = payload
 	sig.Decision = strings.ToLower(strings.TrimSpace(sig.Decision))
 	switch sig.Decision {
 	case "complete", "need_help", "approve", "reject":
@@ -529,7 +536,7 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 		Type:       sigType,
 		Source:     core.SignalSourceAgent,
 		Summary:    parsed.Reason,
-		Payload:    map[string]any{"reason": parsed.Reason, "source": "output_fallback"},
+		Payload:    buildFallbackSignalPayload(parsed),
 		Actor:      fmt.Sprintf("agent/%s", profileID),
 	}
 	sigID, err := store.CreateActionSignal(ctx, sig)
@@ -558,6 +565,20 @@ func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus,
 	})
 	slog.Info("step-signal: created from output fallback",
 		"step_id", step.ID, "decision", parsed.Decision, "signal_id", sigID)
+}
+
+func buildFallbackSignalPayload(parsed *outputSignal) map[string]any {
+	payload := map[string]any{
+		"reason": parsed.Reason,
+		"source": "output_fallback",
+	}
+	if parsed == nil {
+		return payload
+	}
+	for k, v := range parsed.Payload {
+		payload[k] = v
+	}
+	return payload
 }
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.

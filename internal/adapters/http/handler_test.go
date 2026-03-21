@@ -1556,6 +1556,70 @@ func TestAPI_RunAuditTimelineRoute(t *testing.T) {
 	}
 }
 
+func TestAPI_ActionDecisionPreservesArtifactMetadata(t *testing.T) {
+	h, ts := setupAPI(t)
+	ctx := context.Background()
+
+	workItemID, err := h.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:  "decision-artifact",
+		Status: core.WorkItemOpen,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	stepID, err := h.store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionRunning,
+		Position:   0,
+	})
+	if err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+
+	resp, err := post(ts, fmt.Sprintf("/steps/%d/decision", stepID), map[string]any{
+		"decision":           "reject",
+		"reason":             "missing null-handling in callback flow",
+		"summary":            "review found one blocking issue",
+		"artifact_namespace": "gstack",
+		"artifact_type":      "review_report",
+		"artifact_format":    "markdown",
+		"artifact_relpath":   ".ai-workflow/artifacts/gstack/review/2026-03-21-login-flow.md",
+		"artifact_title":     "Login Flow Review",
+		"producer_skill":     "gstack-review",
+		"producer_kind":      "skill",
+		"reject_targets":     []int64{11, 12},
+	})
+	if err != nil {
+		t.Fatalf("post decision: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	sig, err := h.store.GetLatestActionSignal(ctx, stepID, core.SignalReject)
+	if err != nil {
+		t.Fatalf("GetLatestActionSignal(): %v", err)
+	}
+	if sig == nil {
+		t.Fatal("expected reject signal")
+	}
+	if got := sig.Payload["summary"]; got != "review found one blocking issue" {
+		t.Fatalf("summary = %v", got)
+	}
+	if got := sig.Payload[core.ResultMetaArtifactNamespace]; got != "gstack" {
+		t.Fatalf("artifact_namespace = %v", got)
+	}
+	if got := sig.Payload[core.ResultMetaProducerSkill]; got != "gstack-review" {
+		t.Fatalf("producer_skill = %v", got)
+	}
+	targets, ok := sig.Payload["reject_targets"].([]any)
+	if !ok || len(targets) != 2 {
+		t.Fatalf("reject_targets = %#v", sig.Payload["reject_targets"])
+	}
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket Test
 // ---------------------------------------------------------------------------

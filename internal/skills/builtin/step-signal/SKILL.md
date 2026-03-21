@@ -34,6 +34,11 @@ Before your final response ends, emit exactly one terminal signal so the engine 
 Do not assume the current working directory is the skill directory.
 Resolve the skill path from the agent home first.
 
+For artifact-producing workflows, the bundled scripts also accept an optional third argument:
+compact JSON metadata that will be merged into the decision payload.
+Use that to attach fields such as `summary`, `artifact_namespace`, `artifact_type`,
+`artifact_format`, `artifact_relpath`, `artifact_title`, `producer_skill`, and `producer_kind`.
+
 ### PowerShell
 
 ```powershell
@@ -59,12 +64,25 @@ bash "$SKILL_HOME/scripts/signal.sh" complete "implemented auth module with test
 
 Use the matching decision for your action type. The bundled scripts try HTTP first and fall back to output if HTTP is unavailable.
 
+### Structured Metadata Example
+
+```powershell
+$metadata = '{"summary":"login flow review complete","artifact_namespace":"gstack","artifact_type":"review_report","artifact_format":"markdown","artifact_relpath":".ai-workflow/artifacts/gstack/review/2026-03-21-login-flow.md","artifact_title":"Login Flow Review","producer_skill":"gstack-review","producer_kind":"skill"}'
+pwsh -NoProfile -File (Join-Path $skillHome "scripts\\signal.ps1") reject "missing null-handling in callback flow" $metadata
+```
+
 ## Fallback Path: Emit The Signal Line Directly
 
 If you cannot reliably run the script, print one raw standalone line in your response:
 
 ```text
 AI_WORKFLOW_SIGNAL: {"decision":"<decision>","reason":"<reason>"}
+```
+
+You may include extra JSON fields on that same line when you need structured metadata:
+
+```text
+AI_WORKFLOW_SIGNAL: {"decision":"complete","reason":"implemented auth module","summary":"design note completed","artifact_namespace":"gstack","artifact_type":"design_doc","artifact_relpath":".ai-workflow/artifacts/gstack/office-hours/2026-03-21-login-flow.md","producer_skill":"gstack-office-hours","producer_kind":"skill"}
 ```
 
 Requirements for the fallback line:
@@ -88,3 +106,4 @@ AI_WORKFLOW_SIGNAL: {"decision":"reject","reason":"missing error handling in pay
 2. Match the decision to `AI_WORKFLOW_STEP_TYPE`.
 3. Keep `reason` concise, specific, and actionable.
 4. Emit the signal before ending the response.
+5. For artifact-producing workflows, include artifact metadata in the HTTP or fallback payload.

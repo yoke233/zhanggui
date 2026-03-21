@@ -2,7 +2,7 @@
 # signal.sh — Signal step decision to the AI Workflow engine.
 #
 # Usage:
-#   ./signal.sh <decision> <reason>
+#   ./signal.sh <decision> <reason> [metadata_json]
 #
 # Decisions: complete | need_help | approve | reject
 #
@@ -14,8 +14,9 @@
 
 set -euo pipefail
 
-DECISION="${1:?Usage: signal.sh <decision> <reason>}"
-REASON="${2:?Usage: signal.sh <decision> <reason>}"
+DECISION="${1:?Usage: signal.sh <decision> <reason> [metadata_json]}"
+REASON="${2:?Usage: signal.sh <decision> <reason> [metadata_json]}"
+METADATA_JSON="${3:-}"
 
 # Validate decision.
 case "$DECISION" in
@@ -24,6 +25,21 @@ case "$DECISION" in
 esac
 
 PAYLOAD="{\"decision\":\"${DECISION}\",\"reason\":\"${REASON}\"}"
+if [ -n "${METADATA_JSON}" ]; then
+  case "${METADATA_JSON}" in
+    \{*\})
+      EXTRA_JSON="${METADATA_JSON#\{}"
+      EXTRA_JSON="${EXTRA_JSON%\}}"
+      if [ -n "${EXTRA_JSON}" ]; then
+        PAYLOAD="{\"decision\":\"${DECISION}\",\"reason\":\"${REASON}\",${EXTRA_JSON}}"
+      fi
+      ;;
+    *)
+      echo "Error: metadata_json must be a compact JSON object" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # Try HTTP first.
 if [ -n "${AI_WORKFLOW_SERVER_ADDR:-}" ] && [ -n "${AI_WORKFLOW_STEP_ID:-}" ] && [ -n "${AI_WORKFLOW_API_TOKEN:-}" ]; then

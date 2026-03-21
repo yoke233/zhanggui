@@ -31,9 +31,19 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 			RunID:      run.ID,
 			Type:       core.SignalComplete,
 			Source:     core.SignalSourceAgent,
-			Payload:    map[string]any{"summary": "added login page", "tests_passed": true},
-			Actor:      "agent",
-			CreatedAt:  time.Now().UTC(),
+			Payload: map[string]any{
+				"summary":                        "added login page",
+				"tests_passed":                   true,
+				core.ResultMetaArtifactNamespace: "gstack",
+				core.ResultMetaArtifactType:      "review_report",
+				core.ResultMetaArtifactFormat:    "markdown",
+				core.ResultMetaArtifactRelPath:   ".ai-workflow/artifacts/gstack/review/2026-03-21-login-flow.md",
+				core.ResultMetaArtifactTitle:     "Login Flow Review",
+				core.ResultMetaProducerSkill:     "gstack-review",
+				core.ResultMetaProducerKind:      "skill",
+			},
+			Actor:     "agent",
+			CreatedAt: time.Now().UTC(),
 		})
 		return err
 	}
@@ -68,6 +78,12 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 	}
 	if del.ResultMetadata["summary"] != "added login page" {
 		t.Fatalf("expected agent summary in metadata, got %v", del.ResultMetadata)
+	}
+	if del.ResultMetadata[core.ResultMetaArtifactNamespace] != "gstack" {
+		t.Fatalf("expected artifact namespace in metadata, got %v", del.ResultMetadata)
+	}
+	if del.ResultMetadata[core.ResultMetaProducerSkill] != "gstack-review" {
+		t.Fatalf("expected producer skill in metadata, got %v", del.ResultMetadata)
 	}
 	if del.ResultMetadata["signal_source"] != "agent" {
 		t.Fatalf("expected signal_source=agent, got %v", del.ResultMetadata["signal_source"])

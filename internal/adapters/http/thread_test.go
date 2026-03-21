@@ -339,6 +339,60 @@ func TestThreadMessageCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadMessageArtifactMetadataRoundTrip(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "artifact-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/messages", thread.ID), map[string]any{
+		"sender_id": "user-1",
+		"role":      "human",
+		"content":   "office-hours artifact ready",
+		"metadata": map[string]any{
+			core.ResultMetaArtifactNamespace: "gstack",
+			core.ResultMetaArtifactType:      "design_doc",
+			core.ResultMetaArtifactFormat:    "markdown",
+			core.ResultMetaArtifactRelPath:   ".ai-workflow/artifacts/gstack/office-hours/2026-03-21-login-flow.md",
+			core.ResultMetaArtifactTitle:     "Login Flow Design",
+			core.ResultMetaProducerSkill:     "gstack-office-hours",
+			core.ResultMetaProducerKind:      "skill",
+			core.ResultMetaSummary:           "thread-level design note for login flow",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create artifact message: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created core.ThreadMessage
+	decodeJSON(resp, &created)
+	if created.Metadata[core.ResultMetaArtifactType] != "design_doc" {
+		t.Fatalf("artifact type = %v", created.Metadata[core.ResultMetaArtifactType])
+	}
+
+	resp, err = get(ts, fmt.Sprintf("/threads/%d/messages", thread.ID))
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var msgs []core.ThreadMessage
+	decodeJSON(resp, &msgs)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Metadata[core.ResultMetaProducerSkill] != "gstack-office-hours" {
+		t.Fatalf("producer skill = %v", msgs[0].Metadata[core.ResultMetaProducerSkill])
+	}
+	if msgs[0].Metadata[core.ResultMetaSummary] != "thread-level design note for login flow" {
+		t.Fatalf("summary = %v", msgs[0].Metadata[core.ResultMetaSummary])
+	}
+}
+
 func TestThreadMessageReplyTo(t *testing.T) {
 	h, ts := setupAPI(t)
 
