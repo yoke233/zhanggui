@@ -766,14 +766,14 @@
     {
       "id": "task-020",
       "title": "review 并修复前端 Phase 2 Proposal 操作面",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P0",
       "depends_on": [
         "task-019"
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "a9509bf",
       "validation": {
         "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
         "timeout_seconds": 1800
@@ -831,5 +831,5 @@
     }
   ],
   "session_count": 18,
-  "last_session": "2026-03-21T04:02:23.0691125Z"
+  "last_session": "2026-03-21T04:12:20.1072910Z"
 }

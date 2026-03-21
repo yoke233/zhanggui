@@ -11,4 +11,5 @@
 - 已完成 `task-018` review：未发现需要修复的 correctness 问题；再次通过 `npm --prefix web test -- --run src/lib/apiClient.test.ts` 与 `pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1`。
 - 已完成 `task-019`：在线程页右侧 sidebar 增加 Proposal 区，支持创建、编辑、提交、审批与驳回/返修动作。
 - 已通过验证：`npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts`
-- 当前进入 `task-020`：review Proposal 操作面并执行 build 验证。
+- 已完成 `task-020`：补 Proposal 输入校验，拦截非法 `source_message_id`，并再次通过 ThreadDetailPage/apiClient 测试与前端 build。
+- 当前进入 `task-021`：开始补 Initiative 页面与入口。

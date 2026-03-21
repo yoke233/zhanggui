@@ -32,7 +32,8 @@
 - `task-017` 已完成实现与验证：补齐 `Proposal / Initiative` 前端类型、`apiClient` 契约和路由命中测试。
 - `task-018` 已完成 review：未发现需要修复的 correctness 问题，单测与 build 已通过。
 - `task-019` 已完成实现与验证：在线程页侧栏补 proposal 列表、草案编辑、提交与审批动作。
-- 当前进入 `task-020`：review 并修复 Proposal 操作面实现，随后执行 build 验证。
+- `task-020` 已完成 review/fix：补上 proposal 输入的数字校验与回归测试，前端 build 通过。
+- 当前进入 `task-021`：新增 Initiative 详情页与审批入口。
 
 ## 本轮结论
 

@@ -12,3 +12,4 @@
 - 后端实际上已经提供完整的 `proposal` / `initiative` 路由，因此缺口主要在前端接入而不是后端能力。见 `internal/adapters/http/proposal.go:39`、`internal/adapters/http/initiative.go:43`。
 - 已完成 Phase 1 契约层补齐：`web/src/types/apiV2.ts` 新增 `ThreadProposal`、`ProposalWorkItemDraft`、`Initiative`、`InitiativeDetail`、`InitiativeItem`、`ThreadInitiativeLink` 及请求体类型；`web/src/lib/apiClient.ts` 新增 `/threads/{id}/proposals`、`/proposals/*`、`/initiatives/*` 的访问方法；`web/src/lib/apiClient.test.ts` 已覆盖 proposal / initiative 路由命中。
 - 已完成 Phase 2 第一轮实现：`ThreadDetailPage` 现在会加载 thread proposals，并在右侧 sidebar 提供 `New Proposal`、草案编辑、draft 明细、`Submit/Approve/Reject/Revise` 动作；`ThreadDetailPage.test.tsx` 已覆盖创建 proposal、编辑保存和提交审批。
+- 已完成 Phase 2 review 修补：proposal 编辑器会在前端拦截非法 `source_message_id`，避免把无效字符串静默提交成空值；该校验已有组件测试覆盖。

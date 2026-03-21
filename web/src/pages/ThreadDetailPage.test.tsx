@@ -766,6 +766,41 @@ describe("ThreadDetailPage", () => {
     expect(await screen.findByText("提案 A")).toBeTruthy();
   });
 
+  it("proposal 草案会拦截非法 source message ID", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi.fn().mockResolvedValue([]),
+      createThreadProposal: vi.fn(),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New Proposal" }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("Proposal title"), {
+      target: { value: "提案 B" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Source message ID"), {
+      target: { value: "not-a-number" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create Proposal" }));
+
+    expect(apiClient.createThreadProposal).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Source message ID 必须是数字。"),
+    ).toBeTruthy();
+  });
+
   it("支持编辑 draft proposal 并保存草案", async () => {
     const wsClient = createWsClientMock();
     const draftProposal = {

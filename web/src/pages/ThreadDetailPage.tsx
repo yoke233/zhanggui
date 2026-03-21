@@ -1632,12 +1632,25 @@ export function ThreadDetailPage() {
 
   const handleSaveProposal = async () => {
     if (!id || !proposalEditor.title.trim()) return;
+    const sourceMessageID = proposalEditor.sourceMessageId.trim();
+    if (sourceMessageID.length > 0 && !Number.isInteger(Number(sourceMessageID))) {
+      setError("Source message ID 必须是数字。");
+      return;
+    }
+    const invalidProjectDraft = proposalEditor.drafts.find(
+      (draft) =>
+        draft.project_id.trim().length > 0 &&
+        !Number.isInteger(Number(draft.project_id.trim())),
+    );
+    if (invalidProjectDraft) {
+      setError("Draft project_id 必须是数字。");
+      return;
+    }
     setSavingProposal(true);
     setError(null);
     const drafts = proposalEditor.drafts
       .map((draft, index) => buildProposalDraftPayload(draft, index))
       .filter((draft): draft is ProposalWorkItemDraft => draft !== null);
-    const sourceMessageID = proposalEditor.sourceMessageId.trim();
     try {
       if (proposalEditor.proposalId == null) {
         await apiClient.createThreadProposal(id, {
