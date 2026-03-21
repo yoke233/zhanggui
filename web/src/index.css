@@ -80,3 +80,14 @@ textarea {
 #root {
   min-height: 100vh;
 }
+
+/* ── Mobile: safe-area insets for notched devices ── */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-top    { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+}
+
+/* ── Mobile drawer overlay ── */
+.drawer-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
