@@ -2,12 +2,13 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
 func runToDeliverableResponse(run *core.Run, assets []*core.Resource) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"id":              run.ID,
 		"run_id":          run.ID,
 		"action_id":       run.ActionID,
@@ -17,6 +18,41 @@ func runToDeliverableResponse(run *core.Run, assets []*core.Resource) map[string
 		"assets":          assets,
 		"created_at":      run.CreatedAt,
 	}
+	if artifact := normalizeArtifactResponse(run.ResultMetadata); artifact != nil {
+		resp["artifact"] = artifact
+	}
+	return resp
+}
+
+func normalizeArtifactResponse(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	artifact := map[string]any{}
+	copyArtifactString(metadata, artifact, core.ResultMetaArtifactNamespace, "namespace")
+	copyArtifactString(metadata, artifact, core.ResultMetaArtifactType, "type")
+	copyArtifactString(metadata, artifact, core.ResultMetaArtifactFormat, "format")
+	copyArtifactString(metadata, artifact, core.ResultMetaArtifactRelPath, "relpath")
+	copyArtifactString(metadata, artifact, core.ResultMetaArtifactTitle, "title")
+	copyArtifactString(metadata, artifact, core.ResultMetaProducerSkill, "producer_skill")
+	copyArtifactString(metadata, artifact, core.ResultMetaProducerKind, "producer_kind")
+	copyArtifactString(metadata, artifact, core.ResultMetaSummary, "summary")
+	if len(artifact) == 0 {
+		return nil
+	}
+	return artifact
+}
+
+func copyArtifactString(src, dst map[string]any, srcKey, dstKey string) {
+	value, ok := src[srcKey].(string)
+	if !ok {
+		return
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	dst[dstKey] = value
 }
 
 func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +70,10 @@ func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if !run.HasResult() {
+		writeError(w, http.StatusNotFound, "artifact not found", "NOT_FOUND")
 		return
 	}
 	assets, err := h.store.ListResourcesByRun(r.Context(), run.ID)
@@ -86,7 +126,7 @@ func (h *Handler) listDeliverablesByRun(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Return the run's inline result as a single-element array for backward compat.
-	if run.ResultMarkdown == "" {
+	if !run.HasResult() {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
