@@ -300,7 +300,7 @@ export function MobileHomePage() {
       {/* ======= Header ======= */}
       <header className="shrink-0 border-b px-4 py-3 md:px-6">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <div className="hidden items-center gap-2.5 md:flex">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <GitBranch className="h-4 w-4" />
             </div>
