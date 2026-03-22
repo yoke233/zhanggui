@@ -9,7 +9,6 @@ import (
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/zhanggui/internal/adapters/agent/acpclient"
-	legacycore "github.com/yoke233/zhanggui/internal/legacy/core"
 )
 
 func TestACPHandlerResolveThreadPaths(t *testing.T) {
@@ -197,19 +196,19 @@ func stringPtr(value string) *string {
 }
 
 type recordingPublisher struct {
-	events []legacycore.Event
+	events []Event
 }
 
-func (p *recordingPublisher) Publish(_ context.Context, evt legacycore.Event) error {
+func (p *recordingPublisher) Publish(_ context.Context, evt Event) error {
 	p.events = append(p.events, evt)
 	return nil
 }
 
 type recordingRunEventRecorder struct {
-	events []legacycore.ChatRunEvent
+	events []ChatRunEvent
 }
 
-func (r *recordingRunEventRecorder) AppendChatRunEvent(event legacycore.ChatRunEvent) error {
+func (r *recordingRunEventRecorder) AppendChatRunEvent(event ChatRunEvent) error {
 	r.events = append(r.events, event)
 	return nil
 }

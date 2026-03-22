@@ -18,15 +18,14 @@ import (
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/zhanggui/internal/adapters/agent/acpclient"
-	"github.com/yoke233/zhanggui/internal/legacy/core"
 )
 
 type acpEventPublisher interface {
-	Publish(ctx context.Context, evt core.Event) error
+	Publish(ctx context.Context, evt Event) error
 }
 
 type ChatRunEventRecorder interface {
-	AppendChatRunEvent(event core.ChatRunEvent) error
+	AppendChatRunEvent(event ChatRunEvent) error
 }
 
 type SessionStateCallback func(commands []acpproto.AvailableCommand, configOptions []acpproto.SessionConfigOptionSelect)
@@ -518,10 +517,10 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 						payload["acp_raw"] = rawUpdate
 					}
 				}
-				if err := recorder.AppendChatRunEvent(core.ChatRunEvent{
+				if err := recorder.AppendChatRunEvent(ChatRunEvent{
 					SessionID:  chatSessionID,
 					ProjectID:  projectID,
-					EventType:  string(core.EventRunUpdate),
+					EventType:  string(EventRunUpdate),
 					UpdateType: updateType,
 					Payload:    payload,
 					CreatedAt:  time.Now().UTC(),
@@ -533,8 +532,8 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	}
 
 	if h.publisher != nil {
-		h.publisher.Publish(ctx, core.Event{
-			Type:      core.EventRunUpdate,
+		h.publisher.Publish(ctx, Event{
+			Type:      EventRunUpdate,
 			ProjectID: projectID,
 			Data:      data,
 			Timestamp: time.Now(),
@@ -638,10 +637,10 @@ func (h *ACPHandler) flushPendingChatRunEventsLocked(recorder ChatRunEventRecord
 			},
 		},
 	}
-	return recorder.AppendChatRunEvent(core.ChatRunEvent{
+	return recorder.AppendChatRunEvent(ChatRunEvent{
 		SessionID:  pending.sessionID,
 		ProjectID:  pending.projectID,
-		EventType:  string(core.EventRunUpdate),
+		EventType:  string(EventRunUpdate),
 		UpdateType: aggregatedType,
 		Payload:    payload,
 		CreatedAt:  pending.createdAt,
@@ -777,8 +776,8 @@ func (h *ACPHandler) publishFilesChanged(filePaths []string) {
 	}
 	h.mu.Unlock()
 
-	h.publisher.Publish(context.Background(), core.Event{
-		Type:      core.EventTeamLeaderFilesChanged,
+	h.publisher.Publish(context.Background(), Event{
+		Type:      EventTeamLeaderFilesChanged,
 		ProjectID: projectID,
 		Data: map[string]string{
 			"session_id": sessionID,
