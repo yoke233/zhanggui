@@ -23,3 +23,13 @@
 [2026-03-22T13:49:49.6738751+08:00] [SESSION-2] CHECKPOINT [task-004] step=2/2 "已通过单测与构建验证"
 [2026-03-22T13:50:09.1602261+08:00] [SESSION-2] Completed [task-004] (commit 61a0c87)
 [2026-03-22T13:50:09.1602261+08:00] [SESSION-2] STATS tasks_total=9 completed=4 failed=0 pending=5 blocked=0 attempts_total=0 checkpoints=8
+[2026-03-22T14:05:07.5565678+08:00] [SESSION-3] Starting [task-005] 拆分 Thread 与 Chat 相关的大接口状态边界 (base=5bc0d25)
+[2026-03-22T14:05:07.5618031+08:00] [SESSION-3] CHECKPOINT [task-005] step=1/2 "已拆分 Chat 与 Thread 大接口边界"
+[2026-03-22T14:14:59.9020347+08:00] [SESSION-3] CHECKPOINT [task-005] step=2/2 "已复跑 frontend-unit、frontend-build、suite-p3 并确认类型边界拆分安全"
+[2026-03-22T14:15:00.9020347+08:00] [SESSION-3] Completed [task-005] (commit 2ca0d66)
+[2026-03-22T14:15:01.9020347+08:00] [SESSION-3] STATS tasks_total=9 completed=5 failed=0 pending=4 blocked=0 attempts_total=0 checkpoints=10
+[2026-03-22T14:16:35.1639068+08:00] [SESSION-3] Starting [task-006] 接入全局 RootErrorBoundary 并补局部恢复点 (base=2ca0d66)
+[2026-03-22T14:17:32.1453743+08:00] [SESSION-3] CHECKPOINT [task-006] step=1/2 "已新增 RootErrorBoundary 并接入 main.tsx 根渲染"
+[2026-03-22T14:19:37.0948212+08:00] [SESSION-3] CHECKPOINT [task-006] step=2/2 "已通过 frontend-unit 与 frontend-build 验证"
+[2026-03-22T14:19:38.0948212+08:00] [SESSION-3] Completed [task-006] (commit b0aed60)
+[2026-03-22T14:19:39.0948212+08:00] [SESSION-3] STATS tasks_total=9 completed=6 failed=0 pending=3 blocked=0 attempts_total=0 checkpoints=12

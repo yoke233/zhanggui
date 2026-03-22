@@ -149,7 +149,7 @@
     {
       "id": "task-005",
       "title": "拆分 Thread 与 Chat 相关的大接口状态边界",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "depends_on": [
         "task-001",
@@ -159,7 +159,7 @@
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "5bc0d25",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\suite-p3.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 2400
@@ -168,20 +168,33 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已将 ChatMainPanelProps 与 ThreadSidebarProps 按视图/草稿/消息流和 info/members/proposals/tasks/files 拆成组合接口",
+          "timestamp": "2026-03-22T14:05:07.5618031+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已复跑 frontend-unit、frontend-build、suite-p3 并确认类型边界拆分不影响运行逻辑",
+          "timestamp": "2026-03-22T14:14:59.9020347+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T14:15:00.9020347+08:00"
     },
     {
       "id": "task-006",
       "title": "接入全局 RootErrorBoundary 并补局部恢复点",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "depends_on": [
         "task-001"
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "2ca0d66",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 1200
@@ -190,8 +203,21 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已新增 RootErrorBoundary，并在 main.tsx 根渲染处包裹 App，同时补充兜底页单测",
+          "timestamp": "2026-03-22T14:17:32.1453743+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已通过 frontend-unit 与 frontend-build 验证，根级兜底页可正常编译与渲染",
+          "timestamp": "2026-03-22T14:19:37.0948212+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T14:19:38.0948212+08:00"
     },
     {
       "id": "task-007",
@@ -266,6 +292,6 @@
       "completed_at": null
     }
   ],
-  "session_count": 2,
-  "last_session": "2026-03-22T13:50:09.1602261+08:00"
+  "session_count": 3,
+  "last_session": "2026-03-22T14:19:39.0948212+08:00"
 }
