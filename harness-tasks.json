@@ -1,0 +1,232 @@
+{
+  "version": 2,
+  "created": "2026-03-22T13:28:39.1123843+08:00",
+  "session_config": {
+    "concurrency_mode": "exclusive",
+    "max_tasks_per_session": 2,
+    "max_sessions": 30
+  },
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "校准前端重构基线并冻结拆分蓝图",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "0d96478",
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"if (-not (Test-Path '.\\\\docs\\\\plan\\\\2026-03-22-frontend-deferred-refactor-harness-plan.zh-CN.md')) { Write-Error 'missing plan doc'; exit 1 }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 600
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已确认大文件基线：ThreadDetailPage 2478 行、ChatPage 1433 行、ThreadSidebar 1253 行，并梳理 Chat/Thread 消息链路",
+          "timestamp": "2026-03-22T13:31:49.1924552+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已落盘 harness backlog 与阶段计划文档，冻结依赖顺序、验证命令和风险边界",
+          "timestamp": "2026-03-22T13:31:49.1924552+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T13:32:43.0328484+08:00"
+    },
+    {
+      "id": "task-002",
+      "title": "拆分 ThreadDetailPage 展示层与页面壳",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-001"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-003",
+      "title": "拆分 ChatPage 展示层与页面壳",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-001"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-004",
+      "title": "为 ThreadSidebar 建立局部 context 并消除高频 prop drilling",
+      "status": "pending",
+      "priority": "P1",
+      "depends_on": [
+        "task-001",
+        "task-002"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-005",
+      "title": "拆分 Thread 与 Chat 相关的大接口状态边界",
+      "status": "pending",
+      "priority": "P1",
+      "depends_on": [
+        "task-001",
+        "task-002",
+        "task-003",
+        "task-004"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\suite-p3.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-006",
+      "title": "接入全局 RootErrorBoundary 并补局部恢复点",
+      "status": "pending",
+      "priority": "P1",
+      "depends_on": [
+        "task-001"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-007",
+      "title": "抽离消息列表容器边界并统一滚动接口",
+      "status": "pending",
+      "priority": "P1",
+      "depends_on": [
+        "task-001",
+        "task-003"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-008",
+      "title": "接入消息列表虚拟化并适配流式跟随滚动",
+      "status": "pending",
+      "priority": "P1",
+      "depends_on": [
+        "task-007"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-e2e.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-009",
+      "title": "执行长会话性能回归与跨层验收",
+      "status": "pending",
+      "priority": "P2",
+      "depends_on": [
+        "task-002",
+        "task-003",
+        "task-004",
+        "task-005",
+        "task-006",
+        "task-008"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-e2e.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\suite-p3.ps1'; exit $LASTEXITCODE\"",
+        "timeout_seconds": 3600
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    }
+  ],
+  "session_count": 1,
+  "last_session": "2026-03-22T13:32:43.0328484+08:00"
+}
