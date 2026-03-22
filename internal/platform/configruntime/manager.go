@@ -194,7 +194,7 @@ func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, erro
 			LaunchCommand: strings.TrimSpace(item.LaunchCommand),
 			LaunchArgs:    append([]string(nil), item.LaunchArgs...),
 			SandboxArgs:   append([]string(nil), item.SandboxArgs...),
-			Env:           cloneStringMap(item.Env),
+			Env:           config.CloneStringMap(item.Env),
 			CapabilitiesMax: core.DriverCapabilities{
 				FSRead:   item.CapabilitiesMax.FSRead,
 				FSWrite:  item.CapabilitiesMax.FSWrite,
@@ -886,7 +886,7 @@ func buildMCPServers(cfg *config.Config, secrets *config.Secrets, profiles []*co
 			Endpoint:  strings.TrimSpace(server.Endpoint),
 			Command:   strings.TrimSpace(server.Command),
 			Args:      append([]string(nil), server.Args...),
-			Env:       cloneStringMap(server.Env),
+			Env:       config.CloneStringMap(server.Env),
 			Headers:   headers,
 			Enabled:   server.Enabled,
 		}
@@ -1021,13 +1021,3 @@ func mapKeys[K comparable, V any](m map[K][]V) []K {
 	return keys
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}

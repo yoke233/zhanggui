@@ -24,7 +24,7 @@ func (d Duration) MarshalText() ([]byte, error) {
 }
 
 type Config struct {
-	Run       RunConfig       `toml:"run"        yaml:"Run"`
+	Run       RunConfig       `toml:"run"        yaml:"run"`
 	Scheduler SchedulerConfig `toml:"scheduler"  yaml:"scheduler"`
 	Server    ServerConfig    `toml:"server"     yaml:"server"`
 	GitHub    GitHubConfig    `toml:"github"     yaml:"github"`
@@ -378,7 +378,7 @@ type LogConfig struct {
 
 // ConfigLayer 表示可选覆盖层。nil 字段表示"未设置"，用于多层配置继承合并。
 type ConfigLayer struct {
-	Run       *RunLayer       `toml:"run"       yaml:"Run"`
+	Run       *RunLayer       `toml:"run"       yaml:"run"`
 	Scheduler *SchedulerLayer `toml:"scheduler" yaml:"scheduler"`
 	Server    *ServerLayer    `toml:"server"    yaml:"server"`
 	GitHub    *GitHubLayer    `toml:"github"    yaml:"github"`

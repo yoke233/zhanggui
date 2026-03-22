@@ -125,7 +125,7 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			cfg.GitHub.PREnabled = *github.PREnabled
 		}
 		if github.LabelMapping != nil {
-			cfg.GitHub.LabelMapping = cloneStringMap(*github.LabelMapping)
+			cfg.GitHub.LabelMapping = CloneStringMap(*github.LabelMapping)
 		}
 		if github.AuthorizedUsernames != nil {
 			cfg.GitHub.AuthorizedUsernames = cloneStringSlice(*github.AuthorizedUsernames)
@@ -212,7 +212,7 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 				cfg.Audit.OTLP.Endpoint = *otlp.Endpoint
 			}
 			if otlp.Headers != nil {
-				cfg.Audit.OTLP.Headers = cloneStringMap(*otlp.Headers)
+				cfg.Audit.OTLP.Headers = CloneStringMap(*otlp.Headers)
 			}
 		}
 	}
@@ -466,7 +466,7 @@ func mergeRuntimePromptMergeStates(dst *RuntimePRMergeStatePromptConfig, src *Ru
 
 func cloneGitHubConfig(in GitHubConfig) GitHubConfig {
 	out := in
-	out.LabelMapping = cloneStringMap(in.LabelMapping)
+	out.LabelMapping = CloneStringMap(in.LabelMapping)
 	out.AuthorizedUsernames = cloneStringSlice(in.AuthorizedUsernames)
 	out.PR.Reviewers = cloneStringSlice(in.PR.Reviewers)
 	out.PR.Labels = cloneStringSlice(in.PR.Labels)
@@ -475,7 +475,7 @@ func cloneGitHubConfig(in GitHubConfig) GitHubConfig {
 
 func cloneAuditConfig(in AuditConfig) AuditConfig {
 	out := in
-	out.OTLP.Headers = cloneStringMap(in.OTLP.Headers)
+	out.OTLP.Headers = CloneStringMap(in.OTLP.Headers)
 	return out
 }
 
@@ -486,7 +486,10 @@ func cloneStringSlice(in []string) []string {
 	return append([]string(nil), in...)
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
+// CloneStringMap returns a shallow copy of a string-to-string map.
+// It is exported so that sibling packages (e.g. configruntime) can reuse
+// the same implementation instead of maintaining a duplicate.
+func CloneStringMap(in map[string]string) map[string]string {
 	if in == nil {
 		return nil
 	}
@@ -531,7 +534,7 @@ func cloneRuntimeDrivers(in []RuntimeDriverConfig) []RuntimeDriverConfig {
 			out[i].LaunchArgs = append([]string(nil), in[i].LaunchArgs...)
 		}
 		if in[i].Env != nil {
-			out[i].Env = cloneStringMap(in[i].Env)
+			out[i].Env = CloneStringMap(in[i].Env)
 		}
 	}
 	return out
@@ -568,7 +571,7 @@ func cloneRuntimeMCPServers(in []RuntimeMCPServerConfig) []RuntimeMCPServerConfi
 	for i := range in {
 		out[i] = in[i]
 		out[i].Args = cloneStringSlice(in[i].Args)
-		out[i].Env = cloneStringMap(in[i].Env)
+		out[i].Env = CloneStringMap(in[i].Env)
 	}
 	return out
 }

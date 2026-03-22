@@ -70,7 +70,7 @@ func convertProfiles(driverCfgs []config.RuntimeDriverConfig, profileCfgs []conf
 				LaunchCommand: d.LaunchCommand,
 				LaunchArgs:    append([]string(nil), d.LaunchArgs...),
 				SandboxArgs:   append([]string(nil), d.SandboxArgs...),
-				Env:           cloneStringMap(d.Env),
+				Env:           config.CloneStringMap(d.Env),
 				CapabilitiesMax: core.DriverCapabilities{
 					FSRead:   d.CapabilitiesMax.FSRead,
 					FSWrite:  d.CapabilitiesMax.FSWrite,
@@ -79,17 +79,7 @@ func convertProfiles(driverCfgs []config.RuntimeDriverConfig, profileCfgs []conf
 			}
 			if llmCfg, ok := llmMap[c.LLMConfigID]; ok {
 				if profilellm.ValidateDriverProviderCompatibility(d.ID, d.LaunchCommand, d.LaunchArgs, llmCfg.Type) == nil {
-					driverCfg.Env = profilellm.MergeEnv(profilellm.BuildEnv(profilellm.ProviderConfig{
-						ID:                   llmCfg.ID,
-						Type:                 llmCfg.Type,
-						BaseURL:              llmCfg.BaseURL,
-						APIKey:               llmCfg.APIKey,
-						Model:                llmCfg.Model,
-						Temperature:          llmCfg.Temperature,
-						MaxOutputTokens:      llmCfg.MaxOutputTokens,
-						ReasoningEffort:      llmCfg.ReasoningEffort,
-						ThinkingBudgetTokens: llmCfg.ThinkingBudgetTokens,
-					}), driverCfg.Env)
+					driverCfg.Env = profilellm.MergeEnv(profilellm.BuildEnv(NewProviderConfigFromEntry(&llmCfg)), driverCfg.Env)
 				}
 			}
 		}

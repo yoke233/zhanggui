@@ -303,13 +303,13 @@ func TestResolveSecretRefAndHelpers(t *testing.T) {
 	if len(keys) != 2 {
 		t.Fatalf("mapKeys() = %#v", keys)
 	}
-	if cloneStringMap(nil) != nil {
-		t.Fatalf("cloneStringMap(nil) should return nil")
+	if config.CloneStringMap(nil) != nil {
+		t.Fatalf("config.CloneStringMap(nil) should return nil")
 	}
-	cloned := cloneStringMap(map[string]string{"A": "1"})
+	cloned := config.CloneStringMap(map[string]string{"A": "1"})
 	cloned["A"] = "2"
 	if cloned["A"] != "2" {
-		t.Fatalf("cloneStringMap() clone not writable")
+		t.Fatalf("config.CloneStringMap() clone not writable")
 	}
 }
 

@@ -93,17 +93,7 @@ func (r *resolvingRegistry) materializeProfile(profile *core.AgentProfile) (*cor
 		if err := profilellm.ValidateDriverProviderCompatibility(cloned.DriverID, cloned.Driver.LaunchCommand, cloned.Driver.LaunchArgs, llmCfg.Type); err != nil {
 			return nil, fmt.Errorf("profile %q llm config %q incompatible with driver: %w", cloned.ID, llmConfigID, err)
 		}
-		cloned.Driver.Env = profilellm.MergeEnv(profilellm.BuildEnv(profilellm.ProviderConfig{
-			ID:                   llmCfg.ID,
-			Type:                 llmCfg.Type,
-			BaseURL:              llmCfg.BaseURL,
-			APIKey:               llmCfg.APIKey,
-			Model:                llmCfg.Model,
-			Temperature:          llmCfg.Temperature,
-			MaxOutputTokens:      llmCfg.MaxOutputTokens,
-			ReasoningEffort:      llmCfg.ReasoningEffort,
-			ThinkingBudgetTokens: llmCfg.ThinkingBudgetTokens,
-		}), cloned.Driver.Env)
+		cloned.Driver.Env = profilellm.MergeEnv(profilellm.BuildEnv(NewProviderConfigFromEntry(llmCfg)), cloned.Driver.Env)
 	}
 
 	return cloned, nil
@@ -142,7 +132,7 @@ func cloneDriverConfig(driver *core.DriverConfig) core.DriverConfig {
 		cloned.SandboxArgs = append([]string(nil), driver.SandboxArgs...)
 	}
 	if driver.Env != nil {
-		cloned.Env = cloneStringMap(driver.Env)
+		cloned.Env = config.CloneStringMap(driver.Env)
 	}
 	return cloned
 }
