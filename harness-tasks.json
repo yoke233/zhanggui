@@ -113,7 +113,7 @@
     {
       "id": "task-004",
       "title": "为 ThreadSidebar 建立局部 context 并消除高频 prop drilling",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P1",
       "depends_on": [
         "task-001",
@@ -144,7 +144,7 @@
           "timestamp": "2026-03-22T13:49:49.6738751+08:00"
         }
       ],
-      "completed_at": null
+      "completed_at": "2026-03-22T13:50:09.1602261+08:00"
     },
     {
       "id": "task-005",
@@ -267,5 +267,5 @@
     }
   ],
   "session_count": 2,
-  "last_session": "2026-03-22T13:47:35.3616785+08:00"
+  "last_session": "2026-03-22T13:50:09.1602261+08:00"
 }

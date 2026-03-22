@@ -21,3 +21,5 @@
 [2026-03-22T13:48:35.5482436+08:00] [SESSION-2] Starting [task-004] 为 ThreadSidebar 建立局部 context 并消除高频 prop drilling (base=4311cff)
 [2026-03-22T13:48:35.5532572+08:00] [SESSION-2] CHECKPOINT [task-004] step=1/2 "已引入 ThreadSidebar 局部 context"
 [2026-03-22T13:49:49.6738751+08:00] [SESSION-2] CHECKPOINT [task-004] step=2/2 "已通过单测与构建验证"
+[2026-03-22T13:50:09.1602261+08:00] [SESSION-2] Completed [task-004] (commit 61a0c87)
+[2026-03-22T13:50:09.1602261+08:00] [SESSION-2] STATS tasks_total=9 completed=4 failed=0 pending=5 blocked=0 attempts_total=0 checkpoints=8
