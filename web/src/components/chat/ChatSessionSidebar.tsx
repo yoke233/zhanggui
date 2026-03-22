@@ -18,7 +18,7 @@ interface SessionItemProps {
   onArchive?: (sessionId: string) => void;
 }
 
-const SessionItem = memo(function SessionItem({ session, isActive, preview, turnCount, hasPermission, onSelect, onArchive }: SessionItemProps) {
+const SessionItem = memo(function SessionItem({ session, isActive, preview, turnCount: _turnCount, hasPermission, onSelect, onArchive }: SessionItemProps) {
   const { t } = useTranslation();
   const canArchive = onArchive && session.status !== "running";
   return (

@@ -10,7 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type {
-  AgentDriver,
+  DriverConfig,
   AgentProfile,
 } from "@/types/apiV2";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
@@ -105,7 +105,7 @@ export function MobileHomePage() {
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   // Lead drivers/profiles
-  const [drivers, setDrivers] = useState<AgentDriver[]>([]);
+  const [drivers, setDrivers] = useState<DriverConfig[]>([]);
   const [leadProfiles, setLeadProfiles] = useState<AgentProfile[]>([]);
   const [draftProjectId, setDraftProjectId] = useState<number | null>(selectedProjectId);
   const [draftDriverId, setDraftDriverId] = useState("");

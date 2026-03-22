@@ -11,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { AgentDriver } from "@/types/apiV2";
+import type { DriverConfig } from "@/types/apiV2";
 
 const ALL_CAPS = ["fs_read", "fs_write", "terminal"] as const;
 type Cap = (typeof ALL_CAPS)[number];
@@ -26,7 +26,7 @@ interface DriverPayload {
 interface Props {
   open: boolean;
   onClose: () => void;
-  driver?: AgentDriver | null;
+  driver?: DriverConfig | null;
   onSubmit: (payload: DriverPayload) => Promise<void>;
 }
 

@@ -387,14 +387,12 @@ export interface DriverCapabilities {
 }
 
 export interface DriverConfig {
+  id: string;
   launch_command: string;
   launch_args?: string[];
   env?: Record<string, string>;
   capabilities_max: DriverCapabilities;
 }
-
-/** @deprecated Use DriverConfig instead. */
-export type AgentDriver = DriverConfig & { id: string };
 
 export interface AgentProfileSession {
   reuse?: boolean;

@@ -5,7 +5,7 @@ import type {
   FeatureStatus,
   BootstrapPRWorkItemRequest,
   BootstrapPRWorkItemResponse,
-  AgentDriver,
+  DriverConfig,
   CancelWorkItemResponse,
   AgentProfile,
   AnalyticsFilter,
@@ -299,9 +299,9 @@ export interface ApiClient {
   createProfile(body: AgentProfile): Promise<AgentProfile>;
   updateProfile(profileId: string, body: AgentProfile): Promise<AgentProfile>;
   deleteProfile(profileId: string): Promise<void>;
-  listDrivers(): Promise<AgentDriver[]>;
-  createDriver(body: AgentDriver): Promise<AgentDriver>;
-  updateDriver(driverId: string, body: AgentDriver): Promise<AgentDriver>;
+  listDrivers(): Promise<DriverConfig[]>;
+  createDriver(body: DriverConfig): Promise<DriverConfig>;
+  updateDriver(driverId: string, body: DriverConfig): Promise<DriverConfig>;
   deleteDriver(driverId: string): Promise<void>;
   listSkills(): Promise<SkillInfo[]>;
   getSkill(name: string): Promise<SkillDetail>;
@@ -933,17 +933,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/agents/profiles",
       }).then((items) => (Array.isArray(items) ? items : [])),
     listDrivers: () =>
-      request<AgentDriver[]>({
+      request<DriverConfig[]>({
         path: "/agents/drivers",
       }).then((items) => (Array.isArray(items) ? items : [])),
     createDriver: (body) =>
-      request<AgentDriver, AgentDriver>({
+      request<DriverConfig, DriverConfig>({
         path: "/agents/drivers",
         method: "POST",
         body,
       }),
     updateDriver: (driverId, body) =>
-      request<AgentDriver, AgentDriver>({
+      request<DriverConfig, DriverConfig>({
         path: `/agents/drivers/${encodeURIComponent(driverId)}`,
         method: "PUT",
         body,

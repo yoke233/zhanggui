@@ -1,7 +1,7 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
 import { GitBranch, Paperclip, Send } from "lucide-react";
-import type { AgentDriver, AgentProfile } from "@/types/apiV2";
+import type { DriverConfig, AgentProfile } from "@/types/apiV2";
 import type { LLMConfigItem } from "@/types/system";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ interface DraftSessionSetupProps {
   draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
-  drivers: AgentDriver[];
+  drivers: DriverConfig[];
   llmConfigs: LLMConfigItem[];
   messageInput: string;
   pendingFiles: File[];

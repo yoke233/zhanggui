@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectItem } from "@/components/ui/select";
-import type { AgentDriver, AgentProfile, SkillInfo } from "@/types/apiV2";
+import type { DriverConfig, AgentProfile, SkillInfo } from "@/types/apiV2";
 import type { LLMConfigItem } from "@/types/system";
 
 type ProfileLLMMode = "system" | LLMConfigItem["type"];
@@ -80,7 +80,7 @@ function parseDurationToNanoseconds(input: string): number | null {
 interface Props {
   open: boolean;
   profile?: AgentProfile | null;
-  drivers: AgentDriver[];
+  drivers: DriverConfig[];
   llmConfigs: LLMConfigItem[];
   availableSkills: SkillInfo[];
   onClose: () => void;
@@ -101,7 +101,7 @@ function splitCSV(value: string): string[] {
     });
 }
 
-function detectDriverKind(driver?: AgentDriver | null): "codex-acp" | "claude-acp" | "agentsdk-go" | "unknown" {
+function detectDriverKind(driver?: DriverConfig | null): "codex-acp" | "claude-acp" | "agentsdk-go" | "unknown" {
   if (!driver) {
     return "unknown";
   }
@@ -130,7 +130,7 @@ function detectDriverKind(driver?: AgentDriver | null): "codex-acp" | "claude-ac
   return "unknown";
 }
 
-function supportedLLMModes(driver?: AgentDriver | null): ProfileLLMMode[] {
+function supportedLLMModes(driver?: DriverConfig | null): ProfileLLMMode[] {
   switch (detectDriverKind(driver)) {
     case "codex-acp":
       return ["system", "openai_response"];
@@ -281,12 +281,7 @@ export function CreateProfileDialog({
         name: name.trim(),
         driver_id: driverId,
         llm_config_id: llmMode === "system" ? "system" : llmConfigID || undefined,
-        driver: {
-          launch_command: selectedDriverConfig.launch_command,
-          launch_args: selectedDriverConfig.launch_args,
-          env: selectedDriverConfig.env,
-          capabilities_max: selectedDriverConfig.capabilities_max,
-        },
+        driver: selectedDriverConfig,
         role,
         capabilities: splitCSV(caps),
         actions_allowed: splitCSV(actions),

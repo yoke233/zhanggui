@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import type {
-  AgentDriver,
+  DriverConfig,
   AgentProfile,
   ConfigOption,
   Event as ApiEvent,
@@ -77,7 +77,7 @@ export function ChatPage() {
   const [messageInput, setMessageInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [drivers, setDrivers] = useState<AgentDriver[]>([]);
+  const [drivers, setDrivers] = useState<DriverConfig[]>([]);
   const [leadProfiles, setLeadProfiles] = useState<AgentProfile[]>([]);
   const [draftProjectId, setDraftProjectId] = useState<number | null>(selectedProjectId);
   const [draftProfileId, setDraftProfileId] = useState("");

@@ -1,7 +1,7 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import type { AgentDriver, AgentProfile, Event as ApiEvent } from "@/types/apiV2";
+import type { DriverConfig, AgentProfile, Event as ApiEvent } from "@/types/apiV2";
 import type { LLMConfigItem } from "@/types/system";
 import { ChatEventsPanel } from "./ChatEventsPanel";
 import { ChatScrollTrack } from "./ChatScrollTrack";
@@ -21,7 +21,7 @@ interface ChatMainPanelProps {
   draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
-  drivers: AgentDriver[];
+  drivers: DriverConfig[];
   llmConfigs: LLMConfigItem[];
   messageInput: string;
   pendingFiles: File[];

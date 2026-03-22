@@ -20,7 +20,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import { CreateProfileDialog } from "@/components/agents/CreateProfileDialog";
 import { CreateDriverDialog } from "@/components/agents/CreateDriverDialog";
-import type { AgentDriver, AgentProfile, SkillInfo } from "@/types/apiV2";
+import type { DriverConfig, AgentProfile, SkillInfo } from "@/types/apiV2";
 import type { LLMConfigItem, LLMConfigResponse, SandboxSupportResponse } from "@/types/system";
 import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 
@@ -71,7 +71,7 @@ const serializeConfig = (value: LLMConfigResponse): string => JSON.stringify({
 export function AgentsPage() {
   const { t } = useTranslation();
   const { apiClient, wsClient } = useWorkbench();
-  const [drivers, setDrivers] = useState<AgentDriver[]>([]);
+  const [drivers, setDrivers] = useState<DriverConfig[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
   const [llmData, setLLMData] = useState<LLMConfigResponse | null>(null);
@@ -87,10 +87,10 @@ export function AgentsPage() {
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<AgentProfile | null>(null);
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
-  const [editingDriver, setEditingDriver] = useState<AgentDriver | null>(null);
+  const [editingDriver, setEditingDriver] = useState<DriverConfig | null>(null);
   const [pendingDeleteProfile, setPendingDeleteProfile] = useState<AgentProfile | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
-  const [pendingDeleteDriver, setPendingDeleteDriver] = useState<AgentDriver | null>(null);
+  const [pendingDeleteDriver, setPendingDeleteDriver] = useState<DriverConfig | null>(null);
   const [deletingDriverId, setDeletingDriverId] = useState<string | null>(null);
 
   const hydrateLLM = (next: LLMConfigResponse) => {
