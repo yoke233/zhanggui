@@ -330,13 +330,14 @@ func urlParamInt64(r *http.Request, name string) (int64, bool) {
 }
 
 // queryInt parses an optional int query parameter with a default value.
+// Negative values are treated as invalid and the default is returned.
 func queryInt(r *http.Request, name string, defaultVal int) int {
 	s := r.URL.Query().Get(name)
 	if s == "" {
 		return defaultVal
 	}
 	v, err := strconv.Atoi(s)
-	if err != nil {
+	if err != nil || v < 0 {
 		return defaultVal
 	}
 	return v
