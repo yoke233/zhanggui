@@ -222,7 +222,7 @@
     {
       "id": "task-007",
       "title": "抽离消息列表容器边界并统一滚动接口",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "depends_on": [
         "task-001",
@@ -230,7 +230,7 @@
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "32df701",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 1200
@@ -239,20 +239,33 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已抽离共享 MessageListViewport，并让 ChatPage 与 ThreadDetailPage 收敛到统一的 messageContainerRef/messagesEndRef/onMessageListScroll 接口",
+          "timestamp": "2026-03-22T14:30:53.4730007+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已通过 frontend-unit 与 frontend-build 验证，消息滚动容器边界可独立复用",
+          "timestamp": "2026-03-22T14:32:28.419388+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T14:32:29.419388+08:00"
     },
     {
       "id": "task-008",
       "title": "接入消息列表虚拟化并适配流式跟随滚动",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "depends_on": [
         "task-007"
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "4b399ce",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-e2e.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 2400
@@ -261,8 +274,21 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已引入 react-virtuoso 并在 Chat feed 接入按 item 虚拟化，同时保留顶部分页加载与流式贴底逻辑",
+          "timestamp": "2026-03-22T14:39:53.1416465+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已修复 frontend-e2e 的 Playwright 依赖解析、鉴权 token 解析与后端自举链路，并通过 frontend-unit、frontend-build、frontend-e2e 验证",
+          "timestamp": "2026-03-22T14:55:16.0137925+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T14:55:17.0137925+08:00"
     },
     {
       "id": "task-009",
@@ -292,6 +318,6 @@
       "completed_at": null
     }
   ],
-  "session_count": 3,
-  "last_session": "2026-03-22T14:19:39.0948212+08:00"
+  "session_count": 4,
+  "last_session": "2026-03-22T14:55:18.0137925+08:00"
 }

@@ -33,3 +33,15 @@
 [2026-03-22T14:19:37.0948212+08:00] [SESSION-3] CHECKPOINT [task-006] step=2/2 "已通过 frontend-unit 与 frontend-build 验证"
 [2026-03-22T14:19:38.0948212+08:00] [SESSION-3] Completed [task-006] (commit b0aed60)
 [2026-03-22T14:19:39.0948212+08:00] [SESSION-3] STATS tasks_total=9 completed=6 failed=0 pending=3 blocked=0 attempts_total=0 checkpoints=12
+[2026-03-22T14:26:49.6473000+08:00] [SESSION-4] LOCK acquired (pid=22036)
+[2026-03-22T14:26:49.6473000+08:00] [SESSION-4] Starting [task-007] 抽离消息列表容器边界并统一滚动接口 (base=32df701)
+[2026-03-22T14:30:53.4730007+08:00] [SESSION-4] CHECKPOINT [task-007] step=1/2 "已抽离共享 MessageListViewport 并统一 Chat/Thread 滚动接口"
+[2026-03-22T14:32:28.4193880+08:00] [SESSION-4] CHECKPOINT [task-007] step=2/2 "已通过 frontend-unit 与 frontend-build 验证"
+[2026-03-22T14:32:29.4193880+08:00] [SESSION-4] Completed [task-007] (commit 4b399ce)
+[2026-03-22T14:32:30.4193880+08:00] [SESSION-4] STATS tasks_total=9 completed=7 failed=0 pending=2 blocked=0 attempts_total=0 checkpoints=14
+[2026-03-22T14:32:30.4193880+08:00] [SESSION-4] Starting [task-008] 接入消息列表虚拟化并适配流式跟随滚动 (base=4b399ce)
+[2026-03-22T14:39:53.1416465+08:00] [SESSION-4] CHECKPOINT [task-008] step=1/2 "已引入 react-virtuoso 并完成 Chat feed 虚拟化接线"
+[2026-03-22T14:55:17.0137925+08:00] [SESSION-4] Completed [task-008] (commit 5a7fe29)
+[2026-03-22T14:55:18.0137925+08:00] [SESSION-4] STATS tasks_total=9 completed=8 failed=0 pending=1 blocked=0 attempts_total=0 checkpoints=16
+[2026-03-22T14:55:15.0137925+08:00] [SESSION-4] RECOVERY [task-008] action="resume validation and repair E2E harness" reason="previous session stopped after checkpoint 1 before final validation and completion bookkeeping"
+[2026-03-22T14:55:16.0137925+08:00] [SESSION-4] CHECKPOINT [task-008] step=2/2 "已修复 frontend-e2e 依赖、鉴权与后端自举链路，并通过 frontend-unit/frontend-build/frontend-e2e"
