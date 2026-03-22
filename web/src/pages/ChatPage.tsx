@@ -41,11 +41,13 @@ import { ChatSessionSidebar } from "@/components/chat/ChatSessionSidebar";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatMainPanel } from "@/components/chat/ChatMainPanel";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
+import { ChatPageShell } from "@/components/chat/ChatPageShell";
+import { ChatErrorBanner } from "@/components/chat/ChatErrorBanner";
 import { PermissionBar, type PermissionRequest } from "@/components/chat/PermissionBar";
 import { useChatFeed } from "@/components/chat/useChatFeed";
 import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { MessagesSquare, X } from "lucide-react";
+import { MessagesSquare } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
 function isSessionAlreadyRunningError(message: string | null | undefined): boolean {
@@ -1349,26 +1351,27 @@ export function ChatPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <ChatSessionSidebar
-        groupedSessions={groupedSessions}
-        activeSession={activeSession}
-        sessionSearch={sessionSearch}
-        loadingSessions={loadingSessions}
-        creatingSession={submitting && !activeSession}
-        messagesBySession={messagesBySession}
-        collapsedGroups={collapsedGroups}
-        pendingPermissionSessionIds={pendingPermissionSessionIds}
-        onSearchChange={setSessionSearch}
-        onSessionSelect={setActiveSession}
-        onGroupToggle={handleGroupToggle}
-        onCreateSession={createSession}
-        onArchiveSession={archiveSession}
-        {...(isMobile ? { drawerOpen: chatSidebarOpen, onClose: () => setChatSidebarOpen(false) } : {})}
-      />
-
-      <div className="flex flex-1 flex-col">
-        {isMobile && (
+    <ChatPageShell
+      sidebar={
+        <ChatSessionSidebar
+          groupedSessions={groupedSessions}
+          activeSession={activeSession}
+          sessionSearch={sessionSearch}
+          loadingSessions={loadingSessions}
+          creatingSession={submitting && !activeSession}
+          messagesBySession={messagesBySession}
+          collapsedGroups={collapsedGroups}
+          pendingPermissionSessionIds={pendingPermissionSessionIds}
+          onSearchChange={setSessionSearch}
+          onSessionSelect={setActiveSession}
+          onGroupToggle={handleGroupToggle}
+          onCreateSession={createSession}
+          onArchiveSession={archiveSession}
+          {...(isMobile ? { drawerOpen: chatSidebarOpen, onClose: () => setChatSidebarOpen(false) } : {})}
+        />
+      }
+      mobileHeader={
+        isMobile ? (
           <div className="flex h-10 shrink-0 items-center border-b px-3">
             <button
               onClick={() => setChatSidebarOpen(true)}
@@ -1378,8 +1381,10 @@ export function ChatPage() {
               <MessagesSquare className="h-4 w-4" />
             </button>
           </div>
-        )}
-        {!isDraftSessionView && (
+        ) : null
+      }
+      header={
+        !isDraftSessionView ? (
           <ChatHeader
             session={currentSession}
             driverLabel={currentDriverLabel}
@@ -1396,21 +1401,10 @@ export function ChatPage() {
             onRefreshPR={() => void refreshPR()}
             prLoading={prLoading}
           />
-        )}
-
-        {error && (
-          <div className="mx-5 mt-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            <span className="min-w-0 flex-1">{error}</span>
-            <button
-              type="button"
-              className="shrink-0 rounded p-0.5 text-rose-400 transition-colors hover:text-rose-600"
-              onClick={() => setError(null)}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
+        ) : null
+      }
+      errorBanner={error ? <ChatErrorBanner error={error} onClose={() => setError(null)} /> : null}
+      mainPanel={
         <ChatMainPanel
           detailView={detailView}
           currentEvents={currentEvents}
@@ -1472,13 +1466,15 @@ export function ChatPage() {
             })
           }
         />
-
+      }
+      permissionBar={
         <PermissionBar
           permissions={visiblePendingPermissions}
           onResponse={handlePermissionResponse}
         />
-
-        {!isDraftSessionView && (
+      }
+      inputBar={
+        !isDraftSessionView ? (
           <ChatInputBar
             messageInput={messageInput}
             pendingFiles={pendingFiles}
@@ -1507,8 +1503,9 @@ export function ChatPage() {
             pendingMessage={pendingMessage}
             onCancelPending={cancelPendingMessage}
           />
-        )}
-
+        ) : null
+      }
+      hiddenFileInput={
         <input
           ref={fileInputRef}
           type="file"
@@ -1517,8 +1514,7 @@ export function ChatPage() {
           className="hidden"
           onChange={handleFileSelect}
         />
-
-      </div>
-    </div>
+      }
+    />
   );
 }
