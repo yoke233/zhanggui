@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Archive, ChevronDown, ChevronRight, GitMerge, Loader2, Plus, Search, ShieldAlert } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronRight, GitMerge, Loader2, Plus, Search, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,19 +30,20 @@ const SessionItem = memo(function SessionItem({ session, isActive, preview, turn
     >
       <button
         onClick={() => onSelect(session.session_id)}
-        className="w-full px-4 py-3 pl-7 text-left"
+        className="w-full px-4 py-3 text-left"
       >
-        <div className="flex items-center justify-between gap-2">
-          <span className={cn(
-            "truncate text-sm",
-            isActive ? "font-semibold" : "font-medium",
-          )}>{session.title ?? t("chat.newSession")}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {new Date(session.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
+        <span className={cn(
+          "block truncate text-sm",
+          isActive ? "font-semibold" : "font-medium",
+        )}>{session.title ?? t("chat.newSession")}</span>
         <p className="mt-1.5 truncate text-xs text-muted-foreground">{preview}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex items-center gap-1.5">
+          {session.status === "running" && (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-500" />
+          )}
+          {session.status === "closed" && (
+            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+          )}
           <span
             className={cn(
               "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium",
@@ -55,12 +56,7 @@ const SessionItem = memo(function SessionItem({ session, isActive, preview, turn
           >
             {badgeLabelForStatus(session.status, t)}
           </span>
-          {turnCount > 0 && (
-            <span className="inline-flex items-center rounded-full bg-secondary px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-              {turnCount} {t("chat.turns")}
-            </span>
-          )}
-          {session.git && (session.git.additions > 0 || session.git.deletions > 0) && (
+          {session.git && !session.git.merged && (session.git.additions > 0 || session.git.deletions > 0) && (
             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-1.5 py-px text-[10px] font-medium">
               <span className="text-green-600">+{session.git.additions}</span>
               <span className="text-red-500">-{session.git.deletions}</span>
@@ -78,6 +74,9 @@ const SessionItem = memo(function SessionItem({ session, isActive, preview, turn
               {t("chat.needsPermission", { defaultValue: "待授权" })}
             </span>
           )}
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+            {new Date(session.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+          </span>
         </div>
       </button>
       {canArchive && (

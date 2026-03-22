@@ -358,12 +358,12 @@ export function AgentsPage() {
                         <TableCell className="px-3 py-3">
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-slate-900">
-                              {profile.llm_config_id
+                              {profile.llm_config_id && profile.llm_config_id.toLowerCase() !== "system"
                                 ? (llmConfigMap.get(profile.llm_config_id)?.model || "-")
                                 : t("agents.systemEnvMode")}
                             </div>
                             <div className="text-xs text-slate-500">
-                              {profile.llm_config_id
+                              {profile.llm_config_id && profile.llm_config_id.toLowerCase() !== "system"
                                 ? `${profile.llm_config_id} · ${llmConfigMap.get(profile.llm_config_id)?.type ?? "custom"}`
                                 : t("agents.systemEnvHint")}
                             </div>

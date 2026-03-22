@@ -21,8 +21,6 @@ import type {
   ChatSessionDetail,
   ChatSessionSummary,
   ChatStatusResponse,
-  CrystallizeChatSessionThreadRequest,
-  CrystallizeChatSessionThreadResponse,
   CreateResourceSpaceRequest,
   CreateProjectRequest,
   AnalyzeRequirementRequest,
@@ -55,6 +53,7 @@ import type {
   CreateWorkItemFromTemplateRequest,
   CreateWorkItemFromTemplateResponse,
   GitCommitEntry,
+  GitStats,
   GitTagEntry,
   CreateGitTagRequest,
   CreateGitTagResponse,
@@ -250,15 +249,13 @@ export interface ApiClient {
   chat(body: ChatRequest): Promise<ChatResponse>;
   listChatSessions(): Promise<ChatSessionSummary[]>;
   getChatSession(sessionId: string): Promise<ChatSessionDetail>;
-  crystallizeChatSessionThread(
-    sessionId: string,
-    body: CrystallizeChatSessionThreadRequest,
-  ): Promise<CrystallizeChatSessionThreadResponse>;
   cancelChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   closeChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   archiveChatSession(sessionId: string, archived: boolean): Promise<{ session_id: string; archived: boolean }>;
   renameChatSession(sessionId: string, title: string): Promise<{ session_id: string; title: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
+  createChatPR(sessionId: string, title?: string, body?: string): Promise<GitStats>;
+  refreshChatPR(sessionId: string): Promise<GitStats>;
 
   listWorkItems(params?: {
     project_id?: number;
@@ -862,12 +859,6 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<ChatSessionDetail>({
         path: `/chat/${encodeURIComponent(sessionId)}`,
       }),
-    crystallizeChatSessionThread: (sessionId, body) =>
-      request<CrystallizeChatSessionThreadResponse, CrystallizeChatSessionThreadRequest>({
-        path: `/chat/sessions/${encodeURIComponent(sessionId)}/crystallize-thread`,
-        method: "POST",
-        body,
-      }),
     cancelChat: (sessionId) =>
       request<{ session_id: string; status: string }>({
         path: `/chat/${encodeURIComponent(sessionId)}/cancel`,
@@ -893,6 +884,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     getChatStatus: (sessionId) =>
       request<ChatStatusResponse>({
         path: `/chat/${encodeURIComponent(sessionId)}/status`,
+      }),
+    createChatPR: (sessionId, title, body) =>
+      request<GitStats>({
+        path: `/chat/sessions/${encodeURIComponent(sessionId)}/create-pr`,
+        method: "POST",
+        body: { title, body },
+      }),
+    refreshChatPR: (sessionId) =>
+      request<GitStats>({
+        path: `/chat/sessions/${encodeURIComponent(sessionId)}/refresh-pr`,
+        method: "POST",
       }),
 
     // Work Items

@@ -271,7 +271,7 @@ func (a *agentsHandler) normalizeProfileConfig(p *core.AgentProfile) error {
 	}
 
 	llmConfigID := strings.TrimSpace(p.LLMConfigID)
-	if llmConfigID == "" {
+	if profilellm.IsSystemLLMConfig(llmConfigID) {
 		return nil
 	}
 	llmCfg, err := a.drivers.ResolveLLMConfig(llmConfigID)

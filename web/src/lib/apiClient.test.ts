@@ -456,38 +456,6 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ content: "hi" });
   });
 
-  it("crystallizeChatSessionThread 会命中 /chat/sessions/{id}/crystallize-thread 并 POST", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          thread: { id: 1, title: "thread", status: "active", created_at: "", updated_at: "" },
-          participants: [],
-        }),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.crystallizeChatSessionThread("chat-1", {
-      thread_title: "thread",
-      owner_id: "human-1",
-      create_work_item: true,
-    });
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/chat/sessions/chat-1/crystallize-thread",
-    );
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({
-      thread_title: "thread",
-      owner_id: "human-1",
-      create_work_item: true,
-    });
-  });
-
   it("addThreadParticipant 会命中 /threads/{id}/participants 并 POST", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

@@ -25,6 +25,7 @@ import (
 	workspaceclone "github.com/yoke233/zhanggui/internal/adapters/workspace/clone"
 	workspacegit "github.com/yoke233/zhanggui/internal/adapters/workspace/git"
 	chatapp "github.com/yoke233/zhanggui/internal/application/chat"
+	flowapp "github.com/yoke233/zhanggui/internal/application/flow"
 	"github.com/yoke233/zhanggui/internal/core"
 	"github.com/yoke233/zhanggui/internal/platform/config"
 	"github.com/yoke233/zhanggui/internal/platform/profilellm"
@@ -56,6 +57,11 @@ type LeadAgentConfig struct {
 	DataDir            string
 	NewClient          func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
 
+	// SCM provider factory for PR/MR automation in chat sessions.
+	ChangeRequestProviders func(token string) []flowapp.ChangeRequestProvider
+	// GitPAT is the personal access token for SCM operations.
+	GitPAT string
+
 	// GC controls workspace resource reclamation.
 	GC GCConfig
 }
@@ -83,6 +89,9 @@ type LeadAgent struct {
 
 	activeMu   sync.Mutex
 	activeRuns map[string]context.CancelFunc
+
+	pendingMu   sync.Mutex
+	pendingMsgs map[string]*chatapp.PendingMessage // at most 1 per session
 }
 
 type leadSession struct {
@@ -181,6 +190,7 @@ func NewLeadAgent(cfg LeadAgentConfig) *LeadAgent {
 		catalog:     catalog,
 		catalogPath: catalogPath,
 		activeRuns:  make(map[string]context.CancelFunc),
+		pendingMsgs: make(map[string]*chatapp.PendingMessage),
 	}
 	if cfg.GC.StartupCleanup {
 		agent.gcOrphanWorkspaces()
@@ -370,6 +380,19 @@ func (l *LeadAgent) StartChat(ctx context.Context, req chatapp.Request) (*chatap
 		return nil, err
 	}
 
+	// If session is busy, queue the message for later dispatch.
+	if l.IsSessionRunning(publicSessionID) {
+		l.setPending(publicSessionID, &chatapp.PendingMessage{
+			Message:     message,
+			Attachments: req.Attachments,
+		})
+		return &chatapp.AcceptedResponse{
+			SessionID: publicSessionID,
+			WSPath:    buildChatWSPath(publicSessionID),
+			Status:    "queued",
+		}, nil
+	}
+
 	attachments := req.Attachments
 	go func() {
 		if _, runErr := l.runPrompt(context.Background(), publicSessionID, sess, message, attachments); runErr != nil {
@@ -384,6 +407,7 @@ func (l *LeadAgent) StartChat(ctx context.Context, req chatapp.Request) (*chatap
 	return &chatapp.AcceptedResponse{
 		SessionID: publicSessionID,
 		WSPath:    buildChatWSPath(publicSessionID),
+		Status:    "accepted",
 	}, nil
 }
 
@@ -413,7 +437,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 		return nil, "", "", err
 	}
 
-	sess, publicSessionID, err := l.createSession(ctx, workDir, req.ProjectID, req.ProjectName, req.ProfileID, req.DriverID)
+	sess, publicSessionID, err := l.createSession(ctx, workDir, req.ProjectID, req.ProjectName, req.ProfileID, req.DriverID, req.LLMConfigID)
 	if err != nil {
 		// Cleanup on failure.
 		cleanupIsolatedDir(isolation, workDir, repoPath)
@@ -508,9 +532,119 @@ func (l *LeadAgent) beginRun(sessionID string, cancel context.CancelFunc) error 
 }
 
 func (l *LeadAgent) endRun(sessionID string) {
+	id := strings.TrimSpace(sessionID)
+
+	// Atomically: check pending + update activeRuns under both locks.
+	// Lock ordering: pendingMu → activeMu (consistent everywhere).
+	var dispatchCtx context.Context
+	var dispatchCancel context.CancelFunc
+
+	l.pendingMu.Lock()
+	pending := l.pendingMsgs[id]
+	delete(l.pendingMsgs, id)
 	l.activeMu.Lock()
-	delete(l.activeRuns, strings.TrimSpace(sessionID))
+	if pending == nil {
+		delete(l.activeRuns, id)
+	} else {
+		dispatchCtx, dispatchCancel = context.WithCancel(context.Background())
+		l.activeRuns[id] = dispatchCancel
+	}
 	l.activeMu.Unlock()
+	l.pendingMu.Unlock()
+
+	if pending == nil {
+		return
+	}
+
+	l.mu.Lock()
+	sess := l.sessions[id]
+	l.mu.Unlock()
+	if sess == nil {
+		dispatchCancel()
+		l.activeMu.Lock()
+		delete(l.activeRuns, id)
+		l.activeMu.Unlock()
+		return
+	}
+
+	sess.bridge.PublishData(context.Background(), map[string]any{
+		"type": "pending_dispatched",
+	})
+
+	go l.runPending(dispatchCtx, dispatchCancel, id, sess, pending)
+}
+
+func (l *LeadAgent) runPending(ctx context.Context, cancel context.CancelFunc, sessionID string, sess *leadSession, pending *chatapp.PendingMessage) {
+	defer l.endRun(sessionID) // recursive: will check for next pending
+	defer cancel()
+
+	l.appendMessage(sessionID, "user", pending.Message)
+	promptBlocks := buildPromptBlocks(pending.Message, pending.Attachments, sess.workDir)
+
+	result, err := sess.client.Prompt(ctx, acpproto.PromptRequest{
+		SessionId: sess.sessionID,
+		Prompt:    promptBlocks,
+	})
+	sess.bridge.FlushPending(context.Background())
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			l.resetSessionIdle(sessionID, sess)
+		} else {
+			l.removeSession(sessionID)
+		}
+		sess.bridge.PublishData(context.Background(), map[string]any{
+			"type":    "error",
+			"content": fmt.Sprintf("pending dispatch failed: %v", err),
+		})
+		return
+	}
+	if result == nil {
+		l.removeSession(sessionID)
+		sess.bridge.PublishData(context.Background(), map[string]any{
+			"type":    "error",
+			"content": "empty result from agent",
+		})
+		return
+	}
+
+	reply := strings.TrimSpace(result.Text)
+	if reply == "" {
+		l.removeSession(sessionID)
+		sess.bridge.PublishData(context.Background(), map[string]any{
+			"type":    "error",
+			"content": "empty reply from agent",
+		})
+		return
+	}
+
+	sess.bridge.PublishData(context.Background(), map[string]any{"type": "done"})
+	l.appendMessage(sessionID, "assistant", reply)
+	l.resetSessionIdle(sessionID, sess)
+}
+
+func (l *LeadAgent) setPending(sessionID string, msg *chatapp.PendingMessage) {
+	l.pendingMu.Lock()
+	l.pendingMsgs[strings.TrimSpace(sessionID)] = msg
+	l.pendingMu.Unlock()
+}
+
+func (l *LeadAgent) takePending(sessionID string) *chatapp.PendingMessage {
+	id := strings.TrimSpace(sessionID)
+	l.pendingMu.Lock()
+	msg := l.pendingMsgs[id]
+	delete(l.pendingMsgs, id)
+	l.pendingMu.Unlock()
+	return msg
+}
+
+func (l *LeadAgent) CancelPending(sessionID string) bool {
+	id := strings.TrimSpace(sessionID)
+	l.pendingMu.Lock()
+	_, existed := l.pendingMsgs[id]
+	delete(l.pendingMsgs, id)
+	l.pendingMu.Unlock()
+	return existed
 }
 
 func (l *LeadAgent) ListSessions(context.Context) ([]chatapp.SessionSummary, error) {
@@ -585,6 +719,9 @@ func (l *LeadAgent) CancelChat(sessionID string) error {
 	if id == "" {
 		return errors.New("session_id is required")
 	}
+
+	// Discard any queued pending message so endRun won't auto-dispatch it.
+	l.takePending(id)
 
 	l.activeMu.Lock()
 	cancel, ok := l.activeRuns[id]
@@ -690,6 +827,8 @@ func (l *LeadAgent) DeleteSession(sessionID string) {
 	if sessionID == "" {
 		return
 	}
+
+	l.takePending(sessionID) // discard any orphaned pending message
 
 	// Remove agent from memory.
 	l.mu.Lock()
@@ -835,18 +974,18 @@ func (l *LeadAgent) getOrCreateSession(ctx context.Context, req chatapp.Request,
 		return sess, requestedSessionID, nil
 	}
 
-	sess, sessionID, err := l.createSession(ctx, workDir, req.ProjectID, req.ProjectName, req.ProfileID, req.DriverID)
+	sess, sessionID, err := l.createSession(ctx, workDir, req.ProjectID, req.ProjectName, req.ProfileID, req.DriverID, req.LLMConfigID)
 	if err != nil {
 		return nil, "", err
 	}
 	return sess, sessionID, nil
 }
 
-func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID int64, projectName, profileID, driverID string) (*leadSession, string, error) {
+func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID int64, projectName, profileID, driverID, llmConfigID string) (*leadSession, string, error) {
 	scope := fmt.Sprintf("lead-chat-%d", time.Now().UnixNano())
 
 	driverID = strings.TrimSpace(driverID)
-	client, handler, bridge, events, profile, sessionCwd, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
+	client, handler, bridge, events, profile, sessionCwd, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID, llmConfigID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -908,6 +1047,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	record.ProfileID = profile.ID
 	record.ProfileName = strings.TrimSpace(profile.Name)
 	record.DriverID = driverID
+	record.LLMConfigID = llmConfigID
 	record.AvailableCommands = nil
 	record.ConfigOptions = initialConfigOpts
 	record.Modes = initialModes
@@ -940,7 +1080,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		}
 	}
 
-	client, handler, bridge, events, _, sessionCwd, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
+	client, handler, bridge, events, _, sessionCwd, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID, record.LLMConfigID)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,7 +1144,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	return sess, nil
 }
 
-func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, string, error) {
+func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID, requestedLLMConfigID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, string, error) {
 	if l.cfg.Registry == nil {
 		return nil, nil, nil, nil, nil, "", errors.New("agent registry is not configured")
 	}
@@ -1033,29 +1173,37 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		if !profile.Driver.CapabilitiesMax.Covers(profile.EffectiveCapabilities()) {
 			return nil, nil, nil, nil, nil, "", fmt.Errorf("%w: profile %q exceeds selected driver %q capabilities_max", core.ErrCapabilityOverflow, profile.ID, requestedDriverID)
 		}
-		if llmConfigID := strings.TrimSpace(profile.LLMConfigID); llmConfigID != "" {
-			if l.cfg.LLMConfigResolver == nil {
-				return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: llm config resolver is not configured", llmConfigID, profile.ID)
-			}
-			llmCfg, err := l.cfg.LLMConfigResolver(ctx, llmConfigID)
-			if err != nil {
-				return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: %w", llmConfigID, profile.ID, err)
-			}
-			if err := profilellm.ValidateDriverProviderCompatibility(profile.DriverID, profile.Driver.LaunchCommand, profile.Driver.LaunchArgs, llmCfg.Type); err != nil {
-				return nil, nil, nil, nil, nil, "", fmt.Errorf("profile %q driver %q incompatible with llm config %q: %w", profile.ID, requestedDriverID, llmConfigID, err)
-			}
-			profile.Driver.Env = profilellm.MergeEnv(profilellm.BuildEnv(profilellm.ProviderConfig{
-				ID:                   llmCfg.ID,
-				Type:                 llmCfg.Type,
-				BaseURL:              llmCfg.BaseURL,
-				APIKey:               llmCfg.APIKey,
-				Model:                llmCfg.Model,
-				Temperature:          llmCfg.Temperature,
-				MaxOutputTokens:      llmCfg.MaxOutputTokens,
-				ReasoningEffort:      llmCfg.ReasoningEffort,
-				ThinkingBudgetTokens: llmCfg.ThinkingBudgetTokens,
-			}), profile.Driver.Env)
+	}
+
+	// Resolve LLM config: request override > profile default.
+	// "system" (or empty) means the driver inherits API keys from the
+	// system environment — skip config resolution entirely.
+	llmConfigID := strings.TrimSpace(requestedLLMConfigID)
+	if llmConfigID == "" {
+		llmConfigID = strings.TrimSpace(profile.LLMConfigID)
+	}
+	if !profilellm.IsSystemLLMConfig(llmConfigID) {
+		if l.cfg.LLMConfigResolver == nil {
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: llm config resolver is not configured", llmConfigID, profile.ID)
 		}
+		llmCfg, err := l.cfg.LLMConfigResolver(ctx, llmConfigID)
+		if err != nil {
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: %w", llmConfigID, profile.ID, err)
+		}
+		if err := profilellm.ValidateDriverProviderCompatibility(profile.DriverID, profile.Driver.LaunchCommand, profile.Driver.LaunchArgs, llmCfg.Type); err != nil {
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("profile %q driver %q incompatible with llm config %q: %w", profile.ID, profile.DriverID, llmConfigID, err)
+		}
+		profile.Driver.Env = profilellm.MergeEnv(profilellm.BuildEnv(profilellm.ProviderConfig{
+			ID:                   llmCfg.ID,
+			Type:                 llmCfg.Type,
+			BaseURL:              llmCfg.BaseURL,
+			APIKey:               llmCfg.APIKey,
+			Model:                llmCfg.Model,
+			Temperature:          llmCfg.Temperature,
+			MaxOutputTokens:      llmCfg.MaxOutputTokens,
+			ReasoningEffort:      llmCfg.ReasoningEffort,
+			ThinkingBudgetTokens: llmCfg.ThinkingBudgetTokens,
+		}), profile.Driver.Env)
 	}
 
 	// Build launch config: profile → env merge → sandbox.
@@ -1150,6 +1298,7 @@ func (l *LeadAgent) removeSession(sessionID string) {
 	if sessionID == "" {
 		return
 	}
+	l.takePending(sessionID) // discard any orphaned pending message
 	l.mu.Lock()
 	sess, ok := l.sessions[sessionID]
 	if ok {
@@ -1197,6 +1346,17 @@ func (l *LeadAgent) appendMessage(sessionID, role, content string) {
 	if record.Title == "" && role == "user" {
 		record.Title = buildLeadTitle(content)
 	}
+	// If the user message is long enough, asynchronously generate a better title via LLM.
+	if role == "user" && l.cfg.LLM != nil && len([]rune(strings.TrimSpace(content))) > 10 {
+		// Snapshot recent messages for context.
+		msgs := record.Messages
+		if len(msgs) > 6 {
+			msgs = msgs[len(msgs)-6:]
+		}
+		snapshot := make([]chatapp.Message, len(msgs))
+		copy(snapshot, msgs)
+		go l.generateSessionTitle(sessionID, snapshot)
+	}
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
 }
@@ -1213,6 +1373,238 @@ func (l *LeadAgent) cloneRecordLocked(sessionID string) *persistedLeadSession {
 
 func (l *LeadAgent) saveCatalogLocked() error {
 	return saveLeadCatalog(l.catalogPath, l.catalog)
+}
+
+// CreatePR creates a PR/MR for the session's branch. It tries configured SCM
+// providers first (token-based), then falls back to the gh CLI for GitHub repos.
+func (l *LeadAgent) CreatePR(ctx context.Context, sessionID, title, body string) (*chatapp.GitStats, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	record := l.catalog[sessionID]
+	l.mu.Unlock()
+	if record == nil {
+		return nil, errors.New("session not found")
+	}
+	if record.Branch == "" {
+		return nil, errors.New("session has no branch (not a worktree session)")
+	}
+	if record.PrURL != "" {
+		return nil, fmt.Errorf("session already has a PR: %s", record.PrURL)
+	}
+
+	if strings.TrimSpace(title) == "" {
+		title = record.Title
+	}
+	if strings.TrimSpace(title) == "" {
+		title = record.Branch
+	}
+
+	// Try configured SCM provider (token-based) first.
+	if provider, repo, err := l.detectSCMProvider(ctx, record.RepoPath); err == nil {
+		cr, _, createErr := provider.EnsureOpen(ctx, repo, flowapp.EnsureOpenInput{
+			Head:  record.Branch,
+			Base:  "main",
+			Title: strings.TrimSpace(title),
+			Body:  strings.TrimSpace(body),
+		})
+		if createErr == nil {
+			return l.savePR(record, cr.URL, cr.Number, "open"), nil
+		}
+		slog.Warn("SCM provider create PR failed, trying gh CLI fallback", "error", createErr)
+	}
+
+	// Fallback: use gh CLI.
+	prURL, prNumber, err := ghCLICreatePR(ctx, record.RepoPath, record.Branch, strings.TrimSpace(title), strings.TrimSpace(body))
+	if err != nil {
+		return nil, fmt.Errorf("create PR failed: %w", err)
+	}
+	return l.savePR(record, prURL, prNumber, "open"), nil
+}
+
+// RefreshPR queries the SCM provider or gh CLI to update the PR state.
+func (l *LeadAgent) RefreshPR(ctx context.Context, sessionID string) (*chatapp.GitStats, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	record := l.catalog[sessionID]
+	l.mu.Unlock()
+	if record == nil {
+		return nil, errors.New("session not found")
+	}
+	if record.PrURL == "" || record.PrNumber <= 0 {
+		return nil, errors.New("session has no PR to refresh")
+	}
+
+	// Try configured SCM provider first.
+	if provider, repo, err := l.detectSCMProvider(ctx, record.RepoPath); err == nil {
+		state, getErr := provider.GetState(ctx, repo, record.PrNumber)
+		if getErr == nil {
+			return l.savePRState(record, state), nil
+		}
+		slog.Warn("SCM provider refresh PR failed, trying gh CLI fallback", "error", getErr)
+	}
+
+	// Fallback: use gh CLI.
+	state, err := ghCLIGetPRState(ctx, record.RepoPath, record.PrNumber)
+	if err != nil {
+		return nil, fmt.Errorf("refresh PR state failed: %w", err)
+	}
+	return l.savePRState(record, state), nil
+}
+
+func (l *LeadAgent) savePR(record *persistedLeadSession, url string, number int, state string) *chatapp.GitStats {
+	l.mu.Lock()
+	record.PrURL = url
+	record.PrNumber = number
+	record.PrState = state
+	record.UpdatedAt = time.Now().UTC()
+	_ = l.saveCatalogLocked()
+	l.mu.Unlock()
+	return l.buildGitStats(record)
+}
+
+func (l *LeadAgent) savePRState(record *persistedLeadSession, state string) *chatapp.GitStats {
+	l.mu.Lock()
+	record.PrState = state
+	record.UpdatedAt = time.Now().UTC()
+	_ = l.saveCatalogLocked()
+	l.mu.Unlock()
+	return l.buildGitStats(record)
+}
+
+// detectSCMProvider resolves the SCM provider and repo from the git remote.
+// Returns an error if no token or no matching provider — callers should fall
+// back to gh CLI on error.
+func (l *LeadAgent) detectSCMProvider(ctx context.Context, repoPath string) (flowapp.ChangeRequestProvider, flowapp.ChangeRequestRepo, error) {
+	token := strings.TrimSpace(l.cfg.GitPAT)
+	if token == "" || l.cfg.ChangeRequestProviders == nil {
+		return nil, flowapp.ChangeRequestRepo{}, errors.New("no SCM token configured")
+	}
+
+	originURL, err := gitRemoteOriginURL(repoPath)
+	if err != nil {
+		return nil, flowapp.ChangeRequestRepo{}, err
+	}
+
+	for _, p := range l.cfg.ChangeRequestProviders(token) {
+		if p == nil {
+			continue
+		}
+		repo, ok, detectErr := p.Detect(ctx, originURL)
+		if detectErr != nil {
+			return nil, flowapp.ChangeRequestRepo{}, detectErr
+		}
+		if ok {
+			return p, repo, nil
+		}
+	}
+	return nil, flowapp.ChangeRequestRepo{}, fmt.Errorf("no SCM provider matched remote: %s", originURL)
+}
+
+// gitRemoteOriginURL returns the origin remote URL for a git repo.
+func gitRemoteOriginURL(repoPath string) (string, error) {
+	dir := strings.TrimSpace(repoPath)
+	if dir == "" {
+		return "", errors.New("repo path is empty")
+	}
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git remote get-url origin failed: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ---------------------------------------------------------------------------
+// gh CLI fallback — uses the system's `gh` tool with its own auth.
+// ---------------------------------------------------------------------------
+
+// ghCLICreatePR creates a GitHub PR using the gh CLI. Returns (url, number, error).
+func ghCLICreatePR(ctx context.Context, repoPath, head, title, body string) (string, int, error) {
+	args := []string{"pr", "create", "--head", head, "--base", "main", "--title", title}
+	if body != "" {
+		args = append(args, "--body", body)
+	} else {
+		args = append(args, "--body", "")
+	}
+
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", 0, fmt.Errorf("gh pr create failed: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	prURL := strings.TrimSpace(string(out))
+	prNumber := extractPRNumberFromURL(prURL)
+	if prURL == "" || prNumber <= 0 {
+		return "", 0, fmt.Errorf("gh pr create returned unexpected output: %s", prURL)
+	}
+	return prURL, prNumber, nil
+}
+
+// ghCLIGetPRState queries PR state using the gh CLI. Returns "open", "merged", or "closed".
+func ghCLIGetPRState(ctx context.Context, repoPath string, number int) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", strconv.Itoa(number), "--json", "state")
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view failed: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	var result struct {
+		State string `json:"state"`
+	}
+	if jsonErr := json.Unmarshal(out, &result); jsonErr != nil {
+		return "", fmt.Errorf("parse gh pr view output failed: %w", jsonErr)
+	}
+
+	state := strings.ToLower(strings.TrimSpace(result.State))
+	switch state {
+	case "merged":
+		return "merged", nil
+	case "closed":
+		return "closed", nil
+	default:
+		return "open", nil
+	}
+}
+
+// extractPRNumberFromURL extracts the PR number from a GitHub PR URL like
+// "https://github.com/owner/repo/pull/47".
+func extractPRNumberFromURL(prURL string) int {
+	parts := strings.Split(strings.TrimRight(prURL, "/"), "/")
+	if len(parts) < 2 {
+		return 0
+	}
+	// Last segment after "pull/" should be the number.
+	n, _ := strconv.Atoi(parts[len(parts)-1])
+	return n
+}
+
+// buildGitStats builds GitStats from a persisted record, including PR overlay.
+func (l *LeadAgent) buildGitStats(record *persistedLeadSession) *chatapp.GitStats {
+	stats := computeGitStats(record.WorkDir)
+	if stats == nil {
+		stats = &chatapp.GitStats{}
+	}
+	if record.PrURL != "" {
+		stats.PrURL = record.PrURL
+		stats.PrNumber = record.PrNumber
+		stats.PrState = record.PrState
+		if record.PrState == "merged" {
+			stats.Merged = true
+		}
+	}
+	return stats
 }
 
 func (s *leadSession) stopIdleTimer() {
@@ -1606,6 +1998,57 @@ func buildLeadTitle(message string) string {
 	return message
 }
 
+// generateSessionTitle uses the LLM to produce a concise title and updates the
+// session catalog + emits a chat.session_title event so the frontend can refresh.
+func (l *LeadAgent) generateSessionTitle(sessionID string, messages []chatapp.Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var sb strings.Builder
+	for _, m := range messages {
+		sb.WriteString(m.Role)
+		sb.WriteString(": ")
+		sb.WriteString(m.Content)
+		sb.WriteByte('\n')
+	}
+
+	prompt := fmt.Sprintf(`Generate a concise chat session title (under 20 characters, in the same language as the conversation) that captures the current topic. Return ONLY the title text, nothing else.
+
+Conversation:
+---
+%s---`, sb.String())
+
+	title, err := l.cfg.LLM.CompleteText(ctx, prompt)
+	if err != nil {
+		slog.Warn("auto-generate session title failed", "session_id", sessionID, "error", err)
+		return
+	}
+	title = strings.TrimSpace(title)
+	title = strings.Trim(title, "\"'`")
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return
+	}
+
+	l.mu.Lock()
+	record := l.catalog[sessionID]
+	if record != nil {
+		record.Title = title
+		record.UpdatedAt = time.Now().UTC()
+		_ = l.saveCatalogLocked()
+	}
+	l.mu.Unlock()
+
+	l.cfg.Bus.Publish(ctx, core.Event{
+		Type:      core.EventChatSessionTitle,
+		Timestamp: time.Now().UTC(),
+		Data: map[string]any{
+			"session_id": sessionID,
+			"title":      title,
+		},
+	})
+}
+
 func (l *LeadAgent) runningSessionSet() map[string]bool {
 	l.activeMu.Lock()
 	defer l.activeMu.Unlock()
@@ -1643,7 +2086,7 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 
 	// Best-effort git diff stats for the session's working directory.
 	if record.WorkDir != "" && record.Branch != "" {
-		if stats := computeGitStats(record.WorkDir, record.Branch, record.RepoPath); stats != nil {
+		if stats := computeGitStats(record.WorkDir); stats != nil {
 			summary.Git = stats
 		}
 	}
@@ -1664,10 +2107,9 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 	return summary
 }
 
-// computeGitStats computes diff statistics (vs main) and merge status for a
-// session's worktree branch. Returns nil on any error — callers should treat
-// this as optional data.
-func computeGitStats(workDir, branch, repoPath string) *chatapp.GitStats {
+// computeGitStats computes diff statistics (vs main) for a session's worktree.
+// Returns nil on any error — callers should treat this as optional data.
+func computeGitStats(workDir string) *chatapp.GitStats {
 	stats := &chatapp.GitStats{}
 	hasData := false
 
@@ -1688,31 +2130,14 @@ func computeGitStats(workDir, branch, repoPath string) *chatapp.GitStats {
 		}
 	}
 
-	// Merged check — can run from worktree or the main repo.
-	if branch != "" {
-		gitDir := workDir
-		if gitDir == "" || !dirExists(gitDir) {
-			gitDir = repoPath
-		}
-		if gitDir != "" && dirExists(gitDir) {
-			cmd := exec.Command("git", "merge-base", "--is-ancestor", branch, "main")
-			cmd.Dir = gitDir
-			if err := cmd.Run(); err == nil {
-				stats.Merged = true
-				hasData = true
-			}
-		}
-	}
+	// Merged status is determined solely by PR state (overlaid by the
+	// caller) to avoid false positives when a branch has just been created
+	// from main and has no commits yet.
 
 	if !hasData {
 		return nil
 	}
 	return stats
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 // parseShortstat parses git's --shortstat output into the given GitStats.
@@ -1771,69 +2196,12 @@ func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.Sessi
 			record.Modes.CurrentModeId = modeId
 			changed = true
 		}
-	case "tool_call_completed":
-		if capturePRFromToolResult(record, update.RawJSON) {
-			changed = true
-		}
-	case "agent_message":
-		if record.PrURL == "" && capturePRFromText(record, update.Text) {
-			changed = true
-		}
 	}
 	if !changed {
 		return
 	}
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
-}
-
-// prURLPattern matches GitHub/GitLab/Codeup PR/MR URLs.
-var prURLPattern = regexp.MustCompile(`https?://[^\s)]+/pull/(\d+)|https?://[^\s)]+/merge_requests/(\d+)`)
-
-// capturePRFromToolResult extracts PR metadata from a tool_call_completed
-// RawJSON payload (the stdout of a tool that created a PR).
-func capturePRFromToolResult(record *persistedLeadSession, raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var parsed struct {
-		RawOutput struct {
-			Stdout string `json:"stdout"`
-		} `json:"rawOutput"`
-	}
-	if json.Unmarshal(raw, &parsed) != nil {
-		return false
-	}
-	return capturePRFromText(record, parsed.RawOutput.Stdout)
-}
-
-// capturePRFromText scans text for a PR/MR URL and extracts the PR number.
-func capturePRFromText(record *persistedLeadSession, text string) bool {
-	if text == "" {
-		return false
-	}
-	matches := prURLPattern.FindStringSubmatch(text)
-	if matches == nil {
-		return false
-	}
-
-	url := matches[0]
-	// Extract PR number from the first non-empty capture group.
-	numStr := matches[1]
-	if numStr == "" {
-		numStr = matches[2]
-	}
-	prNum := 0
-	if numStr != "" {
-		prNum, _ = strconv.Atoi(numStr)
-	}
-
-	record.PrURL = url
-	record.PrNumber = prNum
-	if record.PrState == "" {
-		record.PrState = "open"
-	}
-	return true
 }
 
 func toChatModeState(state *acpproto.SessionModeState) *chatapp.SessionModeState {

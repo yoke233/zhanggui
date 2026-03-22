@@ -67,6 +67,9 @@ type LeadChatService interface {
 	DeleteSession(sessionID string)
 	IsSessionAlive(sessionID string) bool
 	IsSessionRunning(sessionID string) bool
+	CancelPending(sessionID string) bool
+	CreatePR(ctx context.Context, sessionID, title, body string) (*chatapp.GitStats, error)
+	RefreshPR(ctx context.Context, sessionID string) (*chatapp.GitStats, error)
 }
 
 // DAGGenerator is the planning contract required by the HTTP adapter.

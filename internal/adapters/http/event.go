@@ -272,6 +272,8 @@ func (h *Handler) handleWSClientMessage(msg wsMessage, writeJSON func(v any) err
 		h.handleWSChatSetConfig(msg, writeJSON)
 	case "chat.set_mode":
 		h.handleWSChatSetMode(msg, writeJSON)
+	case "chat.cancel_pending":
+		h.handleWSChatCancelPending(msg, writeJSON)
 	case "chat.permission_response":
 		h.handleWSChatPermissionResponse(msg, writeJSON)
 	case "thread.send":
@@ -327,6 +329,7 @@ func (h *Handler) handleWSChatSend(msg wsMessage, writeJSON func(v any) error) {
 		ProjectName: strings.TrimSpace(req.ProjectName),
 		ProfileID:   strings.TrimSpace(req.ProfileID),
 		DriverID:    strings.TrimSpace(req.DriverID),
+		LLMConfigID: strings.TrimSpace(req.LLMConfigID),
 		UseWorktree: req.UseWorktree,
 	})
 	if err != nil {
@@ -348,9 +351,48 @@ func (h *Handler) handleWSChatSend(msg wsMessage, writeJSON func(v any) error) {
 			RequestID: strings.TrimSpace(req.RequestID),
 			SessionID: accepted.SessionID,
 			WSPath:    accepted.WSPath,
-			Status:    "accepted",
+			Status:    accepted.Status,
 		},
 	})
+}
+
+func (h *Handler) handleWSChatCancelPending(msg wsMessage, writeJSON func(v any) error) {
+	if h.lead == nil {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{Code: "CHAT_DISABLED", Error: "lead chat service is not configured"},
+		})
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "chat.error",
+				Data: wsErrorPayload{Code: "BAD_REQUEST", Error: "invalid payload"},
+			})
+			return
+		}
+	}
+
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.error",
+			Data: wsErrorPayload{Code: "BAD_REQUEST", Error: "session_id is required"},
+		})
+		return
+	}
+
+	if h.lead.CancelPending(sessionID) {
+		_ = writeJSON(wsOutboundMessage{
+			Type: "chat.pending_cancelled",
+			Data: map[string]string{"session_id": sessionID},
+		})
+	}
 }
 
 func (h *Handler) handleWSChatSetConfig(msg wsMessage, writeJSON func(v any) error) {
@@ -566,6 +608,7 @@ type wsChatSendRequest struct {
 	ProjectName string               `json:"project_name,omitempty"`
 	ProfileID   string               `json:"profile_id,omitempty"`
 	DriverID    string               `json:"driver_id,omitempty"`
+	LLMConfigID string               `json:"llm_config_id,omitempty"`
 	UseWorktree *bool                `json:"use_worktree,omitempty"`
 }
 

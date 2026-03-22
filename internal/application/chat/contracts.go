@@ -61,6 +61,7 @@ type Request struct {
 	ProjectName string       `json:"project_name,omitempty"`
 	ProfileID   string       `json:"profile_id,omitempty"`
 	DriverID    string       `json:"driver_id,omitempty"`
+	LLMConfigID string       `json:"llm_config_id,omitempty"`
 	// UseWorktree controls whether to create a git worktree for this session.
 	// nil = default behaviour (auto-detect based on project git binding),
 	// true = force worktree, false = run directly in project directory.
@@ -78,6 +79,14 @@ type Response struct {
 type AcceptedResponse struct {
 	SessionID string `json:"session_id"`
 	WSPath    string `json:"ws_path,omitempty"`
+	// Status is "accepted" for immediate execution or "queued" when the session is busy.
+	Status string `json:"status"`
+}
+
+// PendingMessage holds a queued message waiting for a busy session to become idle.
+type PendingMessage struct {
+	Message     string       `json:"message"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // Message is one persisted chat turn in a lead session.

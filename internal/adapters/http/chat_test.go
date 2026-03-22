@@ -66,6 +66,16 @@ func (s *stubLeadChatService) IsSessionRunning(string) bool {
 	return false
 }
 
+func (s *stubLeadChatService) CancelPending(string) bool { return false }
+
+func (s *stubLeadChatService) CreatePR(context.Context, string, string, string) (*chatapp.GitStats, error) {
+	return nil, nil
+}
+
+func (s *stubLeadChatService) RefreshPR(context.Context, string) (*chatapp.GitStats, error) {
+	return nil, nil
+}
+
 func TestChatRoutes_ListSessions(t *testing.T) {
 	svc := &stubLeadChatService{
 		listResp: []chatapp.SessionSummary{
@@ -137,85 +147,6 @@ func TestChatRoutes_SendMessage_Deprecated(t *testing.T) {
 	}
 	if got["code"] != "CHAT_HTTP_DEPRECATED" {
 		t.Fatalf("unexpected code: %+v", got)
-	}
-}
-
-func TestChatRoutes_CrystallizeThread(t *testing.T) {
-	svc := &stubLeadChatService{
-		detailResp: &chatapp.SessionDetail{
-			SessionSummary: chatapp.SessionSummary{
-				SessionID: "chat-1",
-				Title:     "认证方案讨论",
-			},
-			Messages: []chatapp.Message{
-				{Role: "user", Content: "我们先定方案"},
-				{Role: "assistant", Content: "建议拆成 thread 再落 work item"},
-			},
-		},
-	}
-	_, ts := setupAPIWithLead(t, svc)
-
-	resp, err := post(ts, "/chat/sessions/chat-1/crystallize-thread", map[string]any{
-		"owner_id":             "human-1",
-		"participant_user_ids": []string{"human-2", "human-2"},
-		"create_work_item":     true,
-		"work_item_title":      "实现 thread 结晶接口",
-		"work_item_body":       "确定由 thread 汇总后创建 work item。",
-	})
-	if err != nil {
-		t.Fatalf("crystallize thread: %v", err)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
-	}
-
-	var got crystallizeChatSessionResponse
-	if err := decodeJSON(resp, &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.Thread == nil || got.Thread.Metadata["source_chat_session_id"] != "chat-1" {
-		t.Fatalf("unexpected thread: %+v", got.Thread)
-	}
-	if got.WorkItem == nil || got.WorkItem.Title != "实现 thread 结晶接口" {
-		t.Fatalf("unexpected work item: %+v", got.WorkItem)
-	}
-	if len(got.Participants) != 2 {
-		t.Fatalf("participants = %d, want 2", len(got.Participants))
-	}
-}
-
-func TestChatRoutes_CrystallizeThreadUsesThreadTitleAsFallbackBody(t *testing.T) {
-	svc := &stubLeadChatService{
-		detailResp: &chatapp.SessionDetail{
-			SessionSummary: chatapp.SessionSummary{
-				SessionID: "chat-2",
-				Title:     "无摘要讨论",
-			},
-		},
-	}
-	_, ts := setupAPIWithLead(t, svc)
-
-	resp, err := post(ts, "/chat/sessions/chat-2/crystallize-thread", map[string]any{
-		"owner_id":         "human-1",
-		"create_work_item": true,
-		"work_item_title":  "需要创建的任务",
-	})
-	if err != nil {
-		t.Fatalf("crystallize thread: %v", err)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
-	}
-
-	var got crystallizeChatSessionResponse
-	if err := decodeJSON(resp, &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.WorkItem == nil {
-		t.Fatal("expected work item to be created")
-	}
-	if got.WorkItem.Body != "无摘要讨论" {
-		t.Fatalf("expected work item body to fall back to thread title, got %q", got.WorkItem.Body)
 	}
 }
 

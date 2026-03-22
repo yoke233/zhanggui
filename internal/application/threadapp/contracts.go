@@ -149,19 +149,3 @@ type CreateWorkItemFromThreadResult struct {
 	Link     *core.ThreadWorkItemLink
 }
 
-type CrystallizeChatSessionInput struct {
-	SessionID          string
-	ThreadTitle        string
-	OwnerID            string
-	ParticipantUserIDs []string
-	CreateWorkItem     bool
-	WorkItemTitle      string
-	WorkItemBody       string
-	ProjectID          *int64
-}
-
-type CrystallizeChatSessionResult struct {
-	Thread       *core.Thread
-	WorkItem     *core.WorkItem
-	Participants []*core.ThreadMember
-}

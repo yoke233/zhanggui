@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Loader2, Pencil, User } from "lucide-react";
+import { Bot, ExternalLink, GitMerge, GitPullRequest, Loader2, Pencil, RefreshCw, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SessionRecord, ChatActivityView } from "./chatTypes";
 import { badgeLabelForStatus, formatUsageValue } from "./chatUtils";
@@ -10,16 +10,16 @@ interface ChatHeaderProps {
   driverLabel: string;
   messageCount: number;
   submitting: boolean;
-  crystallizing?: boolean;
   usage: ChatActivityView | undefined;
   usagePercent: number | null;
   detailView: "chat" | "events";
   lastUserMessage?: string;
   onDetailViewChange: (view: "chat" | "events") => void;
-  showCrystallize?: boolean;
-  onCrystallize?: () => void;
   onCloseSession: () => void;
   onRenameSession?: (title: string) => void;
+  onCreatePR?: () => void;
+  onRefreshPR?: () => void;
+  prLoading?: boolean;
 }
 
 export function ChatHeader(props: ChatHeaderProps) {
@@ -28,16 +28,16 @@ export function ChatHeader(props: ChatHeaderProps) {
     driverLabel,
     messageCount,
     submitting,
-    crystallizing = false,
     usage,
     usagePercent,
     detailView,
     lastUserMessage,
     onDetailViewChange,
-    showCrystallize = false,
-    onCrystallize,
     onCloseSession,
     onRenameSession,
+    onCreatePR,
+    onRefreshPR,
+    prLoading = false,
   } = props;
   const { t } = useTranslation();
 
@@ -63,6 +63,10 @@ export function ChatHeader(props: ChatHeaderProps) {
   const cancelEditing = () => {
     setEditing(false);
   };
+
+  const hasBranch = Boolean(session?.branch);
+  const git = session?.git;
+  const hasPR = Boolean(git?.pr_url);
 
   return (
     <div className="flex flex-col border-b">
@@ -150,6 +154,62 @@ export function ChatHeader(props: ChatHeaderProps) {
           )} />
           {badgeLabelForStatus(session?.status, t)}
         </span>
+        {/* PR section */}
+        {hasBranch && !hasPR && onCreatePR && (
+          <button
+            type="button"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[13px] font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={prLoading}
+            onClick={onCreatePR}
+          >
+            {prLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <GitPullRequest className="h-3.5 w-3.5" />
+            )}
+            {t("chat.createPR", { defaultValue: "Create PR" })}
+          </button>
+        )}
+        {hasPR && (
+          <div className="inline-flex items-center gap-1.5">
+            <a
+              href={git!.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80",
+                git!.pr_state === "merged"
+                  ? "bg-purple-50 text-purple-600"
+                  : git!.pr_state === "closed"
+                    ? "bg-red-50 text-red-600"
+                    : "bg-emerald-50 text-emerald-600",
+              )}
+            >
+              {git!.pr_state === "merged" ? (
+                <GitMerge className="h-3 w-3" />
+              ) : (
+                <GitPullRequest className="h-3 w-3" />
+              )}
+              PR #{git!.pr_number}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            {git!.pr_state !== "merged" && onRefreshPR && (
+              <button
+                type="button"
+                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                disabled={prLoading}
+                onClick={onRefreshPR}
+                title={t("chat.refreshPR", { defaultValue: "刷新 PR 状态" })}
+              >
+                {prLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+          </div>
+        )}
         {usage ? (
           <div className="flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
             <span className="shrink-0 whitespace-nowrap">{t("chat.context")}</span>
@@ -170,18 +230,6 @@ export function ChatHeader(props: ChatHeaderProps) {
               {formatUsageValue(usage.usageUsed)} / {formatUsageValue(usage.usageSize)}
             </span>
           </div>
-        ) : null}
-        {showCrystallize ? (
-          <button
-            type="button"
-            className="h-8 rounded-md border px-3 text-[13px] font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={crystallizing}
-            onClick={onCrystallize}
-          >
-            {crystallizing
-              ? t("chat.crystallizing", { defaultValue: "结晶中..." })
-              : t("chat.crystallize", { defaultValue: "结晶" })}
-          </button>
         ) : null}
         <button
           type="button"

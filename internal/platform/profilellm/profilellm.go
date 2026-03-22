@@ -10,7 +10,20 @@ const (
 	ProviderOpenAIChatCompletion = "openai_chat_completion"
 	ProviderOpenAIResponse       = "openai_response"
 	ProviderAnthropic            = "anthropic"
+
+	// LLMConfigIDSystem is a well-known sentinel value meaning "use whatever
+	// API keys / credentials already exist in the system environment".
+	// When a profile or chat request uses this value, LLM config resolution
+	// and driver-provider compatibility checks are skipped entirely.
+	LLMConfigIDSystem = "system"
 )
+
+// IsSystemLLMConfig returns true when llmConfigID is empty or the "system"
+// sentinel, meaning no explicit LLM config should be resolved.
+func IsSystemLLMConfig(llmConfigID string) bool {
+	id := strings.TrimSpace(llmConfigID)
+	return id == "" || strings.EqualFold(id, LLMConfigIDSystem)
+}
 
 type ProviderConfig struct {
 	ID                   string

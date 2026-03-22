@@ -522,126 +522,6 @@ func TestServiceDeleteThreadRollsBackWhenAggregateDeleteFails(t *testing.T) {
 	}
 }
 
-func TestServiceCrystallizeChatSessionCreatesThreadOnly(t *testing.T) {
-	store := newThreadAppTestStore(t)
-	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
-	ctx := context.Background()
-
-	result, err := svc.CrystallizeChatSession(ctx, CrystallizeChatSessionInput{
-		SessionID:          "chat-1",
-		ThreadTitle:        "Design API shape",
-		OwnerID:            "owner-1",
-		ParticipantUserIDs: []string{"owner-1", "member-2"},
-	})
-	if err != nil {
-		t.Fatalf("CrystallizeChatSession: %v", err)
-	}
-	if result.Thread == nil || result.Thread.ID == 0 {
-		t.Fatalf("expected persisted thread, got %+v", result.Thread)
-	}
-	if result.WorkItem != nil {
-		t.Fatalf("expected no work item, got %+v", result.WorkItem)
-	}
-	if result.Thread.Metadata["source_chat_session_id"] != "chat-1" {
-		t.Fatalf("unexpected thread metadata: %#v", result.Thread.Metadata)
-	}
-	if len(result.Participants) != 2 {
-		t.Fatalf("expected 2 participants, got %d", len(result.Participants))
-	}
-	members, err := store.ListThreadMembers(ctx, result.Thread.ID)
-	if err != nil {
-		t.Fatalf("list members: %v", err)
-	}
-	if len(members) != 2 {
-		t.Fatalf("expected 2 persisted members, got %d", len(members))
-	}
-	items, err := store.ListWorkItems(ctx, core.WorkItemFilter{Limit: 20})
-	if err != nil {
-		t.Fatalf("list work items: %v", err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("expected no work items, got %d", len(items))
-	}
-}
-
-func TestServiceCrystallizeChatSessionCreatesThreadAndWorkItem(t *testing.T) {
-	store := newThreadAppTestStore(t)
-	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
-	ctx := context.Background()
-
-	result, err := svc.CrystallizeChatSession(ctx, CrystallizeChatSessionInput{
-		SessionID:      "chat-2",
-		ThreadTitle:    "Ship feature",
-		OwnerID:        "owner-1",
-		CreateWorkItem: true,
-		WorkItemTitle:  "Implement feature",
-		WorkItemBody:   "Implement the shipping feature",
-	})
-	if err != nil {
-		t.Fatalf("CrystallizeChatSession: %v", err)
-	}
-	if result.Thread == nil || result.Thread.ID == 0 {
-		t.Fatalf("expected thread result, got %+v", result.Thread)
-	}
-	if result.WorkItem == nil || result.WorkItem.ID == 0 {
-		t.Fatalf("expected work item result, got %+v", result.WorkItem)
-	}
-	if result.WorkItem.Body != "Implement the shipping feature" {
-		t.Fatalf("expected explicit work item body, got %q", result.WorkItem.Body)
-	}
-	links, err := store.ListWorkItemsByThread(ctx, result.Thread.ID)
-	if err != nil {
-		t.Fatalf("list links: %v", err)
-	}
-	if len(links) != 1 {
-		t.Fatalf("expected 1 persisted link, got %d", len(links))
-	}
-	if !links[0].IsPrimary || links[0].RelationType != "drives" {
-		t.Fatalf("unexpected link: %+v", links[0])
-	}
-}
-
-func TestServiceCrystallizeChatSessionRollsBackWhenLinkCreationFails(t *testing.T) {
-	base := newThreadAppTestStore(t)
-	store := &failingLinkStore{Store: base, failCreateLink: true}
-	tx := newSQLiteTxAdapter(base, func(txStore core.Store) (TxStore, error) {
-		sqliteStore, ok := txStore.(*sqlite.Store)
-		if !ok {
-			return nil, fmt.Errorf("unexpected tx store type %T", txStore)
-		}
-		return &failingLinkStore{Store: sqliteStore, failCreateLink: true}, nil
-	})
-	svc := newSQLiteThreadAppService(store, tx, nil)
-	ctx := context.Background()
-
-	_, err := svc.CrystallizeChatSession(ctx, CrystallizeChatSessionInput{
-		SessionID:      "chat-3",
-		ThreadTitle:    "Broken materialization",
-		OwnerID:        "owner-1",
-		CreateWorkItem: true,
-		WorkItemTitle:  "Should rollback",
-		WorkItemBody:   "body",
-	})
-	if err == nil {
-		t.Fatal("expected crystallize chat session to fail")
-	}
-
-	threads, err := base.ListThreads(ctx, core.ThreadFilter{Limit: 20})
-	if err != nil {
-		t.Fatalf("list threads: %v", err)
-	}
-	if len(threads) != 0 {
-		t.Fatalf("expected 0 threads after rollback, got %d", len(threads))
-	}
-	items, err := base.ListWorkItems(ctx, core.WorkItemFilter{Limit: 20})
-	if err != nil {
-		t.Fatalf("list work items: %v", err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("expected 0 work items after rollback, got %d", len(items))
-	}
-}
-
 func TestServiceCreateThreadSyncsWorkspace(t *testing.T) {
 	store := newThreadAppTestStore(t)
 	workspace := &workspaceStub{}
@@ -1443,51 +1323,13 @@ func TestServiceErrorAndAggregateFailureBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("create thread aggregate and crystallize failure branches", func(t *testing.T) {
+	t.Run("create thread aggregate failure branches", func(t *testing.T) {
 		base := newThreadAppTestStore(t)
 		store := &failingCreateThreadStore{Store: base, failCreateThread: true}
 		svc := newSQLiteThreadAppService(store, nil, nil)
 		thread := &core.Thread{Title: "thread"}
 		if err := svc.createThreadAggregate(context.Background(), thread, nil); err == nil || err.Error() != "create thread failed" {
 			t.Fatalf("expected create thread failure, got %v", err)
-		}
-		if _, err := svc.CrystallizeChatSession(context.Background(), CrystallizeChatSessionInput{OwnerID: "owner"}); CodeOf(err) != CodeMissingTitle {
-			t.Fatalf("expected %s, got %v", CodeMissingTitle, err)
-		}
-
-		workspace := &workspaceStub{err: errors.New("sync failed")}
-		okSvc := New(Config{
-			Store:     base,
-			Workspace: workspace,
-		})
-		if _, err := okSvc.CrystallizeChatSession(context.Background(), CrystallizeChatSessionInput{
-			SessionID:   "chat",
-			ThreadTitle: "title",
-			OwnerID:     "owner",
-		}); err == nil || err.Error() != "sync failed" {
-			t.Fatalf("expected workspace sync failure, got %v", err)
-		}
-
-		workItemFailSvc := New(Config{Store: &failingCreateThreadStore{Store: base, failCreateItem: true}})
-		if _, err := workItemFailSvc.CrystallizeChatSession(context.Background(), CrystallizeChatSessionInput{
-			SessionID:      "chat-2",
-			ThreadTitle:    "title-2",
-			OwnerID:        "owner",
-			CreateWorkItem: true,
-			WorkItemTitle:  "work",
-			WorkItemBody:   "body",
-		}); err == nil || err.Error() != "create work item failed" {
-			t.Fatalf("expected create work item failure, got %v", err)
-		}
-
-		threads, err := base.ListThreads(context.Background(), core.ThreadFilter{Limit: 20})
-		if err != nil {
-			t.Fatalf("list threads after rollback: %v", err)
-		}
-		for _, thread := range threads {
-			if thread.Title == "title-2" {
-				t.Fatalf("expected crystallize rollback for title-2, got threads %+v", threads)
-			}
 		}
 	})
 

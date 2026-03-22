@@ -8,6 +8,7 @@ import (
 	chatacp "github.com/yoke233/zhanggui/internal/adapters/chat/acp"
 	api "github.com/yoke233/zhanggui/internal/adapters/http"
 	llmplanning "github.com/yoke233/zhanggui/internal/adapters/planning/llm"
+	scmadapter "github.com/yoke233/zhanggui/internal/adapters/scm"
 	inspectionapp "github.com/yoke233/zhanggui/internal/application/inspection"
 	planningapp "github.com/yoke233/zhanggui/internal/application/planning"
 	probeapp "github.com/yoke233/zhanggui/internal/application/probe"
@@ -44,15 +45,21 @@ func buildAPIStack(
 		}
 	}
 	gcCfg := bootstrapCfg.Runtime.Sandbox.GC
+	gitPAT := ""
+	if bootstrapCfg != nil && bootstrapCfg.GitHub.Token != "" {
+		gitPAT = bootstrapCfg.GitHub.Token
+	}
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
-		Registry:           base.registry,
-		DriverResolver:     driverResolver,
-		LLMConfigResolver:  llmConfigResolver,
-		Bus:                base.bus,
-		ResourceSpaceStore: base.store,
-		LLM:                llmCompleter,
-		Sandbox:            sb,
-		DataDir:            base.dataDir,
+		Registry:               base.registry,
+		DriverResolver:         driverResolver,
+		LLMConfigResolver:      llmConfigResolver,
+		Bus:                    base.bus,
+		ResourceSpaceStore:     base.store,
+		LLM:                    llmCompleter,
+		Sandbox:                sb,
+		DataDir:                base.dataDir,
+		ChangeRequestProviders: scmadapter.NewChangeRequestProviders,
+		GitPAT:                 gitPAT,
 		GC: chatacp.GCConfig{
 			ArchiveCleanup: gcCfg.ArchiveCleanup,
 			StartupCleanup: gcCfg.StartupCleanup,

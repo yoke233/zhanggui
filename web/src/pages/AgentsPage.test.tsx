@@ -293,7 +293,7 @@ describe("AgentsPage", () => {
           driver_id: "codex-acp",
           role: "lead",
           skills: ["plan-actions", "strict-review"],
-          llm_config_id: undefined,
+          llm_config_id: "system",
           session: expect.objectContaining({
             reuse: true,
             max_turns: 8,

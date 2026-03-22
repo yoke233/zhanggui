@@ -91,5 +91,10 @@ export interface LeadDriverOption {
   driverId: string;
 }
 
+export interface PendingMessageView {
+  sessionId: string;
+  content: string;
+}
+
 export const UNKNOWN_PROJECT_GROUP = "project:unknown";
 export const EMPTY_PROFILE_VALUE = "__empty_profile__";

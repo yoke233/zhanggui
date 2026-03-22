@@ -728,6 +728,9 @@
     "completed": "已完成",
     "sessionFailed": "会话执行失败",
     "sendFailed": "发送消息失败",
+    "pendingSend": "待发送",
+    "pendingSendHint": "当前会话运行结束后将自动发送",
+    "pendingCancelled": "待发送消息已取消",
     "selectDriverFirst": "请先选择 Driver 后再开始会话。",
     "sessionList": "会话列表",
     "new": "新建",
@@ -765,7 +768,9 @@
     "inputPlaceholderActive": "输入消息，与 Lead Agent 对话...",
     "inputPlaceholderNew": "输入消息，使用 Lead · {{driver}} 在 {{project}} 下开始会话...",
     "useWorktree": "使用 Worktree",
-    "useWorktreeHint": "关闭后将直接在项目目录中运行，不创建 Git Worktree"
+    "useWorktreeHint": "关闭后将直接在项目目录中运行，不创建 Git Worktree",
+    "llmConfig": "LLM 配置",
+    "llmConfigSystem": "System (使用系统环境变量)"
   },
   "mobileHome": {
     "inputPlaceholder": "输入消息，开始与 Lead 对话...",

@@ -728,6 +728,9 @@
     "completed": "Completed",
     "sessionFailed": "Session execution failed",
     "sendFailed": "Failed to send message",
+    "pendingSend": "Pending",
+    "pendingSendHint": "Will send automatically when current run finishes",
+    "pendingCancelled": "Pending message cancelled",
     "selectDriverFirst": "Please select a Driver before starting a session.",
     "sessionList": "Sessions",
     "new": "New",
@@ -765,7 +768,9 @@
     "inputPlaceholderActive": "Type a message to chat with Lead Agent...",
     "inputPlaceholderNew": "Type a message, using Lead · {{driver}} in {{project}} to start a session...",
     "useWorktree": "Use Worktree",
-    "useWorktreeHint": "When off, runs directly in the project directory without creating a Git Worktree"
+    "useWorktreeHint": "When off, runs directly in the project directory without creating a Git Worktree",
+    "llmConfig": "LLM Config",
+    "llmConfigSystem": "System (use system env vars)"
   },
   "mobileHome": {
     "inputPlaceholder": "Type a message to start chatting with Lead...",

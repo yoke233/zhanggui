@@ -252,8 +252,8 @@ export function MessageFeedView(props: MessageFeedViewProps) {
             <div className={cn(
               "mt-0.5 text-sm leading-relaxed",
               isUser
-                ? "whitespace-pre-wrap border-l-2 border-blue-300 pl-3 text-foreground"
-                : "prose prose-sm prose-slate max-w-none border-l-2 border-emerald-200 pl-3 text-foreground/90 prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2 prose-pre:rounded-md prose-pre:bg-slate-900 prose-pre:text-slate-50 prose-pre:overflow-x-auto prose-code:rounded prose-code:text-[13px] prose-code:before:content-none prose-code:after:content-none [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_pre>code]:bg-transparent [&_pre>code]:p-0 prose-hr:my-4 prose-table:border prose-table:border-border prose-th:border prose-th:border-border prose-th:px-3 prose-th:py-1.5 prose-th:bg-muted/50 prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-1.5",
+                ? "whitespace-pre-wrap pl-3 text-foreground"
+                : "prose prose-sm prose-slate max-w-none pl-3 text-foreground/90 prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2 prose-pre:rounded-md prose-pre:bg-slate-900 prose-pre:text-slate-50 prose-pre:overflow-x-auto prose-code:rounded prose-code:text-[13px] prose-code:before:content-none prose-code:after:content-none [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_pre>code]:bg-transparent [&_pre>code]:p-0 prose-hr:my-4 prose-table:border prose-table:border-border prose-th:border prose-th:border-border prose-th:px-3 prose-th:py-1.5 prose-th:bg-muted/50 prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-1.5",
             )}>
               {isUser ? message.content : (
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>

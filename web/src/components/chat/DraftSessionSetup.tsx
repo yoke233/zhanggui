@@ -2,6 +2,7 @@ import type React from "react";
 import { useTranslation } from "react-i18next";
 import { GitBranch, Paperclip, Send } from "lucide-react";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
+import type { LLMConfigItem } from "@/types/system";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -10,15 +11,19 @@ import type { LeadDriverOption } from "./chatTypes";
 import { EMPTY_PROFILE_VALUE } from "./chatTypes";
 import { FilePreviewList } from "./FilePreviewList";
 
+export const LLM_CONFIG_SYSTEM = "system";
+
 interface DraftSessionSetupProps {
   projects: Array<{ id: number; name: string }>;
   draftProjectId: number | null;
   draftProfileId: string;
   draftDriverId: string;
+  draftLLMConfigId: string;
   draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
   drivers: AgentDriver[];
+  llmConfigs: LLMConfigItem[];
   messageInput: string;
   pendingFiles: File[];
   draftSessionReady: boolean;
@@ -29,6 +34,7 @@ interface DraftSessionSetupProps {
   onProjectChange: (id: number | null) => void;
   onProfileChange: (id: string) => void;
   onDriverChange: (id: string) => void;
+  onLLMConfigChange: (id: string) => void;
   onUseWorktreeChange: (v: boolean) => void;
   onMessageChange: (value: string) => void;
   onSend: () => void;
@@ -42,10 +48,12 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
     draftProjectId,
     draftProfileId,
     draftDriverId,
+    draftLLMConfigId,
     draftUseWorktree,
     leadDriverOptions,
     leadProfiles,
     drivers,
+    llmConfigs,
     messageInput,
     pendingFiles,
     draftSessionReady,
@@ -56,6 +64,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
     onProjectChange,
     onProfileChange,
     onDriverChange,
+    onLLMConfigChange,
     onUseWorktreeChange,
     onMessageChange,
     onSend,
@@ -71,7 +80,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
           <p className="text-2xl font-semibold tracking-tight text-foreground">{t("chat.newSession")}</p>
           <p className="text-sm text-muted-foreground">{t("chat.newSessionHint")}</p>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{t("common.project")}</label>
             <Select
@@ -112,6 +121,22 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
               {leadDriverOptions.map((option) => (
                 <option key={option.driverId} value={option.driverId}>
                   {option.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{t("chat.llmConfig")}</label>
+            <Select
+              value={draftLLMConfigId || LLM_CONFIG_SYSTEM}
+              onValueChange={(next) => {
+                onLLMConfigChange(next === LLM_CONFIG_SYSTEM ? LLM_CONFIG_SYSTEM : next);
+              }}
+            >
+              <option value={LLM_CONFIG_SYSTEM}>{t("chat.llmConfigSystem")}</option>
+              {llmConfigs.map((cfg) => (
+                <option key={cfg.id} value={cfg.id}>
+                  {cfg.id} ({cfg.type})
                 </option>
               ))}
             </Select>

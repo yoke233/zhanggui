@@ -3,12 +3,10 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	threadapp "github.com/yoke233/zhanggui/internal/application/threadapp"
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
@@ -26,13 +24,14 @@ func registerChatRoutes(r chi.Router, h *Handler) {
 	r.Get("/chat/sessions", handlers.listSessions)
 	r.Post("/chat/sessions/{sessionID}/archive", handlers.archiveSession)
 	r.Patch("/chat/sessions/{sessionID}/rename", handlers.renameSession)
-	r.Post("/chat/sessions/{sessionID}/crystallize-thread", handlers.crystallizeThread)
 	r.Post("/chat", handlers.sendMessage)
 	r.Get("/chat/{sessionID}", handlers.getSession)
 	r.Post("/chat/{sessionID}/cancel", handlers.cancelChat)
 	r.Post("/chat/{sessionID}/close", handlers.closeSession)
 	r.Delete("/chat/{sessionID}", handlers.deleteSession)
 	r.Get("/chat/{sessionID}/status", handlers.getStatus)
+	r.Post("/chat/sessions/{sessionID}/create-pr", handlers.createPR)
+	r.Post("/chat/sessions/{sessionID}/refresh-pr", handlers.refreshPR)
 }
 
 // GET /chat/sessions — list persisted lead chat sessions.
@@ -217,82 +216,39 @@ func (h *chatHandlers) getStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type crystallizeChatSessionRequest struct {
-	ThreadTitle        string   `json:"thread_title"`
-	WorkItemTitle      string   `json:"work_item_title,omitempty"`
-	WorkItemBody       string   `json:"work_item_body,omitempty"`
-	ProjectID          *int64   `json:"project_id,omitempty"`
-	ParticipantUserIDs []string `json:"participant_user_ids,omitempty"`
-	CreateWorkItem     bool     `json:"create_work_item,omitempty"`
-	OwnerID            string   `json:"owner_id,omitempty"`
-}
-
-type crystallizeChatSessionResponse struct {
-	Thread       *core.Thread         `json:"thread"`
-	WorkItem     *core.WorkItem       `json:"work_item,omitempty"`
-	Participants []*core.ThreadMember `json:"participants"`
-}
-
-func (h *chatHandlers) crystallizeThread(w http.ResponseWriter, r *http.Request) {
+// POST /chat/sessions/{sessionID}/create-pr — create a PR/MR for the session's branch.
+func (h *chatHandlers) createPR(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "session_id is required", "BAD_REQUEST")
 		return
 	}
-
-	detail, err := h.lead.GetSession(r.Context(), sessionID)
+	var req struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	stats, err := h.lead.CreatePR(r.Context(), sessionID, req.Title, req.Body)
 	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
-			writeError(w, http.StatusNotFound, err.Error(), "NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "GET_CHAT_SESSION_FAILED")
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "CREATE_PR_FAILED")
 		return
 	}
+	writeJSON(w, http.StatusOK, stats)
+}
 
-	var req crystallizeChatSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+// POST /chat/sessions/{sessionID}/refresh-pr — refresh PR state from SCM.
+func (h *chatHandlers) refreshPR(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id is required", "BAD_REQUEST")
 		return
 	}
-
-	threadTitle := strings.TrimSpace(req.ThreadTitle)
-	if threadTitle == "" {
-		threadTitle = strings.TrimSpace(detail.Title)
-	}
-	if threadTitle == "" {
-		threadTitle = fmt.Sprintf("Chat Session %s", sessionID)
-	}
-
-	ownerID := strings.TrimSpace(req.OwnerID)
-	result, err := h.handler.threadService().CrystallizeChatSession(r.Context(), threadapp.CrystallizeChatSessionInput{
-		SessionID:          sessionID,
-		ThreadTitle:        threadTitle,
-		OwnerID:            ownerID,
-		ParticipantUserIDs: req.ParticipantUserIDs,
-		CreateWorkItem:     req.CreateWorkItem,
-		WorkItemTitle:      req.WorkItemTitle,
-		WorkItemBody:       req.WorkItemBody,
-		ProjectID:          req.ProjectID,
-	})
+	stats, err := h.lead.RefreshPR(r.Context(), sessionID)
 	if err != nil {
-		if writeThreadAppError(w, err) {
-			return
-		}
-		code := "CREATE_THREAD_FAILED"
-		if req.CreateWorkItem {
-			code = "CREATE_ISSUE_FAILED"
-			if strings.Contains(err.Error(), "rollback failed") {
-				code = "CREATE_LINK_FAILED"
-			}
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), code)
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "REFRESH_PR_FAILED")
 		return
 	}
-
-	writeJSON(w, http.StatusCreated, crystallizeChatSessionResponse{
-		Thread:       result.Thread,
-		WorkItem:     result.WorkItem,
-		Participants: result.Participants,
-	})
+	writeJSON(w, http.StatusOK, stats)
 }

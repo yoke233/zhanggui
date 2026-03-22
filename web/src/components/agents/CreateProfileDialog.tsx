@@ -143,11 +143,16 @@ function supportedLLMModes(driver?: AgentDriver | null): ProfileLLMMode[] {
   }
 }
 
+function isSystemLLMConfig(id: string | null | undefined): boolean {
+  const trimmed = id?.trim();
+  return !trimmed || trimmed.toLowerCase() === "system";
+}
+
 function inferLLMMode(profile: AgentProfile | null | undefined, llmConfigs: LLMConfigItem[]): ProfileLLMMode {
-  if (!profile?.llm_config_id) {
+  if (isSystemLLMConfig(profile?.llm_config_id)) {
     return "system";
   }
-  const matched = llmConfigs.find((item) => item.id === profile.llm_config_id);
+  const matched = llmConfigs.find((item) => item.id === profile!.llm_config_id);
   if (matched?.type) {
     return matched.type;
   }
@@ -193,7 +198,7 @@ export function CreateProfileDialog({
     setRole(profile?.role ?? "worker");
     setDriverId(initialDriverId);
     setLLMMode(inferLLMMode(profile, llmConfigs));
-    setLLMConfigID(profile?.llm_config_id ?? "");
+    setLLMConfigID(isSystemLLMConfig(profile?.llm_config_id) ? "" : (profile?.llm_config_id ?? ""));
     setCaps((profile?.capabilities ?? []).join(",") || DEFAULT_CAPS);
     setActions((profile?.actions_allowed ?? []).join(",") || DEFAULT_ACTIONS);
     setPromptTemplate(normalizeTextValue(profile?.prompt_template));
@@ -275,7 +280,7 @@ export function CreateProfileDialog({
         id: id.trim(),
         name: name.trim(),
         driver_id: driverId,
-        llm_config_id: llmMode === "system" ? undefined : llmConfigID || undefined,
+        llm_config_id: llmMode === "system" ? "system" : llmConfigID || undefined,
         driver: {
           launch_command: selectedDriverConfig.launch_command,
           launch_args: selectedDriverConfig.launch_args,

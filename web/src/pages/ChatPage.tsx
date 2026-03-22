@@ -9,6 +9,7 @@ import type {
   SessionModeState,
   SlashCommand,
 } from "@/types/apiV2";
+import type { LLMConfigItem } from "@/types/system";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import type {
@@ -20,6 +21,7 @@ import type {
   RealtimeChatErrorPayload,
   LeadDriverOption,
   SessionGroup,
+  PendingMessageView,
 } from "@/components/chat/chatTypes";
 import {
   toSummaryRecord,
@@ -40,33 +42,14 @@ import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatMainPanel } from "@/components/chat/ChatMainPanel";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
 import { PermissionBar, type PermissionRequest } from "@/components/chat/PermissionBar";
-import { CrystallizeDialog } from "@/components/chat/CrystallizeDialog";
 import { useChatFeed } from "@/components/chat/useChatFeed";
 import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { MessagesSquare } from "lucide-react";
+import { MessagesSquare, X } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
-const CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT = 6;
-const CRYSTALLIZE_SUMMARY_MAX_CHARS = 220;
-
 function isSessionAlreadyRunningError(message: string | null | undefined): boolean {
   return (message ?? "").toLowerCase().includes("session is already running");
-}
-
-function summarizeChatMessages(messages: ChatMessageView[]): string {
-  return messages
-    .filter((message) => message.content.trim().length > 0)
-    .slice(-CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT)
-    .map((message) => {
-      const roleLabel = message.role === "user" ? "用户" : "助手";
-      const content = message.content.trim().replace(/\s+/g, " ");
-      const snippet = content.length > CRYSTALLIZE_SUMMARY_MAX_CHARS
-        ? `${content.slice(0, CRYSTALLIZE_SUMMARY_MAX_CHARS)}...`
-        : content;
-      return `${roleLabel}：${snippet}`;
-    })
-    .join("\n");
 }
 
 export function ChatPage() {
@@ -99,6 +82,8 @@ export function ChatPage() {
   const [draftProjectId, setDraftProjectId] = useState<number | null>(selectedProjectId);
   const [draftProfileId, setDraftProfileId] = useState("");
   const [draftDriverId, setDraftDriverId] = useState("");
+  const [draftLLMConfigId, setDraftLLMConfigId] = useState("system");
+  const [llmConfigs, setLLMConfigs] = useState<LLMConfigItem[]>([]);
   const [draftUseWorktree, setDraftUseWorktree] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [detailView, setDetailView] = useState<"chat" | "events">("chat");
@@ -106,6 +91,7 @@ export function ChatPage() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<PendingMessageView | null>(null);
   const [commandsBySession, setCommandsBySession] = useState<Record<string, SlashCommand[]>>({});
   const [configOptionsBySession, setConfigOptionsBySession] = useState<Record<string, ConfigOption[]>>({});
   const [modesBySession, setModesBySession] = useState<Record<string, SessionModeState | null>>({});
@@ -113,13 +99,7 @@ export function ChatPage() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
-  const [crystallizeOpen, setCrystallizeOpen] = useState(false);
-  const [crystallizing, setCrystallizing] = useState(false);
-  const [threadTitleDraft, setThreadTitleDraft] = useState("");
-  const [threadSummaryDraft, setThreadSummaryDraft] = useState("");
-  const [workItemTitleDraft, setWorkItemTitleDraft] = useState("");
-  const [workItemBodyDraft, setWorkItemBodyDraft] = useState("");
-  const [createWorkItem, setCreateWorkItem] = useState(true);
+  const [prLoading, setPrLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const pendingChunkBuffersRef = useRef<Record<string, string>>({});
@@ -211,12 +191,14 @@ export function ChatPage() {
 
   const loadAgentCatalog = useCallback(async () => {
     try {
-      const [profiles, driverList] = await Promise.all([
+      const [profiles, driverList, llmConfigResp] = await Promise.all([
         apiClient.listProfiles(),
         apiClient.listDrivers(),
+        apiClient.getLLMConfig(),
       ]);
       setDrivers(driverList);
       setLeadProfiles(profiles);
+      setLLMConfigs(llmConfigResp.configs ?? []);
       setDraftProfileId((current) => {
         if (current && profiles.some((profile) => profile.id === current)) {
           return current;
@@ -233,6 +215,14 @@ export function ChatPage() {
           return firstProfile.driver_id;
         }
         return driverList[0]?.id ?? "";
+      });
+      // Auto-select LLM config from first profile's llm_config_id
+      setDraftLLMConfigId((current) => {
+        if (current && current !== "system") {
+          return current;
+        }
+        const firstProfile = profiles[0];
+        return firstProfile?.llm_config_id || "system";
       });
     } catch (loadError) {
       setError(getErrorMessage(loadError));
@@ -672,6 +662,13 @@ export function ChatPage() {
           setSessions((current) => touchSessionList(current, sessionId, "running", nowISO));
         }
 
+        if (updateType === "pending_dispatched") {
+          setPendingMessage(null);
+          setSubmitting(true);
+          setSessions((current) => touchSessionList(current, sessionId, "running", nowISO));
+          return;
+        }
+
         if (updateType === "done") {
           flushBufferedChunks();
           setSessions((current) => touchSessionList(current, sessionId, "alive", nowISO));
@@ -720,6 +717,18 @@ export function ChatPage() {
           return;
         }
         pendingRequestIdRef.current = null;
+
+        // Handle queued status — message was queued for later dispatch.
+        if (payload.status === "queued") {
+          setPendingMessage({
+            sessionId,
+            content: pendingSendDraftRef.current?.messageInput ?? "",
+          });
+          setSubmitting(false);
+          pendingSendDraftRef.current = null;
+          return;
+        }
+
         setSubmitting(false);
         pendingSendDraftRef.current = null;
 
@@ -779,10 +788,14 @@ export function ChatPage() {
         pendingRequestIdRef.current = null;
         setSubmitting(false);
         const errorMessage = payload.error?.trim() || t("chat.sendFailed");
-        if (isSessionAlreadyRunningError(errorMessage) && pendingSendDraftRef.current) {
-          setMessageInput(pendingSendDraftRef.current.messageInput);
-          setPendingFiles(pendingSendDraftRef.current.pendingFiles);
+
+        // Backend now queues messages for busy sessions. This error should not
+        // normally arrive, but as a safety net, silently ignore it.
+        if (isSessionAlreadyRunningError(errorMessage)) {
+          pendingSendDraftRef.current = null;
+          return;
         }
+
         pendingSendDraftRef.current = null;
         setError(errorMessage);
         const sessionId = payload.session_id?.trim();
@@ -831,6 +844,27 @@ export function ChatPage() {
         void loadAgentCatalog();
       },
     );
+    const unsubscribeSessionTitle = wsClient.subscribe<{ session_id?: string; title?: string }>(
+      "chat.session_title",
+      (payload) => {
+        const sessionId = payload.session_id?.trim();
+        const title = payload.title?.trim();
+        if (sessionId && title) {
+          setSessions((current) =>
+            current.map((s) => s.session_id === sessionId ? { ...s, title } : s),
+          );
+        }
+      },
+    );
+    const unsubscribePendingCancelled = wsClient.subscribe<{ session_id?: string }>(
+      "chat.pending_cancelled",
+      (payload) => {
+        const sessionId = payload.session_id?.trim();
+        if (sessionId) {
+          setPendingMessage(null);
+        }
+      },
+    );
     return () => {
       if (chunkFlushFrameRef.current != null) {
         cancelAnimationFrame(chunkFlushFrameRef.current);
@@ -846,6 +880,8 @@ export function ChatPage() {
       unsubscribePermissionRequest();
       unsubscribePermissionResolved();
       unsubscribeRuntimeConfigReloaded();
+      unsubscribeSessionTitle();
+      unsubscribePendingCancelled();
     };
   }, [flushBufferedChunks, loadAgentCatalog, scheduleChunkFlush, t, wsClient]);
 
@@ -1091,15 +1127,18 @@ export function ChatPage() {
           project_name: resolvedProjectName,
           profile_id: resolvedProfileId,
           driver_id: resolvedDriverId,
-          ...(!workingSessionId ? { use_worktree: draftUseWorktree } : {}),
+          ...(!workingSessionId ? {
+            use_worktree: draftUseWorktree,
+            llm_config_id: draftLLMConfigId || undefined,
+          } : {}),
         },
       });
     } catch (sendError) {
       pendingRequestIdRef.current = null;
       const errorMessage = getErrorMessage(sendError);
-      if (isSessionAlreadyRunningError(errorMessage) && pendingSendDraftRef.current) {
-        setMessageInput(pendingSendDraftRef.current.messageInput);
-        setPendingFiles(pendingSendDraftRef.current.pendingFiles);
+      if (isSessionAlreadyRunningError(errorMessage)) {
+        pendingSendDraftRef.current = null;
+        return;
       }
       pendingSendDraftRef.current = null;
       setError(errorMessage);
@@ -1114,6 +1153,15 @@ export function ChatPage() {
   };
 
   const sessionRunning = currentSession?.status === "running";
+
+  const cancelPendingMessage = () => {
+    if (!pendingMessage) return;
+    wsClient.send({
+      type: "chat.cancel_pending",
+      data: { session_id: pendingMessage.sessionId },
+    });
+    setPendingMessage(null); // optimistic
+  };
 
   const cancelSession = async () => {
     if (!currentSession) {
@@ -1166,6 +1214,40 @@ export function ChatPage() {
     }
   };
 
+  const createPR = async () => {
+    if (!currentSession) return;
+    setPrLoading(true);
+    try {
+      const stats = await apiClient.createChatPR(currentSession.session_id, currentSession.title);
+      setSessions((current) =>
+        current.map((s) =>
+          s.session_id === currentSession.session_id ? { ...s, git: stats } : s,
+        ),
+      );
+    } catch (prError) {
+      setError(getErrorMessage(prError));
+    } finally {
+      setPrLoading(false);
+    }
+  };
+
+  const refreshPR = async () => {
+    if (!currentSession) return;
+    setPrLoading(true);
+    try {
+      const stats = await apiClient.refreshChatPR(currentSession.session_id);
+      setSessions((current) =>
+        current.map((s) =>
+          s.session_id === currentSession.session_id ? { ...s, git: stats } : s,
+        ),
+      );
+    } catch (prError) {
+      setError(getErrorMessage(prError));
+    } finally {
+      setPrLoading(false);
+    }
+  };
+
   const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -1192,63 +1274,6 @@ export function ChatPage() {
     },
     [navigate, selectedProjectId],
   );
-
-  const openCrystallizeDialog = useCallback(() => {
-    if (!currentSession) {
-      return;
-    }
-    const nextThreadTitle = currentSession.title?.trim() || t("chat.crystallizeDefaultThreadTitle", {
-      defaultValue: "聊天结晶",
-    });
-    const nextThreadSummary = summarizeChatMessages(currentMessages);
-
-    setThreadTitleDraft(nextThreadTitle);
-    setThreadSummaryDraft(nextThreadSummary);
-    setWorkItemTitleDraft(nextThreadTitle);
-    setWorkItemBodyDraft("");
-    setCreateWorkItem(true);
-    setCrystallizeOpen(true);
-  }, [currentMessages, currentSession, t]);
-
-  const submitCrystallize = useCallback(async () => {
-    if (!currentSession) {
-      return;
-    }
-    const trimmedThreadTitle = threadTitleDraft.trim();
-    const trimmedThreadSummary = threadSummaryDraft.trim();
-    const trimmedWorkItemTitle = workItemTitleDraft.trim();
-    const trimmedWorkItemBody = workItemBodyDraft.trim();
-    const resolvedProjectId = currentSession.project_id ?? selectedProjectId ?? undefined;
-
-    setCrystallizing(true);
-    setError(null);
-    try {
-      const result = await apiClient.crystallizeChatSessionThread(currentSession.session_id, {
-        thread_title: trimmedThreadTitle || undefined,
-        thread_summary: trimmedThreadSummary || undefined,
-        work_item_title: createWorkItem ? (trimmedWorkItemTitle || trimmedThreadTitle || undefined) : undefined,
-        work_item_body: createWorkItem && trimmedWorkItemBody ? trimmedWorkItemBody : undefined,
-        project_id: resolvedProjectId,
-        create_work_item: createWorkItem,
-      });
-      setCrystallizeOpen(false);
-      navigate(`/threads/${result.thread.id}`);
-    } catch (submitError) {
-      setError(getErrorMessage(submitError));
-    } finally {
-      setCrystallizing(false);
-    }
-  }, [
-    apiClient,
-    createWorkItem,
-    currentSession,
-    navigate,
-    selectedProjectId,
-    threadSummaryDraft,
-    threadTitleDraft,
-    workItemBodyDraft,
-    workItemTitleDraft,
-  ]);
 
   const handleSetMode = useCallback(
     (modeId: string) => {
@@ -1360,23 +1385,30 @@ export function ChatPage() {
             driverLabel={currentDriverLabel}
             messageCount={currentMessages.length}
             submitting={submitting}
-            crystallizing={crystallizing}
             usage={currentUsage}
             usagePercent={currentUsagePercent}
             detailView={detailView}
             lastUserMessage={lastUserMessage}
             onDetailViewChange={setDetailView}
-            showCrystallize={Boolean(currentSession)}
-            onCrystallize={openCrystallizeDialog}
             onCloseSession={() => void closeSession()}
             onRenameSession={(title) => void renameSession(title)}
+            onCreatePR={() => void createPR()}
+            onRefreshPR={() => void refreshPR()}
+            prLoading={prLoading}
           />
         )}
 
         {error && (
-          <p className="mx-5 mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {error}
-          </p>
+          <div className="mx-5 mt-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded p-0.5 text-rose-400 transition-colors hover:text-rose-600"
+              onClick={() => setError(null)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
 
         <ChatMainPanel
@@ -1387,10 +1419,12 @@ export function ChatPage() {
           draftProjectId={draftProjectId}
           draftProfileId={draftProfileId}
           draftDriverId={draftDriverId}
+          draftLLMConfigId={draftLLMConfigId}
           draftUseWorktree={draftUseWorktree}
           leadDriverOptions={leadDriverOptions}
           leadProfiles={leadProfiles}
           drivers={drivers}
+          llmConfigs={llmConfigs}
           messageInput={messageInput}
           pendingFiles={pendingFiles}
           draftSessionReady={draftSessionReady}
@@ -1408,8 +1442,10 @@ export function ChatPage() {
             if (profile?.driver_id) {
               setDraftDriverId(profile.driver_id);
             }
+            setDraftLLMConfigId(profile?.llm_config_id || "system");
           }}
           onDriverChange={setDraftDriverId}
+          onLLMConfigChange={setDraftLLMConfigId}
           onUseWorktreeChange={setDraftUseWorktree}
           onMessageChange={setMessageInput}
           onSend={() => void sendMessage()}
@@ -1468,6 +1504,8 @@ export function ChatPage() {
             configOptions={configOptions}
             onSetMode={handleSetMode}
             onSetConfigOption={handleSetConfigOption}
+            pendingMessage={pendingMessage}
+            onCancelPending={cancelPendingMessage}
           />
         )}
 
@@ -1480,22 +1518,6 @@ export function ChatPage() {
           onChange={handleFileSelect}
         />
 
-        <CrystallizeDialog
-          open={crystallizeOpen}
-          crystallizing={crystallizing}
-          threadTitle={threadTitleDraft}
-          threadSummary={threadSummaryDraft}
-          workItemTitle={workItemTitleDraft}
-          workItemBody={workItemBodyDraft}
-          createWorkItem={createWorkItem}
-          onClose={() => setCrystallizeOpen(false)}
-          onThreadTitleChange={setThreadTitleDraft}
-          onThreadSummaryChange={setThreadSummaryDraft}
-          onWorkItemTitleChange={setWorkItemTitleDraft}
-          onWorkItemBodyChange={setWorkItemBodyDraft}
-          onCreateWorkItemChange={setCreateWorkItem}
-          onSubmit={() => void submitCrystallize()}
-        />
       </div>
     </div>
   );

@@ -167,6 +167,31 @@ func (p *CodeupProvider) Merge(ctx context.Context, repo flowapp.ChangeRequestRe
 	return mergeErr
 }
 
+func (p *CodeupProvider) GetState(ctx context.Context, repo flowapp.ChangeRequestRepo, number int) (string, error) {
+	if strings.TrimSpace(p.token) == "" {
+		return "", errors.New("codeup provider token is required")
+	}
+	if number <= 0 {
+		return "", errors.New("codeup get state requires a positive change request number")
+	}
+	reqInfo, err := p.resolveRequest(repo, nil)
+	if err != nil {
+		return "", err
+	}
+	cr, err := p.getChangeRequest(ctx, reqInfo, number)
+	if err != nil {
+		return "", fmt.Errorf("codeup get CR #%d failed: %w", number, err)
+	}
+	if cr.isMerged() {
+		return "merged", nil
+	}
+	state := strings.ToLower(strings.TrimSpace(cr.Status))
+	if state == "" || state == "opened" {
+		return "open", nil
+	}
+	return state, nil
+}
+
 type codeupRequestInfo struct {
 	BaseURL         string
 	OrganizationID  string

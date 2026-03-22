@@ -66,6 +66,8 @@ function renderBar(props?: Partial<React.ComponentProps<typeof ChatInputBar>>) {
     onCommandPaletteClose: vi.fn(),
     onSetMode: vi.fn(),
     onSetConfigOption: vi.fn(),
+    pendingMessage: null,
+    onCancelPending: vi.fn(),
   };
 
   const mergedProps = { ...baseProps, ...props };

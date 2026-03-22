@@ -32,6 +32,7 @@ type persistedLeadSession struct {
 	ProfileID         string                     `json:"profile_id,omitempty"`
 	ProfileName       string                     `json:"profile_name,omitempty"`
 	DriverID          string                     `json:"driver_id,omitempty"`
+	LLMConfigID       string                     `json:"llm_config_id,omitempty"`
 	AvailableCommands []chatapp.AvailableCommand `json:"available_commands,omitempty"`
 	ConfigOptions     []chatapp.ConfigOption     `json:"config_options,omitempty"`
 	Modes             *chatapp.SessionModeState  `json:"modes,omitempty"`

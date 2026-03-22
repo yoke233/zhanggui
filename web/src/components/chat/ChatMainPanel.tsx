@@ -2,6 +2,7 @@ import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import type { AgentDriver, AgentProfile, Event as ApiEvent } from "@/types/apiV2";
+import type { LLMConfigItem } from "@/types/system";
 import { ChatEventsPanel } from "./ChatEventsPanel";
 import { ChatScrollTrack } from "./ChatScrollTrack";
 import { DraftSessionSetup } from "./DraftSessionSetup";
@@ -16,10 +17,12 @@ interface ChatMainPanelProps {
   draftProjectId: number | null;
   draftProfileId: string;
   draftDriverId: string;
+  draftLLMConfigId: string;
   draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
   drivers: AgentDriver[];
+  llmConfigs: LLMConfigItem[];
   messageInput: string;
   pendingFiles: File[];
   draftSessionReady: boolean;
@@ -30,6 +33,7 @@ interface ChatMainPanelProps {
   onProjectChange: (id: number | null) => void;
   onProfileChange: (id: string) => void;
   onDriverChange: (id: string) => void;
+  onLLMConfigChange: (id: string) => void;
   onUseWorktreeChange: (v: boolean) => void;
   onMessageChange: (value: string) => void;
   onSend: () => void;
@@ -60,10 +64,12 @@ export function ChatMainPanel({
   draftProjectId,
   draftProfileId,
   draftDriverId,
+  draftLLMConfigId,
   draftUseWorktree,
   leadDriverOptions,
   leadProfiles,
   drivers,
+  llmConfigs,
   messageInput,
   pendingFiles,
   draftSessionReady,
@@ -74,6 +80,7 @@ export function ChatMainPanel({
   onProjectChange,
   onProfileChange,
   onDriverChange,
+  onLLMConfigChange,
   onUseWorktreeChange,
   onMessageChange,
   onSend,
@@ -113,10 +120,12 @@ export function ChatMainPanel({
               draftProjectId={draftProjectId}
               draftProfileId={draftProfileId}
               draftDriverId={draftDriverId}
+              draftLLMConfigId={draftLLMConfigId}
               draftUseWorktree={draftUseWorktree}
               leadDriverOptions={leadDriverOptions}
               leadProfiles={leadProfiles}
               drivers={drivers}
+              llmConfigs={llmConfigs}
               messageInput={messageInput}
               pendingFiles={pendingFiles}
               draftSessionReady={draftSessionReady}
@@ -127,6 +136,7 @@ export function ChatMainPanel({
               onProjectChange={onProjectChange}
               onProfileChange={onProfileChange}
               onDriverChange={onDriverChange}
+              onLLMConfigChange={onLLMConfigChange}
               onUseWorktreeChange={onUseWorktreeChange}
               onMessageChange={onMessageChange}
               onSend={onSend}

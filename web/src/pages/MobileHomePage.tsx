@@ -543,7 +543,7 @@ function SessionListItem({
 
   const hasGit = Boolean(session.branch);
   const git = session.git;
-  const hasDiffStats = git && (git.additions > 0 || git.deletions > 0);
+  const hasDiffStats = git && !git.merged && (git.additions > 0 || git.deletions > 0);
 
   return (
     <button

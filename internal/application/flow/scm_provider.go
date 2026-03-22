@@ -12,6 +12,8 @@ type ChangeRequestProvider interface {
 	Detect(ctx context.Context, originURL string) (ChangeRequestRepo, bool, error)
 	EnsureOpen(ctx context.Context, repo ChangeRequestRepo, input EnsureOpenInput) (ChangeRequest, bool, error)
 	Merge(ctx context.Context, repo ChangeRequestRepo, number int, input MergeInput) error
+	// GetState returns the current state of a change request: "open", "merged", or "closed".
+	GetState(ctx context.Context, repo ChangeRequestRepo, number int) (string, error)
 }
 
 // ChangeRequestRepo identifies a repository in a provider-specific way.

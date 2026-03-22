@@ -157,6 +157,33 @@ func (p *GitHubProvider) Merge(ctx context.Context, repo flowapp.ChangeRequestRe
 	return nil
 }
 
+func (p *GitHubProvider) GetState(ctx context.Context, repo flowapp.ChangeRequestRepo, number int) (string, error) {
+	if strings.TrimSpace(p.token) == "" {
+		return "", errors.New("github provider token is required")
+	}
+	if number <= 0 {
+		return "", errors.New("github get state requires a positive PR number")
+	}
+	client, err := p.client()
+	if err != nil {
+		return "", err
+	}
+	owner := strings.TrimSpace(repo.Namespace)
+	name := strings.TrimSpace(repo.Name)
+	pr, _, err := client.PullRequests.Get(ctx, owner, name, number)
+	if err != nil {
+		return "", fmt.Errorf("github get PR #%d failed: %w", number, err)
+	}
+	if pr.GetMerged() {
+		return "merged", nil
+	}
+	state := strings.ToLower(strings.TrimSpace(pr.GetState()))
+	if state == "" {
+		return "open", nil
+	}
+	return state, nil
+}
+
 func (p *GitHubProvider) client() (*ghapi.Client, error) {
 	httpClient := p.httpClient
 	if httpClient == nil {

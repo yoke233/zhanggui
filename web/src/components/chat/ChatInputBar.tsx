@@ -1,13 +1,13 @@
 import type React from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Paperclip, Send, Square } from "lucide-react";
+import { ChevronDown, Clock, Paperclip, Send, Square, X } from "lucide-react";
 import type { ConfigOption, SessionModeState, SlashCommand } from "@/types/apiV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { SessionRecord } from "./chatTypes";
+import type { PendingMessageView, SessionRecord } from "./chatTypes";
 import { FilePreviewList } from "./FilePreviewList";
 
 interface ChatInputBarProps {
@@ -35,6 +35,8 @@ interface ChatInputBarProps {
   onCommandPaletteClose: () => void;
   onSetMode?: (modeId: string) => void;
   onSetConfigOption?: (configId: string, value: string) => void;
+  pendingMessage: PendingMessageView | null;
+  onCancelPending: () => void;
 }
 
 export function ChatInputBar(props: ChatInputBarProps) {
@@ -63,8 +65,20 @@ export function ChatInputBar(props: ChatInputBarProps) {
     configOptions,
     onSetMode,
     onSetConfigOption,
+    pendingMessage,
+    onCancelPending,
   } = props;
   const { t } = useTranslation();
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => { autoResize(); }, [messageInput, autoResize]);
 
   const isDisabled = submitting || (!currentSession && !draftSessionReady);
   const filteredCommands = availableCommands.filter(
@@ -76,6 +90,21 @@ export function ChatInputBar(props: ChatInputBarProps) {
 
   return (
     <div className="space-y-2 border-t px-6 py-4">
+      {pendingMessage && (
+        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {t("chat.pendingSend")}: {pendingMessage.content}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-sky-400 transition-colors hover:text-sky-600"
+            onClick={onCancelPending}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <FilePreviewList files={pendingFiles} onRemove={onRemovePendingFile} />
       <div className="relative">
         {showCommandPalette && availableCommands.length > 0 && (
@@ -109,14 +138,16 @@ export function ChatInputBar(props: ChatInputBarProps) {
             </div>
           </div>
         )}
-        <div className="flex items-center gap-2.5 rounded-lg border bg-background px-3.5 py-2.5">
-          <Input
+        <div className="flex items-end gap-2.5 rounded-lg border bg-background px-3.5 py-2.5">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             placeholder={
               currentSession
                 ? t("chat.inputPlaceholderActive")
                 : t("chat.inputPlaceholderNew", { driver: currentDriverLabel, project: currentProjectLabel })
             }
-            className="h-auto flex-1 border-0 p-0 text-[16px] md:text-sm shadow-none focus-visible:ring-0"
+            className="max-h-40 min-h-[36px] flex-1 resize-none border-0 bg-transparent p-0 text-[16px] leading-relaxed outline-none placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-50 md:text-sm"
             value={messageInput}
             disabled={isDisabled}
             onChange={(event) => onMessageChange(event.target.value)}
