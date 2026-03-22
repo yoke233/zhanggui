@@ -45,3 +45,9 @@
 [2026-03-22T14:55:18.0137925+08:00] [SESSION-4] STATS tasks_total=9 completed=8 failed=0 pending=1 blocked=0 attempts_total=0 checkpoints=16
 [2026-03-22T14:55:15.0137925+08:00] [SESSION-4] RECOVERY [task-008] action="resume validation and repair E2E harness" reason="previous session stopped after checkpoint 1 before final validation and completion bookkeeping"
 [2026-03-22T14:55:16.0137925+08:00] [SESSION-4] CHECKPOINT [task-008] step=2/2 "已修复 frontend-e2e 依赖、鉴权与后端自举链路，并通过 frontend-unit/frontend-build/frontend-e2e"
+[2026-03-22T19:39:06.3075664+08:00] [SESSION-5] LOCK acquired (pid=29640)
+[2026-03-22T19:39:06.3075664+08:00] [SESSION-5] Starting [task-009] 执行长会话性能回归与跨层验收 (base=a1ddfc5)
+[2026-03-22T19:39:33.4777653+08:00] [SESSION-5] CHECKPOINT [task-009] step=1/2 "已通过 frontend-e2e，确认项目创建入口、鉴权 token 注入与本地后端自举链路可用"
+[2026-03-22T19:43:16.8808910+08:00] [SESSION-5] CHECKPOINT [task-009] step=2/2 "已通过 suite-p3，确认前后端基线、跨层验收与重构后主流程回归全部通过"
+[2026-03-22T19:43:17.8808910+08:00] [SESSION-5] Completed [task-009] (commit pending)
+[2026-03-22T19:43:18.8808910+08:00] [SESSION-5] STATS tasks_total=9 completed=9 failed=0 pending=0 blocked=0 attempts_total=0 checkpoints=18

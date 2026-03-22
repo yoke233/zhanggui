@@ -293,7 +293,7 @@
     {
       "id": "task-009",
       "title": "执行长会话性能回归与跨层验收",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "depends_on": [
         "task-002",
@@ -305,7 +305,7 @@
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "a1ddfc5",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-e2e.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\suite-p3.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 3600
@@ -314,10 +314,23 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
-      "completed_at": null
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已通过 frontend-e2e，确认项目创建入口、鉴权 token 注入与本地后端自举链路可用",
+          "timestamp": "2026-03-22T19:39:33.4777653+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已通过 suite-p3，确认前后端基线、跨层验收与重构后主流程回归全部通过",
+          "timestamp": "2026-03-22T19:43:16.8808910+08:00"
+        }
+      ],
+      "completed_at": "2026-03-22T19:43:17.8808910+08:00"
     }
   ],
-  "session_count": 4,
-  "last_session": "2026-03-22T14:55:18.0137925+08:00"
+  "session_count": 5,
+  "last_session": "2026-03-22T19:43:18.8808910+08:00"
 }
