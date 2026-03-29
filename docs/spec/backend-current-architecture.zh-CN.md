@@ -2,7 +2,7 @@
 
 > 状态：现行
 >
-> 最后按代码核对：2026-03-17
+> 最后按代码核对：2026-03-29
 >
 > 适用范围：本文只描述当前仓库中已经落地的后端实现，不描述未来规划。
 
@@ -14,7 +14,8 @@
 
 如果要理解“现在代码怎么工作”，应以 `internal/core`、
 `internal/application`、`internal/adapters`、`internal/platform`、
-`internal/runtime`、`internal/threadctx` 为主，而不是旧的
+`internal/runtime`、`internal/threadctx` 为主，并结合 `internal/audit`、
+`internal/usecase` 这类辅助包阅读，而不是旧的
 `engine/secretary/web/github/plugins/git/tui` 分法。
 
 ## 运行入口
@@ -55,7 +56,10 @@
 
 - `flow`：WorkItem 执行引擎、调度器、gate、恢复、workspace 编排
 - `workitemapp`：WorkItem CRUD 与运行入口
-- `threadapp`：Thread、context ref、work item linking、crystallize
+- `threadapp`：Thread CRUD、context ref、work item linking、workspace sync、从 Thread 创建 WorkItem
+- `chat`：direct chat / lead session 入口
+- `proposalapp`、`initiativeapp`：计划审批链与执行前物化
+- `requirementapp`：requirement intake、分析与创建 Thread
 - `planning`：LLM 规划并 materialize 为 Action
 - `probe`：运行探针
 - `inspection`：巡检与自演进检查
@@ -97,9 +101,14 @@
 
 负责线程工作区目录结构与 `.context.json` 维护。
 
-### 8. `internal/legacy`
+### 8. `internal/audit` / `internal/usecase`
 
-历史兼容层，不应再视为当前主线领域模型来源。
+当前仓库还包含：
+
+- `internal/audit`：tool call / 运行审计能力
+- `internal/usecase`：局部用例接口与兼容承接
+
+它们不是新的主领域分层，但属于当前代码树中的实际组成部分。
 
 ## 核心领域事实
 
@@ -272,7 +281,7 @@ builtin executor 当前覆盖的典型动作包括：
 
 - SQLite 主表仍多为 `issues` / `steps` / `executions`
 - 这些属于持久化兼容残留，不再代表对外主命名
-- `internal/legacy/*` 仍保留历史模型
+- 持久化与 request struct 中仍有少量旧 `issue` / `step` 命名
 
 这些残留不代表主设计方向，只表示当前为了兼容而保留的实现细节。
 

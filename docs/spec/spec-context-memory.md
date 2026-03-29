@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 最后按代码核对：2026-03-13
+> 最后按代码核对：2026-03-29
 >
 > 重要说明：当前主线实现不是本文描述的 OpenViking 集成方案，而是本地 Briefing + Step Context。本文应被视为 OpenViking 方向的设计草案。
 
@@ -11,7 +11,7 @@
 当前仓库里与本文相关、但尚不足以视为“已接入主链”的内容只有：
 
 - `cmd/viking`：OpenViking helper CLI
-- `internal/legacy/core/context.go`：遗留 `ContextStore` 接口定义
+- 当前代码树中未见可直接作为主线 `ContextStore` 的独立实现包路径
 
 当前未见主链落地的内容包括：
 

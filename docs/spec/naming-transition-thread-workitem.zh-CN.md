@@ -4,9 +4,9 @@
 >
 > 状态：现行
 >
-> 最后按代码核对：2026-03-17
+> 最后按代码核对：2026-03-29
 >
-> 当前实现状态：本文中的命名治理规则已基本生效。前端主入口与后端 Public REST 已经切到 `workitem/action/run` 主命名；`/flows` 仅保留前端 redirect；剩余兼容层主要存在于持久化表名（`issues` / `steps` / `executions`）和少量历史 helper / request struct。
+> 当前实现状态：本文中的命名治理规则已基本生效。前端主入口与后端 Public REST 已经切到 `workitem/action/run` 主命名；旧 `/issues/*`、`/flows/*` 已退出当前工作台；剩余兼容层主要存在于持久化表名（`issues` / `steps` / `executions`）和少量历史 helper / request struct。
 >
 > 重要说明：本文现在更适合作为“现行收口规则 + 剩余兼容层说明”阅读，而不是“未来迁移计划”。
 
@@ -32,7 +32,7 @@
 ### 当前现状（按代码）
 
 - 前端主页面路由：`/work-items`
-- 前端兼容路由：`/issues/*`、`/flows/*` 重定向到 `/work-items`
+- 旧 `/issues/*`、`/flows/*` 已退出当前前端工作台
 - 后端主 REST 路由：`/work-items/*`、`/actions/*`
 - 内部核心领域对象：`WorkItem` / `Action` / `Run`
 - Thread 已独立建模并拥有自己的 REST / WebSocket 协议
@@ -80,13 +80,13 @@
 
 - 对外页面主入口：`/work-items`
 - 对外 REST 主入口：`/api/work-items/*`
-- 兼容层：前端 `/issues/*`、`/flows/*` redirect + 内部 `issue` 命名残留
+- 兼容层：主要剩在内部 `issue` / `step` 命名与持久化表名残留
 
 目标分层：
 
 - 对外主契约：`/api/work-items/*`
 - 兼容契约：不再新增 `/api/issues/*`
-- 历史路由：`/flows/*` 仅前端 redirect 保留，不得再新增后端 `/flows` 契约
+- 历史页面路由：`/issues/*`、`/flows/*` 已退出当前工作台，不得再恢复为现行入口
 
 ### 主规则
 
@@ -117,15 +117,20 @@
 | `PUT /work-items/{id}` | 更新 Work Item |
 | `DELETE /work-items/{id}` | 删除 Work Item |
 
-### 保留路由（兼容期内继续可用）
+### 仍保留的现行兼容入口
 
 | 路由 | 说明 |
 |------|------|
 | `GET /chat/sessions` | ChatSession 列表（保留） |
-| `POST /chat/sessions/{id}/crystallize-thread` | 将 ChatSession 固化为 Thread，并可选同步创建 WorkItem |
 | `POST /chat` | 已废弃；当前返回 `410 Gone`，发送消息应改用 `chat.send` WebSocket |
-| `/issues/*` | 前端旧页面入口 redirect（仅页面层） |
-| `/flows/*` | 前端旧页面入口 redirect（仅页面层） |
+
+### 当前未落地或已退出的历史入口
+
+| 入口 | 当前状态 |
+|------|----------|
+| `POST /chat/sessions/{id}/crystallize-thread` | 当前代码中未落地，不应写成现行能力 |
+| `/issues/*` | 已退出当前前端工作台 |
+| `/flows/*` | 已退出当前前端工作台 |
 
 ### 兼容周期
 
@@ -286,7 +291,7 @@
 ### Phase C：前端与文案收口
 
 - 页面/组件/i18n 去 `Flow`
-- `/flows` 仅保留 redirect
+- 不再把 `/issues/*`、`/flows/*` 当作现行工作台入口
 - 变量名和导航统一到 `workItem`
 
 ### Phase D：内部命名渐进清理

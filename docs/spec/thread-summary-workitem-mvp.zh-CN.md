@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-29
 >
 > 上位规划：`thread-collaboration-to-dag-plan.zh-CN.md`
 >
@@ -21,21 +21,26 @@ P1 是后续多小组协同的基础。如果这一层做不好，P2 的“主 T
 
 ## 2. 现状基础
 
-截至当前代码，P1 已经具备以下基础能力：
+按 2026-03-29 当前代码核对，P1 原稿中的一部分前提并未按原方案落地。
 
-1. `Thread.summary` 字段已存在
-2. `PUT /threads/{id}` 已可更新 `summary`
-3. `POST /threads/{id}/create-work-item` 已可从 Thread 创建单个 WorkItem
-4. `thread_work_item_links` 已支持 Thread 与 WorkItem 的显式链接
-5. Thread 详情页已展示 summary 与 linked work items
-6. `POST /chat/sessions/{sessionID}/crystallize-thread` 已可把 `ChatSession` 固化为 `Thread`，并可选同时创建 `WorkItem`
+当前真正已具备的基础能力包括：
 
-也就是说，P1 不是从零开始，而是要把“已有但松散的能力”收敛成一个正式流程。
+1. `POST /threads/{id}/create-work-item` 已可从 Thread 创建单个 WorkItem
+2. 当请求未显式提供 `body` 时，当前实现会回退到 `Thread.Title`，而不是 `Thread.summary`
+3. `thread_work_item_links` 已支持 Thread 与 WorkItem 的显式链接
+4. Thread 详情页已展示 linked work items
+5. Thread 侧已具备 `Proposal -> Initiative -> WorkItem` 的审批与执行前收敛主链
+6. 当前 public surface 上尚未提供 `POST /chat/sessions/{sessionID}/crystallize-thread`
+
+也就是说，这篇草案不是“把现有 `Thread.summary` 流程正式化”，而更像是：
+
+- 在现有 `Thread -> create-work-item` 和 `Proposal / Initiative` 主链之外，
+- 重新评估是否还需要单独的 `Thread.summary -> WorkItem` MVP。
 
 补充说明：
 
-- `crystallize-thread` 不是对 `POST /threads/{id}/create-work-item` 的替代，而是给 direct chat 增加一个进入 Thread 收敛流的上游入口
-- 真正进入 P1 收敛闭环后，核心仍然是 `Thread.summary` 与 `Thread -> WorkItem` 显式关联
+- `crystallize-thread` 当前不是现行能力，不能再当作本文的现状前提
+- 当前现行主线更接近 `Thread -> Proposal / Initiative -> WorkItem`，而不是 `Thread.summary`
 
 ## 3. P1 的核心原则
 

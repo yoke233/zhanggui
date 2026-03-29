@@ -1,7 +1,7 @@
 # AI Company Domain Model（最小落地版）
 
 > 状态：草案
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-29
 
 > 目标：从当前仓库已经稳定运行的 `project / work item / action / run / deliverable / chat session / thread` 主线出发，逐步扩展为可覆盖产品、运营、财务、剪辑、销售、管理等场景的通用 AI Company 系统。
 
@@ -70,11 +70,11 @@ WorkItem
 
 这意味着系统已经有“动作”和“产物”的稳定容器，不应该在第一阶段推翻重建。
 
-### 4. Chat 当前仍是独立于 WorkItem 的 direct chat 主线，但已具备结晶入口
+### 4. Chat 当前仍是独立于 WorkItem 的 direct chat 主线，但尚未提供结晶为 Thread 的 public surface
 
 当前前端和 API 已经把 direct chat 与执行工作台拆成两套入口：
 
-- 前端：`/chat` 与 `/work-items`（旧 `/issues` / `/flows` 仅页面 redirect）
+- 前端：`/chat` 与 `/work-items`（旧 `/issues` / `/flows` 已退出当前工作台）
 - 后端：`/api/chat/*` 与 `/api/work-items/*`
 
 而且当前 `chat session` 的定位明显更接近：
@@ -83,11 +83,11 @@ WorkItem
 - 持久化消息历史
 - 带 project / profile / driver / workdir 上下文
 
-它本身还不是多人协作 Thread，但当前代码已经提供：
+它本身还不是多人协作 Thread。当前代码里：
 
-- `POST /api/chat/sessions/{sessionID}/crystallize-thread`
-- 可把 `ChatSession` 固化为独立 `Thread`
-- 并可选同时创建 `WorkItem`
+- `ChatSession` 与 `Thread` 仍是并行入口
+- public surface 上未提供 `ChatSession -> Thread` 的直接转化 API
+- 现行“讨论进入执行”的主收敛链更接近 `Requirement -> Thread -> Proposal / Initiative -> WorkItem`
 
 ### 5. 当前最大缺口不是“没有通用对象”，而是“讨论层和执行层还没接上”
 
@@ -98,7 +98,7 @@ WorkItem
 
 而是：
 
-**当前 `ChatSession -> Thread -> WorkItem` 已经出现最小闭环，但多人讨论、结构化决策、治理层仍未真正接上。**
+**当前真正接上的主闭环更接近 `Requirement -> Thread -> Proposal / Initiative -> WorkItem`；`ChatSession -> Thread` 这条上游入口仍未在 public surface 落地。**
 
 这才是第一步最该补的地方。
 
@@ -127,7 +127,7 @@ WorkItem
 所以从现状出发的第一阶段应该是：
 
 - 保持 `ChatSession` 作为 1:1 direct chat
-- 通过 `crystallize-thread` 把需要沉淀的 direct chat 固化成 `Thread`
+- 通过独立创建 Thread 或 requirement intake，把需要沉淀的讨论带入 Thread 协作域
 - 让 `WorkItem` 能拥有一个或多个讨论
 - 让讨论可以先存在，再补关联
 
@@ -628,7 +628,7 @@ Chat Session
 - `Thread` 具备独立存储（threads、thread_messages、thread_members）
 - `Thread` 具备独立 API（`/threads`）与 WebSocket 协议（`thread.send`）
 - `Thread` 可先独立存在，后关联 WorkItem
-- `ChatSession` 可在需要沉淀时通过 `crystallize-thread` 固化为 `Thread`
+- 当前 public surface 尚未提供 `ChatSession -> Thread` 直接转化 API；需要沉淀讨论时应直接创建 Thread 或走 requirement -> create-thread 流程
 
 此阶段：
 

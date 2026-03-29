@@ -2,7 +2,7 @@
 
 > 状态：现行
 >
-> 最后按代码核对：2026-03-17
+> 最后按代码核对：2026-03-29
 >
 > 适用范围：本文描述当前 `web/` 前端已经落地的页面面、
 > 契约面与事件消费面，不描述未来设计。
@@ -27,7 +27,7 @@
 - `react-router-dom`
 - `zustand`
 - `i18next`
-- Tauri desktop bridge
+- Wails desktop bridge
 
 运行壳由 `WorkbenchContext` 统一提供：
 
@@ -35,7 +35,7 @@
 - 当前项目选择
 - API Client 注入
 - WebSocket Client 注入
-- 桌面端 `desktop_bootstrap` 适配
+- 桌面端 Wails `GetBootstrap()` 适配
 
 ## 当前页面域
 
@@ -50,6 +50,8 @@
 - `/work-items/:workItemId`
 - `/threads`
 - `/threads/:threadId`
+- `/initiatives/:initiativeId`
+- `/requirements/new`
 - `/projects`
 - `/projects/new`
 - `/projects/:projectId/git-tags`
@@ -94,8 +96,7 @@
 - profile / driver 选择
 - 权限请求展示
 - 会话取消、关闭、重命名、归档
-- 将 ChatSession crystallize 为 Thread
-- 可选同步创建 WorkItem
+- Create PR / Refresh PR
 
 当前 chat 侧既消费 REST，也消费 WebSocket 事件。
 
@@ -167,6 +168,10 @@
 - `/threads`
 - `/chat`
 - `/projects`
+- `/requirements`
+- `/threads/*/proposals`
+- `/proposals`
+- `/initiatives`
 - `/templates`
 - `/skills`
 - `/analytics`
@@ -203,21 +208,20 @@
 
 当前事实：
 
-- `apiV2.ts` 是主页面与主 API client 的主要类型来源
-- `api.ts` 更偏历史兼容残留
-- `ThreadParticipant` / `ThreadAgentSession` 主要表现为 alias
+- `apiV2.ts` 是主页面与主 API client 的 barrel export，真实定义分布在 `api-v2/*`
+- 前端协作侧直接使用 `ThreadMember`
+- `ThreadAgentSessionStatus` 只是状态类型，不代表独立 session 实体
 - WorkItem 主术语已经对齐，但部分旧 `issue` 语义仍保留在兼容层
 
-## Tauri 桌面端现状
+## Wails 桌面端现状
 
 当前桌面端已实现。
 
 实际工作台使用上：
 
-- `desktop_bootstrap` 会返回 `api_v1_base_url`、`api_base_url`、
-  `ws_base_url`
-- 当前主工作台实际统一依赖 `api_base_url`
-- WebSocket 基址由 `api_base_url + /ws` 推导
+- 前端通过 Wails binding `DesktopApp.GetBootstrap()` 获取 `token`
+- 当前主工作台仍统一依赖默认同源 `api_base_url=/api`
+- WebSocket 基址仍由 `/api + /ws` 推导，而不是桌面端单独注入
 
 ## 当前阅读方式建议
 
@@ -238,5 +242,5 @@
 1. `naming-transition-thread-workitem.zh-CN.md`
 2. `thread-agent-runtime.zh-CN.md`
 3. `thread-workitem-linking.zh-CN.md`
-4. `thread-task-dag.zh-CN.md`
+4. `thread-plan-review-chain.zh-CN.md`
 5. `tauri-desktop.md`

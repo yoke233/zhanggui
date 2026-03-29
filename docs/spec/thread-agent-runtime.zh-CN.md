@@ -2,7 +2,7 @@
 
 > 状态：部分实现
 >
-> 最后按代码核对：2026-03-17
+> 最后按代码核对：2026-03-29
 >
 > 对应实现：
 > - `internal/runtime/agent/thread_session_pool.go`
@@ -67,19 +67,24 @@ ChatSession
 当前事实：
 
 - `kind=human` 与 `kind=agent` 共用同一成员模型
-- 前端的 `ThreadParticipant` / `ThreadAgentSession`
-  只是围绕 `ThreadMember` 的使用视图
+- 前端协作侧直接消费 `ThreadMember`
+- `ThreadAgentSessionStatus` 只是状态类型，不代表独立 session 实体
 - agent runtime 状态主要保存在 `status` 与 `agent_data`
 
 ## Agent 状态机
 
-当前文档可按下面的状态机理解：
+当前完整枚举包括 `joining / booting / active / paused / left / failed`。
+但按当前 `InviteAgent()` 主路径，新 agent member 会直接以 `booting`
+进入启动流程；`joining` 更适合作为兼容/预留状态理解。
+
+可按下面的主路径理解：
 
 ```text
-joining -> booting -> active
-                    -> paused -> active
-                    -> left
-                    -> failed
+booting -> active -> paused -> active
+        -> failed
+        -> left
+active  -> left
+paused  -> left
 ```
 
 其中：
@@ -180,10 +185,13 @@ joining -> booting -> active
 
 当前 Thread agent 启动时，运行时已经会注入：
 
+- thread shared boot template
+- profile 级 thread boot template
 - Thread 基础上下文
 - Thread workspace cwd
 - `.context.json` 相关信息
 - signal token / server addr 等任务协作能力
+- thread-scoped action-context 技能与 token usage / budget 能力
 
 这意味着 Thread agent 当前不是裸 session，而是带有明确 Thread 语义的
 预热上下文。
@@ -204,6 +212,14 @@ joining -> booting -> active
 - `GET /threads/{threadID}/messages`
 - `GET /threads/{threadID}/events`
 
+除 invite/list/remove 外，`ThreadSessionPool` 当前还已具备：
+
+- `WaitAgentReady`
+- `PromptAgent`
+- `SendMessage`
+- `CleanupThread`
+- token usage 持久化与 context budget 检查
+
 也就是说，agent runtime 已经与消息模型和事件流整合，不是独立孤岛。
 
 ## 与 ChatSession 的关系
@@ -220,7 +236,7 @@ joining -> booting -> active
 
 - ChatSession 不会自动等价为 Thread
 - Thread 也不是 ChatSession 的多用户版别名
-- 两者只在“可 crystallize”这件事上发生显式连接
+- 两者共享 ACP 基础设施，但当前 public surface 上没有已落地的 `ChatSession -> Thread` 直接转化 API
 
 ## 当前实现边界
 
@@ -244,6 +260,6 @@ joining -> booting -> active
 ## 推荐搭配阅读
 
 1. `thread-workspace-context.zh-CN.md`
-2. `thread-task-dag.zh-CN.md`
+2. `thread-plan-review-chain.zh-CN.md`
 3. `thread-workitem-linking.zh-CN.md`
 4. `thread-message-delivery-deferred.zh-CN.md`

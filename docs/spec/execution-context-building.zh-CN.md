@@ -2,7 +2,7 @@
 
 > 状态：现行
 >
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-29
 >
 > 当前实现状态：本文描述的是当前已落地的 briefing 组装主链。对外 Public REST 已使用 `/work-items/*`；应用层主执行器已是 `WorkItemEngine`，核心对象也已切到 `WorkItem` / `Action` / `Run`，但持久化表名与部分兼容 helper 仍保留 `issues` / `steps` / `executions` 旧命名。
 
@@ -15,7 +15,7 @@ Action 执行时，上下文通过 `WorkItemEngine` 的三阶段管道（Prepare
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Work Item 层                             │
-│  Title, Body, Priority, Labels, ProjectID, ResourceBinding   │
+│  Title, Body, Priority, Labels, ProjectID, ResourceSpaceID   │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -64,7 +64,7 @@ Action 执行时，上下文通过 `WorkItemEngine` 的三阶段管道（Prepare
 ║  └──────────────────────┬──────────────────────────────┘   ║
 ║                         │                                   ║
 ║  ┌──────────────────────▼──────────────────────────────┐   ║
-║  │ renderBriefingSnapshot(briefing)                     │   ║
+║  │ buildInputFromRefs() / renderInputSnapshot()         │   ║
 ║  │                                                      │   ║
 ║  │  ┌────────────────────────────────────────────┐      │   ║
 ║  │  │ # Task                                     │      │   ║
@@ -159,7 +159,7 @@ Action 执行时，上下文通过 `WorkItemEngine` 的三阶段管道（Prepare
 
 ### 1. Briefing ≠ Prompt
 
-Briefing 是结构化对象（Objective + ContextRefs + Constraints），经 `renderBriefingSnapshot()` 序列化为 Markdown 后才成为 prompt。
+Briefing 是结构化对象（Objective + ContextRefs + Constraints），经 `buildInputFromRefs()` / `renderInputSnapshot()` 序列化为 Markdown 后才成为 prompt。
 
 ### 2. 上下文来源
 
@@ -194,7 +194,7 @@ Gate reject
 
 ### 5. Token 限制策略
 
-**Briefing 字符预算** (renderBriefingSnapshot):
+**Briefing 字符预算** (`buildInputFromRefs()` / `renderInputSnapshot()`):
 - 整个 BriefingSnapshot: ≤ 12000 字符
 - 按 ContextRef 类型分配预算:
   - `CtxIssueSummary`（历史类型名）/ `CtxProjectBrief`: ≤ 800 字符
@@ -220,10 +220,10 @@ Gate reject
 | `internal/core/action.go` | Action 领域模型 (含 Config, AcceptanceCriteria) |
 | `internal/core/errors.go` | 领域错误 (含 ErrTokenBudgetExceeded) |
 | `internal/application/flow/briefing_builder.go` | BriefingBuilder — 上下文组装核心 (WorkItem 注入 + 分层 Artifact + Manifest) |
-| `internal/application/flow/briefing_builder_test.go` | BriefingBuilder 单元测试 (11 cases) |
-| `internal/application/flow/pipeline.go` | renderBriefingSnapshot + refBudget 按类型分配字符预算 |
+| `internal/application/flow/briefing_builder_test.go` | InputBuilder 单元测试（覆盖 WorkItem / Project / Progress / Skills 等上下文注入场景） |
+| `internal/application/flow/pipeline.go` | `buildInputFromRefs()` / `renderInputSnapshot()` + `refBudget` 按类型分配字符预算 |
 | `internal/application/flow/engine.go` | WorkItemEngine — 三阶段管道 (prepare/execute/finalize) |
-| `internal/application/flow/execution_input.go` | BuildRunInputForAction — prompt 变体选择 |
+| `internal/application/flow/run_input.go` | BuildRunInputForAction / ResolveLatestFeedback — prompt 变体与 gate 反馈选择 |
 | `internal/application/flow/gate.go` | Gate 处理 + recordGateRework 反馈回流 |
 | `internal/application/flow/dag.go` | 前置 Action 查询 (`predecessorStepIDs` / `immediatePredecessorStepIDs` 为历史 helper 名) |
 | `internal/application/flow/workspace.go` | Workspace context 注入 |
