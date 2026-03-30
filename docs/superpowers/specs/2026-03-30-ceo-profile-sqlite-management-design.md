@@ -111,16 +111,29 @@ sqlite
 ai-flow profile create --from ceo ...
 ```
 
-创建逻辑：
+创建逻辑不是“把 `ceo` 结构体全量复制一份”，而是一个 **白名单模板投影**：
 
-- 复制 `ceo` 的可运行基础形态
-- 覆盖以下字段：
-  - `id`
-  - `name`
-  - `role`
-  - `driver_id`
-  - `llm_config_id`
-  - `prompt_template`
+- 只允许从 `ceo` 这个模板来源创建
+- 但不会继承 `ceo` 的管理型运行语义
+- 创建时分两部分处理：
+
+1. **可配置字段**
+   - `id`
+   - `name`
+   - `role`
+   - `driver_id`
+   - `llm_config_id`
+   - `prompt_template`
+
+2. **系统固定字段**
+   - `actions_allowed`
+   - `capabilities`
+   - `session`
+   - `mcp`
+
+第二部分不从 sqlite 中当前 `ceo` 记录直接继承，而是由系统内置的
+`from ceo` 模板投影规则生成。第一阶段这些字段不对 CEO 开放编辑，
+也不允许通过复制把 `ceo-manage` 一类管理行为带到新 profile 上。
 
 这样做的目的不是让新 profile 继承 CEO 身份，而是：
 
@@ -134,11 +147,15 @@ ai-flow profile create --from ceo ...
 前端在用户进入系统时应做以下事情：
 
 1. 拉取 profile 列表
-2. 如果当前只有 `ceo`
+2. 只有在 **profile 列表请求成功** 且结果 **恰好只有一个 `ceo`**
+   时，才判定为 onboarding 场景
 3. 展示 onboarding 卡片
 4. 告诉用户现在可以：
    - 直接和 CEO 对话
    - 创建第一个执行型 profile
+
+如果 profile 列表请求失败，则前端必须进入错误态，而不是误判成
+“当前只有 CEO”。
 
 推荐前端提示文案语义：
 
@@ -249,6 +266,14 @@ CLI / HTTP
 - profile 的 CRUD 只落 sqlite
 - 不再调用 `CreateProfileConfig / UpdateProfileConfig / DeleteProfileConfig`
 - `configruntime.SyncRegistry` 不再承担“把 config.toml profile 同步到 sqlite”的职责
+- 必须显式重构或移除 `bootstrap_runtime.go -> SyncRegistry` 这条 profile
+  回填链路，否则 sqlite 单源会继续被 `config.toml` 覆盖或删改
+
+建议收口方式：
+
+- `SyncRegistry` 不再同步 profile
+- profile 初始化与 seed 改为独立启动逻辑
+- runtime reload 只处理 driver / llm / sandbox 等全局运行配置
 
 ---
 
@@ -263,19 +288,26 @@ CLI / HTTP
 3. 只检查 sqlite 中是否存在 `ceo`
 4. 若不存在，则 seed `ceo`
 
+这里的前提是：
+
+- profile 的 seed 与启动检查不再依赖 `SyncRegistry`
+- runtime reload 不得再把 `snap.Profiles` 写回 sqlite
+
 ### 7.2 迁移策略
 
-采用温和迁移：
+采用受控迁移：
 
-- 从这一版开始，profile 正式切换到 sqlite 单源
-- 对老环境，不尝试将 `config.toml` 中历史 profile 大批量迁入 sqlite
-- 系统只保证 `ceo` 一定存在
-- 其他执行 profile 由 CEO 后续创建
+- 第一阶段的“sqlite 单源 + 只 seed `ceo`”行为默认只面向 **新 data dir**
+  或明确知道当前环境尚未依赖历史 config profile 的场景
+- 对已经依赖 `config.toml` 中 legacy profile 的老环境，不做静默自动切换
+- 本阶段不做“自动批量导入 legacy profile 到 sqlite”
+- 老环境切换到 sqlite 单源应通过后续单独迁移动作完成
 
 这样可以避免：
 
-- 老默认 profile 被自动补回
-- 用户以为系统仍然是“配置文件驱动 profile”
+- 老用户在无感升级后突然失去原有 `lead` 或其他 profile
+- 新逻辑和旧环境的 profile 心智混在一起
+- 为了兼容 legacy profile 而把“只 seed `ceo`”语义冲淡
 
 ---
 
@@ -293,6 +325,8 @@ CLI / HTTP
   - 写 sqlite
 
 必须移除“顺带同步回 `config.toml`”的逻辑。
+但必须保留现有 runtime `driver / llm` 解析与兼容性校验能力，
+不能因为删除 config 回写而把 profile 校验一起删掉。
 
 这样可确保：
 
@@ -366,7 +400,9 @@ CLI / HTTP
 
 ### 10.5 前端 / API 行为测试
 
-- 当只有 `ceo` 时能识别为 onboarding 状态
+- 只有在 profile 列表请求成功且结果恰好只有 `ceo` 时，
+  才识别为 onboarding 状态
+- profile 列表请求失败时应进入错误态，而不是 onboarding
 - `/agents/profiles` 返回 sqlite 中的 profile 数据
 
 ---
