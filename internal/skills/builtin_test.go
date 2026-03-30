@@ -74,6 +74,43 @@ func TestEnsureBuiltinSkills_ExtractsPlanActions(t *testing.T) {
 	}
 }
 
+func TestEnsureBuiltinSkills_ExtractsCEOManage(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := EnsureBuiltinSkills(root); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	skillMD := filepath.Join(root, "ceo-manage", "SKILL.md")
+	b, err := os.ReadFile(skillMD)
+	if err != nil {
+		t.Fatalf("read extracted ceo-manage SKILL.md: %v", err)
+	}
+	content := string(b)
+
+	if meta, errs := ValidateSkillMD("ceo-manage", content); len(errs) > 0 {
+		t.Fatalf("extracted ceo-manage SKILL.md validation errors: %v", errs)
+	} else if meta.Name != "ceo-manage" {
+		t.Fatalf("expected name=ceo-manage, got %q", meta.Name)
+	}
+
+	for _, keyword := range []string{
+		"task-first orchestration",
+		"orchestrate task create",
+		"orchestrate task escalate-thread",
+	} {
+		if !contains(content, keyword) {
+			t.Errorf("expected ceo-manage SKILL.md to contain %q", keyword)
+		}
+	}
+
+	agentConfig := filepath.Join(root, "ceo-manage", "agents", "openai.yaml")
+	if _, err := os.Stat(agentConfig); err != nil {
+		t.Fatalf("expected ceo-manage openai.yaml to exist: %v", err)
+	}
+}
+
 func TestEnsureBuiltinSkills_ExtractsNormalizedGstackSkills(t *testing.T) {
 	t.Parallel()
 

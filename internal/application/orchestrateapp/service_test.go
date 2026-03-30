@@ -7,6 +7,7 @@ import (
 
 	"github.com/yoke233/zhanggui/internal/adapters/store/sqlite"
 	"github.com/yoke233/zhanggui/internal/application/planning"
+	"github.com/yoke233/zhanggui/internal/application/threadapp"
 	"github.com/yoke233/zhanggui/internal/application/workitemapp"
 	"github.com/yoke233/zhanggui/internal/core"
 )
@@ -44,9 +45,10 @@ func newTestEnv(t *testing.T) *testEnv {
 		WorkItemCreator: workItems,
 		Planner: &fakePlanner{dag: &planning.GeneratedDAG{
 			Actions: []planning.GeneratedAction{
-				{Name: "implement", Type: "exec", AgentRole: "worker"},
+				{Name: "implement", Type: "exec", AgentRole: "lead"},
 			},
 		}},
+		Threads: threadapp.New(threadapp.Config{Store: store}),
 	})
 	return &testEnv{store: store, svc: svc}
 }
@@ -118,7 +120,7 @@ func TestServiceFollowUpTaskReturnsAssignedProfileAndNextStep(t *testing.T) {
 		Status:   core.WorkItemOpen,
 		Priority: core.PriorityMedium,
 		Metadata: map[string]any{
-			"ceo": map[string]any{"assigned_profile": "worker"},
+			"ceo": map[string]any{"assigned_profile": "lead"},
 		},
 	})
 	if err != nil {
@@ -149,8 +151,8 @@ func TestServiceFollowUpTaskReturnsAssignedProfileAndNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FollowUpTask() error = %v", err)
 	}
-	if result.AssignedProfile != "worker" {
-		t.Fatalf("AssignedProfile = %q, want worker", result.AssignedProfile)
+	if result.AssignedProfile != "lead" {
+		t.Fatalf("AssignedProfile = %q, want lead", result.AssignedProfile)
 	}
 	if result.RecommendedNextStep != "run_work_item" {
 		t.Fatalf("RecommendedNextStep = %q, want run_work_item", result.RecommendedNextStep)
@@ -169,7 +171,7 @@ func TestServiceReassignAppendsCEOJournal(t *testing.T) {
 		Status:   core.WorkItemOpen,
 		Priority: core.PriorityMedium,
 		Metadata: map[string]any{
-			"ceo": map[string]any{"assigned_profile": "planner"},
+			"ceo": map[string]any{"assigned_profile": "lead"},
 		},
 	})
 	if err != nil {
@@ -178,15 +180,15 @@ func TestServiceReassignAppendsCEOJournal(t *testing.T) {
 
 	result, err := env.svc.ReassignTask(context.Background(), ReassignTaskInput{
 		WorkItemID:    workItemID,
-		NewProfile:    "worker",
-		Reason:        "planner stalled",
+		NewProfile:    "lead",
+		Reason:        "需要回到当前唯一活跃执行 profile",
 		ActorProfile:  "ceo",
 		SourceSession: "chat-42",
 	})
 	if err != nil {
 		t.Fatalf("ReassignTask() error = %v", err)
 	}
-	if result.OldProfile != "planner" || result.NewProfile != "worker" {
+	if result.OldProfile != "lead" || result.NewProfile != "lead" {
 		t.Fatalf("unexpected reassign result: %+v", result)
 	}
 	if len(result.JournalEntries) != 1 {
@@ -197,8 +199,8 @@ func TestServiceReassignAppendsCEOJournal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkItem() error = %v", err)
 	}
-	if got := metadataValue(workItem.Metadata, "ceo", "assigned_profile"); got != "worker" {
-		t.Fatalf("assigned profile = %q, want worker", got)
+	if got := metadataValue(workItem.Metadata, "ceo", "assigned_profile"); got != "lead" {
+		t.Fatalf("assigned profile = %q, want lead", got)
 	}
 	journal, ok := workItem.Metadata["ceo_journal"].([]any)
 	if !ok || len(journal) != 1 {
@@ -215,11 +217,11 @@ func TestServiceReassignPreservesExistingCEOJournalHistory(t *testing.T) {
 		Status:   core.WorkItemOpen,
 		Priority: core.PriorityMedium,
 		Metadata: map[string]any{
-			"ceo": map[string]any{"assigned_profile": "planner"},
+			"ceo": map[string]any{"assigned_profile": "lead"},
 			"ceo_journal": []map[string]any{
 				{
 					"action": "task.create",
-					"after":  map[string]any{"assigned_profile": "planner"},
+					"after":  map[string]any{"assigned_profile": "lead"},
 				},
 			},
 		},
@@ -230,8 +232,8 @@ func TestServiceReassignPreservesExistingCEOJournalHistory(t *testing.T) {
 
 	_, err = env.svc.ReassignTask(context.Background(), ReassignTaskInput{
 		WorkItemID:    workItemID,
-		NewProfile:    "worker",
-		Reason:        "planner stalled",
+		NewProfile:    "lead",
+		Reason:        "继续保持 lead 执行",
 		ActorProfile:  "ceo",
 		SourceSession: "chat-42",
 	})
@@ -301,7 +303,7 @@ func TestServiceDecomposePropagatesAssignedProfileToCreatedActions(t *testing.T)
 		Status:   core.WorkItemOpen,
 		Priority: core.PriorityMedium,
 		Metadata: map[string]any{
-			"ceo": map[string]any{"assigned_profile": "worker-b"},
+			"ceo": map[string]any{"assigned_profile": "lead"},
 		},
 	})
 	if err != nil {
@@ -325,7 +327,155 @@ func TestServiceDecomposePropagatesAssignedProfileToCreatedActions(t *testing.T)
 	if len(actions) != 1 {
 		t.Fatalf("actions len = %d, want 1", len(actions))
 	}
-	if actions[0].Config["preferred_profile_id"] != "worker-b" {
-		t.Fatalf("preferred_profile_id = %v, want worker-b", actions[0].Config["preferred_profile_id"])
+	if actions[0].Config["preferred_profile_id"] != "lead" {
+		t.Fatalf("preferred_profile_id = %v, want lead", actions[0].Config["preferred_profile_id"])
+	}
+}
+
+func TestServiceEscalateThreadReturnsExistingActiveThreadLink(t *testing.T) {
+	t.Parallel()
+
+	env := newTestEnv(t)
+	ctx := context.Background()
+
+	workItemID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "coordination task",
+		Status:   core.WorkItemBlocked,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+
+	threadResult, err := threadapp.New(threadapp.Config{Store: env.store}).CreateThread(ctx, threadapp.CreateThreadInput{
+		Title:   "CEO escalation",
+		OwnerID: "ceo",
+	})
+	if err != nil {
+		t.Fatalf("CreateThread() error = %v", err)
+	}
+	if _, err := env.store.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID:     threadResult.Thread.ID,
+		WorkItemID:   workItemID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	}); err != nil {
+		t.Fatalf("CreateThreadWorkItemLink() error = %v", err)
+	}
+
+	result, err := env.svc.EscalateThread(ctx, EscalateThreadInput{
+		WorkItemID:    workItemID,
+		Reason:        "needs coordination",
+		ThreadTitle:   "CEO escalation",
+		ActorProfile:  "ceo",
+		SourceSession: "chat-1",
+	})
+	if err != nil {
+		t.Fatalf("EscalateThread() error = %v", err)
+	}
+	if result.Thread == nil || result.Thread.ID != threadResult.Thread.ID {
+		t.Fatalf("thread id = %+v, want %d", result.Thread, threadResult.Thread.ID)
+	}
+	if result.Created {
+		t.Fatal("EscalateThread().Created = true, want false")
+	}
+}
+
+func TestServiceEscalateThreadCreatesLinkedThreadWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	env := newTestEnv(t)
+	ctx := context.Background()
+
+	workItemID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "blocked task",
+		Status:   core.WorkItemBlocked,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+
+	result, err := env.svc.EscalateThread(ctx, EscalateThreadInput{
+		WorkItemID:     workItemID,
+		Reason:         "stuck on integration",
+		ThreadTitle:    "CEO escalation",
+		ActorProfile:   "ceo",
+		SourceSession:  "chat-2",
+		InviteProfiles: []string{"architect"},
+		InviteHumans:   []string{"alice"},
+	})
+	if err != nil {
+		t.Fatalf("EscalateThread() error = %v", err)
+	}
+	if result.Thread == nil || result.Thread.ID == 0 {
+		t.Fatalf("expected created thread, got %+v", result.Thread)
+	}
+	if !result.Created {
+		t.Fatal("EscalateThread().Created = false, want true")
+	}
+
+	links, err := env.store.ListThreadsByWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("ListThreadsByWorkItem() error = %v", err)
+	}
+	if len(links) != 1 || links[0].ThreadID != result.Thread.ID {
+		t.Fatalf("unexpected thread links: %+v", links)
+	}
+
+	workItem, err := env.store.GetWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItem() error = %v", err)
+	}
+	journal, ok := workItem.Metadata["ceo_journal"].([]any)
+	if !ok || len(journal) != 1 {
+		t.Fatalf("ceo_journal = %#v, want single entry", workItem.Metadata["ceo_journal"])
+	}
+}
+
+func TestServiceEscalateThreadTreatsInviteHumansAsMeetingParticipantsOnly(t *testing.T) {
+	t.Parallel()
+
+	env := newTestEnv(t)
+	ctx := context.Background()
+
+	workItemID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "meeting task",
+		Status:   core.WorkItemBlocked,
+		Priority: core.PriorityMedium,
+		Metadata: map[string]any{
+			"ceo": map[string]any{"assigned_profile": "lead"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+
+	result, err := env.svc.EscalateThread(ctx, EscalateThreadInput{
+		WorkItemID:    workItemID,
+		Reason:        "need product sync",
+		ThreadTitle:   "coordination room",
+		ActorProfile:  "ceo",
+		InviteHumans:  []string{"alice", "bob"},
+		SourceSession: "chat-3",
+	})
+	if err != nil {
+		t.Fatalf("EscalateThread() error = %v", err)
+	}
+
+	members, err := env.store.ListThreadMembers(ctx, result.Thread.ID)
+	if err != nil {
+		t.Fatalf("ListThreadMembers() error = %v", err)
+	}
+	if len(members) != 3 {
+		t.Fatalf("members len = %d, want 3", len(members))
+	}
+
+	workItem, err := env.store.GetWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItem() error = %v", err)
+	}
+	if got := metadataValue(workItem.Metadata, "ceo", "assigned_profile"); got != "lead" {
+		t.Fatalf("assigned profile = %q, want lead", got)
 	}
 }

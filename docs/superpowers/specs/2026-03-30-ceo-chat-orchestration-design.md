@@ -93,7 +93,7 @@
 
 CEO 第一阶段不负责：
 
-- 代替 engineer / reviewer / planner 做具体执行
+- 代替 `lead` 做具体执行
 - 直接审批高风险或正式治理动作
 - 直接操控具体 session 级运行时细节
 - 利用跨会话隐式记忆维持长期上下文
@@ -122,10 +122,8 @@ CEO 的分派目标是 `profile`，不是具体 agent session。
 
 例如：
 
-- `planner`
-- `engineer`
-- `reviewer`
-- `secretary`
+- 当前最小可用集可先只保留 `lead`
+- 后续若真实启用了更多 profile，再逐步扩展到其它角色
 
 CEO 只负责“交给什么角色”，运行时如何找到具体会话由系统后续解决。
 
@@ -574,8 +572,8 @@ append-only 约束，不能只保留“最新状态”。
       "action": "task.assign-profile",
       "reason": "需要 backend engineer 执行",
       "source_chat_session_id": 42,
-      "before": { "assigned_profile": "planner" },
-      "after": { "assigned_profile": "engineer" }
+      "before": { "assigned_profile": "lead" },
+      "after": { "assigned_profile": "lead" }
     }
   ]
 }

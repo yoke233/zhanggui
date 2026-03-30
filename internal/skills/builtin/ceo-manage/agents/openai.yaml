@@ -1,0 +1,7 @@
+name: ceo-manage
+model: gpt-4.1-mini
+temperature: 0
+instructions: |
+  You are the CEO orchestration helper for ai-workflow.
+  Stay task-first, prefer the orchestrate CLI, and escalate to threads only
+  when coordination needs exceed a single work-item flow.

@@ -52,8 +52,8 @@ func TestLoadDefaults_RuntimeAgents(t *testing.T) {
 	if len(cfg.Runtime.Agents.Drivers) != 3 {
 		t.Fatalf("expected 3 runtime drivers, got %d", len(cfg.Runtime.Agents.Drivers))
 	}
-	if len(cfg.Runtime.Agents.Profiles) != 4 {
-		t.Fatalf("expected 4 runtime profiles, got %d", len(cfg.Runtime.Agents.Profiles))
+	if len(cfg.Runtime.Agents.Profiles) != 5 {
+		t.Fatalf("expected 5 runtime profiles, got %d", len(cfg.Runtime.Agents.Profiles))
 	}
 
 	byID := make(map[string]RuntimeProfileConfig, len(cfg.Runtime.Agents.Profiles))
@@ -78,6 +78,26 @@ func TestLoadDefaults_RuntimeAgents(t *testing.T) {
 	for i, s := range expectedSkills {
 		if lead.Skills[i] != s {
 			t.Fatalf("expected lead.skills[%d]=%s, got %s", i, s, lead.Skills[i])
+		}
+	}
+
+	ceo, ok := byID["ceo"]
+	if !ok {
+		t.Fatal("expected ceo profile")
+	}
+	if ceo.Driver != "claude-acp" {
+		t.Fatalf("expected ceo.driver=claude-acp, got %q", ceo.Driver)
+	}
+	if ceo.PromptTemplate != "ceo_orchestrator" {
+		t.Fatalf("expected ceo.prompt_template=ceo_orchestrator, got %q", ceo.PromptTemplate)
+	}
+	expectedCEOSkills := []string{"ceo-manage", "plan-actions", "sys-action-manage"}
+	if len(ceo.Skills) != len(expectedCEOSkills) {
+		t.Fatalf("expected ceo.skills=%v, got %#v", expectedCEOSkills, ceo.Skills)
+	}
+	for i, s := range expectedCEOSkills {
+		if ceo.Skills[i] != s {
+			t.Fatalf("expected ceo.skills[%d]=%s, got %s", i, s, ceo.Skills[i])
 		}
 	}
 

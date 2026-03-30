@@ -49,6 +49,10 @@ type ThreadLinkWriter interface {
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
 }
 
+type ThreadLinkReader interface {
+	ListThreadsByWorkItem(ctx context.Context, workItemID int64) ([]*core.ThreadWorkItemLink, error)
+}
+
 type ThreadContextRefStore interface {
 	CreateThreadContextRef(ctx context.Context, ref *core.ThreadContextRef) (int64, error)
 	GetThreadContextRef(ctx context.Context, id int64) (*core.ThreadContextRef, error)
@@ -75,6 +79,7 @@ type Store interface {
 	ThreadAttachmentWriter
 	ThreadMemberReader
 	ThreadMemberWriter
+	ThreadLinkReader
 	ThreadLinkWriter
 	ThreadContextRefStore
 	WorkItemWriter
@@ -148,4 +153,3 @@ type CreateWorkItemFromThreadResult struct {
 	WorkItem *core.WorkItem
 	Link     *core.ThreadWorkItemLink
 }
-

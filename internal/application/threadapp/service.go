@@ -268,6 +268,98 @@ func (s *Service) LinkThreadWorkItem(ctx context.Context, input LinkThreadWorkIt
 	return link, nil
 }
 
+func (s *Service) FindActiveThreadByWorkItem(ctx context.Context, workItemID int64) (*core.Thread, error) {
+	if workItemID <= 0 {
+		return nil, newError(CodeMissingWorkItemID, "work_item_id is required", nil)
+	}
+	if _, err := s.store.GetWorkItem(ctx, workItemID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeWorkItemNotFound, "work item not found", err)
+		}
+		return nil, err
+	}
+
+	links, err := s.store.ListThreadsByWorkItem(ctx, workItemID)
+	if err != nil {
+		return nil, err
+	}
+
+	var fallback *core.Thread
+	for i := len(links) - 1; i >= 0; i-- {
+		link := links[i]
+		if link == nil {
+			continue
+		}
+		thread, err := s.store.GetThread(ctx, link.ThreadID)
+		if err != nil {
+			if errors.Is(err, core.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if thread.Status != core.ThreadActive {
+			continue
+		}
+		if link.IsPrimary {
+			return thread, nil
+		}
+		if fallback == nil {
+			fallback = thread
+		}
+	}
+	return fallback, nil
+}
+
+func (s *Service) EnsureHumanParticipants(ctx context.Context, threadID int64, userIDs []string) ([]*core.ThreadMember, error) {
+	if _, err := s.store.GetThread(ctx, threadID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeThreadNotFound, "thread not found", err)
+		}
+		return nil, err
+	}
+
+	existingMembers, err := s.store.ListThreadMembers(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	existingUsers := make(map[string]struct{}, len(existingMembers))
+	for _, member := range existingMembers {
+		if member == nil || member.Kind != core.ThreadMemberKindHuman {
+			continue
+		}
+		userID := strings.TrimSpace(member.UserID)
+		if userID == "" {
+			continue
+		}
+		existingUsers[userID] = struct{}{}
+	}
+
+	added := make([]*core.ThreadMember, 0, len(userIDs))
+	for _, userID := range userIDs {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			continue
+		}
+		if _, exists := existingUsers[userID]; exists {
+			continue
+		}
+		member := &core.ThreadMember{
+			ThreadID: threadID,
+			Kind:     core.ThreadMemberKindHuman,
+			UserID:   userID,
+			Role:     "member",
+		}
+		id, err := s.store.AddThreadMember(ctx, member)
+		if err != nil {
+			return nil, err
+		}
+		member.ID = id
+		added = append(added, member)
+		existingUsers[userID] = struct{}{}
+	}
+	return added, nil
+}
+
 func (s *Service) UnlinkThreadWorkItem(ctx context.Context, threadID, workItemID int64) error {
 	if err := s.store.DeleteThreadWorkItemLink(ctx, threadID, workItemID); err != nil {
 		if errors.Is(err, core.ErrNotFound) {

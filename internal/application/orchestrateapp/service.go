@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yoke233/zhanggui/internal/application/planning"
+	"github.com/yoke233/zhanggui/internal/application/threadapp"
 	"github.com/yoke233/zhanggui/internal/application/workitemapp"
 	"github.com/yoke233/zhanggui/internal/core"
 )
@@ -16,6 +17,7 @@ type Service struct {
 	store           Store
 	workItemCreator WorkItemCreator
 	planner         Planner
+	threads         ThreadCoordinator
 	now             func() time.Time
 }
 
@@ -74,11 +76,29 @@ type DecomposeTaskResult struct {
 	ActionCount int
 }
 
+type EscalateThreadInput struct {
+	WorkItemID     int64
+	Reason         string
+	ThreadTitle    string
+	ActorProfile   string
+	SourceSession  string
+	InviteProfiles []string
+	InviteHumans   []string
+	ForceNew       bool
+}
+
+type EscalateThreadResult struct {
+	WorkItemID int64
+	Thread     *core.Thread
+	Created    bool
+}
+
 func New(cfg Config) *Service {
 	return &Service{
 		store:           cfg.Store,
 		workItemCreator: cfg.WorkItemCreator,
 		planner:         cfg.Planner,
+		threads:         cfg.Threads,
 		now:             time.Now,
 	}
 }
@@ -198,7 +218,7 @@ func (s *Service) ReassignTask(ctx context.Context, input ReassignTaskInput) (*R
 
 func (s *Service) DecomposeTask(ctx context.Context, input DecomposeTaskInput) (*DecomposeTaskResult, error) {
 	if s.planner == nil {
-		return nil, fmt.Errorf("planner is not configured")
+		return nil, fmt.Errorf("task decomposition service is not configured")
 	}
 	workItem, err := s.store.GetWorkItem(ctx, input.WorkItemID)
 	if err != nil {
@@ -255,6 +275,71 @@ func (s *Service) DecomposeTask(ctx context.Context, input DecomposeTaskInput) (
 	return &DecomposeTaskResult{WorkItemID: workItem.ID, ActionCount: len(created)}, nil
 }
 
+func (s *Service) EscalateThread(ctx context.Context, input EscalateThreadInput) (*EscalateThreadResult, error) {
+	if s.threads == nil {
+		return nil, fmt.Errorf("thread coordinator is not configured")
+	}
+
+	workItem, err := s.store.GetWorkItem(ctx, input.WorkItemID)
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeWorkItemNotFound, "work item not found", err)
+		}
+		return nil, err
+	}
+
+	if !input.ForceNew {
+		thread, err := s.threads.FindActiveThreadByWorkItem(ctx, workItem.ID)
+		if err != nil {
+			return nil, err
+		}
+		if thread != nil {
+			if _, err := s.threads.EnsureHumanParticipants(ctx, thread.ID, input.InviteHumans); err != nil {
+				return nil, err
+			}
+			if err := s.appendEscalationJournal(ctx, workItem, input, thread.ID, false); err != nil {
+				return nil, err
+			}
+			return &EscalateThreadResult{WorkItemID: workItem.ID, Thread: thread, Created: false}, nil
+		}
+	}
+
+	threadTitle := strings.TrimSpace(input.ThreadTitle)
+	if threadTitle == "" {
+		threadTitle = workItem.Title
+	}
+	createdThread, err := s.threads.CreateThread(ctx, threadapp.CreateThreadInput{
+		Title:              threadTitle,
+		OwnerID:            strings.TrimSpace(input.ActorProfile),
+		ParticipantUserIDs: cloneStrings(input.InviteHumans),
+		Metadata: map[string]any{
+			"source_type":            "ceo_escalation",
+			"source_work_item_id":    workItem.ID,
+			"source_chat_session_id": strings.TrimSpace(input.SourceSession),
+			"escalation_reason":      strings.TrimSpace(input.Reason),
+			"invite_profiles":        cloneStrings(input.InviteProfiles),
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.threads.LinkThreadWorkItem(ctx, threadapp.LinkThreadWorkItemInput{
+		ThreadID:     createdThread.Thread.ID,
+		WorkItemID:   workItem.ID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	})
+	if err != nil {
+		_ = s.threads.DeleteThread(ctx, createdThread.Thread.ID)
+		return nil, err
+	}
+	if err := s.appendEscalationJournal(ctx, workItem, input, createdThread.Thread.ID, true); err != nil {
+		return nil, err
+	}
+	return &EscalateThreadResult{WorkItemID: workItem.ID, Thread: createdThread.Thread, Created: true}, nil
+}
+
 func (s *Service) findExistingTask(ctx context.Context, dedupeKey string, sourceGoalRef string) (*core.WorkItem, error) {
 	if dedupeKey == "" && sourceGoalRef == "" {
 		return nil, nil
@@ -282,6 +367,31 @@ func assignedProfileFromMetadata(metadata map[string]any) string {
 	return metadataValue(metadata, "ceo", "assigned_profile")
 }
 
+func (s *Service) appendEscalationJournal(ctx context.Context, workItem *core.WorkItem, input EscalateThreadInput, threadID int64, created bool) error {
+	if workItem == nil {
+		return nil
+	}
+	entry := map[string]any{
+		"ts":                     s.now().UTC().Format(time.RFC3339),
+		"actor_profile":          strings.TrimSpace(input.ActorProfile),
+		"action":                 "task.escalate-thread",
+		"reason":                 strings.TrimSpace(input.Reason),
+		"source_chat_session_id": strings.TrimSpace(input.SourceSession),
+		"after": map[string]any{
+			"thread_id":       threadID,
+			"thread_created":  created,
+			"invite_profiles": cloneStrings(input.InviteProfiles),
+			"invite_humans":   cloneStrings(input.InviteHumans),
+		},
+	}
+	updated := appendCEOJournal(workItem.Metadata, entry)
+	if err := s.store.UpdateWorkItemMetadata(ctx, workItem.ID, updated); err != nil {
+		return err
+	}
+	workItem.Metadata = updated
+	return nil
+}
+
 func metadataValue(metadata map[string]any, path ...string) string {
 	current := any(metadata)
 	for _, key := range path {
@@ -297,7 +407,13 @@ func metadataValue(metadata map[string]any, path ...string) string {
 
 func withAssignedProfile(metadata map[string]any, profile string) map[string]any {
 	out := cloneMetadata(metadata)
+	if out == nil {
+		out = map[string]any{}
+	}
 	ceo := cloneMetadataMap(out["ceo"])
+	if ceo == nil {
+		ceo = map[string]any{}
+	}
 	ceo["assigned_profile"] = profile
 	out["ceo"] = ceo
 	return out
@@ -305,6 +421,9 @@ func withAssignedProfile(metadata map[string]any, profile string) map[string]any
 
 func appendCEOJournal(metadata map[string]any, entry map[string]any) map[string]any {
 	out := cloneMetadata(metadata)
+	if out == nil {
+		out = map[string]any{}
+	}
 	journal := cloneJournalEntries(out["ceo_journal"])
 	journal = append(journal, cloneAnyMap(entry))
 	out["ceo_journal"] = journal

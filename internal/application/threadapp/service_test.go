@@ -1037,6 +1037,92 @@ func TestServiceLinkAndUnlinkWorkItemBranches(t *testing.T) {
 	}
 }
 
+func TestServiceFindActiveThreadByWorkItemPrefersPrimaryActiveThread(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "linked item",
+		Status:   core.WorkItemOpen,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+
+	closedThreadID, err := store.CreateThread(ctx, &core.Thread{Title: "closed-thread", Status: core.ThreadClosed})
+	if err != nil {
+		t.Fatalf("create closed thread: %v", err)
+	}
+	activeThreadID, err := store.CreateThread(ctx, &core.Thread{Title: "active-thread", Status: core.ThreadActive})
+	if err != nil {
+		t.Fatalf("create active thread: %v", err)
+	}
+	if _, err := store.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID:     closedThreadID,
+		WorkItemID:   workItemID,
+		RelationType: "drives",
+		IsPrimary:    false,
+	}); err != nil {
+		t.Fatalf("link closed thread: %v", err)
+	}
+	if _, err := store.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID:     activeThreadID,
+		WorkItemID:   workItemID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	}); err != nil {
+		t.Fatalf("link active thread: %v", err)
+	}
+
+	thread, err := svc.FindActiveThreadByWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("FindActiveThreadByWorkItem: %v", err)
+	}
+	if thread == nil || thread.ID != activeThreadID {
+		t.Fatalf("expected primary active thread %d, got %+v", activeThreadID, thread)
+	}
+}
+
+func TestServiceEnsureHumanParticipantsAddsMissingUsersOnly(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "meeting-thread", OwnerID: "owner"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := store.AddThreadMember(ctx, &core.ThreadMember{
+		ThreadID: threadID,
+		Kind:     core.ThreadMemberKindHuman,
+		UserID:   "owner",
+		Role:     "owner",
+	}); err != nil {
+		t.Fatalf("add owner: %v", err)
+	}
+
+	added, err := svc.EnsureHumanParticipants(ctx, threadID, []string{" owner ", "alice", "", "alice", "bob"})
+	if err != nil {
+		t.Fatalf("EnsureHumanParticipants: %v", err)
+	}
+	if len(added) != 2 {
+		t.Fatalf("added len = %d, want 2", len(added))
+	}
+
+	members, err := store.ListThreadMembers(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list thread members: %v", err)
+	}
+	if len(members) != 3 {
+		t.Fatalf("members len = %d, want 3", len(members))
+	}
+	if members[1].UserID != "alice" || members[2].UserID != "bob" {
+		t.Fatalf("unexpected members order/content: %+v", members)
+	}
+}
+
 func TestServiceDeleteThreadAndContextRefBranches(t *testing.T) {
 	t.Run("delete thread not found", func(t *testing.T) {
 		store := newThreadAppTestStore(t)

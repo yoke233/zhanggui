@@ -203,6 +203,23 @@ launch_command = "agentsdk-go"
   terminal = true
 
 [[runtime.agents.profiles]]
+id = "ceo"
+name = "CEO Orchestrator"
+driver = "claude-acp"
+llm_config_id = "system"
+role = "lead"
+capabilities = ["planning", "coordination", "review"]
+skills = ["ceo-manage", "plan-actions", "sys-action-manage"]
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "create_step", "expand_flow", "submit"]
+prompt_template = "ceo_orchestrator"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 40
+  idle_ttl = "20m"
+  [runtime.agents.profiles.mcp]
+  enabled = true
+
+[[runtime.agents.profiles]]
 id = "lead"
 name = "Lead Agent"
 driver = "claude-acp"
