@@ -256,7 +256,7 @@ export function useChatRealtimeController({
       if (updateType === "error") {
         flushBufferedChunks();
         onError(payload.content?.trim() || t("chat.sessionFailed"));
-        setSessions((current) => touchSessionList(current, sessionId, "closed", nowISO));
+        setSessions((current) => touchSessionList(current, sessionId, "alive", nowISO));
         setSubmitting(false);
         pendingRequestIdRef.current = null;
         return;
@@ -359,7 +359,7 @@ export function useChatRealtimeController({
       onError(errorMessage);
       const sessionId = payload.session_id?.trim();
       if (sessionId) {
-        setSessions((current) => touchSessionList(current, sessionId, "closed", new Date().toISOString()));
+        setSessions((current) => touchSessionList(current, sessionId, "alive", new Date().toISOString()));
       }
     });
 

@@ -44,6 +44,7 @@ export const buildCollaborationApi = ({
   | "archiveChatSession"
   | "renameChatSession"
   | "getChatStatus"
+  | "submitChatCode"
   | "createChatPR"
   | "refreshChatPR"
   | "listThreads"
@@ -126,6 +127,12 @@ export const buildCollaborationApi = ({
   getChatStatus: (sessionId) =>
     request<ChatStatusResponse>({
       path: `/chat/${encodeURIComponent(sessionId)}/status`,
+    }),
+  submitChatCode: (sessionId, message) =>
+    request<GitStats>({
+      path: `/chat/sessions/${encodeURIComponent(sessionId)}/submit-code`,
+      method: "POST",
+      body: { message },
     }),
   createChatPR: (sessionId, title, body) =>
     request<GitStats>({

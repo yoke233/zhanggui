@@ -18,8 +18,10 @@ interface ChatHeaderProps {
   onDetailViewChange: (view: "chat" | "events") => void;
   onCloseSession: () => void;
   onRenameSession?: (title: string) => void;
+  onSubmitCode?: () => void;
   onCreatePR?: () => void;
   onRefreshPR?: () => void;
+  submitLoading?: boolean;
   prLoading?: boolean;
   onOpenSessions?: () => void;
 }
@@ -38,8 +40,10 @@ export function ChatHeader(props: ChatHeaderProps) {
     onDetailViewChange,
     onCloseSession,
     onRenameSession,
+    onSubmitCode,
     onCreatePR,
     onRefreshPR,
+    submitLoading = false,
     prLoading = false,
     onOpenSessions,
   } = props;
@@ -70,6 +74,8 @@ export function ChatHeader(props: ChatHeaderProps) {
 
   const hasBranch = Boolean(session?.branch);
   const git = session?.git;
+  const hasSubmittedCode = Boolean(git?.head_sha);
+  const hasWorkingTreeChanges = Boolean((git?.files_changed ?? 0) > 0 || (git?.additions ?? 0) > 0 || (git?.deletions ?? 0) > 0);
   const hasPR = Boolean(git?.pr_url);
   const condensedUsage = usagePercent != null
     ? `${Math.round(usagePercent)}%`
@@ -184,7 +190,33 @@ export function ChatHeader(props: ChatHeaderProps) {
             {badgeLabelForStatus(session?.status, t)}
           </span>
 
-          {hasBranch && !hasPR && onCreatePR && (
+          {hasBranch && git && (git.files_changed > 0 || git.additions > 0 || git.deletions > 0) && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border bg-background px-2 py-1 text-xs text-muted-foreground md:px-2.5">
+              <span>{git.files_changed} files</span>
+              <span>·</span>
+              <span className="text-emerald-600">+{git.additions}</span>
+              <span>/</span>
+              <span className="text-rose-600">-{git.deletions}</span>
+            </span>
+          )}
+
+          {hasBranch && !hasPR && hasWorkingTreeChanges && onSubmitCode && (
+            <button
+              type="button"
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 md:gap-1.5 md:px-3 md:text-[13px]"
+              disabled={submitLoading}
+              onClick={onSubmitCode}
+            >
+              {submitLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <GitMerge className="h-3.5 w-3.5" />
+              )}
+              <span>{t("chat.submitCode", { defaultValue: "提交代码" })}</span>
+            </button>
+          )}
+
+          {hasBranch && !hasPR && hasSubmittedCode && onCreatePR && (
             <button
               type="button"
               className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 md:gap-1.5 md:px-3 md:text-[13px]"

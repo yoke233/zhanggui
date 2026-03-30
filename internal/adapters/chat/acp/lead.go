@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -406,7 +407,7 @@ func (l *LeadAgent) StartChat(ctx context.Context, req chatapp.Request) (*chatap
 	go func() {
 		runCtx := l.backgroundContext()
 		if _, runErr := l.runPrompt(runCtx, publicSessionID, sess, message, attachments); runErr != nil {
-			sess.bridge.PublishData(runCtx, map[string]any{
+			sess.bridge.PublishData(context.Background(), map[string]any{
 				"type":    "error",
 				"content": runErr.Error(),
 			})
@@ -496,7 +497,7 @@ func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess 
 		Prompt:    promptBlocks,
 	})
 
-	sess.bridge.FlushPending(ctx)
+	sess.bridge.FlushPending(context.Background())
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -507,17 +508,17 @@ func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess 
 		return "", fmt.Errorf("prompt failed: %w", err)
 	}
 	if result == nil {
-		l.removeSession(publicSessionID)
+		l.resetSessionIdle(publicSessionID, sess)
 		return "", errors.New("empty result from agent")
 	}
 
 	reply := strings.TrimSpace(result.Text)
 	if reply == "" {
-		l.removeSession(publicSessionID)
+		l.resetSessionIdle(publicSessionID, sess)
 		return "", errors.New("empty reply from agent")
 	}
 
-	sess.bridge.PublishData(ctx, map[string]any{
+	sess.bridge.PublishData(context.Background(), map[string]any{
 		"type": "done",
 	})
 
@@ -595,7 +596,7 @@ func (l *LeadAgent) runPending(ctx context.Context, cancel context.CancelFunc, s
 		SessionId: sess.sessionID,
 		Prompt:    promptBlocks,
 	})
-	sess.bridge.FlushPending(ctx)
+	sess.bridge.FlushPending(context.Background())
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -603,15 +604,15 @@ func (l *LeadAgent) runPending(ctx context.Context, cancel context.CancelFunc, s
 		} else {
 			l.removeSession(sessionID)
 		}
-		sess.bridge.PublishData(ctx, map[string]any{
+		sess.bridge.PublishData(context.Background(), map[string]any{
 			"type":    "error",
 			"content": fmt.Sprintf("pending dispatch failed: %v", err),
 		})
 		return
 	}
 	if result == nil {
-		l.removeSession(sessionID)
-		sess.bridge.PublishData(ctx, map[string]any{
+		l.resetSessionIdle(sessionID, sess)
+		sess.bridge.PublishData(context.Background(), map[string]any{
 			"type":    "error",
 			"content": "empty result from agent",
 		})
@@ -620,15 +621,15 @@ func (l *LeadAgent) runPending(ctx context.Context, cancel context.CancelFunc, s
 
 	reply := strings.TrimSpace(result.Text)
 	if reply == "" {
-		l.removeSession(sessionID)
-		sess.bridge.PublishData(ctx, map[string]any{
+		l.resetSessionIdle(sessionID, sess)
+		sess.bridge.PublishData(context.Background(), map[string]any{
 			"type":    "error",
 			"content": "empty reply from agent",
 		})
 		return
 	}
 
-	sess.bridge.PublishData(ctx, map[string]any{"type": "done"})
+	sess.bridge.PublishData(context.Background(), map[string]any{"type": "done"})
 	l.appendMessage(sessionID, "assistant", reply)
 	l.resetSessionIdle(sessionID, sess)
 }
@@ -1435,6 +1436,67 @@ func (l *LeadAgent) CreatePR(ctx context.Context, sessionID, title, body string)
 	return l.savePR(record, prURL, prNumber, "open"), nil
 }
 
+func (l *LeadAgent) SubmitCode(ctx context.Context, sessionID string, message string) (*chatapp.GitStats, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, errors.New("session_id is required")
+	}
+
+	l.mu.Lock()
+	record := l.catalog[sessionID]
+	l.mu.Unlock()
+	if record == nil {
+		return nil, errors.New("session not found")
+	}
+	if record.Branch == "" {
+		return nil, errors.New("session has no branch (not a worktree session)")
+	}
+	if strings.TrimSpace(record.WorkDir) == "" {
+		return nil, errors.New("session has no working directory")
+	}
+
+	commitMessage := strings.TrimSpace(message)
+	if commitMessage == "" {
+		title := strings.TrimSpace(record.Title)
+		if title == "" {
+			title = record.Branch
+		}
+		commitMessage = "chore(chat): " + title
+	}
+
+	if err := gitRun(ctx, record.WorkDir, nil, "add", "-A"); err != nil {
+		return nil, err
+	}
+	hasChanges, err := gitHasChanges(ctx, record.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	if !hasChanges {
+		if strings.TrimSpace(record.HeadSHA) != "" {
+			return l.buildGitStats(record), nil
+		}
+		return nil, errors.New("no changes to submit")
+	}
+
+	if err := gitRun(ctx, record.WorkDir, nil,
+		"-c", "user.name=ai-flow",
+		"-c", "user.email=ai-flow@local",
+		"commit", "-m", commitMessage,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := l.pushChatBranch(ctx, record.WorkDir, record.Branch); err != nil {
+		return nil, err
+	}
+
+	sha, err := gitOutput(ctx, record.WorkDir, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return l.saveSubmitted(record, strings.TrimSpace(sha)), nil
+}
+
 // RefreshPR queries the SCM provider or gh CLI to update the PR state.
 func (l *LeadAgent) RefreshPR(ctx context.Context, sessionID string) (*chatapp.GitStats, error) {
 	sessionID = strings.TrimSpace(sessionID)
@@ -1469,11 +1531,55 @@ func (l *LeadAgent) RefreshPR(ctx context.Context, sessionID string) (*chatapp.G
 	return l.savePRState(record, state), nil
 }
 
+func gitHasChanges(ctx context.Context, dir string) (bool, error) {
+	out, err := gitOutput(ctx, dir, nil, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+func gitRun(ctx context.Context, dir string, extraEnv []string, args ...string) error {
+	_, err := gitOutput(ctx, dir, extraEnv, args...)
+	return err
+}
+
+func gitOutput(ctx context.Context, dir string, extraEnv []string, args ...string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+	}
+	return stdout.String(), nil
+}
+
 func (l *LeadAgent) savePR(record *persistedLeadSession, url string, number int, state string) *chatapp.GitStats {
 	l.mu.Lock()
 	record.PrURL = url
 	record.PrNumber = number
 	record.PrState = state
+	record.UpdatedAt = time.Now().UTC()
+	_ = l.saveCatalogLocked()
+	l.mu.Unlock()
+	return l.buildGitStats(record)
+}
+
+func (l *LeadAgent) saveSubmitted(record *persistedLeadSession, headSHA string) *chatapp.GitStats {
+	l.mu.Lock()
+	record.HeadSHA = strings.TrimSpace(headSHA)
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
 	l.mu.Unlock()
@@ -1487,6 +1593,55 @@ func (l *LeadAgent) savePRState(record *persistedLeadSession, state string) *cha
 	_ = l.saveCatalogLocked()
 	l.mu.Unlock()
 	return l.buildGitStats(record)
+}
+
+func (l *LeadAgent) pushChatBranch(ctx context.Context, workDir, branch string) error {
+	pat := strings.TrimSpace(l.cfg.GitPAT)
+	if pat == "" {
+		return gitRun(ctx, workDir, nil, "push", "-u", "origin", branch)
+	}
+
+	askpassPath, cleanup, err := writeLeadGitAskPass(pat)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	env := []string{
+		"GIT_ASKPASS=" + askpassPath,
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	return gitRun(ctx, workDir, env, "push", "-u", "origin", branch)
+}
+
+func writeLeadGitAskPass(token string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "ai-workflow-chat-askpass-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create askpass dir: %w", err)
+	}
+
+	scriptPath := filepath.Join(dir, "askpass.sh")
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*sername*) echo \"x-access-token\" ;;\n*) echo \"%s\" ;;\nesac\n",
+		strings.ReplaceAll(token, "\"", "\\\""))
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", nil, fmt.Errorf("write askpass script: %w", err)
+	}
+
+	cmdPath := filepath.Join(dir, "askpass.cmd")
+	cmdScript := strings.Join([]string{
+		"@echo off",
+		"set prompt=%~1",
+		"echo %prompt% | findstr /i \"username\" >nul",
+		"if %errorlevel%==0 (",
+		"  echo x-access-token",
+		"  exit /b 0",
+		")",
+		"echo " + token,
+		"",
+	}, "\r\n")
+	_ = os.WriteFile(cmdPath, []byte(cmdScript), 0o600)
+	return scriptPath, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // detectSCMProvider resolves the SCM provider and repo from the git remote.
@@ -1606,6 +1761,7 @@ func (l *LeadAgent) buildGitStats(record *persistedLeadSession) *chatapp.GitStat
 	if stats == nil {
 		stats = &chatapp.GitStats{}
 	}
+	stats.HeadSHA = strings.TrimSpace(record.HeadSHA)
 	if record.PrURL != "" {
 		stats.PrURL = record.PrURL
 		stats.PrNumber = record.PrNumber

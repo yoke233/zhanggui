@@ -295,7 +295,7 @@ function renderSessionActivityState(
     <div className="flex items-center gap-3 rounded-lg border border-emerald-300/60 bg-gradient-to-r from-emerald-50/80 to-teal-50/60 px-4 py-2.5 shadow-sm shadow-emerald-100/50">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
       <span className="min-w-0 truncate text-sm font-medium text-emerald-700">
-        {`${t("chat.thinkingState")}...`}
+        {lastActivityText?.trim() || `${t("chat.thinkingState")}...`}
       </span>
       <span className="flex items-center gap-1">
         <span className="h-2 w-2 animate-dot-pulse rounded-full bg-emerald-500 [animation-delay:0ms]" />
@@ -412,4 +412,3 @@ export function MessageFeedView(props: MessageFeedViewProps) {
     </>
   );
 }
-

@@ -35,6 +35,7 @@ export interface GitStats {
   deletions: number;
   files_changed: number;
   merged?: boolean;
+  head_sha?: string;
   pr_url?: string;
   pr_number?: number;
   pr_state?: string;
@@ -88,4 +89,3 @@ export interface AdminSystemEventResponse {
 }
 
 // Analytics types
-

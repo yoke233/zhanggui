@@ -327,6 +327,68 @@ func TestLeadAgentStartChatUsesBackgroundContext(t *testing.T) {
 	}
 }
 
+func TestLeadAgentStartChatEmptyReplyKeepsSessionAlive(t *testing.T) {
+	registry := &fakeLeadRegistry{
+		profile: &core.AgentProfile{
+			ID:   "lead",
+			Name: "Codex Lead",
+			Role: core.RoleLead,
+			Driver: core.DriverConfig{
+				LaunchCommand: "fake",
+			},
+		},
+	}
+
+	promptDone := make(chan struct{}, 1)
+	client := &fakeChatACPClient{
+		newSessionID: "acp-session-empty",
+		promptFn: func(context.Context, acpproto.PromptRequest) (*acpclient.PromptResult, error) {
+			promptDone <- struct{}{}
+			return &acpclient.PromptResult{Text: ""}, nil
+		},
+	}
+
+	agent := NewLeadAgent(LeadAgentConfig{
+		Registry: registry,
+		Bus:      membus.NewBus(),
+		Sandbox:  v2sandbox.NoopSandbox{},
+		DataDir:  t.TempDir(),
+		NewClient: func(_ acpclient.LaunchConfig, _ acpproto.Client, _opts ...acpclient.Option) (ChatACPClient, error) {
+			return client, nil
+		},
+	})
+	defer agent.Shutdown()
+
+	resp, err := agent.StartChat(context.Background(), chatapp.Request{Message: "继续执行"})
+	if err != nil {
+		t.Fatalf("StartChat: %v", err)
+	}
+
+	select {
+	case <-promptDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prompt completion")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		detail, detailErr := agent.GetSession(context.Background(), resp.SessionID)
+		if detailErr == nil {
+			if detail.Status != "alive" {
+				t.Fatalf("session status = %q, want alive", detail.Status)
+			}
+			if len(detail.Messages) != 1 || detail.Messages[0].Role != "user" {
+				t.Fatalf("unexpected message history: %+v", detail.Messages)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for session detail, last err=%v", detailErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
 	registry := &fakeLeadRegistry{
 		profile: &core.AgentProfile{

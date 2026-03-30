@@ -67,6 +67,9 @@ func (s *stubLeadChatService) IsSessionRunning(string) bool {
 }
 
 func (s *stubLeadChatService) CancelPending(string) bool { return false }
+func (s *stubLeadChatService) SubmitCode(context.Context, string, string) (*chatapp.GitStats, error) {
+	return &chatapp.GitStats{HeadSHA: "abc123"}, nil
+}
 
 func (s *stubLeadChatService) CreatePR(context.Context, string, string, string) (*chatapp.GitStats, error) {
 	return nil, nil

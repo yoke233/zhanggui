@@ -68,6 +68,7 @@ type LeadChatService interface {
 	IsSessionAlive(sessionID string) bool
 	IsSessionRunning(sessionID string) bool
 	CancelPending(sessionID string) bool
+	SubmitCode(ctx context.Context, sessionID string, message string) (*chatapp.GitStats, error)
 	CreatePR(ctx context.Context, sessionID, title, body string) (*chatapp.GitStats, error)
 	RefreshPR(ctx context.Context, sessionID string) (*chatapp.GitStats, error)
 }

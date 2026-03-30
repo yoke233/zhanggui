@@ -28,6 +28,7 @@ func registerChatRoutes(r chi.Router, h *Handler) {
 	r.Get("/chat/{sessionID}", handlers.getSession)
 	r.Post("/chat/{sessionID}/cancel", handlers.cancelChat)
 	r.Post("/chat/{sessionID}/close", handlers.closeSession)
+	r.Post("/chat/sessions/{sessionID}/submit-code", handlers.submitCode)
 	r.Delete("/chat/{sessionID}", handlers.deleteSession)
 	r.Get("/chat/{sessionID}/status", handlers.getStatus)
 	r.Post("/chat/sessions/{sessionID}/create-pr", handlers.createPR)
@@ -214,6 +215,27 @@ func (h *chatHandlers) getStatus(w http.ResponseWriter, r *http.Request) {
 		"session_id": sessionID,
 		"status":     status,
 	})
+}
+
+// POST /chat/sessions/{sessionID}/submit-code — commit and push the chat session branch.
+func (h *chatHandlers) submitCode(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id is required", "BAD_REQUEST")
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	stats, err := h.lead.SubmitCode(r.Context(), sessionID, req.Message)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error(), "SUBMIT_CODE_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 // POST /chat/sessions/{sessionID}/create-pr — create a PR/MR for the session's branch.

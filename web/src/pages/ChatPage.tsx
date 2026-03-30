@@ -38,6 +38,7 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
   const [prLoading, setPrLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
   const [feedVisibleCount, setFeedVisibleCount] = useState(FEED_PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -350,6 +351,25 @@ export function ChatPage() {
     }
   }, [apiClient, currentSession, setSessions]);
 
+  const submitCode = useCallback(async () => {
+    if (!currentSession) return;
+    setSubmitLoading(true);
+    try {
+      const stats = await apiClient.submitChatCode(currentSession.session_id, currentSession.title);
+      setSessions((current) =>
+        current.map((session) =>
+          session.session_id === currentSession.session_id
+            ? { ...session, git: stats }
+            : session,
+        ),
+      );
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    } finally {
+      setSubmitLoading(false);
+    }
+  }, [apiClient, currentSession, setSessions]);
+
   const refreshPR = useCallback(async () => {
     if (!currentSession) return;
     setPrLoading(true);
@@ -466,11 +486,13 @@ export function ChatPage() {
             onDetailViewChange={setDetailView}
             onCloseSession={() => void closeSession()}
             onRenameSession={(title) => void renameSession(title)}
+            onSubmitCode={() => void submitCode()}
             onCreatePR={() => void createPR()}
             onRefreshPR={() => void refreshPR()}
+            submitLoading={submitLoading}
             prLoading={prLoading}
             onOpenSessions={isMobile ? () => setChatSidebarOpen(true) : undefined}
-/>
+          />
         ) : null
       }
       errorBanner={error ? <ChatErrorBanner error={error} onClose={() => setError(null)} /> : null}

@@ -165,6 +165,7 @@ export interface ApiClient {
   archiveChatSession(sessionId: string, archived: boolean): Promise<{ session_id: string; archived: boolean }>;
   renameChatSession(sessionId: string, title: string): Promise<{ session_id: string; title: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
+  submitChatCode(sessionId: string, message?: string): Promise<GitStats>;
   createChatPR(sessionId: string, title?: string, body?: string): Promise<GitStats>;
   refreshChatPR(sessionId: string): Promise<GitStats>;
 

@@ -274,7 +274,7 @@ export function useChatComposerController({
       if (workingSessionId) {
         setSessions((current) =>
           current.map((session) =>
-            session.session_id === workingSessionId ? { ...session, status: "closed" } : session,
+            session.session_id === workingSessionId ? { ...session, status: "alive" } : session,
           ),
         );
       }
