@@ -33,6 +33,20 @@ func TestRunToDeliverableResponseIncludesNormalizedArtifact(t *testing.T) {
 
 	resp := runToDeliverableResponse(run, nil)
 
+	deliverable, ok := resp["deliverable"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected normalized deliverable block, got %+v", resp["deliverable"])
+	}
+	if got := deliverable["kind"]; got != core.DeliverableDocument {
+		t.Fatalf("deliverable kind = %v", got)
+	}
+	if got := deliverable["title"]; got != "Login Flow Review" {
+		t.Fatalf("deliverable title = %v", got)
+	}
+	if got := deliverable["summary"]; got != "Found two correctness issues." {
+		t.Fatalf("deliverable summary = %v", got)
+	}
+
 	artifact, ok := resp["artifact"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected normalized artifact block, got %+v", resp["artifact"])
@@ -61,6 +75,9 @@ func TestRunToDeliverableResponseIncludesNormalizedArtifact(t *testing.T) {
 	if got := artifact["summary"]; got != "Found two correctness issues." {
 		t.Fatalf("artifact summary = %v", got)
 	}
+	if normalized := core.NormalizeArtifactMetadata(run.ResultMetadata); normalized["type"] != "review_report" {
+		t.Fatalf("NormalizeArtifactMetadata() = %+v", normalized)
+	}
 
 	metadata, ok := resp["metadata"].(map[string]any)
 	if !ok || metadata["existing"] != "value" {
@@ -81,6 +98,13 @@ func TestRunToDeliverableResponseOmitsArtifactWhenContractMissing(t *testing.T) 
 	resp := runToDeliverableResponse(run, nil)
 	if _, exists := resp["artifact"]; exists {
 		t.Fatalf("expected no normalized artifact block, got %+v", resp["artifact"])
+	}
+	deliverable, ok := resp["deliverable"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected deliverable block for markdown-only result, got %+v", resp["deliverable"])
+	}
+	if got := deliverable["summary"]; got != "plain output" {
+		t.Fatalf("deliverable summary = %v, want plain output", got)
 	}
 }
 
@@ -129,6 +153,9 @@ func TestArtifactRoutesExposeMetadataOnlyResults(t *testing.T) {
 	}
 	if _, ok := single["artifact"].(map[string]any); !ok {
 		t.Fatalf("expected normalized artifact in single response, got %+v", single)
+	}
+	if deliverable, ok := single["deliverable"].(map[string]any); !ok || deliverable["kind"] != string(core.DeliverableDocument) && deliverable["kind"] != core.DeliverableDocument {
+		t.Fatalf("expected normalized deliverable in single response, got %+v", single["deliverable"])
 	}
 
 	resp, err = http.Get(fmt.Sprintf("%s/actions/%d/artifact/latest", env.server.URL, stepID))

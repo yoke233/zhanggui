@@ -37,6 +37,15 @@ type RunStore interface {
 	GetLatestRunWithResult(ctx context.Context, actionID int64) (*Run, error)
 }
 
+// DeliverableStore persists unified deliverable records.
+type DeliverableStore interface {
+	CreateDeliverable(ctx context.Context, d *Deliverable) (int64, error)
+	GetDeliverable(ctx context.Context, id int64) (*Deliverable, error)
+	ListDeliverablesByWorkItem(ctx context.Context, workItemID int64) ([]*Deliverable, error)
+	ListDeliverablesByThread(ctx context.Context, threadID int64) ([]*Deliverable, error)
+	ListDeliverablesByProducer(ctx context.Context, producerType DeliverableProducerType, producerID int64) ([]*Deliverable, error)
+}
+
 // AgentContextStore persists AgentContext records.
 type AgentContextStore interface {
 	CreateAgentContext(ctx context.Context, ac *AgentContext) (int64, error)
@@ -77,6 +86,7 @@ type Store interface {
 	ThreadStore
 	ActionStore
 	RunStore
+	DeliverableStore
 	AgentContextStore
 	EventStore
 	AnalyticsStore

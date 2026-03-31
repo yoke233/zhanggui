@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/yoke233/zhanggui/internal/core"
 )
@@ -18,41 +17,22 @@ func runToDeliverableResponse(run *core.Run, assets []*core.Resource) map[string
 		"assets":          assets,
 		"created_at":      run.CreatedAt,
 	}
-	if artifact := normalizeArtifactResponse(run.ResultMetadata); artifact != nil {
+	if deliverable := core.RunResultToDeliverable(run); deliverable != nil {
+		resp["deliverable"] = map[string]any{
+			"kind":          deliverable.Kind,
+			"title":         deliverable.Title,
+			"summary":       deliverable.Summary,
+			"payload":       deliverable.Payload,
+			"producer_type": deliverable.ProducerType,
+			"producer_id":   deliverable.ProducerID,
+			"status":        deliverable.Status,
+			"created_at":    deliverable.CreatedAt,
+		}
+	}
+	if artifact := core.NormalizeArtifactMetadata(run.ResultMetadata); artifact != nil {
 		resp["artifact"] = artifact
 	}
 	return resp
-}
-
-func normalizeArtifactResponse(metadata map[string]any) map[string]any {
-	if len(metadata) == 0 {
-		return nil
-	}
-	artifact := map[string]any{}
-	copyArtifactString(metadata, artifact, core.ResultMetaArtifactNamespace, "namespace")
-	copyArtifactString(metadata, artifact, core.ResultMetaArtifactType, "type")
-	copyArtifactString(metadata, artifact, core.ResultMetaArtifactFormat, "format")
-	copyArtifactString(metadata, artifact, core.ResultMetaArtifactRelPath, "relpath")
-	copyArtifactString(metadata, artifact, core.ResultMetaArtifactTitle, "title")
-	copyArtifactString(metadata, artifact, core.ResultMetaProducerSkill, "producer_skill")
-	copyArtifactString(metadata, artifact, core.ResultMetaProducerKind, "producer_kind")
-	copyArtifactString(metadata, artifact, core.ResultMetaSummary, "summary")
-	if len(artifact) == 0 {
-		return nil
-	}
-	return artifact
-}
-
-func copyArtifactString(src, dst map[string]any, srcKey, dstKey string) {
-	value, ok := src[srcKey].(string)
-	if !ok {
-		return
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return
-	}
-	dst[dstKey] = value
 }
 
 func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {

@@ -120,6 +120,22 @@ type RunModel struct {
 
 func (RunModel) TableName() string { return "runs" }
 
+type DeliverableModel struct {
+	ID           int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	WorkItemID   *int64                    `gorm:"column:work_item_id;index"`
+	ThreadID     *int64                    `gorm:"column:thread_id;index"`
+	Kind         string                    `gorm:"column:kind;not null"`
+	Title        string                    `gorm:"column:title;not null;default:''"`
+	Summary      string                    `gorm:"column:summary;not null;default:''"`
+	Payload      JSONField[map[string]any] `gorm:"column:payload;type:text"`
+	ProducerType string                    `gorm:"column:producer_type;not null;index:idx_deliverables_producer"`
+	ProducerID   int64                     `gorm:"column:producer_id;not null;index:idx_deliverables_producer"`
+	Status       string                    `gorm:"column:status;not null"`
+	CreatedAt    time.Time                 `gorm:"column:created_at"`
+}
+
+func (DeliverableModel) TableName() string { return "deliverables" }
+
 type AgentContextModel struct {
 	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	AgentID          string     `gorm:"column:agent_id;not null"`
@@ -1020,6 +1036,44 @@ func (m *RunModel) toCore() *core.Run {
 		ResultMarkdown:   m.ResultMarkdown,
 		ResultMetadata:   m.ResultMetadata.Data,
 		ResultAssets:     m.ResultAssets.Data,
+	}
+}
+
+func deliverableModelFromCore(d *core.Deliverable) *DeliverableModel {
+	if d == nil {
+		return nil
+	}
+	return &DeliverableModel{
+		ID:           d.ID,
+		WorkItemID:   d.WorkItemID,
+		ThreadID:     d.ThreadID,
+		Kind:         string(d.Kind),
+		Title:        d.Title,
+		Summary:      d.Summary,
+		Payload:      JSONField[map[string]any]{Data: d.Payload},
+		ProducerType: string(d.ProducerType),
+		ProducerID:   d.ProducerID,
+		Status:       string(d.Status),
+		CreatedAt:    d.CreatedAt,
+	}
+}
+
+func (m *DeliverableModel) toCore() *core.Deliverable {
+	if m == nil {
+		return nil
+	}
+	return &core.Deliverable{
+		ID:           m.ID,
+		WorkItemID:   m.WorkItemID,
+		ThreadID:     m.ThreadID,
+		Kind:         core.DeliverableKind(m.Kind),
+		Title:        m.Title,
+		Summary:      m.Summary,
+		Payload:      m.Payload.Data,
+		ProducerType: core.DeliverableProducerType(m.ProducerType),
+		ProducerID:   m.ProducerID,
+		Status:       core.DeliverableStatus(m.Status),
+		CreatedAt:    m.CreatedAt,
 	}
 }
 
