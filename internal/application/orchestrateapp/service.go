@@ -18,6 +18,7 @@ type Service struct {
 	workItemCreator WorkItemCreator
 	planner         Planner
 	threads         ThreadCoordinator
+	registry        core.AgentRegistry
 	now             func() time.Time
 }
 
@@ -30,6 +31,12 @@ type CreateTaskInput struct {
 	DedupeKey           string
 	SourceChatSessionID string
 	SourceGoalRef       string
+	ParentWorkItemID    *int64
+	RootWorkItemID      *int64
+	ExecutorProfile     string
+	ReviewerProfile     string
+	SponsorProfile      string
+	ActorProfile        string
 }
 
 type CreateTaskResult struct {
@@ -47,7 +54,7 @@ type FollowUpTaskResult struct {
 	Blocked             bool
 	LatestRunSummary    string
 	RecommendedNextStep string
-	AssignedProfile     string
+	ActiveProfileID     string
 }
 
 type ReassignTaskInput struct {
@@ -99,6 +106,7 @@ func New(cfg Config) *Service {
 		workItemCreator: cfg.WorkItemCreator,
 		planner:         cfg.Planner,
 		threads:         cfg.Threads,
+		registry:        cfg.Registry,
 		now:             time.Now,
 	}
 }
@@ -118,20 +126,28 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("work item creator is not configured")
 	}
 
+	executorProfile := s.resolveExecutorProfile(ctx, input.ExecutorProfile)
 	metadata := map[string]any{
-		"ceo": map[string]any{
+		"orchestrate": map[string]any{
 			"source_chat_session_id": strings.TrimSpace(input.SourceChatSessionID),
 			"source_goal_ref":        strings.TrimSpace(input.SourceGoalRef),
 			"dedupe_key":             strings.TrimSpace(input.DedupeKey),
 		},
 	}
 	workItem, err := s.workItemCreator.CreateWorkItem(ctx, workitemapp.CreateWorkItemInput{
-		ProjectID: input.ProjectID,
-		Title:     title,
-		Body:      strings.TrimSpace(input.Body),
-		Priority:  strings.TrimSpace(input.Priority),
-		Labels:    cloneStrings(input.Labels),
-		Metadata:  metadata,
+		ProjectID:          input.ProjectID,
+		ParentWorkItemID:   input.ParentWorkItemID,
+		RootWorkItemID:     input.RootWorkItemID,
+		Title:              title,
+		Body:               strings.TrimSpace(input.Body),
+		Priority:           strings.TrimSpace(input.Priority),
+		ExecutorProfileID:  executorProfile,
+		ReviewerProfileID:  strings.TrimSpace(input.ReviewerProfile),
+		ActiveProfileID:    executorProfile,
+		SponsorProfileID:   strings.TrimSpace(input.SponsorProfile),
+		CreatedByProfileID: defaultActorProfileID(input.ActorProfile),
+		Labels:             cloneStrings(input.Labels),
+		Metadata:           metadata,
 	})
 	if err != nil {
 		return nil, err
@@ -153,8 +169,18 @@ func (s *Service) FollowUpTask(ctx context.Context, input FollowUpTaskInput) (*F
 		return nil, err
 	}
 
+	activeProfile := firstNonEmpty(workItem.ActiveProfileID, workItem.ExecutorProfileID)
 	latestSummary := ""
+	if workItem.FinalDeliverableID != nil {
+		deliverable, deliverableErr := s.store.GetDeliverable(ctx, *workItem.FinalDeliverableID)
+		if deliverableErr == nil {
+			latestSummary = summarizeDeliverable(deliverable)
+		}
+	}
 	for _, action := range actions {
+		if latestSummary != "" {
+			break
+		}
 		if action == nil {
 			continue
 		}
@@ -164,9 +190,8 @@ func (s *Service) FollowUpTask(ctx context.Context, input FollowUpTaskInput) (*F
 		}
 	}
 
-	assignedProfile := assignedProfileFromMetadata(workItem.Metadata)
 	blocked := workItem.Status == core.WorkItemBlocked || hasActionStatus(actions, core.ActionBlocked, core.ActionFailed)
-	nextStep := recommendedNextStep(workItem.Status, len(actions), blocked, assignedProfile)
+	nextStep := recommendedNextStep(workItem.Status, len(actions), blocked, activeProfile)
 
 	return &FollowUpTaskResult{
 		WorkItemID:          workItem.ID,
@@ -174,7 +199,7 @@ func (s *Service) FollowUpTask(ctx context.Context, input FollowUpTaskInput) (*F
 		Blocked:             blocked,
 		LatestRunSummary:    latestSummary,
 		RecommendedNextStep: nextStep,
-		AssignedProfile:     assignedProfile,
+		ActiveProfileID:     activeProfile,
 	}, nil
 }
 
@@ -187,7 +212,7 @@ func (s *Service) ReassignTask(ctx context.Context, input ReassignTaskInput) (*R
 		return nil, err
 	}
 
-	oldProfile := assignedProfileFromMetadata(workItem.Metadata)
+	oldProfile := firstNonEmpty(workItem.ActiveProfileID, workItem.ExecutorProfileID)
 	newProfile := strings.TrimSpace(input.NewProfile)
 	if newProfile == "" {
 		return nil, newError(CodeMissingProfile, "profile is required", nil)
@@ -195,22 +220,32 @@ func (s *Service) ReassignTask(ctx context.Context, input ReassignTaskInput) (*R
 	if err := s.propagatePreferredProfile(ctx, workItem.ID, newProfile); err != nil {
 		return nil, err
 	}
-	updated := withAssignedProfile(workItem.Metadata, newProfile)
+	workItem.ExecutorProfileID = newProfile
+	workItem.ActiveProfileID = newProfile
+	if err := s.refreshResponsibilityFields(ctx, workItem); err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateWorkItem(ctx, workItem); err != nil {
+		return nil, err
+	}
 	entry := map[string]any{
-		"ts":                     s.now().UTC().Format(time.RFC3339),
-		"actor_profile":          strings.TrimSpace(input.ActorProfile),
-		"action":                 "task.reassign",
 		"reason":                 strings.TrimSpace(input.Reason),
 		"source_chat_session_id": strings.TrimSpace(input.SourceSession),
-		"before": map[string]any{
-			"assigned_profile": oldProfile,
-		},
-		"after": map[string]any{
-			"assigned_profile": newProfile,
-		},
+		"from_profile_id":        oldProfile,
+		"to_profile_id":          newProfile,
+		"reviewer_profile_id":    workItem.ReviewerProfileID,
+		"sponsor_profile_id":     workItem.SponsorProfileID,
+		"escalation_path":        cloneStrings(workItem.EscalationPath),
 	}
-	updated = appendCEOJournal(updated, entry)
-	if err := s.store.UpdateWorkItemMetadata(ctx, workItem.ID, updated); err != nil {
+	if _, err := s.store.AppendJournal(ctx, &core.JournalEntry{
+		WorkItemID: workItem.ID,
+		Kind:       core.JournalAssignment,
+		Source:     journalSourceForActor(input.ActorProfile),
+		Summary:    summarizeReassignment(oldProfile, newProfile),
+		Payload:    entry,
+		Actor:      strings.TrimSpace(input.ActorProfile),
+		CreatedAt:  s.now().UTC(),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -263,7 +298,7 @@ func (s *Service) DecomposeTask(ctx context.Context, input DecomposeTaskInput) (
 	if err != nil {
 		return nil, err
 	}
-	preferredProfile := assignedProfileFromMetadata(workItem.Metadata)
+	preferredProfile := firstNonEmpty(workItem.ActiveProfileID, workItem.ExecutorProfileID)
 	if preferredProfile != "" {
 		for _, action := range created {
 			if action == nil || !isExecutableAction(action) {
@@ -366,18 +401,14 @@ func (s *Service) findExistingTask(ctx context.Context, dedupeKey string, source
 		if item == nil || isClosedStatus(item.Status) {
 			continue
 		}
-		if dedupeKey != "" && metadataValue(item.Metadata, "ceo", "dedupe_key") == dedupeKey {
+		if dedupeKey != "" && metadataValue(item.Metadata, "orchestrate", "dedupe_key") == dedupeKey {
 			return item, nil
 		}
-		if sourceGoalRef != "" && metadataValue(item.Metadata, "ceo", "source_goal_ref") == sourceGoalRef {
+		if sourceGoalRef != "" && metadataValue(item.Metadata, "orchestrate", "source_goal_ref") == sourceGoalRef {
 			return item, nil
 		}
 	}
 	return nil, nil
-}
-
-func assignedProfileFromMetadata(metadata map[string]any) string {
-	return metadataValue(metadata, "ceo", "assigned_profile")
 }
 
 func (s *Service) appendEscalationJournal(ctx context.Context, workItem *core.WorkItem, input EscalateThreadInput, threadID int64, created bool) error {
@@ -385,24 +416,23 @@ func (s *Service) appendEscalationJournal(ctx context.Context, workItem *core.Wo
 		return nil
 	}
 	entry := map[string]any{
-		"ts":                     s.now().UTC().Format(time.RFC3339),
-		"actor_profile":          strings.TrimSpace(input.ActorProfile),
-		"action":                 "task.escalate-thread",
 		"reason":                 strings.TrimSpace(input.Reason),
 		"source_chat_session_id": strings.TrimSpace(input.SourceSession),
-		"after": map[string]any{
-			"thread_id":       threadID,
-			"thread_created":  created,
-			"invite_profiles": cloneStrings(input.InviteProfiles),
-			"invite_humans":   cloneStrings(input.InviteHumans),
-		},
+		"thread_id":              threadID,
+		"thread_created":         created,
+		"invite_profiles":        cloneStrings(input.InviteProfiles),
+		"invite_humans":          cloneStrings(input.InviteHumans),
 	}
-	updated := appendCEOJournal(workItem.Metadata, entry)
-	if err := s.store.UpdateWorkItemMetadata(ctx, workItem.ID, updated); err != nil {
-		return err
-	}
-	workItem.Metadata = updated
-	return nil
+	_, err := s.store.AppendJournal(ctx, &core.JournalEntry{
+		WorkItemID: workItem.ID,
+		Kind:       core.JournalSystem,
+		Source:     journalSourceForActor(input.ActorProfile),
+		Summary:    "escalated work item into coordination thread",
+		Payload:    entry,
+		Actor:      strings.TrimSpace(input.ActorProfile),
+		CreatedAt:  s.now().UTC(),
+	})
+	return err
 }
 
 func metadataValue(metadata map[string]any, path ...string) string {
@@ -418,45 +448,20 @@ func metadataValue(metadata map[string]any, path ...string) string {
 	return strings.TrimSpace(value)
 }
 
-func withAssignedProfile(metadata map[string]any, profile string) map[string]any {
-	out := cloneMetadata(metadata)
-	if out == nil {
-		out = map[string]any{}
-	}
-	ceo := cloneMetadataMap(out["ceo"])
-	if ceo == nil {
-		ceo = map[string]any{}
-	}
-	ceo["assigned_profile"] = profile
-	out["ceo"] = ceo
-	return out
-}
-
-func appendCEOJournal(metadata map[string]any, entry map[string]any) map[string]any {
-	out := cloneMetadata(metadata)
-	if out == nil {
-		out = map[string]any{}
-	}
-	journal := cloneJournalEntries(out["ceo_journal"])
-	journal = append(journal, cloneAnyMap(entry))
-	out["ceo_journal"] = journal
-	return out
-}
-
-func recommendedNextStep(status core.WorkItemStatus, actionCount int, blocked bool, assignedProfile string) string {
+func recommendedNextStep(status core.WorkItemStatus, actionCount int, blocked bool, activeProfile string) string {
 	switch {
 	case actionCount == 0:
 		return "decompose"
-	case blocked && assignedProfile != "":
+	case blocked && activeProfile != "":
 		return "reassign_or_escalate"
 	case blocked:
 		return "investigate_blocker"
-	case assignedProfile == "":
+	case activeProfile == "":
 		return "assign_profile"
 	case status == core.WorkItemOpen || status == core.WorkItemAccepted:
 		return "run_work_item"
 	default:
-		return "follow_up_with_" + assignedProfile
+		return "follow_up_with_" + activeProfile
 	}
 }
 
@@ -513,7 +518,7 @@ func shouldPropagatePreferredProfile(action *core.Action) bool {
 
 func isClosedStatus(status core.WorkItemStatus) bool {
 	switch status {
-	case core.WorkItemDone, core.WorkItemCancelled, core.WorkItemClosed:
+	case core.WorkItemCompleted, core.WorkItemCancelled:
 		return true
 	default:
 		return false
@@ -529,6 +534,99 @@ func compactString(raw string, limit int) string {
 		return trimmed[:limit]
 	}
 	return trimmed[:limit-3] + "..."
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func defaultActorProfileID(profileID string) string {
+	return firstNonEmpty(profileID, "ceo")
+}
+
+func summarizeDeliverable(deliverable *core.Deliverable) string {
+	if deliverable == nil {
+		return ""
+	}
+	if summary := strings.TrimSpace(deliverable.Summary); summary != "" {
+		return compactString(summary, 160)
+	}
+	if title := strings.TrimSpace(deliverable.Title); title != "" {
+		return compactString(title, 160)
+	}
+	return ""
+}
+
+func journalSourceForActor(actorProfile string) core.JournalSource {
+	if strings.TrimSpace(actorProfile) != "" {
+		return core.JournalSourceAgent
+	}
+	return core.JournalSourceSystem
+}
+
+func summarizeReassignment(oldProfile string, newProfile string) string {
+	if strings.TrimSpace(oldProfile) == "" {
+		return "assigned active owner to " + strings.TrimSpace(newProfile)
+	}
+	return fmt.Sprintf("reassigned active owner from %s to %s", strings.TrimSpace(oldProfile), strings.TrimSpace(newProfile))
+}
+
+func (s *Service) refreshResponsibilityFields(ctx context.Context, workItem *core.WorkItem) error {
+	if s == nil || workItem == nil {
+		return nil
+	}
+	if workItem.ActiveProfileID == "" {
+		workItem.ActiveProfileID = firstNonEmpty(workItem.ExecutorProfileID, workItem.ReviewerProfileID)
+	}
+	if s.registry == nil || workItem.ExecutorProfileID == "" {
+		return nil
+	}
+	reviewer, err := workitemapp.DefaultReviewerProfileID(ctx, workItem.ExecutorProfileID, s.registry)
+	if err != nil {
+		return err
+	}
+	workItem.ReviewerProfileID = strings.TrimSpace(reviewer)
+	if workItem.ActiveProfileID != "" {
+		path, pathErr := workitemapp.BuildEscalationPath(ctx, workItem.ActiveProfileID, s.registry)
+		if pathErr != nil {
+			return pathErr
+		}
+		workItem.EscalationPath = path
+	}
+	workItem.SponsorProfileID = sponsorProfileFromEscalationPath(workItem.EscalationPath, workItem.ReviewerProfileID)
+	return nil
+}
+
+func sponsorProfileFromEscalationPath(path []string, reviewerProfileID string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(path[i])
+		if candidate != "" && candidate != workitemapp.HumanEscalationTarget {
+			return candidate
+		}
+	}
+	return strings.TrimSpace(reviewerProfileID)
+}
+
+func (s *Service) resolveExecutorProfile(ctx context.Context, requestedProfile string) string {
+	requestedProfile = strings.TrimSpace(requestedProfile)
+	if requestedProfile != "" {
+		return requestedProfile
+	}
+	if s == nil || s.registry == nil {
+		return "lead"
+	}
+	for _, candidate := range []string{"lead", "ceo"} {
+		if _, err := s.registry.ResolveByID(ctx, candidate); err == nil {
+			return candidate
+		}
+	}
+	return "lead"
 }
 
 func (s *Service) propagatePreferredProfile(ctx context.Context, workItemID int64, profile string) error {
@@ -589,31 +687,6 @@ func cloneAnyMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func cloneJournalEntries(raw any) []any {
-	switch entries := raw.(type) {
-	case nil:
-		return nil
-	case []any:
-		out := make([]any, 0, len(entries))
-		for _, entry := range entries {
-			if nested, ok := entry.(map[string]any); ok {
-				out = append(out, cloneAnyMap(nested))
-				continue
-			}
-			out = append(out, entry)
-		}
-		return out
-	case []map[string]any:
-		out := make([]any, 0, len(entries))
-		for _, entry := range entries {
-			out = append(out, cloneAnyMap(entry))
-		}
-		return out
-	default:
-		return nil
-	}
 }
 
 func cloneStrings(in []string) []string {

@@ -37,7 +37,7 @@ func (f *fakeOrchestrateService) FollowUpTask(_ context.Context, input orchestra
 		WorkItemID:          input.WorkItemID,
 		Status:              core.WorkItemBlocked,
 		Blocked:             true,
-		AssignedProfile:     "lead",
+		ActiveProfileID:     "lead",
 		RecommendedNextStep: "reassign_or_escalate",
 		LatestRunSummary:    "waiting on integration fix",
 	}, nil
@@ -172,8 +172,8 @@ func TestRunOrchestrateToWriterEmitsFollowUpJSON(t *testing.T) {
 	if payload["work_item_id"] != float64(21) {
 		t.Fatalf("work_item_id = %v, want 21", payload["work_item_id"])
 	}
-	if payload["assigned_profile"] != "lead" {
-		t.Fatalf("assigned_profile = %v, want lead", payload["assigned_profile"])
+	if payload["active_profile"] != "lead" {
+		t.Fatalf("active_profile = %v, want lead", payload["active_profile"])
 	}
 }
 

@@ -68,7 +68,7 @@ type orchestrateResult struct {
 	Created             bool                `json:"created,omitempty"`
 	Status              core.WorkItemStatus `json:"status,omitempty"`
 	Blocked             bool                `json:"blocked,omitempty"`
-	AssignedProfile     string              `json:"assigned_profile,omitempty"`
+	ActiveProfile       string              `json:"active_profile,omitempty"`
 	RecommendedNextStep string              `json:"recommended_next_step,omitempty"`
 	ActionCount         int                 `json:"action_count,omitempty"`
 	LatestRunSummary    string              `json:"latest_run_summary,omitempty"`
@@ -371,7 +371,7 @@ func executeFollowUpTask(ctx context.Context, svc orchestrateService, opts orche
 		WorkItemID:          resp.WorkItemID,
 		Status:              resp.Status,
 		Blocked:             resp.Blocked,
-		AssignedProfile:     resp.AssignedProfile,
+		ActiveProfile:       resp.ActiveProfileID,
 		RecommendedNextStep: resp.RecommendedNextStep,
 		LatestRunSummary:    resp.LatestRunSummary,
 	}, nil
@@ -470,7 +470,7 @@ func defaultNewOrchestrateRuntime() (*orchestrateRuntime, error) {
 
 	bootstrap.SeedRegistry(context.Background(), store, cfg)
 
-	workItems := workitemapp.New(workitemapp.Config{Store: store})
+	workItems := workitemapp.New(workitemapp.Config{Store: store, Registry: store})
 	threads := threadapp.New(threadapp.Config{Store: store})
 
 	var plannerSvc orchestrateapp.Planner
@@ -483,6 +483,7 @@ func defaultNewOrchestrateRuntime() (*orchestrateRuntime, error) {
 		WorkItemCreator: workItems,
 		Planner:         plannerSvc,
 		Threads:         threads,
+		Registry:        store,
 	})
 
 	return &orchestrateRuntime{

@@ -17,6 +17,8 @@ type Store interface {
 	core.WorkItemStore
 	core.ActionStore
 	core.RunStore
+	core.DeliverableStore
+	core.JournalStore
 }
 
 type Planner interface {
@@ -37,4 +39,5 @@ type Config struct {
 	WorkItemCreator WorkItemCreator
 	Planner         Planner
 	Threads         ThreadCoordinator
+	Registry        core.AgentRegistry
 }

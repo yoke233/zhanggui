@@ -46,7 +46,7 @@ ai-flow orchestrate task escalate-thread
 2. If a task is blocked but still has a clear owner, follow up first.
 3. If the owner is wrong, reassign with a reason.
 4. If multiple roles must coordinate synchronously, escalate to a thread.
-5. `invite_humans` means meeting participants only. It does not mutate task assignee metadata.
+5. `invite_humans` means meeting participants only. It does not mutate `WorkItem` responsibility fields.
 6. When in doubt, assign the task back to `lead`.
 7. If the request would require reading broad business context or changing product code, that is execution work, not CEO work.
 8. If execution reveals adjacent cleanup opportunities, keep the current task narrow and create follow-up work instead of expanding the same assignment.
