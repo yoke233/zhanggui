@@ -132,7 +132,7 @@ notification 或 thread 消息。
 - `parent_work_item_id`：父任务，用于 CEO 拆分
 - `root_work_item_id`：根任务，用于整棵任务树聚合
 - `escalation_path`：当前责任人的上报链缓存
-- `final_output_ref`：最终结果唯一锚点，使用 typed ref 形式，例如 `run:123`、`artifact:9`、`workitem-summary:45`
+- `final_deliverable_id`：最终正式交付物
 
 字段语义约束：
 
@@ -148,9 +148,57 @@ notification 或 thread 消息。
 - `needs_rework` / `in_execution` 时，`active_profile_id` 必须等于 `executor_profile_id`
 - `escalated` 时，`active_profile_id` 是当前接棒上级
 - 前端待办查询统一基于 `active_profile_id + status`
-- `final_output_ref` 是唯一结果真相；摘要、卡片展示、CEO 汇总文案都从该引用派生
+- `final_deliverable_id` 是唯一结果真相；摘要、卡片展示、CEO 汇总文案都从该交付物派生
 
-### 5.2 `Action / Run / ActionSignal` 的新定位
+### 5.2 统一 `Deliverable` 模型
+
+本设计采用一套统一的 `Deliverable` 类型体系，同时服务于 `Thread` 与 `WorkItem`。
+
+`Deliverable` 不是“必须是文件”，而是统一交付对象。它可以表示：
+
+- 文档
+- 代码改动
+- Pull Request
+- 决策结论
+- 会议纪要
+- 聚合报告
+
+最小字段建议：
+
+- `id`
+- `kind`
+- `title`
+- `summary`
+- `payload`
+- `producer_type`：`run` / `thread` / `workitem`
+- `producer_id`
+- `status`
+- `created_at`
+
+典型 `kind`：
+
+- `document`
+- `code_change`
+- `pull_request`
+- `decision`
+- `meeting_summary`
+- `aggregate_report`
+
+统一规则如下：
+
+- `Thread` 可以产出协作型 `Deliverable`
+- `WorkItem` 可以采纳某个 `Deliverable` 作为正式结果
+- 只有 `WorkItem.final_deliverable_id` 指向的对象，才代表任务最终结果
+- `Thread` 里的 `Deliverable` 不能天然关闭 `WorkItem`
+
+例如：
+
+- 代码改动任务可产出 `code_change` 或 `pull_request`
+- 文档任务可产出 `document`
+- CEO 父任务可产出 `aggregate_report`
+- 会议 thread 可产出 `meeting_summary` 或 `decision`
+
+### 5.3 `Action / Run / ActionSignal` 的新定位
 
 `WorkItem` 是流程真相；`Action / Run / ActionSignal` 是执行底座。
 
@@ -163,12 +211,13 @@ notification 或 thread 消息。
 - 调度入口从 `WorkItem` 发起，不再从 pending `Action` 发起
 - 当前责任人、待办、人类介入、升级对象都只从 `WorkItem` 读取
 - `ActionSignalStore` 不再提供主待办查询
-- `Run` 继续承载执行结果，但 `WorkItem` 只暴露 `final_output_ref` 作为唯一结果锚点
+- `Run` 继续承载执行结果，但最终正式结果必须落为一个 `Deliverable`
+- `WorkItem` 只暴露 `final_deliverable_id` 作为唯一结果锚点
 
 这不是“废掉 Action 引擎”，而是把它降为执行基础设施，不再和 `WorkItem`
 竞争任务真相。
 
-### 5.3 `Thread` 的新定位
+### 5.4 `Thread` 的新定位
 
 `Thread` 只做协作现场：
 
@@ -176,10 +225,14 @@ notification 或 thread 消息。
 - 讨论
 - 邀请额外 agent
 - 临时同步上下文
+- 产出协作型 `Deliverable`
 
 `Thread` 可附着到 `WorkItem`，但不能再决定 `WorkItem` 的正式状态。
 
-### 5.4 `Notification` 的新定位
+如果某个 `Thread Deliverable` 被 `WorkItem` 采纳，它可以成为最终交付物；
+否则它只是一份协作产物。
+
+### 5.5 `Notification` 的新定位
 
 `Notification` 只负责提示和展示，不承担任何任务状态真相。
 
@@ -191,7 +244,7 @@ notification 或 thread 消息。
 
 通知是派生物，不是源数据。
 
-### 5.5 `WorkItem` 是流程源，运行层只做执行
+### 5.6 `WorkItem` 是流程源，运行层只做执行
 
 新的硬边界如下：
 
@@ -208,7 +261,7 @@ WorkItem 命令
 - 运行层不能自己生成待办真相
 - 运行层只把执行事实回写给 `WorkItem`
 
-### 5.6 正式 `WorkItem` 事件流
+### 5.7 正式 `WorkItem` 事件流
 
 本设计要求一条最小可用的正式事件流，用来承载历史而不是当前真相。
 
@@ -436,7 +489,7 @@ CEO 只在上级链最终到达自己时才接管异常。
 
 - 为 `WorkItem` 增加 `executor_profile_id`、`reviewer_profile_id`
 - 增加 `active_profile_id`、`created_by_profile_id`、`sponsor_profile_id`
-- 增加 `root_work_item_id`、`escalation_path`、`final_output_ref`
+- 增加 `root_work_item_id`、`escalation_path`、`final_deliverable_id`
 - 引入新状态机
 
 ### 阶段 1.5：历史数据回填
@@ -445,7 +498,7 @@ CEO 只在上级链最终到达自己时才接管异常。
 - 从旧 `metadata["ceo"]`、旧分派字段、旧运行记录回填 `executor_profile_id`
 - 回填 `reviewer_profile_id`、`active_profile_id`、`sponsor_profile_id`
 - 为已有任务树补齐 `root_work_item_id`
-- 根据现存运行结果回填 `final_output_ref`
+- 根据现存运行结果或 thread 采纳关系回填 `final_deliverable_id`
 - 对无法自动回填的旧单据标记为需人工迁移，禁止静默跳过
 
 ### 阶段 2：写路径 cutover
@@ -463,7 +516,7 @@ CEO 只在上级链最终到达自己时才接管异常。
 ### 阶段 4：运行层回写收口
 
 - 运行层只通过 `WorkItem` 状态推进接口回写结果
-- `final_output_ref` 成为最终结果唯一锚点
+- `final_deliverable_id` 成为最终结果唯一锚点
 - `Action / Run / Signal` 不再被前端当任务真相读取
 
 ### 阶段 5：删旧
@@ -477,7 +530,7 @@ cutover 判定条件：
 - 新建 `WorkItem` 不再写旧路由 metadata
 - 历史活跃 `WorkItem` 已完成字段回填或被明确标记为人工处理
 - 前端主待办不再依赖 `ActionSignalStore`
-- CEO 汇总结果只读 `WorkItem + final_output_ref`
+- CEO 汇总结果只读 `WorkItem + final_deliverable_id`
 - 详情页、时间线、升级历史统一读取正式 `WorkItem` 事件流
 - 任务详情与排障接口不再从 metadata 推断当前责任人
 
@@ -517,7 +570,7 @@ cutover 判定条件：
 3. 执行中断时，任务按上级链逐级升级，而不是默认直接回 CEO
 4. CEO 只处理最终收口和高阶升级
 5. 前端主待办只基于 `active_profile_id + status`
-6. `final_output_ref` 成为最终结果唯一锚点
+6. `final_deliverable_id` 成为最终结果唯一锚点
 7. `Notification`、`Thread`、`ActionSignal` 不再作为任务真相来源
 
 ---
