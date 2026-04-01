@@ -275,10 +275,7 @@ func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, i
 	handler := acphandler.NewACPHandler(in.WorkDir, "", nil)
 	handler.SetSuppressEvents(true)
 
-	var priorSessionID string
-	if ac != nil {
-		priorSessionID = strings.TrimSpace(ac.SessionID)
-	}
+	priorSessionID := resumableAgentContextSessionID(ac)
 
 	bootResult, err := acpclient.Bootstrap(ctx, acpclient.BootstrapConfig{
 		Profile:        in.Profile,
@@ -314,6 +311,33 @@ func (p *ACPSessionPool) createSession(ctx context.Context, key acpSessionKey, i
 	}
 
 	return sess, ac, nil
+}
+
+func (p *ACPSessionPool) Invalidate(ctx context.Context, sess *pooledACPSession, ac *core.AgentContext) {
+	if p == nil || sess == nil {
+		return
+	}
+
+	p.mu.Lock()
+	current := p.sessions[sess.key]
+	if current == sess {
+		delete(p.sessions, sess.key)
+	}
+	p.mu.Unlock()
+
+	if sess.client != nil {
+		_ = sess.client.Close(context.Background())
+	}
+
+	if p.store == nil || ac == nil {
+		return
+	}
+	ac.SessionID = ""
+	ac.UpdatedAt = time.Now().UTC()
+	if err := p.store.UpdateAgentContext(ctx, ac); err != nil {
+		slog.Warn("runtime acp pool: clear agent context session failed",
+			"agent", ac.AgentID, "workitem_id", ac.WorkItemID, "error", err)
+	}
 }
 
 func (p *ACPSessionPool) findAgentContext(ctx context.Context, agentID string, workItemID int64) (*core.AgentContext, error) {
@@ -405,4 +429,11 @@ func (s *pooledACPSession) statsSnapshot() (time.Time, int, int64, int64) {
 	s.statsMu.RLock()
 	defer s.statsMu.RUnlock()
 	return s.lastUsed, s.turns, s.inputTokens, s.outputTokens
+}
+
+func resumableAgentContextSessionID(ac *core.AgentContext) string {
+	if ac == nil || ac.TurnCount <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(ac.SessionID)
 }

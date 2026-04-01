@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +11,92 @@ import (
 	"github.com/yoke233/zhanggui/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/zhanggui/internal/adapters/events/bridge"
 	flowapp "github.com/yoke233/zhanggui/internal/application/flow"
+	probeapp "github.com/yoke233/zhanggui/internal/application/probe"
+	runtimeapp "github.com/yoke233/zhanggui/internal/application/runtime"
 	"github.com/yoke233/zhanggui/internal/core"
 )
+
+type stubSessionManager struct {
+	acquireInput runtimeapp.SessionAcquireInput
+}
+
+func (s *stubSessionManager) Acquire(_ context.Context, in runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
+	s.acquireInput = in
+	return &runtimeapp.SessionHandle{ID: "stub-handle"}, nil
+}
+
+func (s *stubSessionManager) StartRun(_ context.Context, _ *runtimeapp.SessionHandle, _ string) (string, error) {
+	return "stub-invocation", nil
+}
+
+func (s *stubSessionManager) WatchRun(_ context.Context, _ string, _ int64, _ runtimeapp.EventSink) (*runtimeapp.RunResult, error) {
+	return &runtimeapp.RunResult{
+		Text:       "done",
+		StopReason: "completed",
+	}, nil
+}
+
+func (s *stubSessionManager) RecoverRuns(_ context.Context, _ time.Time) ([]runtimeapp.RunRuntimeStatus, error) {
+	return nil, nil
+}
+
+func (s *stubSessionManager) ProbeRun(_ context.Context, _ probeapp.RunProbeRuntimeRequest) (*probeapp.RunProbeRuntimeResult, error) {
+	return nil, nil
+}
+
+func (s *stubSessionManager) Release(_ context.Context, _ *runtimeapp.SessionHandle) error {
+	return nil
+}
+
+func (s *stubSessionManager) CleanupWorkItem(_ int64) {}
+
+func (s *stubSessionManager) DrainActive(_ context.Context) error {
+	return nil
+}
+
+func (s *stubSessionManager) ActiveCount() int {
+	return 0
+}
+
+func (s *stubSessionManager) Close() {}
+
+type stubRegistry struct {
+	profile *core.AgentProfile
+}
+
+func (s stubRegistry) GetProfile(_ context.Context, id string) (*core.AgentProfile, error) {
+	if s.profile != nil && s.profile.ID == id {
+		return s.profile, nil
+	}
+	return nil, core.ErrProfileNotFound
+}
+
+func (s stubRegistry) ListProfiles(context.Context) ([]*core.AgentProfile, error) {
+	return nil, nil
+}
+
+func (s stubRegistry) CreateProfile(context.Context, *core.AgentProfile) error {
+	return nil
+}
+
+func (s stubRegistry) UpdateProfile(context.Context, *core.AgentProfile) error {
+	return nil
+}
+
+func (s stubRegistry) DeleteProfile(context.Context, string) error {
+	return nil
+}
+
+func (s stubRegistry) ResolveForAction(context.Context, *core.Action) (*core.AgentProfile, error) {
+	return s.profile, nil
+}
+
+func (s stubRegistry) ResolveByID(_ context.Context, profileID string) (*core.AgentProfile, error) {
+	if s.profile != nil && s.profile.ID == profileID {
+		return s.profile, nil
+	}
+	return nil, core.ErrProfileNotFound
+}
 
 func TestBuildRunInputFromSnapshot(t *testing.T) {
 	t.Run("basic execution input", func(t *testing.T) {
@@ -71,6 +156,53 @@ func TestBuildRunInputFromSnapshot(t *testing.T) {
 			t.Error("execution input should not contain Reference Materials when hasActionContext=false")
 		}
 	})
+}
+
+func TestACPActionExecutor_UsesFallbackWorkDirWhenDefaultMissing(t *testing.T) {
+	t.Parallel()
+
+	sessionMgr := &stubSessionManager{}
+	profile := &core.AgentProfile{
+		ID:   "worker",
+		Role: core.RoleWorker,
+	}
+	executor := NewACPActionExecutor(ACPExecutorConfig{
+		Registry:       stubRegistry{profile: profile},
+		SessionManager: sessionMgr,
+		Bus:            NewMemBus(),
+	})
+	action := &core.Action{
+		ID:         11,
+		WorkItemID: 22,
+		Name:       "execute-work-item",
+		Type:       core.ActionExec,
+		AgentRole:  string(core.RoleWorker),
+	}
+	run := &core.Run{
+		ID:               33,
+		ActionID:         action.ID,
+		BriefingSnapshot: "do the work",
+	}
+
+	if err := executor(t.Context(), action, run); err != nil {
+		t.Fatalf("executor() error = %v", err)
+	}
+	if strings.TrimSpace(sessionMgr.acquireInput.WorkDir) == "" {
+		t.Fatal("expected non-empty work_dir passed to session manager")
+	}
+}
+
+func TestResolveACPActionTimeout(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveACPActionTimeout(nil); got != 120*time.Second {
+		t.Fatalf("resolveACPActionTimeout(nil) = %s, want 120s", got)
+	}
+
+	action := &core.Action{Timeout: 45 * time.Second}
+	if got := resolveACPActionTimeout(action); got != 45*time.Second {
+		t.Fatalf("resolveACPActionTimeout(action) = %s, want 45s", got)
+	}
 }
 
 func TestEventBridge_ChunkAggregation(t *testing.T) {

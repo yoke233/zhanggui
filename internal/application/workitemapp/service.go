@@ -253,6 +253,9 @@ func (s *Service) RunWorkItem(ctx context.Context, workItemID int64) (*RunWorkIt
 	if len(actions) == 0 {
 		return nil, newError(CodeNoActions, "work item has no actions; add at least one action before running", nil)
 	}
+	if err := s.resetRetryableActions(ctx, actions); err != nil {
+		return nil, err
+	}
 
 	if s.scheduler != nil {
 		if err := s.scheduler.Submit(ctx, workItemID); err != nil {
@@ -316,6 +319,25 @@ func (s *Service) backgroundContext() context.Context {
 		return s.backgroundCtx
 	}
 	return context.Background()
+}
+
+func (s *Service) resetRetryableActions(ctx context.Context, actions []*core.Action) error {
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		switch action.Status {
+		case core.ActionFailed, core.ActionBlocked:
+			action.Status = core.ActionPending
+			if err := s.store.UpdateAction(ctx, action); err != nil {
+				if errors.Is(err, core.ErrNotFound) {
+					return newError(CodeWorkItemNotFound, "action not found while resetting for rerun", err)
+				}
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) deleteAggregate(ctx context.Context, workItemID int64) error {

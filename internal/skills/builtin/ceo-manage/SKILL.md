@@ -38,6 +38,7 @@ ai-flow orchestrate task decompose
 ai-flow orchestrate task follow-up
 ai-flow orchestrate task reassign
 ai-flow orchestrate task escalate-thread
+ai-flow runtime ensure-execution-profiles
 ```
 
 ## Decision Rules

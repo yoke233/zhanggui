@@ -186,6 +186,9 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 			// are already returned as errors from DepositOutputs.
 		}
 	}
+	if err := e.persistRunDeliverable(ctx, run); err != nil {
+		return fmt.Errorf("persist run deliverable: %w", err)
+	}
 
 	switch action.Type {
 	case core.ActionGate:
@@ -193,6 +196,29 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	default:
 		return e.transitionAction(ctx, action, core.ActionDone)
 	}
+}
+
+func (e *WorkItemEngine) persistRunDeliverable(ctx context.Context, run *core.Run) error {
+	if run == nil {
+		return nil
+	}
+	deliverable := core.RunResultToDeliverable(run)
+	if deliverable == nil {
+		return nil
+	}
+	store, ok := any(e.workflow.store).(core.DeliverableStore)
+	if !ok || store == nil {
+		return nil
+	}
+	existing, err := store.ListDeliverablesByProducer(ctx, core.DeliverableProducerRun, run.ID)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return nil
+	}
+	_, err = store.CreateDeliverable(ctx, deliverable)
+	return err
 }
 
 // applySignalMetadata writes agent-provided metadata directly to the action's latest run result.
@@ -204,10 +230,21 @@ func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.A
 	if r.ResultMetadata == nil {
 		r.ResultMetadata = map[string]any{}
 	}
+	if run != nil {
+		if run.ResultMetadata == nil {
+			run.ResultMetadata = map[string]any{}
+		}
+	}
 	for k, v := range payload {
 		r.ResultMetadata[k] = v
+		if run != nil {
+			run.ResultMetadata[k] = v
+		}
 	}
 	r.ResultMetadata["signal_source"] = "agent"
+	if run != nil {
+		run.ResultMetadata["signal_source"] = "agent"
+	}
 	_ = e.workflow.store.UpdateRun(ctx, r)
 }
 

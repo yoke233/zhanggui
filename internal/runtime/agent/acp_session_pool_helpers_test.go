@@ -247,4 +247,59 @@ func TestACPSessionPoolHelpers(t *testing.T) {
 	if lastUsed, turns, input, output := (*pooledACPSession)(nil).statsSnapshot(); !lastUsed.IsZero() || turns != 0 || input != 0 || output != 0 {
 		t.Fatalf("statsSnapshot(nil) = (%v,%d,%d,%d)", lastUsed, turns, input, output)
 	}
+
+	if got := resumableAgentContextSessionID(nil); got != "" {
+		t.Fatalf("resumableAgentContextSessionID(nil) = %q, want empty", got)
+	}
+	if got := resumableAgentContextSessionID(&core.AgentContext{SessionID: "session-1", TurnCount: 0}); got != "" {
+		t.Fatalf("resumableAgentContextSessionID(turn_count=0) = %q, want empty", got)
+	}
+	if got := resumableAgentContextSessionID(&core.AgentContext{SessionID: " session-1 ", TurnCount: 2}); got != "session-1" {
+		t.Fatalf("resumableAgentContextSessionID(resumable) = %q, want session-1", got)
+	}
+}
+
+func TestACPSessionPoolInvalidateClearsPersistedSession(t *testing.T) {
+	store := newRuntimeTestStore(t)
+	pool := NewACPSessionPool(store, nil)
+	defer pool.Close()
+
+	ctx := context.Background()
+	ac := &core.AgentContext{
+		AgentID:    "worker",
+		WorkItemID: 21,
+		SessionID:  "stale-session",
+		TurnCount:  0,
+	}
+	id, err := store.CreateAgentContext(ctx, ac)
+	if err != nil {
+		t.Fatalf("CreateAgentContext() error = %v", err)
+	}
+	ac.ID = id
+
+	sess := &pooledACPSession{
+		key:    acpSessionKey{workItemID: 21, agentID: "worker"},
+		client: &acpclient.Client{},
+	}
+
+	pool.mu.Lock()
+	pool.sessions[sess.key] = sess
+	pool.mu.Unlock()
+
+	pool.Invalidate(ctx, sess, ac)
+
+	pool.mu.Lock()
+	_, exists := pool.sessions[sess.key]
+	pool.mu.Unlock()
+	if exists {
+		t.Fatal("expected invalidated session to be removed from pool")
+	}
+
+	stored, err := store.FindAgentContext(ctx, "worker", 21)
+	if err != nil {
+		t.Fatalf("FindAgentContext() error = %v", err)
+	}
+	if stored.SessionID != "" {
+		t.Fatalf("stored.SessionID = %q, want empty", stored.SessionID)
+	}
 }

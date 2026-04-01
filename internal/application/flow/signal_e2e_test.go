@@ -77,6 +77,19 @@ func TestSignalComplete_WritesMetadata(t *testing.T) {
 	if del.ResultMetadata["signal_source"] != "agent" {
 		t.Fatalf("expected signal_source=agent, got %v", del.ResultMetadata["signal_source"])
 	}
+	deliverables, err := store.ListDeliverablesByWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("ListDeliverablesByWorkItem() error = %v", err)
+	}
+	if len(deliverables) != 1 {
+		t.Fatalf("deliverable count = %d, want 1", len(deliverables))
+	}
+	if deliverables[0].ProducerType != core.DeliverableProducerRun || deliverables[0].ProducerID != del.ID {
+		t.Fatalf("deliverable producer = (%s,%d), want (run,%d)", deliverables[0].ProducerType, deliverables[0].ProducerID, del.ID)
+	}
+	if deliverables[0].Summary != "added login page" {
+		t.Fatalf("deliverable summary = %q, want %q", deliverables[0].Summary, "added login page")
+	}
 
 	// WorkItem should be done.
 	workItem, _ := store.GetWorkItem(ctx, workItemID)

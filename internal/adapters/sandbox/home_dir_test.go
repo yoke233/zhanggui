@@ -42,6 +42,9 @@ func TestHomeDirSandboxPrepareSetsEnvAndLinksSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
 		t.Fatalf("write auth.json: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(baseHome, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
 
 	skillsRoot := filepath.Join(dataDir, "skills")
 	skillDir := filepath.Join(skillsRoot, "demo-skill")
@@ -96,6 +99,9 @@ func TestHomeDirSandboxPrepareSetsEnvAndLinksSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "auth.json")); err != nil {
 		t.Fatalf("expected auth.json in isolated home: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(home, "config.toml")); err != nil {
+		t.Fatalf("expected config.toml in isolated home: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(home, "skills", "demo-skill")); err != nil {
 		t.Fatalf("expected skill link/dir in isolated home: %v", err)
 	}
@@ -110,6 +116,9 @@ func TestHomeDirSandboxPrepareRejectsInvalidSkill(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
 		t.Fatalf("write auth.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseHome, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
 	}
 
 	skillsRoot := filepath.Join(dataDir, "skills")
@@ -153,6 +162,9 @@ func TestHomeDirSandboxPrepareRejectsUnsafeEphemeralSkillName(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
 		t.Fatalf("write auth.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseHome, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
 	}
 
 	outsideFile := filepath.Join(dataDir, "outside.txt")
@@ -202,6 +214,9 @@ func TestHomeDirSandboxPrepareRejectsEscapingEphemeralSkillName(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
 		t.Fatalf("write auth.json: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(baseHome, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
 
 	skillsRoot := filepath.Join(dataDir, "skills")
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
@@ -240,6 +255,65 @@ func TestHomeDirSandboxPrepareRejectsEscapingEphemeralSkillName(t *testing.T) {
 	}
 	if _, statErr := os.Stat(protectedPath); statErr != nil {
 		t.Fatalf("expected protected path to remain untouched: %v", statErr)
+	}
+}
+
+func TestHomeDirSandboxPrepare_AllowsEphemeralSkillWithoutGlobalMirror(t *testing.T) {
+	dataDir := t.TempDir()
+	baseHome := filepath.Join(t.TempDir(), ".codex")
+	if err := os.MkdirAll(filepath.Join(baseHome, "skills", ".system"), 0o755); err != nil {
+		t.Fatalf("mkdir base skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
+		t.Fatalf("write auth.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseHome, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+
+	skillsRoot := filepath.Join(dataDir, "skills")
+	if err := os.MkdirAll(filepath.Join(skillsRoot, "action-signal"), 0o755); err != nil {
+		t.Fatalf("mkdir action-signal dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "action-signal", "SKILL.md"), []byte(skillset.DefaultSkillMD("action-signal")), 0o644); err != nil {
+		t.Fatalf("write action-signal SKILL.md: %v", err)
+	}
+
+	ephemeralDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ephemeralDir, "SKILL.md"), []byte(skillset.DefaultSkillMD("action-context")), 0o644); err != nil {
+		t.Fatalf("write ephemeral SKILL.md: %v", err)
+	}
+
+	sb := HomeDirSandbox{
+		DataDir:          dataDir,
+		SkillsRoot:       skillsRoot,
+		RequireCodexAuth: true,
+	}
+	got, err := sb.Prepare(context.Background(), PrepareInput{
+		Profile: &core.AgentProfile{
+			ID: "worker",
+			Driver: core.DriverConfig{
+				Env: map[string]string{"CODEX_HOME": baseHome},
+			},
+		},
+		Launch: acpclient.LaunchConfig{
+			Command: "agent",
+			Env:     map[string]string{},
+		},
+		Scope:           "flow-1",
+		ExtraSkills:     []string{"action-signal", "action-context"},
+		EphemeralSkills: map[string]string{"action-context": ephemeralDir},
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	home := got.Env["CODEX_HOME"]
+	if _, err := os.Stat(filepath.Join(home, "skills", "action-signal")); err != nil {
+		t.Fatalf("expected global action-signal linked: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "action-context")); err != nil {
+		t.Fatalf("expected ephemeral action-context linked: %v", err)
 	}
 }
 

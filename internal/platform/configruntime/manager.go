@@ -189,6 +189,7 @@ func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, erro
 		if strings.TrimSpace(item.ID) != driverID {
 			continue
 		}
+		item = normalizeDriverConfigForPlatform(item)
 		cfg := core.DriverConfig{
 			ID:            strings.TrimSpace(item.ID),
 			LaunchCommand: strings.TrimSpace(item.LaunchCommand),
@@ -1020,4 +1021,3 @@ func mapKeys[K comparable, V any](m map[K][]V) []K {
 	}
 	return keys
 }
-

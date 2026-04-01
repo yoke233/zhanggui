@@ -40,7 +40,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	seedOrchestrationProfiles(t, store)
+	seedProfiles(t, store,
+		&core.AgentProfile{ID: "ceo", Name: "CEO", Driver: orchestrationTestDriver(), Role: core.RoleLead},
+		&core.AgentProfile{ID: "lead", Name: "Lead", ManagerProfileID: "ceo", Driver: orchestrationTestDriver(), Role: core.RoleLead},
+		&core.AgentProfile{ID: "architect", Name: "Architect", ManagerProfileID: "ceo", Driver: orchestrationTestDriver(), Role: core.RoleLead},
+	)
 
 	workItems := workitemapp.New(workitemapp.Config{Store: store, Registry: store})
 	svc := New(Config{
@@ -57,11 +61,35 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{store: store, svc: svc}
 }
 
-func seedOrchestrationProfiles(t *testing.T, store *sqlite.Store) {
+func newCEOOnlyEnv(t *testing.T) *testEnv {
 	t.Helper()
 
-	ctx := context.Background()
-	driver := core.DriverConfig{
+	dbPath := filepath.Join(t.TempDir(), "orchestrateapp-ceo-only.db")
+	store, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("sqlite.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	seedProfiles(t, store, &core.AgentProfile{
+		ID:     "ceo",
+		Name:   "CEO",
+		Driver: orchestrationTestDriver(),
+		Role:   core.RoleLead,
+	})
+
+	workItems := workitemapp.New(workitemapp.Config{Store: store, Registry: store})
+	svc := New(Config{
+		Store:           store,
+		WorkItemCreator: workItems,
+		Threads:         threadapp.New(threadapp.Config{Store: store}),
+		Registry:        store,
+	})
+	return &testEnv{store: store, svc: svc}
+}
+
+func orchestrationTestDriver() core.DriverConfig {
+	return core.DriverConfig{
 		ID:            "codex",
 		LaunchCommand: "codex",
 		CapabilitiesMax: core.DriverCapabilities{
@@ -70,11 +98,12 @@ func seedOrchestrationProfiles(t *testing.T, store *sqlite.Store) {
 			Terminal: true,
 		},
 	}
-	profiles := []*core.AgentProfile{
-		{ID: "ceo", Name: "CEO", Driver: driver, Role: core.RoleLead},
-		{ID: "lead", Name: "Lead", ManagerProfileID: "ceo", Driver: driver, Role: core.RoleLead},
-		{ID: "architect", Name: "Architect", ManagerProfileID: "ceo", Driver: driver, Role: core.RoleLead},
-	}
+}
+
+func seedProfiles(t *testing.T, store *sqlite.Store, profiles ...*core.AgentProfile) {
+	t.Helper()
+
+	ctx := context.Background()
 	for _, profile := range profiles {
 		if err := store.CreateProfile(ctx, profile); err != nil {
 			t.Fatalf("CreateProfile(%s) error = %v", profile.ID, err)
@@ -184,6 +213,35 @@ func TestServiceCreateTaskSeedsExecutorReviewerAndSponsor(t *testing.T) {
 	}
 	if got := metadataValue(item.Metadata, "orchestrate", "source_goal_ref"); got != "goal:login" {
 		t.Fatalf("metadata orchestrate source_goal_ref = %q, want goal:login", got)
+	}
+}
+
+func TestServiceCreateTaskLeavesExecutionUnassignedWhenNoExecutorProfileExists(t *testing.T) {
+	t.Parallel()
+
+	env := newCEOOnlyEnv(t)
+
+	result, err := env.svc.CreateTask(context.Background(), CreateTaskInput{
+		Title: "CEO only task",
+		Body:  "should stay unassigned",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if result.WorkItem.ExecutorProfileID != "" {
+		t.Fatalf("ExecutorProfileID = %q, want empty", result.WorkItem.ExecutorProfileID)
+	}
+	if result.WorkItem.ActiveProfileID != "" {
+		t.Fatalf("ActiveProfileID = %q, want empty", result.WorkItem.ActiveProfileID)
+	}
+	if result.WorkItem.ReviewerProfileID != "" {
+		t.Fatalf("ReviewerProfileID = %q, want empty", result.WorkItem.ReviewerProfileID)
+	}
+	if result.WorkItem.SponsorProfileID != "" {
+		t.Fatalf("SponsorProfileID = %q, want empty", result.WorkItem.SponsorProfileID)
+	}
+	if result.WorkItem.CreatedByProfileID != "ceo" {
+		t.Fatalf("CreatedByProfileID = %q, want ceo", result.WorkItem.CreatedByProfileID)
 	}
 }
 
@@ -559,6 +617,54 @@ func TestServiceDecomposePropagatesActiveProfileToCreatedActions(t *testing.T) {
 	}
 	if actions[0].Config["preferred_profile_id"] != "lead" {
 		t.Fatalf("preferred_profile_id = %v, want lead", actions[0].Config["preferred_profile_id"])
+	}
+}
+
+func TestServiceDecomposeFallsBackWhenPlannerIsMissing(t *testing.T) {
+	t.Parallel()
+
+	env := newCEOOnlyEnv(t)
+	ctx := context.Background()
+	workItemID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "fallback decompose",
+		Body:     "核对首页导航文案是否统一，并给出修改建议",
+		Status:   core.WorkItemOpen,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+
+	result, err := env.svc.DecomposeTask(ctx, DecomposeTaskInput{
+		WorkItemID: workItemID,
+		Objective:  "用最少步骤完成核对任务，并保留一次执行一次审核的结构。",
+	})
+	if err != nil {
+		t.Fatalf("DecomposeTask() error = %v", err)
+	}
+	if result.ActionCount != 2 {
+		t.Fatalf("ActionCount = %d, want 2", result.ActionCount)
+	}
+	actions, err := env.store.ListActionsByWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("ListActionsByWorkItem() error = %v", err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("actions len = %d, want 2", len(actions))
+	}
+	if actions[0].Type != core.ActionExec || actions[0].AgentRole != "worker" {
+		t.Fatalf("first action = %+v, want exec/worker", actions[0])
+	}
+	if actions[1].Type != core.ActionGate || actions[1].AgentRole != "gate" {
+		t.Fatalf("second action = %+v, want gate/gate", actions[1])
+	}
+	if len(actions[1].DependsOn) != 1 || actions[1].DependsOn[0] != actions[0].ID {
+		t.Fatalf("second action depends_on = %#v, want [%d]", actions[1].DependsOn, actions[0].ID)
+	}
+	if actions[0].Config != nil {
+		if _, exists := actions[0].Config["preferred_profile_id"]; exists {
+			t.Fatalf("preferred_profile_id = %v, want unset", actions[0].Config["preferred_profile_id"])
+		}
 	}
 }
 

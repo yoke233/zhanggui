@@ -48,6 +48,10 @@ type runnerStub struct {
 	run func(context.Context, int64) error
 }
 
+type schedulerStub struct {
+	submit func(context.Context, int64) error
+}
+
 func (r *runnerStub) Run(ctx context.Context, workItemID int64) error {
 	if r.run != nil {
 		return r.run(ctx, workItemID)
@@ -56,6 +60,15 @@ func (r *runnerStub) Run(ctx context.Context, workItemID int64) error {
 }
 
 func (r *runnerStub) Cancel(context.Context, int64) error { return nil }
+
+func (s *schedulerStub) Submit(ctx context.Context, workItemID int64) error {
+	if s.submit != nil {
+		return s.submit(ctx, workItemID)
+	}
+	return nil
+}
+
+func (s *schedulerStub) Cancel(context.Context, int64) error { return nil }
 
 func (b *bootstrapStub) BootstrapPRWorkItem(_ context.Context, workItemID int64) error {
 	b.calls++
@@ -745,6 +758,60 @@ func TestServiceRunWorkItemUsesBackgroundContext(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for background context cancellation")
+	}
+}
+
+func TestServiceRunWorkItemResetsFailedActionsBeforeQueueing(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "rerun me",
+		Status:   core.WorkItemNeedsRework,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	actionID, err := store.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "exec",
+		Type:       core.ActionExec,
+		Status:     core.ActionFailed,
+		Position:   0,
+	})
+	if err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+
+	var queuedID int64
+	svc := New(Config{
+		Store: store,
+		Scheduler: &schedulerStub{
+			submit: func(_ context.Context, workItemID int64) error {
+				queuedID = workItemID
+				return nil
+			},
+		},
+	})
+
+	result, err := svc.RunWorkItem(ctx, workItemID)
+	if err != nil {
+		t.Fatalf("RunWorkItem: %v", err)
+	}
+	if result == nil || !result.Queued {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if queuedID != workItemID {
+		t.Fatalf("queued work item id = %d, want %d", queuedID, workItemID)
+	}
+
+	action, err := store.GetAction(ctx, actionID)
+	if err != nil {
+		t.Fatalf("GetAction() error = %v", err)
+	}
+	if action.Status != core.ActionPending {
+		t.Fatalf("action.Status = %q, want %q", action.Status, core.ActionPending)
 	}
 }
 

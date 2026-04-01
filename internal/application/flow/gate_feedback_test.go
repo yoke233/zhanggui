@@ -58,6 +58,26 @@ func TestBuildRunInputForAction_GateAlwaysFullPrompt(t *testing.T) {
 	if !strings.Contains(out, "Acceptance Criteria") {
 		t.Fatalf("expected full run input to include acceptance criteria, got: %q", out)
 	}
+	if !strings.Contains(out, "Completion Protocol") {
+		t.Fatalf("expected full run input to include completion protocol, got: %q", out)
+	}
+	if !strings.Contains(out, `"decision":"approve"`) {
+		t.Fatalf("expected gate prompt to request approve signal, got: %q", out)
+	}
+}
+
+func TestBuildRunInputFromSnapshot_ExecIncludesCompletionProtocol(t *testing.T) {
+	action := &core.Action{
+		Name: "implement_login",
+		Type: core.ActionExec,
+	}
+	out := BuildRunInputFromSnapshot("SNAP", action, false)
+	if !strings.Contains(out, "Completion Protocol") {
+		t.Fatalf("expected exec prompt to include completion protocol, got: %q", out)
+	}
+	if !strings.Contains(out, `"decision":"complete"`) {
+		t.Fatalf("expected exec prompt to request complete signal, got: %q", out)
+	}
 }
 
 func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {

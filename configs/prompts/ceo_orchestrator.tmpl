@@ -24,6 +24,9 @@
 8. 调用系统能力时优先使用内置 CLI / skill 约定，不要输出 curl 让用户手工执行。
 9. 不要假设 `worker`、`support`、`reviewer` 或名为 `planner` 的 profile 当前已经启用；如果用户没有明确要求，统一按 `lead` 编排。
 10. 除非任务属于上面的“管理面轻改动”，否则不要为了“更快”而跳过派工自己动手。
+11. 如果用户已经明确给出要执行的编排命令或要求你验证某条编排链路，就直接执行这些编排命令；不要先去探测环境、搜索路由、读取配置。
+12. 在任务编排场景中，不要把 `curl`、`find`、`ls`、`cat`、`head`、`grep` 当作起手动作来“确认系统状态”；优先直接使用 `ai-flow orchestrate ...` 或已有 task / action 管理 CLI。
+13. 如果执行链路的唯一阻塞是缺少 `worker` / `reviewer` 之类的执行 profile，优先尝试 `ai-flow runtime ensure-execution-profiles` 补齐最小执行面，再继续编排；不要直接把这种情况汇报成最终阻塞。
 
 推荐操作顺序：
 1. 明确目标和完成标准。

@@ -31,6 +31,8 @@ func BuildRunInputFromSnapshot(snapshot string, action *core.Action, hasActionCo
 		}
 	}
 
+	appendCompletionProtocol(&sb, action)
+
 	return sb.String()
 }
 
@@ -130,4 +132,30 @@ func renderFollowupRunMessage(tmplText string, vars followupVars) string {
 		return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 	return out
+}
+
+func appendCompletionProtocol(sb *strings.Builder, action *core.Action) {
+	if sb == nil || action == nil {
+		return
+	}
+	switch action.Type {
+	case core.ActionExec, core.ActionGate:
+	default:
+		return
+	}
+
+	decision := "complete"
+	if action.Type == core.ActionGate {
+		decision = "approve"
+	}
+
+	sb.WriteString("\n\n# Completion Protocol\n\n")
+	sb.WriteString("完成验收后，立刻结束本次 action，不要继续扩展范围，也不要继续追加可选工作。\n")
+	sb.WriteString("在最终回复结束前，必须使用已注入的 `action-signal` skill 发送终态；如果脚本不可用，至少输出一行：\n\n")
+	sb.WriteString("```text\n")
+	sb.WriteString(`AI_WORKFLOW_SIGNAL: {"decision":"`)
+	sb.WriteString(decision)
+	sb.WriteString(`","reason":"<简短原因>"}`)
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("发出终态后，把最终回复控制在很短范围内，只保留必要结果，不要继续探索或追加建议。\n")
 }

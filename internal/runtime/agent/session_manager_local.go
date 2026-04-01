@@ -257,9 +257,10 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 	}
 
 	var client *acpclient.Client
+	var unlock func()
 	if lh.reuse && lh.pooled != nil {
 		lh.pooled.mu.Lock()
-		defer lh.pooled.mu.Unlock()
+		unlock = lh.pooled.mu.Unlock
 		client = lh.pooled.client
 	} else {
 		client = lh.standalone
@@ -285,7 +286,14 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 	}
 
 	result, err := client.PromptText(ctx, lh.sessionID, text)
+	if unlock != nil {
+		unlock()
+		unlock = nil
+	}
 	if err != nil {
+		if lh.reuse && lh.pooled != nil && m.pool != nil {
+			m.pool.Invalidate(context.Background(), lh.pooled, lh.agentCtx)
+		}
 		return nil, fmt.Errorf("ACP run failed: %w", err)
 	}
 

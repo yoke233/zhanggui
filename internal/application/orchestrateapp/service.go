@@ -258,9 +258,6 @@ func (s *Service) ReassignTask(ctx context.Context, input ReassignTaskInput) (*R
 }
 
 func (s *Service) DecomposeTask(ctx context.Context, input DecomposeTaskInput) (*DecomposeTaskResult, error) {
-	if s.planner == nil {
-		return nil, fmt.Errorf("task decomposition service is not configured")
-	}
 	workItem, err := s.store.GetWorkItem(ctx, input.WorkItemID)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
@@ -290,7 +287,7 @@ func (s *Service) DecomposeTask(ctx context.Context, input DecomposeTaskInput) (
 		}
 	}
 
-	dag, err := s.planner.Generate(ctx, planning.GenerateInput{Description: strings.TrimSpace(input.Objective)})
+	dag, err := s.generateDecompositionPlan(ctx, workItem, strings.TrimSpace(input.Objective))
 	if err != nil {
 		return nil, err
 	}
@@ -619,14 +616,14 @@ func (s *Service) resolveExecutorProfile(ctx context.Context, requestedProfile s
 		return requestedProfile
 	}
 	if s == nil || s.registry == nil {
-		return "lead"
+		return ""
 	}
-	for _, candidate := range []string{"lead", "ceo"} {
+	for _, candidate := range []string{"lead", "worker"} {
 		if _, err := s.registry.ResolveByID(ctx, candidate); err == nil {
 			return candidate
 		}
 	}
-	return "lead"
+	return ""
 }
 
 func (s *Service) propagatePreferredProfile(ctx context.Context, workItemID int64, profile string) error {
@@ -687,6 +684,50 @@ func cloneAnyMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func (s *Service) generateDecompositionPlan(ctx context.Context, workItem *core.WorkItem, objective string) (*planning.GeneratedDAG, error) {
+	description := firstNonEmpty(objective, strings.TrimSpace(workItem.Title), strings.TrimSpace(workItem.Body))
+	if s == nil || s.planner == nil {
+		return fallbackDecompositionPlan(description), nil
+	}
+	dag, err := s.planner.Generate(ctx, planning.GenerateInput{Description: description})
+	if err != nil {
+		return fallbackDecompositionPlan(description), nil
+	}
+	return dag, nil
+}
+
+func fallbackDecompositionPlan(description string) *planning.GeneratedDAG {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = "完成当前工作项并提交最终结果"
+	}
+	return &planning.GeneratedDAG{
+		Actions: []planning.GeneratedAction{
+			{
+				Name:        "execute-work-item",
+				Type:        "exec",
+				AgentRole:   "worker",
+				Description: description,
+				AcceptanceCriteria: []string{
+					"完成当前工作项的核心执行内容",
+					"提交一个可被采纳的最终 deliverable",
+				},
+			},
+			{
+				Name:        "review-deliverable",
+				Type:        "gate",
+				AgentRole:   "gate",
+				DependsOn:   []string{"execute-work-item"},
+				Description: "审核执行结果并确认 deliverable 是否可采纳",
+				AcceptanceCriteria: []string{
+					"明确给出通过或打回结论",
+					"若通过，结果满足 adopt 最终 deliverable 的条件",
+				},
+			},
+		},
+	}
 }
 
 func cloneStrings(in []string) []string {

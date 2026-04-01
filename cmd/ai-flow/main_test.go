@@ -174,6 +174,35 @@ func TestMCPServeCommandInvokesRunner(t *testing.T) {
 	}
 }
 
+func TestRuntimeEnsureExecutionProfilesForwardsFlags(t *testing.T) {
+	t.Parallel()
+
+	var gotArgs []string
+	cmd := newRootCmd(commandDeps{
+		out:            &bytes.Buffer{},
+		err:            &bytes.Buffer{},
+		version:        versionString,
+		runServer:      func([]string) error { return nil },
+		runExecutor:    func([]string) error { return nil },
+		runQualityGate: func([]string) error { return nil },
+		runMCPServe:    func([]string) error { return nil },
+		runOrchestrate: func([]string) error { return nil },
+		runRuntime: func(args []string) error {
+			gotArgs = append([]string(nil), args...)
+			return nil
+		},
+	})
+	cmd.SetArgs([]string{"runtime", "ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo"}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("runtime args = %#v, want %#v", gotArgs, want)
+	}
+}
+
 func TestUnknownCommandReturnsCobraError(t *testing.T) {
 	t.Parallel()
 

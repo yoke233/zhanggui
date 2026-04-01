@@ -87,6 +87,7 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	switch kind {
 	case "codex":
 		_ = linkPathIfMissing(filepath.Join(skillsDir, ".system"), filepath.Join(baseHome, "skills", ".system"), true)
+		_ = linkPathIfMissing(filepath.Join(home, "config.toml"), filepath.Join(baseHome, "config.toml"), false)
 		if err := linkPathIfMissing(filepath.Join(home, "auth.json"), filepath.Join(baseHome, "auth.json"), false); err != nil {
 			return launch, err
 		}
@@ -108,6 +109,9 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 	// Merge profile skills with extra (dynamic) skills.
 	allSkills := append([]string(nil), in.Profile.Skills...)
 	for _, s := range in.ExtraSkills {
+		if _, ephemeral := in.EphemeralSkills[s]; ephemeral {
+			continue
+		}
 		if !slices.Contains(allSkills, s) {
 			allSkills = append(allSkills, s)
 		}

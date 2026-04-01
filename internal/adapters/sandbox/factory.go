@@ -13,10 +13,6 @@ import (
 )
 
 func FromRuntimeConfig(cfg config.RuntimeSandboxConfig, dataDir string) Sandbox {
-	if !cfg.Enabled {
-		return NoopSandbox{}
-	}
-
 	requireAuth := false
 	if raw := strings.ToLower(strings.TrimSpace(os.Getenv("AI_WORKFLOW_CODEX_REQUIRE_AUTH"))); raw != "" {
 		switch raw {
@@ -29,6 +25,10 @@ func FromRuntimeConfig(cfg config.RuntimeSandboxConfig, dataDir string) Sandbox 
 		DataDir:          dataDir,
 		SkillsRoot:       filepath.Join(dataDir, "skills"),
 		RequireCodexAuth: requireAuth,
+	}
+
+	if !cfg.Enabled {
+		return homeSandbox
 	}
 
 	switch normalizeProvider(cfg.Provider) {

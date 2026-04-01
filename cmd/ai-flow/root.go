@@ -21,6 +21,7 @@ type commandDeps struct {
 	runQualityGate func([]string) error
 	runMCPServe    func([]string) error
 	runOrchestrate func([]string) error
+	runRuntime     func([]string) error
 }
 
 func defaultCommandDeps() commandDeps {
@@ -33,6 +34,7 @@ func defaultCommandDeps() commandDeps {
 		runQualityGate: appcmd.RunQualityGate,
 		runMCPServe:    appcmd.RunMCPServe,
 		runOrchestrate: appcmd.RunOrchestrate,
+		runRuntime:     appcmd.RunRuntime,
 	}
 }
 
@@ -65,6 +67,7 @@ func newRootCmd(deps commandDeps) *cobra.Command {
 		newQualityGateCmd(deps),
 		newMCPServeCmd(deps),
 		newOrchestrateCmd(deps),
+		newRuntimeCmd(deps),
 	)
 	return rootCmd
 }
@@ -169,4 +172,46 @@ func newMCPServeCmd(deps commandDeps) *cobra.Command {
 			return deps.runMCPServe(nil)
 		},
 	}
+}
+
+func newRuntimeCmd(deps commandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Manage runtime state and runtime-scoped profiles",
+	}
+	cmd.AddCommand(newRuntimeEnsureExecutionProfilesCmd(deps))
+	return cmd
+}
+
+func newRuntimeEnsureExecutionProfilesCmd(deps commandDeps) *cobra.Command {
+	var driverID string
+	var managerProfile string
+	var workerID string
+	var reviewerID string
+	cmd := &cobra.Command{
+		Use:   "ensure-execution-profiles",
+		Short: "Ensure runnable worker and reviewer profiles exist in runtime store and config",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			forwardArgs := make([]string, 0, 8)
+			if cmd.Flags().Changed("driver-id") {
+				forwardArgs = append(forwardArgs, "--driver-id", driverID)
+			}
+			if cmd.Flags().Changed("manager-profile") {
+				forwardArgs = append(forwardArgs, "--manager-profile", managerProfile)
+			}
+			if cmd.Flags().Changed("worker-id") {
+				forwardArgs = append(forwardArgs, "--worker-id", workerID)
+			}
+			if cmd.Flags().Changed("reviewer-id") {
+				forwardArgs = append(forwardArgs, "--reviewer-id", reviewerID)
+			}
+			return deps.runRuntime(append([]string{"ensure-execution-profiles"}, forwardArgs...))
+		},
+	}
+	cmd.Flags().StringVar(&driverID, "driver-id", "", "Driver ID to use for ensured execution profiles")
+	cmd.Flags().StringVar(&managerProfile, "manager-profile", "ceo", "Manager profile ID for ensured profiles")
+	cmd.Flags().StringVar(&workerID, "worker-id", "worker", "Execution worker profile ID")
+	cmd.Flags().StringVar(&reviewerID, "reviewer-id", "reviewer", "Review gate profile ID")
+	return cmd
 }

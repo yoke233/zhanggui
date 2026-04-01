@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -45,17 +46,20 @@ type ACPExecutorConfig struct {
 // starts the run, watches for completion, then stores the result.
 func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 	return func(ctx context.Context, action *core.Action, run *core.Run) error {
+		execCtx, cancel := context.WithTimeout(ctx, resolveACPActionTimeout(action))
+		defer cancel()
+
 		if cfg.SessionManager == nil {
 			return fmt.Errorf("session manager is not configured")
 		}
 
-		profile, err := resolveActionAgent(ctx, cfg.Registry, action)
+		profile, err := resolveActionAgent(execCtx, cfg.Registry, action)
 		if err != nil {
 			return fmt.Errorf("resolve agent for action %d: %w", action.ID, err)
 		}
 		run.AgentID = profile.ID
 
-		workDir := cfg.DefaultWorkDir
+		workDir := resolveActionWorkDir(cfg.DefaultWorkDir)
 		if ws := flowapp.WorkspaceFromContext(ctx); ws != nil {
 			workDir = ws.Path
 		}
@@ -92,7 +96,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			}
 		}
 
-		launchCfg, err := acpclient.PrepareLaunch(ctx, acpclient.BootstrapConfig{
+		launchCfg, err := acpclient.PrepareLaunch(execCtx, acpclient.BootstrapConfig{
 			Profile:  profile,
 			WorkDir:  workDir,
 			ExtraEnv: extraEnv,
@@ -113,7 +117,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			(action.Type == core.ActionExec || action.Type == core.ActionGate) {
 
 			ctxParentDir := filepath.Join(workDir, ".ai-workflow", "action-contexts")
-			dir, buildErr := cfg.ActionContextBuilder.Build(ctx, ctxParentDir, action, run)
+			dir, buildErr := cfg.ActionContextBuilder.Build(execCtx, ctxParentDir, action, run)
 			if buildErr != nil {
 				slog.Warn("action-context: build failed, proceeding without",
 					"action_id", action.ID, "error", buildErr)
@@ -151,13 +155,13 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 
 		reuse := profile.Session.Reuse
 		mcpFactory := buildActionMCPFactory(action, profile, run.ID, cfg.MCPResolver)
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "started", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "started", map[string]any{
 			"agent_id":      profile.ID,
 			"session_reuse": reuse,
 			"work_dir":      workDir,
 		})
 
-		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
+		handle, err := cfg.SessionManager.Acquire(execCtx, runtimeapp.SessionAcquireInput{
 			Profile:         profile,
 			Launch:          launchCfg,
 			Caps:            acpCaps,
@@ -173,13 +177,13 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			EphemeralSkills: ephemeralSkills,
 		})
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "failed", map[string]any{
+			publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "failed", map[string]any{
 				"agent_id": profile.ID,
 				"error":    err.Error(),
 			})
 			return fmt.Errorf("acquire session: %w", err)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "succeeded", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "session.acquire", "succeeded", map[string]any{
 			"agent_id":         profile.ID,
 			"agent_context_id": derefInt64(handle.AgentContextID),
 			"has_prior_turns":  handle.HasPriorTurns,
@@ -189,7 +193,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 				cfg.TokenRegistry.RemoveToken(scopedToken)
 			}
 			if !reuse {
-				_ = cfg.SessionManager.Release(ctx, handle)
+				_ = cfg.SessionManager.Release(context.Background(), handle)
 			}
 		}()
 
@@ -197,34 +201,34 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			run.AgentContextID = handle.AgentContextID
 		}
 
-		feedback := flowapp.ResolveLatestFeedback(ctx, cfg.Store, action)
+		feedback := flowapp.ResolveLatestFeedback(execCtx, cfg.Store, action)
 		hasActionContext := actionContextDir != ""
 		runInput := flowapp.BuildRunInputForAction(profile, run.BriefingSnapshot, action, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate, hasActionContext)
 
 		// Persist the full run input for auditability.
 		run.Input = buildRunInputRecord(runInput, profile, workDir, hasSignalSkill, hasActionContext, action)
 
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "started", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "started", map[string]any{
 			"agent_id":    profile.ID,
 			"input_chars": len(runInput),
 		})
-		invocationID, err := cfg.SessionManager.StartRun(ctx, handle, runInput)
+		invocationID, err := cfg.SessionManager.StartRun(execCtx, handle, runInput)
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "failed", map[string]any{
+			publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "failed", map[string]any{
 				"error": err.Error(),
 			})
 			return fmt.Errorf("start run: %w", err)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "succeeded", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.dispatch", "succeeded", map[string]any{
 			"invocation_id": invocationID,
 		})
 
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "started", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "started", map[string]any{
 			"invocation_id": invocationID,
 		})
-		result, err := cfg.SessionManager.WatchRun(ctx, invocationID, 0, sink)
+		result, err := cfg.SessionManager.WatchRun(execCtx, invocationID, 0, sink)
 		if err != nil {
-			publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "failed", map[string]any{
+			publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "failed", map[string]any{
 				"invocation_id": invocationID,
 				"error":         err.Error(),
 			})
@@ -237,17 +241,17 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			watchAuditData["stop_reason"] = result.StopReason
 			watchAuditData["output_chars"] = len(strings.TrimSpace(result.Text))
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "completed", watchAuditData)
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "run.watch", "completed", watchAuditData)
 		if result != nil && result.AgentContextID != nil {
 			run.AgentContextID = result.AgentContextID
 		}
 
 		// Flush any remaining accumulated chunks.
-		bridge.FlushPending(ctx)
+		bridge.FlushPending(context.Background())
 
 		// Publish done event with full reply.
 		replyText := strings.TrimSpace(result.Text)
-		bridge.PublishData(ctx, map[string]any{
+		bridge.PublishData(context.Background(), map[string]any{
 			"type":    "done",
 			"content": replyText,
 		})
@@ -257,14 +261,14 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 		if action.Type == core.ActionGate {
 			run.ResultMetadata = extractGateMetadata(replyText)
 		}
-		publishRunAudit(ctx, cfg.Bus, cfg.AuditLogger, action, run, "deliverable.persist", "succeeded", map[string]any{
+		publishRunAudit(execCtx, cfg.Bus, cfg.AuditLogger, action, run, "deliverable.persist", "succeeded", map[string]any{
 			"result_chars": len(replyText),
 		})
 
 		// Fallback: if agent couldn't curl (network-isolated sandbox),
 		// extract signal from output text and create ActionSignal internally.
 		if hasSignalSkill {
-			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, cfg.AuditLogger, action, run, replyText, profile.ID)
+			tryFallbackSignal(context.Background(), cfg.Store, cfg.Bus, cfg.AuditLogger, action, run, replyText, profile.ID)
 		}
 
 		run.Output = map[string]any{
@@ -286,7 +290,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 				durationMs = time.Since(*run.StartedAt).Milliseconds()
 			}
 			var projectID *int64
-			if workItem, fErr := cfg.Store.GetWorkItem(ctx, action.WorkItemID); fErr == nil && workItem.ProjectID != nil {
+			if workItem, fErr := cfg.Store.GetWorkItem(execCtx, action.WorkItemID); fErr == nil && workItem.ProjectID != nil {
 				projectID = workItem.ProjectID
 			}
 			usageRec := &core.UsageRecord{
@@ -305,7 +309,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 				TotalTokens:      totalTokens,
 				DurationMs:       durationMs,
 			}
-			if _, uErr := cfg.Store.CreateUsageRecord(ctx, usageRec); uErr != nil {
+			if _, uErr := cfg.Store.CreateUsageRecord(execCtx, usageRec); uErr != nil {
 				slog.Warn("failed to persist usage record",
 					"run_id", run.ID, "error", uErr)
 			}
@@ -320,6 +324,27 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 
 		return nil
 	}
+}
+
+func resolveActionWorkDir(defaultWorkDir string) string {
+	if trimmed := strings.TrimSpace(defaultWorkDir); trimmed != "" {
+		return trimmed
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	if trimmed := strings.TrimSpace(cwd); trimmed != "" {
+		return trimmed
+	}
+	return "."
+}
+
+func resolveACPActionTimeout(action *core.Action) time.Duration {
+	if action != nil && action.Timeout > 0 {
+		return action.Timeout
+	}
+	return 120 * time.Second
 }
 
 // resolveActionAgent resolves the agent profile for an action.

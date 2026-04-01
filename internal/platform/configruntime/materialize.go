@@ -51,7 +51,7 @@ func convertProfiles(driverCfgs []config.RuntimeDriverConfig, profileCfgs []conf
 	// Build driver lookup map.
 	driverMap := make(map[string]config.RuntimeDriverConfig, len(driverCfgs))
 	for _, d := range driverCfgs {
-		driverMap[d.ID] = d
+		driverMap[d.ID] = normalizeDriverConfigForPlatform(d)
 	}
 	llmMap := make(map[string]config.RuntimeLLMEntryConfig, len(llmCfgs))
 	for _, item := range llmCfgs {
