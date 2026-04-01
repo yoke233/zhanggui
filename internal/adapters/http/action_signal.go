@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	httpx "github.com/yoke233/zhanggui/internal/adapters/http/server"
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
@@ -67,14 +68,23 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 	if sigType == core.SignalReject && len(rejectTargets) > 0 {
 		payload["reject_targets"] = rejectTargets
 	}
+	signalSource := core.SignalSourceHuman
+	actor := "human"
+	if info, ok := httpx.AuthFromContext(r.Context()); ok {
+		role := strings.TrimSpace(info.Role)
+		if role != "" && role != "admin" {
+			signalSource = core.SignalSourceAgent
+			actor = role
+		}
+	}
 
 	sig := &core.ActionSignal{
 		ActionID:   actionID,
 		WorkItemID: action.WorkItemID,
 		Type:       sigType,
-		Source:     core.SignalSourceHuman,
+		Source:     signalSource,
 		Payload:    payload,
-		Actor:      "human",
+		Actor:      actor,
 		CreatedAt:  time.Now().UTC(),
 	}
 	id, err := h.store.CreateActionSignal(r.Context(), sig)
@@ -90,7 +100,7 @@ func (h *Handler) actionDecision(w http.ResponseWriter, r *http.Request) {
 		WorkItemID: action.WorkItemID,
 		ActionID:   actionID,
 		Timestamp:  time.Now().UTC(),
-		Data:       map[string]any{"signal_id": id, "type": string(sigType), "source": "human"},
+		Data:       map[string]any{"signal_id": id, "type": string(sigType), "source": string(signalSource)},
 	})
 
 	writeJSON(w, http.StatusCreated, sig)

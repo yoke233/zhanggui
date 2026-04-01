@@ -2,13 +2,18 @@ package httpx
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yoke233/zhanggui/internal/platform/config"
 )
@@ -39,8 +44,10 @@ func AuthFromContext(ctx context.Context) (AuthInfo, bool) {
 }
 
 type TokenRegistry struct {
-	mu      sync.RWMutex
-	entries map[string]tokenRegistryEntry
+	mu            sync.RWMutex
+	entries       map[string]tokenRegistryEntry
+	revoked       map[string]struct{}
+	signingSecret []byte
 }
 
 type tokenRegistryEntry struct {
@@ -50,12 +57,28 @@ type tokenRegistryEntry struct {
 	projects  []string
 }
 
+const (
+	signedScopedTokenPrefix = "rt1"
+	scopedTokenTTL          = 30 * 24 * time.Hour
+)
+
+type signedScopedTokenClaims struct {
+	Role      string   `json:"role"`
+	Scopes    []string `json:"scopes,omitempty"`
+	Submitter string   `json:"submitter,omitempty"`
+	Exp       int64    `json:"exp"`
+}
+
 func NewTokenRegistry(tokens map[string]config.TokenEntry) *TokenRegistry {
 	entries := make(map[string]tokenRegistryEntry, len(tokens))
+	var signingSecret string
 	for role, entry := range tokens {
 		tok := strings.TrimSpace(entry.Token)
 		if tok == "" {
 			continue
+		}
+		if role == "admin" && signingSecret == "" {
+			signingSecret = tok
 		}
 		entries[tok] = tokenRegistryEntry{
 			role:      role,
@@ -64,12 +87,25 @@ func NewTokenRegistry(tokens map[string]config.TokenEntry) *TokenRegistry {
 			projects:  entry.Projects,
 		}
 	}
-	return &TokenRegistry{entries: entries}
+	return &TokenRegistry{
+		entries:       entries,
+		revoked:       map[string]struct{}{},
+		signingSecret: []byte(signingSecret),
+	}
 }
 
 // GenerateScopedToken creates a random token with the given scopes, registers it,
 // and returns the token string. The caller should call RemoveToken when done.
 func (r *TokenRegistry) GenerateScopedToken(role string, scopes []string, submitter string) (string, error) {
+	if r != nil && len(r.signingSecret) > 0 {
+		claims := signedScopedTokenClaims{
+			Role:      role,
+			Scopes:    append([]string(nil), scopes...),
+			Submitter: submitter,
+			Exp:       time.Now().UTC().Add(scopedTokenTTL).Unix(),
+		}
+		return r.signClaims(claims)
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -92,6 +128,9 @@ func (r *TokenRegistry) RemoveToken(token string) {
 	}
 	r.mu.Lock()
 	delete(r.entries, token)
+	if token = strings.TrimSpace(token); token != "" {
+		r.revoked[token] = struct{}{}
+	}
 	r.mu.Unlock()
 }
 
@@ -108,6 +147,9 @@ func (r *TokenRegistry) Lookup(token string) (AuthInfo, bool) {
 	if trimmed == "" {
 		return AuthInfo{}, false
 	}
+	if _, revoked := r.revoked[trimmed]; revoked {
+		return AuthInfo{}, false
+	}
 	for registered, entry := range r.entries {
 		if subtle.ConstantTimeCompare([]byte(trimmed), []byte(registered)) == 1 {
 			return AuthInfo{
@@ -117,6 +159,9 @@ func (r *TokenRegistry) Lookup(token string) (AuthInfo, bool) {
 				Projects:  entry.projects,
 			}, true
 		}
+	}
+	if info, ok := r.lookupSignedScopedToken(trimmed); ok {
+		return info, true
 	}
 	return AuthInfo{}, false
 }
@@ -128,6 +173,55 @@ func (r *TokenRegistry) IsEmpty() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.entries) == 0
+}
+
+func (r *TokenRegistry) signClaims(claims signedScopedTokenClaims) (string, error) {
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, r.signingSecret)
+	_, _ = mac.Write(payload)
+	sig := mac.Sum(nil)
+	return signedScopedTokenPrefix + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + "." +
+		base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+func (r *TokenRegistry) lookupSignedScopedToken(token string) (AuthInfo, bool) {
+	if len(r.signingSecret) == 0 {
+		return AuthInfo{}, false
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[0] != signedScopedTokenPrefix {
+		return AuthInfo{}, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return AuthInfo{}, false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return AuthInfo{}, false
+	}
+	mac := hmac.New(sha256.New, r.signingSecret)
+	_, _ = mac.Write(payload)
+	expected := mac.Sum(nil)
+	if subtle.ConstantTimeCompare(sig, expected) != 1 {
+		return AuthInfo{}, false
+	}
+	var claims signedScopedTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return AuthInfo{}, false
+	}
+	if claims.Exp <= 0 || time.Now().UTC().Unix() > claims.Exp {
+		return AuthInfo{}, false
+	}
+	return AuthInfo{
+		Role:      claims.Role,
+		Scopes:    append([]string(nil), claims.Scopes...),
+		Submitter: claims.Submitter,
+	}, true
 }
 
 func TokenAuthMiddleware(registry *TokenRegistry, opts ...AuthMiddlewareOption) func(http.Handler) http.Handler {

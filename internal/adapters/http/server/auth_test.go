@@ -57,3 +57,43 @@ func TestTokenAuthMiddleware_WarnsForHTTPQueryToken(t *testing.T) {
 		t.Fatalf("expected security warning for http query token, got logs: %s", logs.String())
 	}
 }
+
+func TestTokenRegistry_GeneratedScopedTokenSurvivesRegistryRebuild(t *testing.T) {
+	tokens := map[string]config.TokenEntry{
+		"admin": {Token: "persistent-admin-token", Scopes: []string{"*"}},
+	}
+	issuer := NewTokenRegistry(tokens)
+	token, err := issuer.GenerateScopedToken("agent-action-42", []string{"action:42"}, "agent/run-7")
+	if err != nil {
+		t.Fatalf("GenerateScopedToken() error = %v", err)
+	}
+
+	reloaded := NewTokenRegistry(tokens)
+	info, ok := reloaded.Lookup(token)
+	if !ok {
+		t.Fatal("Lookup() = false, want true after registry rebuild")
+	}
+	if info.Role != "agent-action-42" {
+		t.Fatalf("Role = %q, want %q", info.Role, "agent-action-42")
+	}
+	if len(info.Scopes) != 1 || info.Scopes[0] != "action:42" {
+		t.Fatalf("Scopes = %#v, want [action:42]", info.Scopes)
+	}
+	if info.Submitter != "agent/run-7" {
+		t.Fatalf("Submitter = %q, want %q", info.Submitter, "agent/run-7")
+	}
+}
+
+func TestTokenRegistry_RemoveTokenRevokesGeneratedScopedTokenInProcess(t *testing.T) {
+	registry := NewTokenRegistry(map[string]config.TokenEntry{
+		"admin": {Token: "persistent-admin-token", Scopes: []string{"*"}},
+	})
+	token, err := registry.GenerateScopedToken("agent-action-42", []string{"action:42"}, "agent/run-7")
+	if err != nil {
+		t.Fatalf("GenerateScopedToken() error = %v", err)
+	}
+	registry.RemoveToken(token)
+	if _, ok := registry.Lookup(token); ok {
+		t.Fatal("Lookup() = true, want false after RemoveToken")
+	}
+}
