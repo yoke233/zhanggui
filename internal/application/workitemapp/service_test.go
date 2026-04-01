@@ -134,6 +134,18 @@ func newSQLiteTxAdapter(store *sqlite.Store, wrap func(core.Store) (TxStore, err
 	}
 }
 
+func linkThreadToWorkItem(t *testing.T, store *sqlite.Store, threadID, workItemID int64) {
+	t.Helper()
+	if _, err := store.CreateThreadWorkItemLink(context.Background(), &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   workItemID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	}); err != nil {
+		t.Fatalf("CreateThreadWorkItemLink: %v", err)
+	}
+}
+
 func createWorkItemFixture(t *testing.T, store *sqlite.Store) (workItemID int64, actionID int64, featureID int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -401,6 +413,7 @@ func TestServiceAdoptDeliverableSetsFinalDeliverableID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create deliverable: %v", err)
 	}
+	linkThreadToWorkItem(t, store, threadID, workItemID)
 
 	item, err := svc.AdoptDeliverable(ctx, workItemID, deliverableID)
 	if err != nil {
@@ -471,6 +484,7 @@ func TestServiceAdoptDeliverableCancelsOpenActionsAndPublishesCompleted(t *testi
 	if err != nil {
 		t.Fatalf("create deliverable: %v", err)
 	}
+	linkThreadToWorkItem(t, store, threadID, workItemID)
 
 	item, err := svc.AdoptDeliverable(ctx, workItemID, deliverableID)
 	if err != nil {
@@ -535,6 +549,7 @@ func TestServiceAdoptDeliverableRejectsRunningActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create deliverable: %v", err)
 	}
+	linkThreadToWorkItem(t, store, threadID, workItemID)
 
 	_, err = svc.AdoptDeliverable(ctx, workItemID, deliverableID)
 	if err == nil {
@@ -590,6 +605,7 @@ func TestServiceListDeliverablesIncludesAdoptedFinalDeliverable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create adopted deliverable: %v", err)
 	}
+	linkThreadToWorkItem(t, store, threadID, workItemID)
 
 	ownID, err := store.CreateDeliverable(ctx, &core.Deliverable{
 		WorkItemID:   &workItemID,
@@ -620,6 +636,156 @@ func TestServiceListDeliverablesIncludesAdoptedFinalDeliverable(t *testing.T) {
 	}
 	if items[1].ID != ownID {
 		t.Fatalf("second deliverable id = %d, want own %d", items[1].ID, ownID)
+	}
+}
+
+func TestServiceAdoptDeliverableRejectsDraftDeliverables(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	svc := newSQLiteWorkItemService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "draft deliverable",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	deliverableID, err := store.CreateDeliverable(ctx, &core.Deliverable{
+		WorkItemID:   &workItemID,
+		Kind:         core.DeliverableDocument,
+		Title:        "Draft result",
+		Summary:      "not ready",
+		ProducerType: core.DeliverableProducerWorkItem,
+		ProducerID:   workItemID,
+		Status:       core.DeliverableDraft,
+	})
+	if err != nil {
+		t.Fatalf("create deliverable: %v", err)
+	}
+
+	_, err = svc.AdoptDeliverable(ctx, workItemID, deliverableID)
+	if err == nil {
+		t.Fatal("expected adopt deliverable to fail for draft deliverable")
+	}
+	if CodeOf(err) != CodeInvalidState {
+		t.Fatalf("CodeOf(err) = %q, want %q", CodeOf(err), CodeInvalidState)
+	}
+}
+
+func TestServiceAdoptDeliverableRejectsEmptyDeliverables(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	svc := newSQLiteWorkItemService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "empty deliverable",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	deliverableID, err := store.CreateDeliverable(ctx, &core.Deliverable{
+		WorkItemID:   &workItemID,
+		Kind:         core.DeliverableDocument,
+		ProducerType: core.DeliverableProducerWorkItem,
+		ProducerID:   workItemID,
+		Status:       core.DeliverableFinal,
+	})
+	if err != nil {
+		t.Fatalf("create deliverable: %v", err)
+	}
+
+	_, err = svc.AdoptDeliverable(ctx, workItemID, deliverableID)
+	if err == nil {
+		t.Fatal("expected adopt deliverable to fail for empty deliverable")
+	}
+	if CodeOf(err) != CodeInvalidState {
+		t.Fatalf("CodeOf(err) = %q, want %q", CodeOf(err), CodeInvalidState)
+	}
+}
+
+func TestServiceAdoptDeliverableRejectsForeignWorkItemDeliverables(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	svc := newSQLiteWorkItemService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "adopting work item",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	foreignWorkItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "foreign work item",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create foreign work item: %v", err)
+	}
+	deliverableID, err := store.CreateDeliverable(ctx, &core.Deliverable{
+		WorkItemID:   &foreignWorkItemID,
+		Kind:         core.DeliverableDocument,
+		Title:        "Foreign result",
+		Summary:      "belongs elsewhere",
+		ProducerType: core.DeliverableProducerWorkItem,
+		ProducerID:   foreignWorkItemID,
+		Status:       core.DeliverableFinal,
+	})
+	if err != nil {
+		t.Fatalf("create deliverable: %v", err)
+	}
+
+	_, err = svc.AdoptDeliverable(ctx, workItemID, deliverableID)
+	if err == nil {
+		t.Fatal("expected adopt deliverable to fail for foreign work item deliverable")
+	}
+	if CodeOf(err) != CodeInvalidState {
+		t.Fatalf("CodeOf(err) = %q, want %q", CodeOf(err), CodeInvalidState)
+	}
+}
+
+func TestServiceAdoptDeliverableRejectsUnlinkedThreadDeliverables(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	svc := newSQLiteWorkItemService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	workItemID, err := store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "unlinked thread deliverable",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "foreign-thread", Status: core.ThreadActive})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	deliverableID, err := store.CreateDeliverable(ctx, &core.Deliverable{
+		ThreadID:     &threadID,
+		Kind:         core.DeliverableDocument,
+		Title:        "Thread result",
+		Summary:      "not linked",
+		ProducerType: core.DeliverableProducerThread,
+		ProducerID:   threadID,
+		Status:       core.DeliverableFinal,
+	})
+	if err != nil {
+		t.Fatalf("create deliverable: %v", err)
+	}
+
+	_, err = svc.AdoptDeliverable(ctx, workItemID, deliverableID)
+	if err == nil {
+		t.Fatal("expected adopt deliverable to fail for unlinked thread deliverable")
+	}
+	if CodeOf(err) != CodeInvalidState {
+		t.Fatalf("CodeOf(err) = %q, want %q", CodeOf(err), CodeInvalidState)
 	}
 }
 

@@ -503,6 +503,10 @@ func metadataValue(metadata map[string]any, path ...string) string {
 
 func recommendedNextStep(status core.WorkItemStatus, actionCount int, blocked bool, activeProfile string) string {
 	switch {
+	case status == core.WorkItemCompleted:
+		return "done"
+	case status == core.WorkItemCancelled:
+		return "closed"
 	case actionCount == 0:
 		return "decompose"
 	case blocked && activeProfile != "":

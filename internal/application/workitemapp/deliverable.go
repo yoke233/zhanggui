@@ -53,6 +53,9 @@ func adoptDeliverableInStore(ctx context.Context, store Store, workItemID, deliv
 		}
 		return nil, false, err
 	}
+	if err := validateDeliverableForAdoption(ctx, store, workItemID, deliverable); err != nil {
+		return nil, false, err
+	}
 
 	actions, err := store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
@@ -88,6 +91,41 @@ func adoptDeliverableInStore(ctx context.Context, store Store, workItemID, deliv
 		return nil, false, err
 	}
 	return workItem, workItem.Status == core.WorkItemCompleted && !wasCompleted, nil
+}
+
+func validateDeliverableForAdoption(ctx context.Context, store Store, workItemID int64, deliverable *core.Deliverable) error {
+	if deliverable == nil {
+		return newError(CodeDeliverableNotFound, "deliverable not found", core.ErrNotFound)
+	}
+	if deliverable.Status != core.DeliverableFinal {
+		return newError(CodeInvalidState, "only final deliverables can be adopted", core.ErrInvalidTransition)
+	}
+	if !deliverable.HasContent() {
+		return newError(CodeInvalidState, "deliverable must include content before adoption", core.ErrInvalidTransition)
+	}
+	if deliverable.WorkItemID != nil {
+		if *deliverable.WorkItemID != workItemID {
+			return newError(CodeInvalidState, "deliverable belongs to a different work item", core.ErrInvalidTransition)
+		}
+		return nil
+	}
+	if deliverable.ThreadID == nil {
+		return newError(CodeInvalidState, "deliverable is not attached to the work item", core.ErrInvalidTransition)
+	}
+
+	links, err := store.ListThreadsByWorkItem(ctx, workItemID)
+	if err != nil {
+		return err
+	}
+	for _, link := range links {
+		if link == nil {
+			continue
+		}
+		if link.ThreadID == *deliverable.ThreadID {
+			return nil
+		}
+	}
+	return newError(CodeInvalidState, "deliverable thread is not linked to the work item", core.ErrInvalidTransition)
 }
 
 func isActionTerminal(status core.ActionStatus) bool {

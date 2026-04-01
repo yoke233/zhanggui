@@ -35,6 +35,10 @@ type ActionWriter interface {
 	UpdateAction(ctx context.Context, action *core.Action) error
 }
 
+type ThreadLinkReader interface {
+	ListThreadsByWorkItem(ctx context.Context, workItemID int64) ([]*core.ThreadWorkItemLink, error)
+}
+
 type AggregateDeletionStore interface {
 	DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error
 	DeleteResourcesByWorkItem(ctx context.Context, workItemID int64) error
@@ -55,6 +59,7 @@ type Store interface {
 	WorkItemWriter
 	ActionReader
 	ActionWriter
+	ThreadLinkReader
 	AggregateDeletionStore
 	core.DeliverableStore
 }

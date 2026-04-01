@@ -361,6 +361,50 @@ func TestServiceFollowUpTaskUsesActiveProfileAndFinalDeliverable(t *testing.T) {
 	}
 }
 
+func TestServiceFollowUpTaskReturnsTerminalRecommendedSteps(t *testing.T) {
+	t.Parallel()
+
+	env := newTestEnv(t)
+	ctx := context.Background()
+
+	completedID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:             "completed task",
+		Status:            core.WorkItemCompleted,
+		Priority:          core.PriorityMedium,
+		ExecutorProfileID: "lead",
+		ActiveProfileID:   "lead",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem(completed) error = %v", err)
+	}
+	cancelledID, err := env.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:             "cancelled task",
+		Status:            core.WorkItemCancelled,
+		Priority:          core.PriorityMedium,
+		ExecutorProfileID: "lead",
+		ActiveProfileID:   "lead",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem(cancelled) error = %v", err)
+	}
+
+	completedResult, err := env.svc.FollowUpTask(ctx, FollowUpTaskInput{WorkItemID: completedID})
+	if err != nil {
+		t.Fatalf("FollowUpTask(completed) error = %v", err)
+	}
+	if completedResult.RecommendedNextStep != "done" {
+		t.Fatalf("completed RecommendedNextStep = %q, want done", completedResult.RecommendedNextStep)
+	}
+
+	cancelledResult, err := env.svc.FollowUpTask(ctx, FollowUpTaskInput{WorkItemID: cancelledID})
+	if err != nil {
+		t.Fatalf("FollowUpTask(cancelled) error = %v", err)
+	}
+	if cancelledResult.RecommendedNextStep != "closed" {
+		t.Fatalf("cancelled RecommendedNextStep = %q, want closed", cancelledResult.RecommendedNextStep)
+	}
+}
+
 func TestServiceAdoptDeliverableWritesJournalAndCompletesWorkItem(t *testing.T) {
 	t.Parallel()
 

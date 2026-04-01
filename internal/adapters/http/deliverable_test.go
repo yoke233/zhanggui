@@ -40,6 +40,14 @@ func TestWorkItemDeliverableAdoptionEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create deliverable: %v", err)
 	}
+	if _, err := h.store.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   workItemID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	}); err != nil {
+		t.Fatalf("create thread-work item link: %v", err)
+	}
 	gateActionID, err := h.store.CreateAction(ctx, &core.Action{
 		WorkItemID: workItemID,
 		Name:       "gate review",
@@ -107,6 +115,49 @@ func TestWorkItemDeliverableAdoptionEndpoints(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != deliverableID {
 		t.Fatalf("work item deliverables = %+v", items)
+	}
+}
+
+func TestWorkItemDeliverableAdoptionRejectsInvalidDeliverables(t *testing.T) {
+	h, ts := setupAPI(t)
+	ctx := context.Background()
+
+	workItemID, err := h.store.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "deliverable-invalid-adoption",
+		Status:   core.WorkItemPendingReview,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	threadID, err := h.store.CreateThread(ctx, &core.Thread{
+		Title:  "unlinked-thread",
+		Status: core.ThreadActive,
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	deliverableID, err := h.store.CreateDeliverable(ctx, &core.Deliverable{
+		ThreadID:     &threadID,
+		Kind:         core.DeliverableDocument,
+		Title:        "Unlinked thread result",
+		Summary:      "cannot adopt",
+		ProducerType: core.DeliverableProducerThread,
+		ProducerID:   threadID,
+		Status:       core.DeliverableFinal,
+	})
+	if err != nil {
+		t.Fatalf("create deliverable: %v", err)
+	}
+
+	resp, err := post(ts, fmt.Sprintf("/work-items/%d/final-deliverable", workItemID), map[string]any{
+		"deliverable_id": deliverableID,
+	})
+	if err != nil {
+		t.Fatalf("post adoption: %v", err)
+	}
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("POST /work-items/{id}/final-deliverable status = %d, want %d", resp.StatusCode, http.StatusConflict)
 	}
 }
 
