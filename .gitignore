@@ -13,6 +13,7 @@ artifacts/
 /data.db-wal
 /docs/.write-test.tmp
 .ai-workflow/
+.omx/
 node_modules/
 *.tsbuildinfo
 /vitest-*.log

@@ -1,5 +1,9 @@
 # Backend WorkItem Action CLI Surface Map
 
+> 状态：部分实现
+>
+> 最后按代码核对：2026-04-03
+
 本文整理当前 `ai-workflow` 后端的控制面入口与分层边界，用于支撑后续将系统内部控制节点逐步统一到 Cobra CLI。
 
 ## 1. 当前控制面概览
@@ -41,11 +45,25 @@ HTTP 主路径、运行时环境变量、builtin skills 的对外主命名已经
   - `executor`
   - `quality-gate`
   - `mcp-serve`
+  - `orchestrate`
+  - `runtime`
+  - `profile`
 
 ### 3.2 命令实现层
 
 - `internal/platform/appcmd`
   目前承载本地命令实现。
+
+当前已经落地的命令实现除了基础运行命令，还包括：
+
+- `orchestrate.go`
+  任务编排控制面，已覆盖 create / follow-up / adopt-deliverable /
+  assign-profile / reassign / decompose / escalate-thread / ceo.submit
+- `runtime.go`
+  当前至少承接 `ensure-execution-profiles`
+- `profile.go`
+  当前承接 runtime profile 的 list / get / create / set-base /
+  add-skill / remove-skill / delete
 
 建议定位：
 
@@ -177,6 +195,11 @@ HTTP 主路径、运行时环境变量、builtin skills 的对外主命名已经
 
 - `ai-flow runtime llm get|set`
 - `ai-flow runtime sandbox get|set`
+
+补充当前已实现能力：
+
+- `ai-flow runtime ensure-execution-profiles`
+- `ai-flow profile list|get|create|set-base|add-skill|remove-skill|delete`
 
 ## 5. 当前最值得优先抽象的共享服务
 

@@ -2,7 +2,7 @@
 
 > 状态：现行
 >
-> 最后按代码核对：2026-03-29
+> 最后按代码核对：2026-04-03
 >
 > 适用范围：本文描述当前 `web/` 前端已经落地的页面面、
 > 契约面与事件消费面，不描述未来设计。
@@ -128,11 +128,15 @@
 - WorkItem 列表
 - WorkItem 创建
 - WorkItem 详情与更新
+- WorkItem Inbox 视图，可按处理人查看待审核 / 待返工 / 待上级处理项
+- Inbox 内直接 approve / reject / unblock 待处理 Action
 - 运行与取消
 - 自动生成标题
 - 自动生成 Action
 - 上传附件
 - 反查关联 Thread
+- 展示来源 Thread、关联 Thread、依赖 WorkItem
+- 展示 WorkItem deliverables，并显式采纳 `final deliverable`
 - 从 DAG Template 生成 WorkItem
 
 ## 监控与配置面
@@ -165,7 +169,11 @@
 当前前端真实消费的主 REST 面包括：
 
 - `/work-items`
+- `/work-items/pending`
+- `/work-items/*/deliverables`
+- `/work-items/*/final-deliverable`
 - `/threads`
+- `/threads/*/deliverables`
 - `/chat`
 - `/projects`
 - `/requirements`
@@ -184,6 +192,8 @@
 补充事实：
 
 - 前端主 API client 已以 `/work-items` 为主，不再主用 `/issues`
+- WorkItem Inbox 当前通过 `GET /work-items/pending?profile_id=...` 拉取
+- WorkItem 详情页当前通过 `final_deliverable_id` + deliverables 列表展示“当前最终结果”
 - Thread 文件搜索支持 `source=attachment|project|workspace|all`
 - Thread 成员统一模型是 `ThreadMember`
 
